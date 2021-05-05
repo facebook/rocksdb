@@ -2083,13 +2083,16 @@ void StressTest::PrintEnv() const {
 
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
-  fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_exclude_prefixes.empty()) {
+#ifndef NDEBUG
+  KillPoint* kp = KillPoint::GetInstance();
+  fprintf(stdout, "Test kill odd             : %d\n", kp->rocksdb_kill_odds);
+  if (!kp->rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_exclude_prefixes) {
+    for (auto& p : kp->rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
+#endif
   fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
@@ -2104,9 +2107,14 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
   fprintf(stdout, "Write fault one in        : %d\n", FLAGS_write_fault_one_in);
+  fprintf(stdout, "Open metadata write fault one in:\n");
+  fprintf(stdout, "                            %d\n",
+          FLAGS_open_metadata_write_fault_one_in);
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
+  fprintf(stdout, "Fail if OPTIONS file error: %d\n",
+          static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
 
@@ -2325,14 +2333,14 @@ void StressTest::Open() {
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
+  options_.fail_if_options_file_error = FLAGS_fail_if_options_file_error;
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
        FLAGS_allow_setting_blob_options_dynamically) &&
-      (FLAGS_use_merge || FLAGS_backup_one_in > 0 ||
-       FLAGS_best_efforts_recovery)) {
+      (FLAGS_use_merge || FLAGS_best_efforts_recovery)) {
     fprintf(stderr,
             "Integrated BlobDB is currently incompatible with Merge, "
-            "backup/restore, and best-effort recovery\n");
+            "and best-effort recovery\n");
     exit(1);
   }
 
@@ -2410,33 +2418,78 @@ void StressTest::Open() {
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
-#ifndef ROCKSDB_LITE
-      // StackableDB-based BlobDB
-      if (FLAGS_use_blob_db) {
-        blob_db::BlobDBOptions blob_db_options;
-        blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-        blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
-        blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
-        blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-        blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
-
-        blob_db::BlobDB* blob_db = nullptr;
-        s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
-                                  cf_descriptors, &column_families_, &blob_db);
-        if (s.ok()) {
-          db_ = blob_db;
-        }
-      } else
-#endif  // !ROCKSDB_LITE
-      {
-        if (db_preload_finished_.load() && FLAGS_read_only) {
-          s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db, cf_descriptors,
-                                  &column_families_, &db_);
-        } else {
-          s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                       &column_families_, &db_);
-        }
+#ifndef NDEBUG
+      // Determine whether we need to ingest file metadata write failures
+      // during DB reopen. If it does, enable it.
+      // Only ingest metadata error if it is reopening, as initial open
+      // failure doesn't need to be handled.
+      // TODO cover transaction DB is not covered in this fault test too.
+      bool ingest_meta_error =
+          FLAGS_open_metadata_write_fault_one_in &&
+          fault_fs_guard
+              ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
+              .ok();
+      if (ingest_meta_error) {
+        fault_fs_guard->EnableMetadataWriteErrorInjection();
+        fault_fs_guard->SetRandomMetadataWriteError(
+            FLAGS_open_metadata_write_fault_one_in);
       }
+      while (true) {
+#endif  // NDEBUG
+#ifndef ROCKSDB_LITE
+        // StackableDB-based BlobDB
+        if (FLAGS_use_blob_db) {
+          blob_db::BlobDBOptions blob_db_options;
+          blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
+          blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
+          blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
+          blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
+          blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
+
+          blob_db::BlobDB* blob_db = nullptr;
+          s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
+                                    cf_descriptors, &column_families_,
+                                    &blob_db);
+          if (s.ok()) {
+            db_ = blob_db;
+          }
+        } else
+#endif  // !ROCKSDB_LITE
+        {
+          if (db_preload_finished_.load() && FLAGS_read_only) {
+            s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
+                                    cf_descriptors, &column_families_, &db_);
+          } else {
+            s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+                         &column_families_, &db_);
+          }
+        }
+
+#ifndef NDEBUG
+        if (ingest_meta_error) {
+          fault_fs_guard->DisableMetadataWriteErrorInjection();
+          if (!s.ok()) {
+            // After failure to opening a DB due to IO error, retry should
+            // successfully open the DB with correct data if no IO error shows
+            // up.
+            ingest_meta_error = false;
+
+            Random rand(static_cast<uint32_t>(FLAGS_seed));
+            if (rand.OneIn(2)) {
+              fault_fs_guard->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
+                                                                 nullptr);
+            }
+            if (rand.OneIn(3)) {
+              fault_fs_guard->DropUnsyncedFileData();
+            } else if (rand.OneIn(2)) {
+              fault_fs_guard->DropRandomUnsyncedFileData(&rand);
+            }
+            continue;
+          }
+        }
+        break;
+      }
+#endif  // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;

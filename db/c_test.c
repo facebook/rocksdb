@@ -517,6 +517,9 @@ int main(int argc, char** argv) {
   coptions = rocksdb_compactoptions_create();
   rocksdb_compactoptions_set_exclusive_manual_compaction(coptions, 1);
 
+  rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
+                                                            10001);
+
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);
   Free(&err);
@@ -1276,6 +1279,9 @@ int main(int argc, char** argv) {
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
+    rocksdb_flush_wal(db, 1, &err);
+    CheckNoError(err);
+
     const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
     const size_t keys_sizes[3] = { 3, 3, 8 };
@@ -1758,6 +1764,28 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_manual_wal_flush(o, 1);
+    CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
+
+    /* Blob Options */
+    rocksdb_options_set_enable_blob_files(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
+
+    rocksdb_options_set_min_blob_size(o, 29);
+    CheckCondition(29 == rocksdb_options_get_min_blob_size(o));
+
+    rocksdb_options_set_blob_file_size(o, 30);
+    CheckCondition(30 == rocksdb_options_get_blob_file_size(o));
+
+    rocksdb_options_set_blob_compression_type(o, 4);
+    CheckCondition(4 == rocksdb_options_get_blob_compression_type(o));
+
+    rocksdb_options_set_enable_blob_gc(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_gc(o));
+
+    rocksdb_options_set_blob_gc_age_cutoff(o, 0.75);
+    CheckCondition(0.75 == rocksdb_options_get_blob_gc_age_cutoff(o));
 
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
@@ -2360,6 +2388,37 @@ int main(int argc, char** argv) {
     CheckCondition(200 == rocksdb_cache_get_capacity(co));
 
     rocksdb_cache_destroy(co);
+  }
+
+  StartPhase("jemalloc_nodump_allocator");
+  {
+    rocksdb_memory_allocator_t* allocator;
+    allocator = rocksdb_jemalloc_nodump_allocator_create(&err);
+    if (err != NULL) {
+      // not supported on all platforms, allow unsupported error
+      const char* ni = "Not implemented: ";
+      size_t ni_len = strlen(ni);
+      size_t err_len = strlen(err);
+
+      CheckCondition(err_len >= ni_len);
+      CheckCondition(memcmp(ni, err, ni_len) == 0);
+      Free(&err);
+    } else {
+      rocksdb_cache_t* co;
+      rocksdb_lru_cache_options_t* copts;
+
+      copts = rocksdb_lru_cache_options_create();
+
+      rocksdb_lru_cache_options_set_capacity(copts, 100);
+      rocksdb_lru_cache_options_set_memory_allocator(copts, allocator);
+
+      co = rocksdb_cache_create_lru_opts(copts);
+      CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+      rocksdb_cache_destroy(co);
+      rocksdb_lru_cache_options_destroy(copts);
+    }
+    rocksdb_memory_allocator_destroy(allocator);
   }
 
   StartPhase("env");

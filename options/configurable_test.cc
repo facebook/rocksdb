@@ -78,18 +78,15 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
       : TestConfigurable(name, mode, map) {
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(SimpleConfigurable::Create("Unique" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                          &unique_option_info);
+      RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
     }
     if ((mode & TestConfigMode::kSharedMode) != 0) {
       shared_.reset(SimpleConfigurable::Create("Shared" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Shared", &shared_,
-                                          &shared_option_info);
+      RegisterOptions(name_ + "Shared", &shared_, &shared_option_info);
     }
     if ((mode & TestConfigMode::kRawPtrMode) != 0) {
       pointer_ = SimpleConfigurable::Create("Pointer" + name_);
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Pointer", &pointer_,
-                                          &pointer_option_info);
+      RegisterOptions(name_ + "Pointer", &pointer_, &pointer_option_info);
     }
   }
 
@@ -250,19 +247,15 @@ class ValidatedConfigurable : public SimpleConfigurable {
       : SimpleConfigurable(name, TestConfigMode::kDefaultMode),
         validated(false),
         prepared(0) {
-    ConfigurableHelper::RegisterOptions(*this, "Validated", &validated,
-                                        &validated_option_info);
-    ConfigurableHelper::RegisterOptions(*this, "Prepared", &prepared,
-                                        &prepared_option_info);
+    RegisterOptions("Validated", &validated, &validated_option_info);
+    RegisterOptions("Prepared", &prepared, &prepared_option_info);
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(new ValidatedConfigurable(
           "Unique" + name_, TestConfigMode::kDefaultMode, false));
       if (dont_prepare) {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &dont_prepare_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &dont_prepare_option_info);
       } else {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &unique_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
       }
     }
   }
@@ -353,10 +346,8 @@ TEST_F(ConfigurableTest, MutableOptionsTest) {
         : SimpleConfigurable("mutable", TestConfigMode::kDefaultMode |
                                             TestConfigMode::kUniqueMode |
                                             TestConfigMode::kSharedMode) {
-      ConfigurableHelper::RegisterOptions(*this, "struct", &options_,
-                                          &struct_option_info);
-      ConfigurableHelper::RegisterOptions(*this, "imm", &options_,
-                                          &imm_option_info);
+      RegisterOptions("struct", &options_, &struct_option_info);
+      RegisterOptions("imm", &options_, &imm_option_info);
     }
   };
   MutableConfigurable mc;

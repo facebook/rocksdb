@@ -9,7 +9,6 @@
 #include <unordered_map>
 
 #include "options/configurable_helper.h"
-#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/status.h"

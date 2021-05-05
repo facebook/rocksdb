@@ -98,8 +98,9 @@ static std::unordered_map<std::string, OptionTypeInfo> a_option_info = {
 };
 class ACustomizable : public TestCustomizable {
  public:
-  ACustomizable(const std::string& id) : TestCustomizable("A"), id_(id) {
-    ConfigurableHelper::RegisterOptions(*this, "A", &opts_, &a_option_info);
+  explicit ACustomizable(const std::string& id)
+      : TestCustomizable("A"), id_(id) {
+    RegisterOptions("A", &opts_, &a_option_info);
   }
   std::string GetId() const override { return id_; }
   static const char* kClassName() { return "A"; }
@@ -141,8 +142,8 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 class BCustomizable : public TestCustomizable {
  private:
  public:
-  BCustomizable(const std::string& name) : TestCustomizable(name) {
-    ConfigurableHelper::RegisterOptions(*this, name, &opts_, &b_option_info);
+  explicit BCustomizable(const std::string& name) : TestCustomizable(name) {
+    RegisterOptions(name, &opts_, &b_option_info);
   }
   static const char* kClassName() { return "B"; }
 
@@ -246,13 +247,12 @@ class SimpleConfigurable : public Configurable {
 
  public:
   SimpleConfigurable() {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_,
-                                        &simple_option_info);
+    RegisterOptions("simple", &simple_, &simple_option_info);
   }
 
-  SimpleConfigurable(
+  explicit SimpleConfigurable(
       const std::unordered_map<std::string, OptionTypeInfo>* map) {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_, map);
+    RegisterOptions("simple", &simple_, map);
   }
 
   bool IsPrepared() const override {
@@ -509,8 +509,7 @@ class ShallowCustomizable : public Customizable {
  public:
   ShallowCustomizable() {
     inner_ = std::make_shared<ACustomizable>("a");
-    ConfigurableHelper::RegisterOptions(*this, "inner", &inner_,
-                                        &inner_option_info);
+    RegisterOptions("inner", &inner_, &inner_option_info);
   };
   static const char* kClassName() { return "shallow"; }
   const char* Name() const override { return kClassName(); }
@@ -641,10 +640,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 
    public:
     MutableCustomizable() {
-      ConfigurableHelper::RegisterOptions(*this, "mutable", &mutable_,
-                                          &mutable_option_info);
-      ConfigurableHelper::RegisterOptions(*this, "immutable", &immutable_,
-                                          &immutable_option_info);
+      RegisterOptions("mutable", &mutable_, &mutable_option_info);
+      RegisterOptions("immutable", &immutable_, &immutable_option_info);
     }
     const char* Name() const override { return "MutableCustomizable"; }
   };

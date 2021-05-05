@@ -305,7 +305,7 @@ struct BlockContents {
 extern Status ReadBlockContents(
     RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
     const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableCFOptions& ioptions,
+    BlockContents* contents, const ImmutableOptions& ioptions,
     bool do_uncompress = true, const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 
@@ -320,7 +320,7 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
                                       const char* data, size_t n,
                                       BlockContents* contents,
                                       uint32_t compress_format_version,
-                                      const ImmutableCFOptions& ioptions,
+                                      const ImmutableOptions& ioptions,
                                       MemoryAllocator* allocator = nullptr);
 
 // This is an extension to UncompressBlockContents that accepts
@@ -329,7 +329,7 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
 extern Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& info, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
 extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);

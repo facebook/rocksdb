@@ -428,8 +428,7 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &block_based_table_type_info);
+  RegisterOptions(&table_options_, &block_based_table_type_info);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -493,23 +492,10 @@ Status BlockBasedTableFactory::NewTableReader(
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_builder_options.moptions,
-      table_options_, table_builder_options.internal_comparator,
-      table_builder_options.int_tbl_prop_collector_factories, column_family_id,
-      file, table_builder_options.compression_type,
-      table_builder_options.compression_opts,
-      table_builder_options.skip_filters,
-      table_builder_options.column_family_name, table_builder_options.level,
-      table_builder_options.creation_time,
-      table_builder_options.oldest_key_time,
-      table_builder_options.target_file_size,
-      table_builder_options.file_creation_time, table_builder_options.db_id,
-      table_builder_options.db_session_id);
-
-  return table_builder;
+  return new BlockBasedTableBuilder(table_options_, table_builder_options,
+                                    file);
 }
 
 Status BlockBasedTableFactory::ValidateOptions(

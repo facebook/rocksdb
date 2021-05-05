@@ -61,6 +61,7 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": lambda: setup_expected_values_file(),
+    "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
@@ -100,6 +101,7 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
+    "use_clock_cache": lambda: random.choice([0, 0, 0, 1]),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     "use_ribbon_filter": lambda: random.randint(0, 1),
@@ -137,6 +139,7 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
+    "open_metadata_write_fault_one_in": lambda: random.choice([0, 8]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
@@ -279,7 +282,6 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     # The following are currently incompatible with the integrated BlobDB
     "use_merge": 0,
-    "backup_one_in": 0,
 }
 
 ts_params = {
