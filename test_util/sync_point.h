@@ -27,24 +27,24 @@ namespace ROCKSDB_NAMESPACE {
 #define REDUCE_ODDS2 4
 
 // A class used to pass when a kill point is reached.
-struct ProgramKiller {
+struct KillPoint {
  public:
   // This is only set from db_stress.cc and for testing only.
   // If non-zero, kill at various points in source code with probability 1/this
-  int rocksdb_kill_odds;
+  int rocksdb_kill_odds = 0;
   // If kill point has a prefix on this list, will skip killing.
   std::vector<std::string> rocksdb_kill_exclude_prefixes;
   // Kill the process with probability 1/odds for testing.
   void TestKillRandom(std::string kill_point, int odds,
                       const std::string& srcfile, int srcline);
-};
 
-extern ProgramKiller program_killer;
+  static KillPoint* GetInstance();
+};
 
 #define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight) \
   {                                                                        \
-    program_killer.TestKillRandom(kill_point, rocksdb_kill_odds_weight,    \
-                                  __FILE__, __LINE__);                     \
+    KillPoint::GetInstance()->TestKillRandom(                              \
+        kill_point, rocksdb_kill_odds_weight, __FILE__, __LINE__);         \
   }
 #define TEST_KILL_RANDOM(kill_point) TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, 1)
 }  // namespace ROCKSDB_NAMESPACE

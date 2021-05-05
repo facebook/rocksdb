@@ -7,9 +7,13 @@
 
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
-ProgramKiller program_killer;
-void ProgramKiller::TestKillRandom(std::string kill_point, int odds_weight,
-                                   const std::string& srcfile, int srcline) {
+KillPoint* KillPoint::GetInstance() {
+  static KillPoint kp;
+  return &kp;
+}
+
+void KillPoint::TestKillRandom(std::string kill_point, int odds_weight,
+                               const std::string& srcfile, int srcline) {
   if (rocksdb_kill_odds <= 0) {
     return;
   }
