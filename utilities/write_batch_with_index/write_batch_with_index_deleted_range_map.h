@@ -23,7 +23,7 @@ class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
  public:
   DeletedRangeMap(const class WriteBatchEntryComparator& cmp,
                   Allocator* allocator, WriteBatch* write_batch)
-      : IntervalMap(cmp, allocator), write_batch(write_batch) {}
+      : IntervalMap(cmp, allocator), indexed_write_batch(write_batch) {}
 
   // key parameters should refer to slices within the write batch
   void AddInterval(const uint32_t cf_id, const Slice& from_key,
@@ -32,7 +32,7 @@ class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
   bool IsInInterval(const uint32_t cf_id, const Slice& key);
 
  private:
-  WriteBatch* write_batch;
+  WriteBatch* indexed_write_batch;
 };
 
 };  // namespace ROCKSDB_NAMESPACE

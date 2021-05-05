@@ -52,8 +52,8 @@ class IntervalMap {
 
   class PointData {
    public:
-    Marker marker;
-    PointData(Marker marker) : marker(marker) {}
+    Marker pointMarker;
+    PointData(Marker marker) : pointMarker(marker) {}
   };
 
  private:
@@ -147,7 +147,7 @@ void IntervalMap<PointKey, Comparator>::FixIntervalFrom(
   PointEntry from_entry(from_key, Start);
   iter.SeekForPrev(&from_entry);
   if (iter.Valid()) {
-    Marker marker = iter.key()->pointData.marker;
+    Marker marker = iter.key()->pointData.pointMarker;
     if (marker == Start)
       return;  // an earlier start exists, so no start marker to add
 
@@ -173,7 +173,7 @@ void IntervalMap<PointKey, Comparator>::FixIntervalTo(const PointKey& to_key) {
   PointEntry to_entry(to_key, Stop);
   iter.Seek(&to_entry);
   if (iter.Valid()) {
-    Marker marker = iter.key()->pointData.marker;
+    Marker marker = iter.key()->pointData.pointMarker;
     if (marker == Stop) return;  // a later stop exists, so no stop to add
 
     if (comparator_(&to_entry, iter.key()) == 0) {
@@ -199,7 +199,7 @@ bool IntervalMap<PointKey, Comparator>::IsInInterval(const PointKey& key) {
     // No equal or greater entry exists, so key is outside any range
     return false;
   }
-  Marker marker = iter.key()->pointData.marker;
+  Marker marker = iter.key()->pointData.pointMarker;
 
   // Marker is strictly after this key
   if (comparator_(&key_entry, iter.key()) < 0) {
