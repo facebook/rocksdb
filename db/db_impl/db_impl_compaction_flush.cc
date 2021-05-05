@@ -2759,6 +2759,14 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
+    if (prepicked_compaction != nullptr &&
+        prepicked_compaction->task_token != nullptr) {
+      // Releasing task tokens affects the DB state, so must be done before we
+      // potentially signal the DB close process to proceed below.
+      prepicked_compaction->task_token->ReleaseOnce();
+    }
+
     if (made_progress ||
         (bg_compaction_scheduled_ == 0 &&
          bg_bottom_compaction_scheduled_ == 0) ||
