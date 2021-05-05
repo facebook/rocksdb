@@ -86,7 +86,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
-  const ImmutableCFOptions ioptions(opts);
+  const ImmutableOptions ioptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   std::unique_ptr<WritableFileWriter> file_writer;

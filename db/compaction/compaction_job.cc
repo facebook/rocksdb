@@ -969,8 +969,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       compaction_filter, db_options_.info_log.get(),
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
-      snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get());
+      snapshot_checker_, compact_->compaction->level(), db_options_.stats);
 
   const MutableCFOptions* mutable_cf_options =
       sub_compact->compaction->mutable_cf_options();
@@ -1758,7 +1757,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, db_options_.clock,
-      io_tracer_, db_options_.statistics.get(), listeners,
+      io_tracer_, db_options_.stats, listeners,
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 

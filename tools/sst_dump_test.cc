@@ -96,7 +96,7 @@ class SSTDumpToolTest : public testing::Test {
     Env* test_env = opts.env;
     FileOptions file_options(opts);
     ReadOptions read_options;
-    const ImmutableCFOptions imoptions(opts);
+    const ImmutableOptions imoptions(opts);
     const MutableCFOptions moptions(opts);
     ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
     std::unique_ptr<TableBuilder> tb;

@@ -473,7 +473,6 @@ DEFINE_int32(kill_random_test, 0,
              "probability 1/this");
 static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
-extern int rocksdb_kill_odds;
 
 DEFINE_string(kill_exclude_prefixes, "",
               "If non-empty, kill points with prefix in the list given will be"
@@ -791,6 +790,10 @@ DEFINE_bool(enable_compaction_filter, false,
 DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
+
+DEFINE_bool(fail_if_options_file_error, false,
+            "Fail operations that fail to detect or properly persist options "
+            "file.");
 
 DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "

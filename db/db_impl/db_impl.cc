@@ -156,7 +156,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       immutable_db_options_(initial_db_options_),
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
-      stats_(immutable_db_options_.statistics.get()),
+      stats_(immutable_db_options_.stats),
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
@@ -706,7 +706,7 @@ const Status DBImpl::CreateArchivalDirectory() {
 }
 
 void DBImpl::PrintStatistics() {
-  auto dbstats = immutable_db_options_.statistics.get();
+  auto dbstats = immutable_db_options_.stats;
   if (dbstats) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "STATISTICS:\n %s",
                    dbstats->ToString().c_str());
@@ -767,7 +767,7 @@ void DBImpl::PersistStats() {
   uint64_t now_seconds =
       immutable_db_options_.clock->NowMicros() / kMicrosInSecond;
 
-  Statistics* statistics = immutable_db_options_.statistics.get();
+  Statistics* statistics = immutable_db_options_.stats;
   if (!statistics) {
     return;
   }
@@ -3277,7 +3277,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
 
 bool DBImpl::GetPropertyHandleOptionsStatistics(std::string* value) {
   assert(value != nullptr);
-  Statistics* statistics = immutable_db_options_.statistics.get();
+  Statistics* statistics = immutable_db_options_.stats;
   if (!statistics) {
     return false;
   }

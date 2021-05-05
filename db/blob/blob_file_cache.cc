@@ -19,14 +19,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobFileCache::BlobFileCache(Cache* cache,
-                             const ImmutableCFOptions* immutable_cf_options,
+                             const ImmutableOptions* immutable_options,
                              const FileOptions* file_options,
                              uint32_t column_family_id,
                              HistogramImpl* blob_file_read_hist,
                              const std::shared_ptr<IOTracer>& io_tracer)
     : cache_(cache),
       mutex_(kNumberOfMutexStripes, kGetSliceNPHash64UnseededFnPtr),
-      immutable_cf_options_(immutable_cf_options),
+      immutable_cf_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
       blob_file_read_hist_(blob_file_read_hist),

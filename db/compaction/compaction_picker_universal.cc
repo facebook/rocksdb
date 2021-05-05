@@ -32,7 +32,7 @@ namespace {
 class UniversalCompactionBuilder {
  public:
   UniversalCompactionBuilder(
-      const ImmutableCFOptions& ioptions, const InternalKeyComparator* icmp,
+      const ImmutableOptions& ioptions, const InternalKeyComparator* icmp,
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       UniversalCompactionPicker* picker, LogBuffer* log_buffer)
@@ -108,7 +108,7 @@ class UniversalCompactionBuilder {
   // overlapping.
   bool IsInputFilesNonOverlapping(Compaction* c);
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const InternalKeyComparator* icmp_;
   double score_;
   std::vector<SortedRun> sorted_runs_;

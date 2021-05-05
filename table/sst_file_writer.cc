@@ -43,7 +43,7 @@ struct SstFileWriter::Rep {
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
-  ImmutableCFOptions ioptions;
+  ImmutableOptions ioptions;
   MutableCFOptions mutable_cf_options;
   Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;

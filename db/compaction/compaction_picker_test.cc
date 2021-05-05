@@ -30,7 +30,7 @@ class CompactionPickerTest : public testing::Test {
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
   LevelCompactionPicker level_compaction_picker;

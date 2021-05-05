@@ -64,7 +64,7 @@ class CuckooBuilderTest : public testing::Test {
 
     Options options;
     options.allow_mmap_reads = true;
-    ImmutableCFOptions ioptions(options);
+    ImmutableOptions ioptions(options);
 
     // Assert Table Properties.
     TableProperties* props = nullptr;
