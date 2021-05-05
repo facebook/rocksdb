@@ -409,19 +409,43 @@ size_t ClockCacheShard::GetPinnedUsage() const {
 void ClockCacheShard::ApplyToSomeEntries(
     const std::function<void(const Slice& key, void* value, size_t charge,
                              DeleterFn deleter)>& callback,
-    uint32_t /*average_entries_per_lock*/, uint32_t* state) {
+    uint32_t average_entries_per_lock, uint32_t* state) {
+  assert(average_entries_per_lock > 0);
   MutexLock lock(&mutex_);
-  for (auto& handle : list_) {
-    // Use relaxed semantics instead of acquire semantics since we are either
-    // holding mutex, or don't have thread safe requirement.
+
+  // Figure out the range to iterate, update `state`
+  size_t list_size = list_.size();
+  size_t start_idx = *state;
+  size_t end_idx = start_idx + average_entries_per_lock;
+  if (start_idx > list_size) {
+    // Shouldn't reach here, but recoverable
+    assert(false);
+    // Mark finished with all
+    *state = UINT32_MAX;
+    return;
+  }
+  if (end_idx >= list_size || end_idx >= UINT32_MAX) {
+    // This also includes the hypothetical case of >4 billion
+    // cache handles.
+    end_idx = list_size;
+    // Mark finished with all
+    *state = UINT32_MAX;
+  } else {
+    *state = end_idx;
+  }
+
+  // Do the iteration
+  auto cur = list_.begin() + start_idx;
+  auto end = list_.begin() + end_idx;
+  for (; cur != end; ++cur) {
+    CacheHandle& handle = *cur;
+    // Use relaxed semantics instead of acquire semantics since we are
+    // holding mutex
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);
     if (InCache(flags)) {
       callback(handle.key, handle.value, handle.charge, handle.deleter);
     }
   }
-  // TODO: average_entries_per_lock
-  // Mark finished with all
-  *state = UINT32_MAX;
 }
 
 void ClockCacheShard::RecycleHandle(CacheHandle* handle,

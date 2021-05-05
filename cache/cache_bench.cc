@@ -44,8 +44,7 @@ DEFINE_uint32(num_shard_bits, 6, "shard_bits.");
 
 DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
-DEFINE_uint64(ops_per_thread, 0,
-              "Number of operations per thread. (Default: 5 * keyspace size)");
+DEFINE_uint64(ops_per_thread, 2000000U, "Number of operations per thread.");
 DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
 
 DEFINE_uint32(skew, 5, "Degree of skew in key selection");
@@ -173,6 +172,8 @@ char* createValue(Random64& rnd) {
   return rv;
 }
 
+// Different deleters to simulate using deleter to gather
+// stats on the code origin and kind of cache entries.
 void deleter1(const Slice& /*key*/, void* value) {
   delete[] static_cast<char*>(value);
 }
@@ -212,9 +213,6 @@ class CacheBench {
       }
     } else {
       cache_ = NewLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
-    }
-    if (FLAGS_ops_per_thread == 0) {
-      FLAGS_ops_per_thread = 5000000U;
     }
   }
 
@@ -335,7 +333,8 @@ class CacheBench {
           if (clock->NowMicros() >= deadline) {
             break;
           }
-          shared->GetCondVar()->TimedWait(deadline - clock->NowMicros() + 1);
+          uint64_t diff = deadline - std::min(clock->NowMicros(), deadline);
+          shared->GetCondVar()->TimedWait(diff + 1);
         }
       }
 
@@ -390,10 +389,11 @@ class CacheBench {
     Cache::Handle* handle = nullptr;
     KeyGen gen;
     StopWatchNano timer(SystemClock::Default().get());
+
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
+      timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_);
       uint64_t random_op = thread->rnd.Next();
-      timer.Start();
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
