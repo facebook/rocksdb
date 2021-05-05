@@ -15,7 +15,8 @@
 
 #ifdef NDEBUG
 // empty in release build
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds_weight)
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight)
+#define TEST_KILL_RANDOM(kill_point)
 #else
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,12 +41,14 @@ struct ProgramKiller {
 
 extern ProgramKiller program_killer;
 
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds_weight)          \
-  {                                                                     \
-    program_killer.TestKillRandom(kill_point, rocksdb_kill_odds_weight, \
-                                  __FILE__, __LINE__);                  \
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight) \
+  {                                                                        \
+    program_killer.TestKillRandom(kill_point, rocksdb_kill_odds_weight,    \
+                                  __FILE__, __LINE__);                     \
   }
+#define TEST_KILL_RANDOM(kill_point) TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, 1)
 }  // namespace ROCKSDB_NAMESPACE
+
 #endif
 
 #ifdef NDEBUG
