@@ -23,7 +23,7 @@ struct ImmutableCFOptions {
  public:
   static const char* kName() { return "ImmutableCFOptions"; }
   explicit ImmutableCFOptions();
-  ImmutableCFOptions(const ColumnFamilyOptions& cf_options);
+  explicit ImmutableCFOptions(const ColumnFamilyOptions& cf_options);
 
   CompactionStyle compaction_style;
 
