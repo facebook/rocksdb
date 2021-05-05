@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 
 LRUHandleTable::LRUHandleTable()
     : length_bits_(4),
-      list_(new LRUHandle* [1U << length_bits_] {}),
+      list_(new LRUHandle* [size_t{1} << length_bits_] {}),
       elems_(0) {}
 
 LRUHandleTable::~LRUHandleTable() {
@@ -73,9 +73,11 @@ LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
 }
 
 void LRUHandleTable::Resize() {
+  // FIXME: don't resize beyond shard_bits + length_bits == 32, unless
+  // we upgrade hash (storage) to 64 bits.
   int old_length_bits = length_bits_;
   int new_length_bits = length_bits_ + 1;
-  LRUHandle** new_list = new LRUHandle* [1U << new_length_bits] {};
+  LRUHandle** new_list = new LRUHandle* [size_t{1} << new_length_bits] {};
   uint32_t count = 0;
   for (uint32_t i = 0; (i >> old_length_bits) == 0; i++) {
     LRUHandle* h = list_[i];

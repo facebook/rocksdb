@@ -9,6 +9,7 @@
 
 #include "cache/sharded_cache.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 

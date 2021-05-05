@@ -17,7 +17,6 @@
 #include "rocksdb/system_clock.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
-#include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -30,6 +29,8 @@ int main() {
   return 1;
 }
 #else
+
+#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
