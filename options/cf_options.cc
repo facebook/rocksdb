@@ -714,7 +714,8 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
       std::unordered_map<std::string, std::string>* unused) override {
     Status s = Configurable::ConfigureOptions(config_options, opts_map, unused);
     if (s.ok()) {
-      cf_options_ = BuildColumnFamilyOptions(immutable_, mutable_);
+      UpdateColumnFamilyOptions(mutable_, &cf_options_);
+      UpdateColumnFamilyOptions(immutable_, &cf_options_);
       s = PrepareOptions(config_options);
     }
     return s;
