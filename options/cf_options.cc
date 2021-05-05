@@ -833,6 +833,14 @@ ImmutableOptions::ImmutableOptions(const DBOptions& db_options,
                                    const ColumnFamilyOptions& cf_options)
     : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}
 
+ImmutableOptions::ImmutableOptions(const DBOptions& db_options,
+                                   const ImmutableCFOptions& cf_options)
+    : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}
+
+ImmutableOptions::ImmutableOptions(const ImmutableDBOptions& db_options,
+                                   const ColumnFamilyOptions& cf_options)
+    : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}
+
 ImmutableOptions::ImmutableOptions(const ImmutableDBOptions& db_options,
                                    const ImmutableCFOptions& cf_options)
     : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}

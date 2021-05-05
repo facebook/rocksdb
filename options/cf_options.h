@@ -91,9 +91,14 @@ struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
   ImmutableOptions(const DBOptions& db_options,
                    const ColumnFamilyOptions& cf_options);
 
-  //**TODO: Should be ImmutableCFOptions...
   ImmutableOptions(const ImmutableDBOptions& db_options,
                    const ImmutableCFOptions& cf_options);
+
+  ImmutableOptions(const DBOptions& db_options,
+                   const ImmutableCFOptions& cf_options);
+
+  ImmutableOptions(const ImmutableDBOptions& db_options,
+                   const ColumnFamilyOptions& cf_options);
 };
 
 struct MutableCFOptions {
