@@ -136,6 +136,7 @@ struct ThreadState {
   Random64 rnd;
   SharedState* shared;
   HistogramImpl latency_ns_hist;
+  uint64_t duration_us = 0;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rnd(1000 + index), shared(_shared) {}
@@ -264,11 +265,22 @@ class CacheBench {
     uint64_t end_time = clock->NowMicros();
     stats_thread.join();
 
+    // Wall clock time - includes idle time if threads
+    // finish at different times.
     double elapsed_secs = static_cast<double>(end_time - start_time) * 1e-6;
-    uint32_t qps = static_cast<uint32_t>(
-        static_cast<double>(FLAGS_threads * FLAGS_ops_per_thread) /
-        elapsed_secs);
-    printf("Complete in %.3f s; QPS = %u\n", elapsed_secs, qps);
+    uint32_t ops_per_sec = static_cast<uint32_t>(
+        1.0 * FLAGS_threads * FLAGS_ops_per_thread / elapsed_secs);
+    printf("Complete in %.3f s; Rough parallel ops/sec = %u\n", elapsed_secs,
+           ops_per_sec);
+
+    // Time in each thread
+    elapsed_secs = 0;
+    for (uint32_t i = 0; i < FLAGS_threads; i++) {
+      elapsed_secs += threads[i]->duration_us * 1e-6;
+    }
+    ops_per_sec = static_cast<uint32_t>(1.0 * FLAGS_threads *
+                                        FLAGS_ops_per_thread / elapsed_secs);
+    printf("Thread ops/sec = %u\n", ops_per_sec);
 
     printf("\nOperation latency (ns):\n");
     HistogramImpl combined;
@@ -388,7 +400,9 @@ class CacheBench {
     // To hold handles for a non-trivial amount of time
     Cache::Handle* handle = nullptr;
     KeyGen gen;
-    StopWatchNano timer(SystemClock::Default().get());
+    const auto clock = SystemClock::Default().get();
+    uint64_t start_time = clock->NowMicros();
+    StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       timer.Start();
@@ -448,6 +462,7 @@ class CacheBench {
       printf("You are extremely unlucky(2). Try again.\n");
       exit(1);
     }
+    thread->duration_us = clock->NowMicros() - start_time;
   }
 
   void PrintEnv() const {
