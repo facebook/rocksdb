@@ -600,6 +600,15 @@ CacheHandle* ClockCacheShard::Insert(
   handle->meta_charge = meta_charge;
   handle->deleter = deleter;
   uint32_t flags = hold_reference ? kInCacheBit + kOneRef : kInCacheBit;
+
+  // TODO investigate+fix suspected race condition:
+  // [thread 1] Lookup starts, up to Ref()
+  // [thread 2] Erase/evict the entry just looked up
+  // [thread 1] Ref() the handle, even though it's in the recycle bin
+  // [thread 2] Insert with recycling that handle
+  // Here we obliterate the other thread's Ref
+  // Possible fix: never blindly overwrite the flags, but only make
+  // relative updates (fetch_add, etc).
   handle->flags.store(flags, std::memory_order_relaxed);
   HashTable::accessor accessor;
   if (table_.find(accessor, CacheKey(key, hash))) {
