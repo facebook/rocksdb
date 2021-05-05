@@ -792,6 +792,10 @@ DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
 
+DEFINE_bool(fail_if_options_file_error, false,
+            "Fail operations that fail to detect or properly persist options "
+            "file.");
+
 DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "

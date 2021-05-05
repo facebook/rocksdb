@@ -22,6 +22,7 @@
 #include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
@@ -708,12 +709,15 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
 }
 
 IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
-  MutexLock l(&mutex_);
-  if (!enable_metadata_write_error_injection_ ||
-      !metadata_write_error_one_in_ ||
-      !write_error_rand_.OneIn(metadata_write_error_one_in_)) {
-    return IOStatus::OK();
+  {
+    MutexLock l(&mutex_);
+    if (!enable_metadata_write_error_injection_ ||
+        !metadata_write_error_one_in_ ||
+        !write_error_rand_.OneIn(metadata_write_error_one_in_)) {
+      return IOStatus::OK();
+    }
   }
+  TEST_SYNC_POINT("FaultInjectionTestFS::InjectMetadataWriteError:Injected");
   return IOStatus::IOError();
 }
 
