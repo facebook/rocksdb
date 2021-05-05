@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.20.3 (05/05/2021)
 ### Bug Fixes
 * Fixed a bug where `GetLiveFiles()` output included a non-existent file called "OPTIONS-000000". Backups and checkpoints, which use `GetLiveFiles()`, failed on DBs impacted by this bug. Read-write DBs were impacted when the latest OPTIONS file failed to write and `fail_if_options_file_error == false`. Read-only DBs were impacted when no OPTIONS files existed.
 
