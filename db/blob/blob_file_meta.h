@@ -14,6 +14,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct BlobMetaData;
 
 // SharedBlobFileMetaData represents the immutable part of blob files' metadata,
 // like the blob file number, total number and size of blobs, or checksum
@@ -139,6 +140,7 @@ class BlobFileMetaData {
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
   std::string DebugString() const;
+  void AsBlobMetaData(BlobMetaData* bmd) const;
 
  private:
   BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,

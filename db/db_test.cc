@@ -1128,6 +1128,7 @@ TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
 
   int64_t temp_time = 0;
   options.env->GetCurrentTime(&temp_time);
@@ -1165,7 +1166,14 @@ TEST_F(DBTest, MetaDataTest) {
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
   CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
-
+  printf("MJR Blobs: %d\n", (int)cf_meta.blobs.size());
+  for (const auto& blob : cf_meta.blobs) {
+    printf("Blob: %d total=%d/%d garbage=%d/%d checksum=%s(%s)\n",
+           (int)blob.blob_file_number, (int)blob.total_blob_count,
+           (int)blob.total_blob_bytes, (int)blob.garbage_blob_count,
+           (int)blob.garbage_blob_bytes, blob.checksum_method.c_str(),
+           blob.checksum_value.c_str());
+  }
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
   CheckLiveFilesMeta(live_file_meta, files_by_level);

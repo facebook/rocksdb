@@ -15,6 +15,7 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct BlobMetaData;
 struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;
@@ -35,6 +36,8 @@ struct ColumnFamilyMetaData {
   std::string name;
   // The metadata of all levels in this column family.
   std::vector<LevelMetaData> levels;
+
+  std::vector<BlobMetaData> blobs;
 };
 
 // The metadata that describes a level.
@@ -151,6 +154,43 @@ struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;                       // Level at which this file resides.
   LiveFileMetaData() : column_family_name(), level(0) {}
+};
+
+// The MetaData that describes a Blob file
+struct BlobMetaData {
+  BlobMetaData()
+      : blob_file_number(0),
+        total_blob_count(0),
+        total_blob_bytes(0),
+        garbage_blob_count(0),
+        garbage_blob_bytes(0) {}
+
+  BlobMetaData(uint64_t _file_number, uint64_t _total_blob_count,
+               uint64_t _total_blob_bytes, uint64_t _garbage_blob_count,
+               uint64_t _garbage_blob_bytes, const std::string& _file_checksum,
+               const std::string& _file_checksum_func_name)
+      : blob_file_number(_file_number),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes),
+        garbage_blob_count(_garbage_blob_count),
+        garbage_blob_bytes(_garbage_blob_bytes),
+        checksum_method(_file_checksum),
+        checksum_value(_file_checksum_func_name) {}
+  uint64_t blob_file_number;
+  std::string blob_file_name;
+  std::string blob_file_path;
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+  uint64_t garbage_blob_count;
+  uint64_t garbage_blob_bytes;
+  std::string checksum_method;
+  std::string checksum_value;
+};
+
+// The full set of metadata associated with each Blob file.
+struct LiveBlobMetaData : BlobMetaData {
+  std::string column_family_name;  // Name of the column family
+  LiveBlobMetaData() : column_family_name() {}
 };
 
 // Metadata returned as output from ExportColumnFamily() and used as input to

@@ -396,6 +396,9 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* metadata) override;
 
+  virtual void GetLiveBlobMetaData(
+      std::vector<LiveBlobMetaData>* metadata) override;
+
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override;
 
@@ -974,8 +977,10 @@ class DBImpl : public DB {
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 
-  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
-                             std::vector<std::vector<FileMetaData>>* metadata);
+  void TEST_GetFilesMetaData(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::vector<FileMetaData>>* metadata,
+      std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata = nullptr);
 
   void TEST_LockMutex();
 
