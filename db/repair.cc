@@ -100,8 +100,8 @@ class Repairer {
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
-        default_cf_iopts_(
-            ImmutableCFOptions(immutable_db_options_, default_cf_opts_)),
+        default_iopts_(
+            ImmutableOptions(immutable_db_options_, default_cf_opts_)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -110,7 +110,7 @@ class Repairer {
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
         table_cache_(new TableCache(
-            default_cf_iopts_, env_options_, raw_table_cache_.get(),
+            default_iopts_, env_options_, raw_table_cache_.get(),
             /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
@@ -248,7 +248,7 @@ class Repairer {
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
-  const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference
+  const ImmutableOptions default_iopts_;  // table_cache_ holds reference
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;

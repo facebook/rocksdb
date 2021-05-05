@@ -175,7 +175,7 @@ class Constructor {
   // Finish constructing the data structure with all the keys that have
   // been added so far.  Returns the keys in sorted order in "*keys"
   // and stores the key/value pairs in "*kvmap"
-  void Finish(const Options& options, const ImmutableCFOptions& ioptions,
+  void Finish(const Options& options, const ImmutableOptions& ioptions,
               const MutableCFOptions& moptions,
               const BlockBasedTableOptions& table_options,
               const InternalKeyComparator& internal_comparator,
@@ -194,7 +194,7 @@ class Constructor {
 
   // Construct the data structure from the data in "data"
   virtual Status FinishImpl(const Options& options,
-                            const ImmutableCFOptions& ioptions,
+                            const ImmutableOptions& ioptions,
                             const MutableCFOptions& moptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
@@ -286,7 +286,7 @@ class BlockConstructor : public Constructor {
       : Constructor(cmp), comparator_(cmp), block_(nullptr) {}
   ~BlockConstructor() override { delete block_; }
   Status FinishImpl(const Options& /*options*/,
-                    const ImmutableCFOptions& /*ioptions*/,
+                    const ImmutableOptions& /*ioptions*/,
                     const MutableCFOptions& /*moptions*/,
                     const BlockBasedTableOptions& table_options,
                     const InternalKeyComparator& /*internal_comparator*/,
@@ -341,7 +341,7 @@ class TableConstructor : public Constructor {
   }
   ~TableConstructor() override { Reset(); }
 
-  Status FinishImpl(const Options& options, const ImmutableCFOptions& ioptions,
+  Status FinishImpl(const Options& options, const ImmutableOptions& ioptions,
                     const MutableCFOptions& moptions,
                     const BlockBasedTableOptions& /*table_options*/,
                     const InternalKeyComparator& internal_comparator,
@@ -427,7 +427,7 @@ class TableConstructor : public Constructor {
         key, TableReaderCaller::kUncategorized);
   }
 
-  virtual Status Reopen(const ImmutableCFOptions& ioptions,
+  virtual Status Reopen(const ImmutableOptions& ioptions,
                         const MutableCFOptions& moptions) {
     std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
         TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
@@ -489,20 +489,20 @@ class MemTableConstructor: public Constructor {
         write_buffer_manager_(wb),
         table_factory_(new SkipListFactory) {
     options_.memtable_factory = table_factory_;
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     memtable_ =
         new MemTable(internal_comparator_, ioptions, MutableCFOptions(options_),
                      wb, kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
   }
   ~MemTableConstructor() override { delete memtable_->Unref(); }
-  Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
+  Status FinishImpl(const Options&, const ImmutableOptions& ioptions,
                     const MutableCFOptions& /*moptions*/,
                     const BlockBasedTableOptions& /*table_options*/,
                     const InternalKeyComparator& /*internal_comparator*/,
                     const stl_wrappers::KVMap& kv_map) override {
     delete memtable_->Unref();
-    ImmutableCFOptions mem_ioptions(ioptions);
+    ImmutableOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_), write_buffer_manager_,
                              kMaxSequenceNumber, 0 /* column_family_id */);
@@ -565,7 +565,7 @@ class DBConstructor: public Constructor {
   }
   ~DBConstructor() override { delete db_; }
   Status FinishImpl(const Options& /*options*/,
-                    const ImmutableCFOptions& /*ioptions*/,
+                    const ImmutableOptions& /*ioptions*/,
                     const MutableCFOptions& /*moptions*/,
                     const BlockBasedTableOptions& /*table_options*/,
                     const InternalKeyComparator& /*internal_comparator*/,
@@ -857,7 +857,7 @@ class HarnessTest : public testing::Test {
         constructor_.reset(new DBConstructor(options_.comparator));
         break;
     }
-    ioptions_ = ImmutableCFOptions(options_);
+    ioptions_ = ImmutableOptions(options_);
     moptions_ = MutableCFOptions(options_);
   }
 
@@ -1060,7 +1060,7 @@ class HarnessTest : public testing::Test {
  private:
   TestArgs args_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions moptions_;
   BlockBasedTableOptions table_options_;
   std::unique_ptr<Constructor> constructor_;
@@ -1411,7 +1411,7 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1459,7 +1459,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   table_options.enable_index_compression = compressed;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1485,7 +1485,7 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1519,7 +1519,7 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     options.table_properties_collector_factories.emplace_back(
         new DummyPropertiesCollectorFactory2());
 
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1563,7 +1563,7 @@ TEST_P(BlockBasedTableTest, RangeDelBlock) {
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   std::unique_ptr<InternalKeyComparator> internal_cmp(
       new InternalKeyComparator(options.comparator));
@@ -1607,7 +1607,7 @@ TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1651,7 +1651,7 @@ void PrefetchRange(TableConstructor* c, Options* opt,
   // reset the cache and reopen the table
   table_options->block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt->table_factory.reset(NewBlockBasedTableFactory(*table_options));
-  const ImmutableCFOptions ioptions2(*opt);
+  const ImmutableOptions ioptions2(*opt);
   const MutableCFOptions moptions(*opt);
   ASSERT_OK(c->Reopen(ioptions2, moptions));
 
@@ -1709,7 +1709,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(opt);
+  const ImmutableOptions ioptions(opt);
   const MutableCFOptions moptions(opt);
   c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
   c.ResetTableReader();
@@ -1810,7 +1810,7 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     c.Add("cccc2", std::string('a', 56));
     std::vector<std::string> keys;
     stl_wrappers::KVMap kvmap;
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1869,7 +1869,7 @@ TEST_P(BlockBasedTableTest, NoopTransformSeek) {
   c.Add(key.Encode().ToString(), "b");
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
@@ -1907,14 +1907,14 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   c.Add(key.Encode().ToString(), "test");
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
   // TODO(Zhongyi): update test to use MutableCFOptions
   options.prefix_extractor.reset(NewFixedPrefixTransform(9));
-  const ImmutableCFOptions new_ioptions(options);
+  const ImmutableOptions new_ioptions(options);
   const MutableCFOptions new_moptions(options);
   ASSERT_OK(c.Reopen(new_ioptions, new_moptions));
   auto reader = c.GetTableReader();
@@ -1971,7 +1971,7 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
 
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
            &kvmap);
@@ -2174,7 +2174,7 @@ TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
 
   TableConstructor c(BytewiseComparator());
@@ -2261,7 +2261,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     Statistics* stats = options.statistics.get();
     std::unique_ptr<InternalKeyComparator> comparator(
         new InternalKeyComparator(BytewiseComparator()));
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
 
     TableConstructor c(BytewiseComparator());
@@ -2459,7 +2459,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
 
   TableConstructor c(BytewiseComparator(), /* convert_to_internal_key */ false,
@@ -2534,7 +2534,7 @@ TEST_P(BlockBasedTableTest, IndexSizeStat) {
     table_options.block_restart_interval = 1;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &ks, &kvmap);
@@ -2563,7 +2563,7 @@ TEST_P(BlockBasedTableTest, NumBlockStat) {
 
   std::vector<std::string> ks;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &ks, &kvmap);
@@ -2584,7 +2584,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   SetupTracingTest(&c);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -2658,7 +2658,7 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   SetupTracingTest(&c);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -2702,7 +2702,7 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   SetupTracingTest(&c);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -2832,7 +2832,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
 
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   c.Add("key", "value");
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -2884,7 +2884,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   c.Add("key", "value");
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -2964,7 +2964,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   table_options.block_cache = NewLRUCache(1, 4);
   options.statistics = CreateDBStatistics();
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  const ImmutableCFOptions ioptions2(options);
+  const ImmutableOptions ioptions2(options);
   const MutableCFOptions moptions2(options);
   ASSERT_OK(c.Reopen(ioptions2, moptions2));
   {
@@ -3011,7 +3011,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   std::string user_key = "k01";
   InternalKey internal_key(user_key, 0, kTypeValue);
   c3.Add(internal_key.Encode().ToString(), "hello");
-  ImmutableCFOptions ioptions3(options);
+  ImmutableOptions ioptions3(options);
   MutableCFOptions moptions3(options);
   // Generate table without filter policy
   c3.Finish(options, ioptions3, moptions3, table_options,
@@ -3022,7 +3022,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(1));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();
-  ImmutableCFOptions ioptions4(options);
+  ImmutableOptions ioptions4(options);
   MutableCFOptions moptions4(options);
   ASSERT_OK(c3.Reopen(ioptions4, moptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
@@ -3106,7 +3106,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       InternalKey internal_key(user_key, 0, kTypeValue);
       std::string encoded_key = internal_key.Encode().ToString();
       c.Add(encoded_key, "hello");
-      ImmutableCFOptions ioptions(options);
+      ImmutableOptions ioptions(options);
       MutableCFOptions moptions(options);
       // Generate table with filter policy
       c.Finish(options, ioptions, moptions, table_options,
@@ -3194,7 +3194,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(opt);
+  const ImmutableOptions ioptions(opt);
   const MutableCFOptions moptions(opt);
   c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
 
@@ -3209,7 +3209,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  const ImmutableCFOptions ioptions1(opt);
+  const ImmutableOptions ioptions1(opt);
   const MutableCFOptions moptions1(opt);
   ASSERT_OK(c.Reopen(ioptions1, moptions1));
   auto table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
@@ -3222,7 +3222,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   // rerun with different block cache
   table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  const ImmutableCFOptions ioptions2(opt);
+  const ImmutableOptions ioptions2(opt);
   const MutableCFOptions moptions2(opt);
   ASSERT_OK(c.Reopen(ioptions2, moptions2));
   table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
@@ -3282,7 +3282,7 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
     c.Add("k07", std::string(100000, 'x'));
     std::vector<std::string> keys;
     stl_wrappers::KVMap kvmap;
-    const ImmutableCFOptions ioptions(opt);
+    const ImmutableOptions ioptions(opt);
     const MutableCFOptions moptions(opt);
     c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
 
@@ -3308,7 +3308,7 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
 // Test the file checksum of block based table
 TEST_P(BlockBasedTableTest, NoFileChecksum) {
   Options options;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   std::unique_ptr<InternalKeyComparator> comparator(
@@ -3339,7 +3339,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
       new FileChecksumGenCrc32cFactory();
   Options options;
   options.file_checksum_gen_factory.reset(file_checksum_gen_factory);
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   std::unique_ptr<InternalKeyComparator> comparator(
@@ -3400,7 +3400,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(sink), "" /* don't care */, FileOptions()));
   Options options;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -3453,7 +3453,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   PlainTableFactory factory(plain_table_options);
 
   Options options;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -3487,7 +3487,7 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
       new FileChecksumGenCrc32cFactory();
   Options options;
   options.file_checksum_gen_factory.reset(file_checksum_gen_factory);
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -3542,7 +3542,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   options.compression = kNoCompression;
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
@@ -3578,7 +3578,7 @@ static void DoCompressionTest(CompressionType comp) {
   options.compression = comp;
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
 
@@ -3676,7 +3676,7 @@ class MemTableTest : public testing::Test {
     InternalKeyComparator cmp(BytewiseComparator());
     auto table_factory = std::make_shared<SkipListFactory>();
     options_.memtable_factory = table_factory;
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     wb_ = new WriteBufferManager(options_.db_write_buffer_size);
     memtable_ = new MemTable(cmp, ioptions, MutableCFOptions(options_), wb_,
                              kMaxSequenceNumber, 0 /* column_family_id */);
@@ -3930,7 +3930,7 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   stl_wrappers::KVMap kvmap;
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
            &kvmap);
@@ -4060,7 +4060,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
       std::move(holder), "" /* don't care */, FileOptions()));
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -4248,7 +4248,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   Options options;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -4299,7 +4299,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   bbto.block_align = false;
   Options options2;
   options2.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  ImmutableCFOptions ioptions2(options2);
+  ImmutableOptions ioptions2(options2);
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
@@ -4341,7 +4341,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -4448,7 +4448,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(
       8 /* bits_per_key */, false /* use_block_based_filter */));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
@@ -4597,7 +4597,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
 
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
@@ -4680,7 +4680,7 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   Options options;
   BlockBasedTableOptions table_opt(GetBlockBasedTableOptions());
   options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_opt,
            GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);
@@ -4720,7 +4720,7 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   table_opt.flush_block_policy_factory =
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
   options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_opt,
            GetPlainInternalComparator(BytewiseComparator()), &keys, &kvmap);

@@ -84,7 +84,7 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ReadOptions& ro, const ImmutableCFOptions& ioptions,
+  static Status Open(const ReadOptions& ro, const ImmutableOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
@@ -502,7 +502,7 @@ class BlockBasedTable::PartitionedIndexIteratorState
 // Stores all the properties associated with a BlockBasedTable.
 // These are immutable.
 struct BlockBasedTable::Rep {
-  Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
+  Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
       uint64_t _file_size, int _level, const bool _immortal_table)
@@ -519,10 +519,9 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table) {
-  }
+        immortal_table(_immortal_table) {}
   ~Rep() { status.PermitUncheckedError(); }
-  const ImmutableCFOptions& ioptions;
+  const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
   const FilterPolicy* const filter_policy;

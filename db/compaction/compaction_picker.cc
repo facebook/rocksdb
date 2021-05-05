@@ -148,7 +148,7 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
   return cf_options.compression_opts;
 }
 
-CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
+CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 

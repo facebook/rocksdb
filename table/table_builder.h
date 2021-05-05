@@ -30,7 +30,7 @@ class Status;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+  TableReaderOptions(const ImmutableOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -45,7 +45,7 @@ struct TableReaderOptions {
                            _max_file_size_for_l0_meta_pin) {}
 
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+  TableReaderOptions(const ImmutableOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -66,7 +66,7 @@ struct TableReaderOptions {
         block_cache_tracer(_block_cache_tracer),
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin) {}
 
-  const ImmutableCFOptions& ioptions;
+  const ImmutableOptions& ioptions;
   const SliceTransform* prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
@@ -91,7 +91,7 @@ struct TableReaderOptions {
 
 struct TableBuilderOptions {
   TableBuilderOptions(
-      const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
+      const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
@@ -122,7 +122,7 @@ struct TableBuilderOptions {
         is_bottommost(_is_bottommost),
         reason(_reason) {}
 
-  const ImmutableCFOptions& ioptions;
+  const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*

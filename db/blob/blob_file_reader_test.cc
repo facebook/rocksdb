@@ -30,7 +30,7 @@ namespace {
 // Creates a test blob file with a single blob in it. Note: this method
 // makes it possible to test various corner cases by allowing the caller
 // to specify the contents of various blob file header/footer fields.
-void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
+void WriteBlobFile(const ImmutableOptions& immutable_cf_options,
                    uint32_t column_family_id, bool has_ttl,
                    const ExpirationRange& expiration_range_header,
                    const ExpirationRange& expiration_range_footer,
@@ -45,8 +45,8 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
       immutable_cf_options.cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
-                            FileOptions()));
+  ASSERT_OK(NewWritableFile(immutable_cf_options.fs.get(), blob_file_path,
+                            &file, FileOptions()));
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
@@ -122,7 +122,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -262,7 +262,7 @@ TEST_F(BlobFileReaderTest, Malformed) {
       test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Malformed"), 0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr uint64_t blob_file_number = 1;
@@ -275,8 +275,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
         immutable_cf_options.cf_paths.front().path, blob_file_number);
 
     std::unique_ptr<FSWritableFile> file;
-    ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
-                              FileOptions()));
+    ASSERT_OK(NewWritableFile(immutable_cf_options.fs.get(), blob_file_path,
+                              &file, FileOptions()));
 
     std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
@@ -314,7 +314,7 @@ TEST_F(BlobFileReaderTest, TTL) {
       test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_TTL"), 0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = true;
@@ -350,7 +350,7 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -389,7 +389,7 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -428,7 +428,7 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -464,7 +464,7 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
       test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_BlobCRCError"), 0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -522,7 +522,7 @@ TEST_F(BlobFileReaderTest, Compression) {
       test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Compression"), 0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -590,7 +590,7 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -671,7 +671,7 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -749,7 +749,7 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
       0);
   options.enable_blob_files = true;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;

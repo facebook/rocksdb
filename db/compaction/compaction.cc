@@ -204,27 +204,24 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-Compaction::Compaction(VersionStorageInfo* vstorage,
-                       const ImmutableCFOptions& _immutable_cf_options,
-                       const MutableCFOptions& _mutable_cf_options,
-                       const MutableDBOptions& _mutable_db_options,
-                       std::vector<CompactionInputFiles> _inputs,
-                       int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
-                       CompressionType _compression,
-                       CompressionOptions _compression_opts,
-                       uint32_t _max_subcompactions,
-                       std::vector<FileMetaData*> _grandparents,
-                       bool _manual_compaction, double _score,
-                       bool _deletion_compaction,
-                       CompactionReason _compaction_reason)
+Compaction::Compaction(
+    VersionStorageInfo* vstorage, const ImmutableOptions& _immutable_options,
+    const MutableCFOptions& _mutable_cf_options,
+    const MutableDBOptions& _mutable_db_options,
+    std::vector<CompactionInputFiles> _inputs, int _output_level,
+    uint64_t _target_file_size, uint64_t _max_compaction_bytes,
+    uint32_t _output_path_id, CompressionType _compression,
+    CompressionOptions _compression_opts, uint32_t _max_subcompactions,
+    std::vector<FileMetaData*> _grandparents, bool _manual_compaction,
+    double _score, bool _deletion_compaction,
+    CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
       max_subcompactions_(_max_subcompactions),
-      immutable_cf_options_(_immutable_cf_options),
+      immutable_options_(_immutable_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
       number_levels_(vstorage->num_levels()),
@@ -278,7 +275,7 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
+  bool matches = (GetCompressionType(immutable_options_, input_vstorage_,
                                      mutable_cf_options_, start_level_,
                                      base_level) == output_compression_);
   if (matches) {
@@ -303,8 +300,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (is_manual_compaction_ &&
-      (immutable_cf_options_.compaction_filter != nullptr ||
-       immutable_cf_options_.compaction_filter_factory != nullptr)) {
+      (immutable_options_.compaction_filter != nullptr ||
+       immutable_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
@@ -512,7 +509,7 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
   }
 
   if (max_output_file_size_ != port::kMaxUint64 &&
-      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+      (immutable_options_.compaction_style == kCompactionStyleLevel ||
        output_level() > 0)) {
     preallocation_size = std::min(max_output_file_size_, preallocation_size);
   }
@@ -538,7 +535,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
 }
 
 std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
-  if (!immutable_cf_options_.sst_partitioner_factory) {
+  if (!immutable_options_.sst_partitioner_factory) {
     return nullptr;
   }
 
@@ -548,8 +545,7 @@ std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
   context.output_level = output_level_;
   context.smallest_user_key = smallest_user_key_;
   context.largest_user_key = largest_user_key_;
-  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
-      context);
+  return immutable_options_.sst_partitioner_factory->CreatePartitioner(context);
 }
 
 bool Compaction::IsOutputLevelEmpty() const {

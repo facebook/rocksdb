@@ -103,7 +103,7 @@ class VersionStorageInfoTestBase : public testing::Test {
   InternalKeyComparator icmp_;
   std::shared_ptr<CountingLogger> logger_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   VersionStorageInfo vstorage_;
 
@@ -723,7 +723,8 @@ class VersionSetTestBase {
     db_options_.env = env_;
     db_options_.fs = fs_;
     immutable_cf_options_.env = env_;
-    immutable_cf_options_.fs = fs_.get();
+    immutable_cf_options_.fs = fs_;
+    immutable_cf_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
@@ -909,7 +910,7 @@ class VersionSetTestBase {
   Options options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
-  ImmutableCFOptions immutable_cf_options_;
+  ImmutableOptions immutable_cf_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;

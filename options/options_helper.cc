@@ -177,190 +177,115 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& options,
     const MutableCFOptions& mutable_cf_options) {
   ColumnFamilyOptions cf_opts(options);
-
-  // Memtable related options
-  cf_opts.write_buffer_size = mutable_cf_options.write_buffer_size;
-  cf_opts.max_write_buffer_number = mutable_cf_options.max_write_buffer_number;
-  cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
-  cf_opts.memtable_prefix_bloom_size_ratio =
-      mutable_cf_options.memtable_prefix_bloom_size_ratio;
-  cf_opts.memtable_whole_key_filtering =
-      mutable_cf_options.memtable_whole_key_filtering;
-  cf_opts.memtable_huge_page_size = mutable_cf_options.memtable_huge_page_size;
-  cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
-  cf_opts.inplace_update_num_locks =
-      mutable_cf_options.inplace_update_num_locks;
-  cf_opts.prefix_extractor = mutable_cf_options.prefix_extractor;
-
-  // Compaction related options
-  cf_opts.disable_auto_compactions =
-      mutable_cf_options.disable_auto_compactions;
-  cf_opts.soft_pending_compaction_bytes_limit =
-      mutable_cf_options.soft_pending_compaction_bytes_limit;
-  cf_opts.hard_pending_compaction_bytes_limit =
-      mutable_cf_options.hard_pending_compaction_bytes_limit;
-  cf_opts.level0_file_num_compaction_trigger =
-      mutable_cf_options.level0_file_num_compaction_trigger;
-  cf_opts.level0_slowdown_writes_trigger =
-      mutable_cf_options.level0_slowdown_writes_trigger;
-  cf_opts.level0_stop_writes_trigger =
-      mutable_cf_options.level0_stop_writes_trigger;
-  cf_opts.max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
-  cf_opts.target_file_size_base = mutable_cf_options.target_file_size_base;
-  cf_opts.target_file_size_multiplier =
-      mutable_cf_options.target_file_size_multiplier;
-  cf_opts.max_bytes_for_level_base =
-      mutable_cf_options.max_bytes_for_level_base;
-  cf_opts.max_bytes_for_level_multiplier =
-      mutable_cf_options.max_bytes_for_level_multiplier;
-  cf_opts.ttl = mutable_cf_options.ttl;
-  cf_opts.periodic_compaction_seconds =
-      mutable_cf_options.periodic_compaction_seconds;
-
-  cf_opts.max_bytes_for_level_multiplier_additional.clear();
-  for (auto value :
-       mutable_cf_options.max_bytes_for_level_multiplier_additional) {
-    cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
-  }
-
-  cf_opts.compaction_options_fifo = mutable_cf_options.compaction_options_fifo;
-  cf_opts.compaction_options_universal =
-      mutable_cf_options.compaction_options_universal;
-
-  // Blob file related options
-  cf_opts.enable_blob_files = mutable_cf_options.enable_blob_files;
-  cf_opts.min_blob_size = mutable_cf_options.min_blob_size;
-  cf_opts.blob_file_size = mutable_cf_options.blob_file_size;
-  cf_opts.blob_compression_type = mutable_cf_options.blob_compression_type;
-  cf_opts.enable_blob_garbage_collection =
-      mutable_cf_options.enable_blob_garbage_collection;
-  cf_opts.blob_garbage_collection_age_cutoff =
-      mutable_cf_options.blob_garbage_collection_age_cutoff;
-
-  // Misc options
-  cf_opts.max_sequential_skip_in_iterations =
-      mutable_cf_options.max_sequential_skip_in_iterations;
-  cf_opts.check_flush_compaction_key_order =
-      mutable_cf_options.check_flush_compaction_key_order;
-  cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
-  cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
-  cf_opts.compression = mutable_cf_options.compression;
-  cf_opts.compression_opts = mutable_cf_options.compression_opts;
-  cf_opts.bottommost_compression = mutable_cf_options.bottommost_compression;
-  cf_opts.bottommost_compression_opts =
-      mutable_cf_options.bottommost_compression_opts;
-  cf_opts.sample_for_compression = mutable_cf_options.sample_for_compression;
-
-  cf_opts.table_factory = options.table_factory;
+  UpdateColumnFamilyOptions(mutable_cf_options, &cf_opts);
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
-
   return cf_opts;
 }
-ColumnFamilyOptions BuildColumnFamilyOptions(const ImmutableCFOptions& ioptions,
-                                             const MutableCFOptions& moptions) {
-  ColumnFamilyOptions cf_opts;
 
+void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
+                               ColumnFamilyOptions* cf_opts) {
   // Memtable related options
-  cf_opts.write_buffer_size = moptions.write_buffer_size;
-  cf_opts.max_write_buffer_number = moptions.max_write_buffer_number;
-  cf_opts.arena_block_size = moptions.arena_block_size;
-  cf_opts.memtable_prefix_bloom_size_ratio =
+  cf_opts->write_buffer_size = moptions.write_buffer_size;
+  cf_opts->max_write_buffer_number = moptions.max_write_buffer_number;
+  cf_opts->arena_block_size = moptions.arena_block_size;
+  cf_opts->memtable_prefix_bloom_size_ratio =
       moptions.memtable_prefix_bloom_size_ratio;
-  cf_opts.memtable_whole_key_filtering = moptions.memtable_whole_key_filtering;
-  cf_opts.memtable_huge_page_size = moptions.memtable_huge_page_size;
-  cf_opts.max_successive_merges = moptions.max_successive_merges;
-  cf_opts.inplace_update_num_locks = moptions.inplace_update_num_locks;
-  cf_opts.prefix_extractor = moptions.prefix_extractor;
+  cf_opts->memtable_whole_key_filtering = moptions.memtable_whole_key_filtering;
+  cf_opts->memtable_huge_page_size = moptions.memtable_huge_page_size;
+  cf_opts->max_successive_merges = moptions.max_successive_merges;
+  cf_opts->inplace_update_num_locks = moptions.inplace_update_num_locks;
+  cf_opts->prefix_extractor = moptions.prefix_extractor;
 
   // Compaction related options
-  cf_opts.disable_auto_compactions = moptions.disable_auto_compactions;
-  cf_opts.soft_pending_compaction_bytes_limit =
+  cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
+  cf_opts->soft_pending_compaction_bytes_limit =
       moptions.soft_pending_compaction_bytes_limit;
-  cf_opts.hard_pending_compaction_bytes_limit =
+  cf_opts->hard_pending_compaction_bytes_limit =
       moptions.hard_pending_compaction_bytes_limit;
-  cf_opts.level0_file_num_compaction_trigger =
+  cf_opts->level0_file_num_compaction_trigger =
       moptions.level0_file_num_compaction_trigger;
-  cf_opts.level0_slowdown_writes_trigger =
+  cf_opts->level0_slowdown_writes_trigger =
       moptions.level0_slowdown_writes_trigger;
-  cf_opts.level0_stop_writes_trigger = moptions.level0_stop_writes_trigger;
-  cf_opts.max_compaction_bytes = moptions.max_compaction_bytes;
-  cf_opts.target_file_size_base = moptions.target_file_size_base;
-  cf_opts.target_file_size_multiplier = moptions.target_file_size_multiplier;
-  cf_opts.max_bytes_for_level_base = moptions.max_bytes_for_level_base;
-  cf_opts.max_bytes_for_level_multiplier =
+  cf_opts->level0_stop_writes_trigger = moptions.level0_stop_writes_trigger;
+  cf_opts->max_compaction_bytes = moptions.max_compaction_bytes;
+  cf_opts->target_file_size_base = moptions.target_file_size_base;
+  cf_opts->target_file_size_multiplier = moptions.target_file_size_multiplier;
+  cf_opts->max_bytes_for_level_base = moptions.max_bytes_for_level_base;
+  cf_opts->max_bytes_for_level_multiplier =
       moptions.max_bytes_for_level_multiplier;
-  cf_opts.ttl = moptions.ttl;
-  cf_opts.periodic_compaction_seconds = moptions.periodic_compaction_seconds;
+  cf_opts->ttl = moptions.ttl;
+  cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
 
-  cf_opts.max_bytes_for_level_multiplier_additional.clear();
+  cf_opts->max_bytes_for_level_multiplier_additional.clear();
   for (auto value : moptions.max_bytes_for_level_multiplier_additional) {
-    cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
+    cf_opts->max_bytes_for_level_multiplier_additional.emplace_back(value);
   }
 
-  cf_opts.compaction_options_fifo = moptions.compaction_options_fifo;
-  cf_opts.compaction_options_universal = moptions.compaction_options_universal;
+  cf_opts->compaction_options_fifo = moptions.compaction_options_fifo;
+  cf_opts->compaction_options_universal = moptions.compaction_options_universal;
 
   // Blob file related options
-  cf_opts.enable_blob_files = moptions.enable_blob_files;
-  cf_opts.min_blob_size = moptions.min_blob_size;
-  cf_opts.blob_file_size = moptions.blob_file_size;
-  cf_opts.blob_compression_type = moptions.blob_compression_type;
-  cf_opts.enable_blob_garbage_collection =
+  cf_opts->enable_blob_files = moptions.enable_blob_files;
+  cf_opts->min_blob_size = moptions.min_blob_size;
+  cf_opts->blob_file_size = moptions.blob_file_size;
+  cf_opts->blob_compression_type = moptions.blob_compression_type;
+  cf_opts->enable_blob_garbage_collection =
       moptions.enable_blob_garbage_collection;
-  cf_opts.blob_garbage_collection_age_cutoff =
+  cf_opts->blob_garbage_collection_age_cutoff =
       moptions.blob_garbage_collection_age_cutoff;
 
   // Misc options
-  cf_opts.max_sequential_skip_in_iterations =
+  cf_opts->max_sequential_skip_in_iterations =
       moptions.max_sequential_skip_in_iterations;
-  cf_opts.check_flush_compaction_key_order =
+  cf_opts->check_flush_compaction_key_order =
       moptions.check_flush_compaction_key_order;
-  cf_opts.paranoid_file_checks = moptions.paranoid_file_checks;
-  cf_opts.report_bg_io_stats = moptions.report_bg_io_stats;
-  cf_opts.compression = moptions.compression;
-  cf_opts.compression_opts = moptions.compression_opts;
-  cf_opts.bottommost_compression = moptions.bottommost_compression;
-  cf_opts.bottommost_compression_opts = moptions.bottommost_compression_opts;
-  cf_opts.sample_for_compression = moptions.sample_for_compression;
+  cf_opts->paranoid_file_checks = moptions.paranoid_file_checks;
+  cf_opts->report_bg_io_stats = moptions.report_bg_io_stats;
+  cf_opts->compression = moptions.compression;
+  cf_opts->compression_opts = moptions.compression_opts;
+  cf_opts->bottommost_compression = moptions.bottommost_compression;
+  cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
+  cf_opts->sample_for_compression = moptions.sample_for_compression;
+}
 
-  cf_opts.compaction_style = ioptions.compaction_style;
-  cf_opts.compaction_pri = ioptions.compaction_pri;
-  cf_opts.comparator = ioptions.user_comparator;
-  cf_opts.merge_operator = ioptions.merge_operator;
-  cf_opts.compaction_filter = ioptions.compaction_filter;
-  cf_opts.compaction_filter_factory = ioptions.compaction_filter_factory;
-  cf_opts.min_write_buffer_number_to_merge =
+void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
+                               ColumnFamilyOptions* cf_opts) {
+  cf_opts->compaction_style = ioptions.compaction_style;
+  cf_opts->compaction_pri = ioptions.compaction_pri;
+  cf_opts->comparator = ioptions.user_comparator;
+  cf_opts->merge_operator = ioptions.merge_operator;
+  cf_opts->compaction_filter = ioptions.compaction_filter;
+  cf_opts->compaction_filter_factory = ioptions.compaction_filter_factory;
+  cf_opts->min_write_buffer_number_to_merge =
       ioptions.min_write_buffer_number_to_merge;
-  cf_opts.max_write_buffer_number_to_maintain =
+  cf_opts->max_write_buffer_number_to_maintain =
       ioptions.max_write_buffer_number_to_maintain;
-  cf_opts.max_write_buffer_size_to_maintain =
+  cf_opts->max_write_buffer_size_to_maintain =
       ioptions.max_write_buffer_size_to_maintain;
-  cf_opts.inplace_update_support = ioptions.inplace_update_support;
-  cf_opts.inplace_callback = ioptions.inplace_callback;
-  cf_opts.memtable_factory = ioptions.memtable_factory;
-  cf_opts.table_factory = ioptions.table_factory;
-  cf_opts.table_properties_collector_factories =
+  cf_opts->inplace_update_support = ioptions.inplace_update_support;
+  cf_opts->inplace_callback = ioptions.inplace_callback;
+  cf_opts->memtable_factory = ioptions.memtable_factory;
+  cf_opts->table_factory = ioptions.table_factory;
+  cf_opts->table_properties_collector_factories =
       ioptions.table_properties_collector_factories;
-  cf_opts.bloom_locality = ioptions.bloom_locality;
-  cf_opts.purge_redundant_kvs_while_flush =
+  cf_opts->bloom_locality = ioptions.bloom_locality;
+  cf_opts->purge_redundant_kvs_while_flush =
       ioptions.purge_redundant_kvs_while_flush;
-  cf_opts.compression_per_level = ioptions.compression_per_level;
-  cf_opts.level_compaction_dynamic_level_bytes =
+  cf_opts->compression_per_level = ioptions.compression_per_level;
+  cf_opts->level_compaction_dynamic_level_bytes =
       ioptions.level_compaction_dynamic_level_bytes;
-  cf_opts.num_levels = ioptions.num_levels;
-  cf_opts.optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
-  cf_opts.force_consistency_checks = ioptions.force_consistency_checks;
-  cf_opts.memtable_insert_with_hint_prefix_extractor =
+  cf_opts->num_levels = ioptions.num_levels;
+  cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
+  cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
+  cf_opts->memtable_insert_with_hint_prefix_extractor =
       ioptions.memtable_insert_with_hint_prefix_extractor;
-  cf_opts.cf_paths = ioptions.cf_paths;
-  cf_opts.compaction_thread_limiter = ioptions.compaction_thread_limiter;
-  cf_opts.sst_partitioner_factory = ioptions.sst_partitioner_factory;
+  cf_opts->cf_paths = ioptions.cf_paths;
+  cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
+  cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
-
-  return cf_opts;
 }
 
 std::map<CompactionStyle, std::string>
