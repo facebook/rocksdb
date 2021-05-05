@@ -2468,6 +2468,16 @@ void StressTest::Open() {
 #ifndef NDEBUG
         if (ingest_meta_error) {
           fault_fs_guard->DisableMetadataWriteErrorInjection();
+          if (s.ok()) {
+            // Ingested errors might happen in background compactions. We
+            // wait for all compactions to finish to make sure DB is in
+            // clean state before executing queries.
+            s = static_cast_with_check<DBImpl>(db_->GetRootDB())
+                    ->TEST_WaitForCompact(true);
+            if (!s.ok()) {
+              delete db_;
+            }
+          }
           if (!s.ok()) {
             // After failure to opening a DB due to IO error, retry should
             // successfully open the DB with correct data if no IO error shows
