@@ -103,8 +103,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         TableBuilderOptions(
             ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
             CompressionType::kNoCompression, CompressionOptions(),
-            false /* skip_filters */, kDefaultColumnFamilyName, unknown_level),
-        0 /* column_family_id */, file_writer.get());
+            0 /* column_family_id */, kDefaultColumnFamilyName, unknown_level),
+        file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
