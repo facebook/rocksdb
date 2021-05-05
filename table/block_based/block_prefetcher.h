@@ -19,6 +19,22 @@ class BlockPrefetcher {
                         bool is_for_compaction);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
+  void UpdateReadPattern(const size_t& offset, const size_t& len) {
+    prev_offset_ = offset;
+    prev_len_ = len;
+  }
+
+  bool IsBlockSequential(const size_t& offset) {
+    return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
+  }
+
+  void ResetValues() {
+    num_file_reads_ = 1;
+    readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
+    readahead_limit_ = 0;
+    return;
+  }
+
  private:
   // Readahead size used in compaction, its value is used only if
   // lookup_context_.caller = kCompaction.
@@ -27,6 +43,8 @@ class BlockPrefetcher {
   size_t readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;
   int64_t num_file_reads_ = 0;
+  size_t prev_offset_ = 0;
+  size_t prev_len_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 }  // namespace ROCKSDB_NAMESPACE

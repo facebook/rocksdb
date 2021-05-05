@@ -272,11 +272,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_dir), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"WAL_size_limit_MB",
-         {offsetof(struct ImmutableDBOptions, wal_size_limit_mb),
+         {offsetof(struct ImmutableDBOptions, WAL_size_limit_MB),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"WAL_ttl_seconds",
-         {offsetof(struct ImmutableDBOptions, wal_ttl_seconds),
+         {offsetof(struct ImmutableDBOptions, WAL_ttl_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"max_manifest_file_size",
@@ -435,10 +435,9 @@ const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 
 class MutableDBConfigurable : public Configurable {
  public:
-  MutableDBConfigurable(const MutableDBOptions& mdb) {
+  explicit MutableDBConfigurable(const MutableDBOptions& mdb) {
     mutable_ = mdb;
-    ConfigurableHelper::RegisterOptions(*this, &mutable_,
-                                        &db_mutable_options_type_info);
+    RegisterOptions(&mutable_, &db_mutable_options_type_info);
   }
 
  protected:
@@ -447,7 +446,7 @@ class MutableDBConfigurable : public Configurable {
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  DBOptionsConfigurable(const DBOptions& opts)
+  explicit DBOptionsConfigurable(const DBOptions& opts)
       : MutableDBConfigurable(MutableDBOptions(opts)), db_options_(opts) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is
@@ -458,8 +457,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
-    ConfigurableHelper::RegisterOptions(*this, &immutable_,
-                                        &db_immutable_options_type_info);
+    RegisterOptions(&immutable_, &db_immutable_options_type_info);
   }
 
  protected:
@@ -509,7 +507,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
       env(options.env),
-      fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
@@ -526,8 +523,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       recycle_log_file_num(options.recycle_log_file_num),
       max_manifest_file_size(options.max_manifest_file_size),
       table_cache_numshardbits(options.table_cache_numshardbits),
-      wal_ttl_seconds(options.WAL_ttl_seconds),
-      wal_size_limit_mb(options.WAL_size_limit_MB),
+      WAL_ttl_seconds(options.WAL_ttl_seconds),
+      WAL_size_limit_MB(options.WAL_size_limit_MB),
       max_write_batch_group_size_bytes(
           options.max_write_batch_group_size_bytes),
       manifest_preallocation_size(options.manifest_preallocation_size),
@@ -583,11 +580,14 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types) {
+  fs = env->GetFileSystem();
   if (env != nullptr) {
     clock = env->GetSystemClock().get();
   } else {
     clock = SystemClock::Default().get();
   }
+  logger = info_log.get();
+  stats = statistics.get();
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -650,10 +650,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    table_cache_numshardbits);
   ROCKS_LOG_HEADER(log,
                    "                        Options.WAL_ttl_seconds: %" PRIu64,
-                   wal_ttl_seconds);
+                   WAL_ttl_seconds);
   ROCKS_LOG_HEADER(log,
                    "                      Options.WAL_size_limit_MB: %" PRIu64,
-                   wal_size_limit_mb);
+                   WAL_size_limit_MB);
   ROCKS_LOG_HEADER(log,
                    "                       "
                    "Options.max_write_batch_group_size_bytes: %" PRIu64,
