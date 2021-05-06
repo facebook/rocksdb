@@ -101,7 +101,7 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "use_clock_cache": lambda: random.choice([0, 0, 0, 1]),
+    "use_clock_cache": 0, # currently broken
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     "use_ribbon_filter": lambda: random.randint(0, 1),
