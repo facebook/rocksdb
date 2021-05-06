@@ -712,25 +712,57 @@ TEST_P(CacheTest, OverCapacity) {
 }
 
 namespace {
-std::vector<std::pair<int, int>> callback_state;
-void callback(void* entry, size_t charge) {
-  callback_state.push_back({DecodeValue(entry), static_cast<int>(charge)});
+std::vector<std::pair<int, int>> legacy_callback_state;
+void legacy_callback(void* value, size_t charge) {
+  legacy_callback_state.push_back(
+      {DecodeValue(value), static_cast<int>(charge)});
 }
 };
 
-TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
+TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::vector<std::pair<int, int>> inserted;
-  callback_state.clear();
+  legacy_callback_state.clear();
 
   for (int i = 0; i < 10; ++i) {
     Insert(i, i * 2, i + 1);
     inserted.push_back({i * 2, i + 1});
   }
-  cache_->ApplyToAllCacheEntries(callback, true);
+  cache_->ApplyToAllCacheEntries(legacy_callback, true);
+
+  std::sort(inserted.begin(), inserted.end());
+  std::sort(legacy_callback_state.begin(), legacy_callback_state.end());
+  ASSERT_EQ(inserted.size(), legacy_callback_state.size());
+  for (size_t i = 0; i < inserted.size(); ++i) {
+    EXPECT_EQ(inserted[i], legacy_callback_state[i]);
+  }
+}
+
+TEST_P(CacheTest, ApplyToAllEntriesTest) {
+  std::vector<std::string> callback_state;
+  const auto callback = [&](const Slice& key, void* value, size_t charge,
+                            Cache::DeleterFn deleter) {
+    callback_state.push_back(ToString(DecodeKey(key)) + "," +
+                             ToString(DecodeValue(value)) + "," +
+                             ToString(charge));
+    assert(deleter == &CacheTest::Deleter);
+  };
+
+  std::vector<std::string> inserted;
+  callback_state.clear();
+
+  for (int i = 0; i < 10; ++i) {
+    Insert(i, i * 2, i + 1);
+    inserted.push_back(ToString(i) + "," + ToString(i * 2) + "," +
+                       ToString(i + 1));
+  }
+  cache_->ApplyToAllEntries(callback);
 
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
-  ASSERT_TRUE(inserted == callback_state);
+  ASSERT_EQ(inserted.size(), callback_state.size());
+  for (size_t i = 0; i < inserted.size(); ++i) {
+    EXPECT_EQ(inserted[i], callback_state[i]);
+  }
 }
 
 TEST_P(CacheTest, DefaultShardBits) {
