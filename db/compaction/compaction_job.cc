@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
 #include "db/builder.h"
@@ -1138,6 +1139,21 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   input->SeekToFirst();
 
+  Version* const input_version = sub_compact->compaction->input_version();
+  assert(input_version);
+
+  const VersionStorageInfo* const storage_info = input_version->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  std::unique_ptr<InternalIterator> blob_counter(
+      !blob_files.empty() ? new BlobCountingIterator(raw_input.get())
+                          : nullptr);
+
+  InternalIterator* const input =
+      blob_counter ? blob_counter.get() : raw_input.get();
+
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
 
@@ -1415,6 +1431,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
   sub_compact->c_iter.reset();
+  blob_counter.reset();
   clip.reset();
   raw_input.reset();
   sub_compact->status = status;
