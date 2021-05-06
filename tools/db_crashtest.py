@@ -615,7 +615,7 @@ def whitebox_crash_main(args, unknown_args):
         print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT)
+                                 stderr=subprocess.PIPE)
         stdoutdata, stderrdata = popen.communicate()
         if stdoutdata:
             stdoutdata = stdoutdata.decode('utf-8')
@@ -624,8 +624,10 @@ def whitebox_crash_main(args, unknown_args):
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
                check_mode, additional_opts['kill_random_test'], retncode))
+
         print(msg)
         print(stdoutdata)
+        print(stderrdata)
 
         expected = False
         if additional_opts['kill_random_test'] is None and (retncode == 0):
@@ -640,15 +642,16 @@ def whitebox_crash_main(args, unknown_args):
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
-        stdoutdata = stdoutdata.lower()
-        errorcount = (stdoutdata.count('error') -
-                      stdoutdata.count('got errors 0 times'))
-        print("#times error occurred in output is " + str(errorcount) + "\n")
+        stderrdata = stderrdata.lower()
+        errorcount = (stderrdata.count('error') -
+                      stderrdata.count('got errors 0 times'))
+        print("#times error occurred in output is " + str(errorcount) +
+                "\n")
 
         if (errorcount > 0):
             print("TEST FAILED. Output has 'error'!!!\n")
             sys.exit(2)
-        if (stdoutdata.find('fail') >= 0):
+        if (stderrdata.find('fail') >= 0):
             print("TEST FAILED. Output has 'fail'!!!\n")
             sys.exit(2)
 
