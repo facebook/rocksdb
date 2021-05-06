@@ -9,11 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stdlib.h>
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
+#include <cstdlib>
 #include <functional>
 #include <future>
 #include <limits>
@@ -50,7 +49,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+using ShareFilesNaming = BackupEngineOptions::ShareFilesNaming;
 
 constexpr BackupID kLatestBackupIDMarker = static_cast<BackupID>(-2);
 
@@ -100,7 +99,7 @@ std::string BackupStatistics::ToString() const {
   return result;
 }
 
-void BackupableDBOptions::Dump(Logger* logger) const {
+void BackupEngineOptions::Dump(Logger* logger) const {
   ROCKS_LOG_INFO(logger, "               Options.backup_dir: %s",
                  backup_dir.c_str());
   ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env);
@@ -124,7 +123,7 @@ void BackupableDBOptions::Dump(Logger* logger) const {
 // -------- BackupEngineImpl class ---------
 class BackupEngineImpl {
  public:
-  BackupEngineImpl(const BackupableDBOptions& options, Env* db_env,
+  BackupEngineImpl(const BackupEngineOptions& options, Env* db_env,
                    bool read_only = false);
   ~BackupEngineImpl();
 
@@ -168,11 +167,11 @@ class BackupEngineImpl {
 
   ShareFilesNaming GetNamingNoFlags() const {
     return options_.share_files_with_checksum_naming &
-           BackupableDBOptions::kMaskNoNamingFlags;
+           BackupEngineOptions::kMaskNoNamingFlags;
   }
   ShareFilesNaming GetNamingFlags() const {
     return options_.share_files_with_checksum_naming &
-           BackupableDBOptions::kMaskNamingFlags;
+           BackupEngineOptions::kMaskNamingFlags;
   }
 
  private:
@@ -494,7 +493,7 @@ class BackupEngineImpl {
   }
   inline bool UseLegacyNaming(const std::string& sid) const {
     return GetNamingNoFlags() ==
-               BackupableDBOptions::kLegacyCrc32cAndFileSize ||
+               BackupEngineOptions::kLegacyCrc32cAndFileSize ||
            sid.empty();
   }
   inline std::string GetSharedFileWithChecksum(
@@ -509,7 +508,7 @@ class BackupEngineImpl {
                            ToString(file_size));
     } else {
       file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
-      if (GetNamingFlags() & BackupableDBOptions::kFlagIncludeFileSize) {
+      if (GetNamingFlags() & BackupEngineOptions::kFlagIncludeFileSize) {
         file_copy.insert(file_copy.find_last_of('.'),
                          "_" + ToString(file_size));
       }
@@ -775,7 +774,7 @@ class BackupEngineImpl {
   std::atomic<bool> stop_backup_;
 
   // options data
-  BackupableDBOptions options_;
+  BackupEngineOptions options_;
   Env* db_env_;
   Env* backup_env_;
 
@@ -803,7 +802,7 @@ class BackupEngineImpl {
 class BackupEngineImplThreadSafe : public BackupEngine,
                                    public BackupEngineReadOnly {
  public:
-  BackupEngineImplThreadSafe(const BackupableDBOptions& options, Env* db_env,
+  BackupEngineImplThreadSafe(const BackupEngineOptions& options, Env* db_env,
                              bool read_only = false)
       : impl_(options, db_env, read_only) {}
   ~BackupEngineImplThreadSafe() override {}
@@ -902,7 +901,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   BackupEngineImpl impl_;
 };
 
-Status BackupEngine::Open(const BackupableDBOptions& options, Env* env,
+Status BackupEngine::Open(const BackupEngineOptions& options, Env* env,
                           BackupEngine** backup_engine_ptr) {
   std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
       new BackupEngineImplThreadSafe(options, env));
@@ -915,7 +914,7 @@ Status BackupEngine::Open(const BackupableDBOptions& options, Env* env,
   return Status::OK();
 }
 
-BackupEngineImpl::BackupEngineImpl(const BackupableDBOptions& options,
+BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
                                    Env* db_env, bool read_only)
     : initialized_(false),
       threads_cpu_priority_(),
@@ -1256,7 +1255,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (options_.share_table_files && !options_.share_files_with_checksum) {
     ROCKS_LOG_WARN(options_.info_log,
-                   "BackupableDBOptions::share_files_with_checksum=false is "
+                   "BackupEngineOptions::share_files_with_checksum=false is "
                    "DEPRECATED and could lead to data loss.");
   }
 
@@ -1971,7 +1970,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize &&
+    if (GetNamingNoFlags() != BackupEngineOptions::kLegacyCrc32cAndFileSize &&
         file_type != kBlobFile) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
@@ -2834,7 +2833,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
   return s;
 }
 
-Status BackupEngineReadOnly::Open(const BackupableDBOptions& options, Env* env,
+Status BackupEngineReadOnly::Open(const BackupEngineOptions& options, Env* env,
                                   BackupEngineReadOnly** backup_engine_ptr) {
   if (options.destroy_old_data) {
     return Status::InvalidArgument(
