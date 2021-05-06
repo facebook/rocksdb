@@ -508,6 +508,10 @@ size_t LRUCache::GetCharge(Handle* handle) const {
   return reinterpret_cast<const LRUHandle*>(handle)->charge;
 }
 
+Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
+  return reinterpret_cast<const LRUHandle*>(handle)->deleter;
+}
+
 uint32_t LRUCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const LRUHandle*>(handle)->hash;
 }

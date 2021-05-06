@@ -5,7 +5,11 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdint>
+#include <string>
+
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,5 +30,33 @@ enum class BlockType : uint8_t {
   // Note: keep kInvalid the last value when adding new enum values.
   kInvalid
 };
+
+inline std::string BlockTypeToString(BlockType type) {
+  switch (type) {
+    case BlockType::kData:
+      return "Data";
+    case BlockType::kFilter:
+      return "Filter";
+    case BlockType::kProperties:
+      return "Properties";
+    case BlockType::kCompressionDictionary:
+      return "CompressionDictionary";
+    case BlockType::kRangeDeletion:
+      return "RangeDeletion";
+    case BlockType::kHashIndexPrefixes:
+      return "HashIndexPrefixes";
+    case BlockType::kHashIndexMetadata:
+      return "HashIndexMetadata";
+    case BlockType::kMetaIndex:
+      return "MetaIndex";
+    case BlockType::kIndex:
+      return "Index";
+    default:
+      assert(false);
+      FALLTHROUGH_INTENDED;
+    case BlockType::kInvalid:
+      return "Invalid";
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -24,9 +24,9 @@ class CacheShard {
   CacheShard() = default;
   virtual ~CacheShard() = default;
 
+  using DeleterFn = Cache::DeleterFn;
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
-                        size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
+                        size_t charge, DeleterFn deleter,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
@@ -57,21 +57,16 @@ class ShardedCache : public Cache {
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
                std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
-  virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
   virtual const CacheShard* GetShard(int shard) const = 0;
-  virtual void* Value(Handle* handle) override = 0;
-  virtual size_t GetCharge(Handle* handle) const override = 0;
-
   virtual uint32_t GetHash(Handle* handle) const = 0;
-  virtual void DisownData() override = 0;
 
   virtual void SetCapacity(size_t capacity) override;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
-                        Handle** handle, Priority priority) override;
+                        DeleterFn deleter, Handle** handle,
+                        Priority priority) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
   virtual bool Ref(Handle* handle) override;
   virtual bool Release(Handle* handle, bool force_erase = false) override;

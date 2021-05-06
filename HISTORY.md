@@ -52,6 +52,7 @@
 * Added an optional output parameter to BackupEngine::CreateNewBackup(WithMetadata) to return the BackupID of the new backup.
 * Added BackupEngine::GetBackupInfo / GetLatestBackupInfo for querying individual backups.
 * Made the Ribbon filter a long-term supported feature in terms of the SST schema(compatible with version >= 6.15.0) though the API for enabling it is expected to change.
+* Added BlockBasedTableOptions::extra_block_cache_checks. When set to true, RocksDB does a kind of type checking on block cache accesses to detect and report some corruptions, due to logical error or memory corruption. This is mostly intended for integration and stress testing, because it incurs a measurable performance penalty.
 
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes

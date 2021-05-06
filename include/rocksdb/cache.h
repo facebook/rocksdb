@@ -171,6 +171,11 @@ class Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
+  // A function pointer type for custom destruction of an entry's
+  // value. The Cache is responsible for copying and reclaiming space
+  // for the key, but values are managed by the caller.
+  using DeleterFn = void (*)(const Slice& key, void* value);
+
   // The type of the Cache
   virtual const char* Name() const = 0;
 
@@ -188,10 +193,11 @@ class Cache {
   // insert. In case of error value will be cleanup.
   //
   // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter".
+  // value will be passed to "deleter" which must delete the value.
+  // (The Cache is responsible for copying and reclaiming space for
+  // the key.)
   virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
-                        Handle** handle = nullptr,
+                        DeleterFn deleter, Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.
@@ -267,6 +273,12 @@ class Cache {
 
   // returns the charge for the specific entry in the cache.
   virtual size_t GetCharge(Handle* handle) const = 0;
+
+  // Returns the deleter for the specified entry. This might seem useless
+  // as the Cache itself is responsible for calling the deleter, but
+  // the deleter can essentially verify that a cache entry is of an
+  // expected type from an expected code source.
+  virtual DeleterFn GetDeleter(Handle* handle) const = 0;
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak

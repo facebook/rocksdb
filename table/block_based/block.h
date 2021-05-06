@@ -148,6 +148,7 @@ class BlockReadAmpBitmap {
 //
 // See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
 // for details of the format and the various block types.
+// TODO(peterd): Rename to ParsedKvBlock
 class Block {
  public:
   // Initialize the block with the specified contents.

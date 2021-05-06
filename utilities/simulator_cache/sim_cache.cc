@@ -242,6 +242,10 @@ class SimCacheImpl : public SimCache {
     return cache_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return cache_->GetDeleter(handle);
+  }
+
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
   void DisownData() override {
@@ -249,7 +253,7 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->DisownData();
   }
 
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+  void ApplyToAllCacheEntries(void (*callback)(void* value, size_t charge),
                               bool thread_safe) override {
     // only apply to _cache since key_only_cache doesn't hold value
     cache_->ApplyToAllCacheEntries(callback, thread_safe);

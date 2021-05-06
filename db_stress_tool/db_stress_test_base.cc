@@ -2139,6 +2139,8 @@ void StressTest::Open() {
         static_cast<PinningTier>(FLAGS_unpartitioned_pinning);
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
+    // Always extra_block_cache_checks for db_stress
+    block_based_options.extra_block_cache_checks = true;
     block_based_options.block_size = FLAGS_block_size;
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);

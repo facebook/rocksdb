@@ -178,7 +178,7 @@ struct CacheHandle {
   Slice key;
   void* value;
   size_t charge;
-  void (*deleter)(const Slice&, void* value);
+  Cache::DeleterFn deleter;
   uint32_t hash;
 
   // Addition to "charge" to get "total charge" under metadata policy.
@@ -757,6 +757,10 @@ class ClockCache final : public ShardedCache {
 
   uint32_t GetHash(Handle* handle) const override {
     return reinterpret_cast<const CacheHandle*>(handle)->hash;
+  }
+
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return reinterpret_cast<const CacheHandle*>(handle)->deleter;
   }
 
   void DisownData() override {

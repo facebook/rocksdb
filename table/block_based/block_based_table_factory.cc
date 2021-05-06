@@ -269,6 +269,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, no_block_cache),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"extra_block_cache_checks",
+         {offsetof(struct BlockBasedTableOptions, extra_block_cache_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"block_size",
          {offsetof(struct BlockBasedTableOptions, block_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -467,6 +471,9 @@ void BlockBasedTableFactory::InitializeOptions() {
     // We do not support partitioned filters without partitioning indexes
     table_options_.partition_filters = false;
   }
+#ifdef ROCKSDB_EXTRA_BLOCK_CACHE_CHECKS
+  table_options_.extra_block_cache_checks = true;
+#endif
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {

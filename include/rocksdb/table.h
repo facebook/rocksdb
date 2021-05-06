@@ -248,6 +248,12 @@ struct BlockBasedTableOptions {
   //       same type of object there.
   std::shared_ptr<Cache> block_cache_compressed = nullptr;
 
+  // Enables extra checks for block cache accesses that could improve
+  // detection of some logical errors or memory corruptions. This is
+  // intended mostly for integration and stress testing, because it incurs
+  // a performance penalty.
+  bool extra_block_cache_checks = false;
+
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if

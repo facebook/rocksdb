@@ -10,11 +10,42 @@
 #pragma once
 
 #include <cassert>
+
 #include "port/likely.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/cleanable.h"
+#include "table/block_based/block_type.h"
+#include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+enum class CacheEntryType : uint8_t {
+  // (Skipping 0 so that random data in memory is less likely to match.)
+  // BlockContents
+  kUncompressedRaw = 1,
+  // Block (semi-parsed K-V data, e.g. for index and data blocks)
+  kParsedKvBlock,
+  // ParsedFullFilterBlock
+  kParsedFullFilterBlock,
+  // UncompressionDict
+  kUncompressionDict,
+};
+
+inline std::string CacheEntryTypeToString(CacheEntryType type) {
+  switch (type) {
+    case CacheEntryType::kUncompressedRaw:
+      return "UncompressedRaw";
+    case CacheEntryType::kParsedKvBlock:
+      return "ParsedKvBlock";
+    case CacheEntryType::kParsedFullFilterBlock:
+      return "ParsedFullFilterBlock";
+    case CacheEntryType::kUncompressionDict:
+      return "UncompressionDict";
+    default:
+      assert(false);
+      return "Invalid";
+  }
+}
 
 // CachableEntry is a handle to an object that may or may not be in the block
 // cache. It is used in a variety of ways:
@@ -179,7 +210,24 @@ public:
     assert(!own_value_);
   }
 
-private:
+  uint32_t GetNumRestarts();
+
+ public:  // static utility functions
+  static T* CreateValue(BlockContents&& contents,
+                        size_t /* read_amp_bytes_per_bit */,
+                        Statistics* /* statistics */, bool /* using_zstd */,
+                        const FilterPolicy* /* filter_policy */);
+
+  static CacheEntryType GetType();
+
+  static Cache::DeleterFn GetDeleterForBlockType(BlockType block_type);
+
+  static Status CastValueMaybeChecked(Cache::Handle* from_handle,
+                                      Cache* from_cache,
+                                      BlockType expected_block_type, T** result,
+                                      bool check);
+
+ private:  // functions
   void ReleaseResource() {
     if (LIKELY(cache_handle_ != nullptr)) {
       assert(cache_ != nullptr);
@@ -210,11 +258,14 @@ private:
     delete static_cast<T*>(arg1);
   }
 
-private:
+ private:  // data
   T* value_ = nullptr;
   Cache* cache_ = nullptr;
   Cache::Handle* cache_handle_ = nullptr;
   bool own_value_ = false;
 };
+
+bool ParseTypesFromDeleter(Cache::DeleterFn deleter, CacheEntryType* entry_type,
+                           BlockType* block_type);
 
 }  // namespace ROCKSDB_NAMESPACE
