@@ -36,8 +36,7 @@ ConfigOptions::ConfigOptions()
   env = Env::Default();
 }
 
-ConfigOptions::ConfigOptions(const DBOptions& db_opts)
-    : env(db_opts.env), info_log(db_opts.info_log) {
+ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
 #ifndef ROCKSDB_LITE
   registry = ObjectRegistry::NewInstance();
 #endif

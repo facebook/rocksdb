@@ -63,13 +63,19 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   return instance;
 }
 
-std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
-  std::shared_ptr<ObjectRegistry> instance = std::make_shared<ObjectRegistry>();
+std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
+  static std::shared_ptr<ObjectRegistry> instance(
+      new ObjectRegistry(ObjectLibrary::Default()));
   return instance;
 }
 
-ObjectRegistry::ObjectRegistry() {
-  libraries_.push_back(ObjectLibrary::Default());
+std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
+  return std::make_shared<ObjectRegistry>(Default());
+}
+
+std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
+    const std::shared_ptr<ObjectRegistry> &parent) {
+  return std::make_shared<ObjectRegistry>(parent);
 }
 
 // Searches (from back to front) the libraries looking for the
@@ -83,12 +89,19 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
       return entry;
     }
   }
-  return nullptr;
+  if (parent_ != nullptr) {
+    return parent_->FindEntry(type, name);
+  } else {
+    return nullptr;
+  }
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {
   for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
     iter->get()->Dump(logger);
+  }
+  if (parent_ != nullptr) {
+    parent_->Dump(logger);
   }
 }
 

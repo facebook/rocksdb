@@ -722,10 +722,10 @@ class LoadCustomizableTest : public testing::Test {
   LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
   bool RegisterTests(const std::string& arg) {
 #ifndef ROCKSDB_LITE
-    config_options_.registry->AddLibrary(
-        std::make_shared<ObjectLibrary>(RegisterTestObjects, arg));
-    config_options_.registry->AddLibrary(
-        std::make_shared<ObjectLibrary>(RegisterLocalObjects, arg));
+    config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
+                                         arg);
+    config_options_.registry->AddLibrary("local-tests", RegisterLocalObjects,
+                                         arg);
     return true;
 #else
     (void)arg;

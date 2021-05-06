@@ -35,8 +35,8 @@ struct ConfigOptions {
   // else registry settings may be lost
   ConfigOptions();
 
-  // Constructs a new ConfigOptions using the setings from
-  // the input DBOptions.
+  // Constructs a new ConfigOptions using the settings from
+  // the input DBOptions.  Currently constructs a new object registry.
   explicit ConfigOptions(const DBOptions&);
 
   // This enum defines the RocksDB options sanity level.
@@ -89,9 +89,6 @@ struct ConfigOptions {
 
   // The environment to use for this option
   Env* env = Env::Default();
-
-  // The logger for this options
-  std::shared_ptr<Logger> info_log = nullptr;
 
 #ifndef ROCKSDB_LITE
   // The object registry to use for this options

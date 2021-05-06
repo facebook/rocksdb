@@ -4000,8 +4000,8 @@ TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
   DBOptions db_opts;
   Options opts;
   Env* mem_env = NewMemEnv(Env::Default());
-  config_options.registry->AddLibrary(
-      std::make_shared<ObjectLibrary>(RegisterCustomEnv, kCustomEnvName));
+  config_options.registry->AddLibrary("custom-env", RegisterCustomEnv,
+                                      kCustomEnvName);
 
   config_options.env = mem_env;
   // First test that we can get the env as expected
