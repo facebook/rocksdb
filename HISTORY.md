@@ -23,7 +23,7 @@
 * ClockCache is known to have bugs that could lead to crash or corruption, so should not be used until fixed. Use NewLRUCache instead.
 
 ### Default Option Change
-* Change default memtable_prefix_bloom_size_ratio from 0 to 0.015 and memtable_whole_key_filtering from false to true. It means that memtable bloom filter will be on, which uses up to 1.5% of memtable space.
+* When options.arena_block_size <= 0 (default value 0), still use writer_buffer_size / 8 but cap to 1MB. Too large alloation size might not be friendly to allocator and might cause performance issues in extreme cases.
 
 ## 6.20.0 (04/16/2021)
 ### Behavior Changes
