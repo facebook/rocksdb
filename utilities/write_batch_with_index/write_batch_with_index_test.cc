@@ -2079,6 +2079,34 @@ TEST_P(WriteBatchWithIndexTest, GetAfterMergeDelete) {
   ASSERT_EQ(value, "cc,dd");
 }
 
+TEST_F(WBWIOverwriteTest, TestBadMergeOperator) {
+  class FailingMergeOperator : public MergeOperator {
+   public:
+    FailingMergeOperator() {}
+
+    bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                     MergeOperationOutput* /*merge_out*/) const override {
+      return false;
+    }
+
+    const char* Name() const override { return "Failing"; }
+  };
+  options_.merge_operator.reset(new FailingMergeOperator());
+  ASSERT_OK(OpenDB());
+
+  ColumnFamilyHandle* column_family = db_->DefaultColumnFamily();
+  std::string value;
+
+  ASSERT_OK(db_->Put(write_opts_, "a", "a0"));
+  ASSERT_OK(batch_->Put("b", "b0"));
+
+  ASSERT_OK(batch_->Merge("a", "a1"));
+  ASSERT_NOK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+  ASSERT_NOK(batch_->GetFromBatch(column_family, options_, "a", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "b", &value));
+  ASSERT_OK(batch_->GetFromBatch(column_family, options_, "b", &value));
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 }  // namespace ROCKSDB_NAMESPACE
 
