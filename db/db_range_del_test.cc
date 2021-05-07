@@ -110,6 +110,28 @@ TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
                          kSkipFIFOCompaction));
 }
 
+TEST_F(DBRangeDelTest, DBInvalidRangeCascadingProblem) {
+  DB* db;
+
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  std::string dbname = test::PerThreadDBPath("db_write_batch_problem");
+
+  ASSERT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  WriteOptions write_options;
+
+  Status s1 = db->DeleteRange(write_options, nullptr, "Y", "Z");
+  ASSERT_OK(s1);
+  Status s2 = db->DeleteRange(write_options, nullptr, "Z", "Y");
+  ASSERT_TRUE(s2.IsInvalidArgument());
+  Status s3 = db->DeleteRange(write_options, nullptr, "A", "B");
+  ASSERT_OK(s3);  // This fails, "end key comes before start key" !!
+}
+
 TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   // regression test for exactly filled compaction output files. Previously
   // another file would be generated containing all range deletions, which
