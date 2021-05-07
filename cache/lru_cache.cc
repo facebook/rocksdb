@@ -12,16 +12,16 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
-#include <string>
 
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-LRUHandleTable::LRUHandleTable()
-    : length_bits_(4),
+LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
+    : length_bits_(/* historical starting size*/ 4),
       list_(new LRUHandle* [size_t{1} << length_bits_] {}),
-      elems_(0) {}
+      elems_(0),
+      max_length_bits_(max_upper_hash_bits) {}
 
 LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
@@ -31,7 +31,6 @@ LRUHandleTable::~LRUHandleTable() {
         }
       },
       0, uint32_t{1} << length_bits_);
-  delete[] list_;
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
@@ -73,13 +72,24 @@ LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
 }
 
 void LRUHandleTable::Resize() {
-  // FIXME: don't resize beyond shard_bits + length_bits == 32, unless
-  // we upgrade hash (storage) to 64 bits.
-  int old_length_bits = length_bits_;
+  if (length_bits_ >= max_length_bits_) {
+    // Due to reaching limit of hash information, if we made the table
+    // bigger, we would allocate more addresses but only the same
+    // number would be used.
+    return;
+  }
+  if (length_bits_ >= 31) {
+    // Avoid undefined behavior shifting uint32_t by 32
+    return;
+  }
+
+  uint32_t old_length = uint32_t{1} << length_bits_;
   int new_length_bits = length_bits_ + 1;
-  LRUHandle** new_list = new LRUHandle* [size_t{1} << new_length_bits] {};
+  std::unique_ptr<LRUHandle* []> new_list {
+    new LRUHandle* [size_t{1} << new_length_bits] {}
+  };
   uint32_t count = 0;
-  for (uint32_t i = 0; (i >> old_length_bits) == 0; i++) {
+  for (uint32_t i = 0; i < old_length; i++) {
     LRUHandle* h = list_[i];
     while (h != nullptr) {
       LRUHandle* next = h->next_hash;
@@ -92,20 +102,21 @@ void LRUHandleTable::Resize() {
     }
   }
   assert(elems_ == count);
-  delete[] list_;
-  list_ = new_list;
+  list_ = std::move(new_list);
   length_bits_ = new_length_bits;
 }
 
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
                              bool use_adaptive_mutex,
-                             CacheMetadataChargePolicy metadata_charge_policy)
+                             CacheMetadataChargePolicy metadata_charge_policy,
+                             int max_upper_hash_bits)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
       high_pri_pool_ratio_(high_pri_pool_ratio),
       high_pri_pool_capacity_(0),
+      table_(max_upper_hash_bits),
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex) {
@@ -499,7 +510,8 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
         LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio,
-                      use_adaptive_mutex, metadata_charge_policy);
+                      use_adaptive_mutex, metadata_charge_policy,
+                      /* max_upper_hash_bits */ 32 - num_shard_bits);
   }
 }
 

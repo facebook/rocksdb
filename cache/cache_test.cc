@@ -765,6 +765,45 @@ TEST_P(CacheTest, ApplyToAllEntriesTest) {
   }
 }
 
+TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
+  // This is a mini-stress test of ApplyToAllEntries, to ensure
+  // items in the cache that are neither added nor removed
+  // during ApplyToAllEntries are counted exactly once.
+
+  // Insert some entries that we expect to be seen exactly once
+  // during iteration.
+  constexpr int kSpecialCharge = 2;
+  constexpr int kNotSpecialCharge = 1;
+  constexpr int kSpecialCount = 100;
+  for (int i = 0; i < kSpecialCount; ++i) {
+    Insert(i, i * 2, kSpecialCharge);
+  }
+
+  // For callback
+  int special_count = 0;
+  const auto callback = [&](const Slice&, void*, size_t charge,
+                            Cache::DeleterFn) {
+    if (charge == static_cast<size_t>(kSpecialCharge)) {
+      ++special_count;
+    }
+  };
+
+  // Start counting
+  std::thread apply_thread([&]() {
+    // Use small average_entries_per_lock to make the problem difficult
+    cache_->ApplyToAllEntries(callback, /* average_entries_per_lock */ 2);
+  });
+
+  // In parallel, add more entries, enough to cause resize but not enough
+  // to cause ejections
+  for (int i = kSpecialCount * 1; i < kSpecialCount * 6; ++i) {
+    Insert(i, i * 2, kNotSpecialCharge);
+  }
+
+  apply_thread.join();
+  ASSERT_EQ(special_count, kSpecialCount);
+}
+
 TEST_P(CacheTest, DefaultShardBits) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.

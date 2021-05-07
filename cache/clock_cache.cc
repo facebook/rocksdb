@@ -438,7 +438,7 @@ void ClockCacheShard::ApplyToSomeEntries(
   auto cur = list_.begin() + start_idx;
   auto end = list_.begin() + end_idx;
   for (; cur != end; ++cur) {
-    CacheHandle& handle = *cur;
+    const CacheHandle& handle = *cur;
     // Use relaxed semantics instead of acquire semantics since we are
     // holding mutex
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);

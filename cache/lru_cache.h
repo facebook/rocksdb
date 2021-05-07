@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "cache/sharded_cache.h"
@@ -152,7 +153,10 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  LRUHandleTable();
+  // If the table uses more hash bits than `max_upper_hash_bits`,
+  // it will eat into the bits used for sharding, which are constant
+  // for a given LRUHandleTable.
+  LRUHandleTable(int max_upper_hash_bits);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
@@ -172,7 +176,7 @@ class LRUHandleTable {
     }
   }
 
-  int GetLengthBits() { return length_bits_; }
+  int GetLengthBits() const { return length_bits_; }
 
  private:
   // Return a pointer to slot that points to a cache entry that
@@ -188,10 +192,13 @@ class LRUHandleTable {
 
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
-  LRUHandle** list_;
+  std::unique_ptr<LRUHandle*[]> list_;
 
   // Number of elements currently in the table
   uint32_t elems_;
+
+  // Set from max_upper_hash_bits (see constructor)
+  const int max_length_bits_;
 };
 
 // A single shard of sharded cache.
@@ -199,7 +206,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
-                CacheMetadataChargePolicy metadata_charge_policy);
+                CacheMetadataChargePolicy metadata_charge_policy,
+                int max_upper_hash_bits);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache

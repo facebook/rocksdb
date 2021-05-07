@@ -263,18 +263,20 @@ class CacheBench {
       }
     }
 
+    // Stats gathering is considered background work. This time measurement
+    // is for foreground work, and not really ideal for that. See below.
     uint64_t end_time = clock->NowMicros();
     stats_thread.join();
 
     // Wall clock time - includes idle time if threads
-    // finish at different times.
+    // finish at different times (not ideal).
     double elapsed_secs = static_cast<double>(end_time - start_time) * 1e-6;
     uint32_t ops_per_sec = static_cast<uint32_t>(
         1.0 * FLAGS_threads * FLAGS_ops_per_thread / elapsed_secs);
     printf("Complete in %.3f s; Rough parallel ops/sec = %u\n", elapsed_secs,
            ops_per_sec);
 
-    // Time in each thread
+    // Total time in each thread (more accurate throughput measure)
     elapsed_secs = 0;
     for (uint32_t i = 0; i < FLAGS_threads; i++) {
       elapsed_secs += threads[i]->duration_us * 1e-6;
@@ -309,6 +311,13 @@ class CacheBench {
   const uint64_t lookup_threshold_;
   const uint64_t erase_threshold_;
 
+  // A benchmark version of gathering stats on an active block cache by
+  // iterating over it. The primary purpose is to measure the impact of
+  // gathering stats with ApplyToAllEntries on throughput- and
+  // latency-sensitive Cache users. Performance of stats gathering is
+  // also reported. The last set of gathered stats is also reported, for
+  // manual sanity checking for logical errors or other unexpected
+  // behavior of cache_bench or the underlying Cache.
   static void StatsBody(SharedState* shared, HistogramImpl* stats_hist,
                         std::string* stats_report) {
     if (!FLAGS_gather_stats) {
