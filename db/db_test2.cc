@@ -5587,6 +5587,28 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
 
+TEST_F(DBTest2, BottommostTemperature) {
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Reopen(options);
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

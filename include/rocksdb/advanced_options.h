@@ -189,11 +189,10 @@ struct CompressionOptions {
 // Temperature of a file. Used to pass to FileSystem for a different
 // placement and/or coding.
 enum class Temperature : uint8_t {
-  kHot,
-  kWarm,
-  kCold,
-  kTotal,
-  kUnknown = kTotal,
+  kUnknown = 0,
+  kHot = 0x01,
+  kWarm = 0x02,
+  kCold = 0x03,
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
