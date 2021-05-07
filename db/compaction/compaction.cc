@@ -526,10 +526,17 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
     return nullptr;
   }
 
+  if (!cfd_->ioptions()
+           ->compaction_filter_factory->ShouldFilterTableFileCreation(
+               TableFileCreationReason::kCompaction)) {
+    return nullptr;
+  }
+
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
+  context.reason = TableFileCreationReason::kCompaction;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }
