@@ -117,42 +117,22 @@ class Iterator : public Cleanable {
   }
 
   /**
-   * true if this iterator is already
-   * checking ReadOptions::iterate_lower_bound.
-   * false indicates that either the iterator does
-   * not check the lower bound, or that it does not
-   * report that it is performing the check.
-   */
-  virtual bool ChecksLowerBound() const = 0;
-
-  /**
    * Returns the lower bound if this iterator has a
    * ReadOptions::iterate_lower_bound set, else
    * returns nullptr.
    *
-   * Just because a lower bound is present, it does
-   * not mean that it is checked. This can however
-   * be determined by calling Iterator::ChecksLowerBound().
+   * If a lower bound is present, it should be assumed
+   * that the iterator adheres to it.
    */
   virtual const Slice* lower_bound() const = 0;
-
-  /**
-   * true if this iterator is already
-   * checking ReadOptions::iterate_upper_bound.
-   * false indicates that either the iterator does
-   * not check the upper bound, or that it does not
-   * report that it is performing the check.
-   */
-  virtual bool ChecksUpperBound() const = 0;
 
   /**
    * Returns the upper bound if this iterator has a
    * ReadOptions::iterate_upper_bound set, else
    * returns nullptr.
    *
-   * Just because an upper bound is present, it does
-   * not mean that it is checked. This can however
-   * be determined by calling Iterator::ChecksUpperBound().
+   * If an upper bound is present, it should be assumed
+   * that the iterator adheres to it.
    */
   virtual const Slice* upper_bound() const = 0;
 };

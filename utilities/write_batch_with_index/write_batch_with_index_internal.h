@@ -6,6 +6,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <functional>
 #include <limits>
 #include <string>
 #include <vector>
@@ -49,13 +50,13 @@ class BaseDeltaIterator : public Iterator {
   Slice key() const override;
   Slice value() const override;
   Status status() const override;
-  bool ChecksLowerBound() const override;
   const Slice* lower_bound() const override;
-  bool ChecksUpperBound() const override;
   const Slice* upper_bound() const override;
   void Invalidate(Status s);
 
  private:
+  static void calc_bound(const Slice*& out_bound, bool& out_bound_equals_base_bound, const Slice* const base_iterator_bound, const Slice* const read_iterate_bound,
+    const std::function<bool(const Slice* const, const Slice* const)> use_base_bound);
   void AssertInvariants();
   void Advance();
   void AdvanceDelta();
@@ -64,25 +65,6 @@ class BaseDeltaIterator : public Iterator {
   bool DeltaValid() const;
   void UpdateCurrent();
 
-  /**
-   * Returns the upper bound for the base iterator,
-   * or nullptr if there is no upper bound.
-   *
-   * The base iterator may have its own upper bound,
-   * if not not we use the upper bound from this
-   * iterator's ReadOptions (if present).
-   */
-  inline const Slice* base_iterator_upper_bound() const;
-
-  /**
-   * Returns the lower bound for the base iterator,
-   * or nullptr if there is no lower bound.
-   *
-   * The base iterator may have its own lower bound,
-   * if not not we use the lower bound from this
-   * iterator's ReadOptions (if present).
-   */
-  inline const Slice* base_iterator_lower_bound() const;
   bool BaseIsWithinBounds() const;
   bool DeltaIsWithinBounds() const;
 
@@ -124,6 +106,10 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<WBWIIterator> delta_iterator_;
   const Comparator* comparator_;  // not owned
   const ReadOptions* read_options_;  // not owned
+  const Slice* lower_bound_;  // not owned
+  bool lower_bound_equals_base_lower_bound_;
+  const Slice* upper_bound_;  // not owned
+  bool upper_bound_equals_base_upper_bound_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.

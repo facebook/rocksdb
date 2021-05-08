@@ -117,11 +117,7 @@ class BlobDBIterator : public Iterator {
 
   // Iterator::Refresh() not supported.
 
-  bool ChecksLowerBound() const override { return iter_->ChecksLowerBound(); }
-
   const Slice* lower_bound() const override { return iter_->lower_bound(); }
-
-  bool ChecksUpperBound() const override { return iter_->ChecksUpperBound(); }
 
   const Slice* upper_bound() const override { return iter_->upper_bound(); }
 
