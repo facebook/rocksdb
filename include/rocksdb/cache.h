@@ -36,7 +36,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 struct ConfigOptions;
-class TieredCache;
+class SecondaryCache;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -90,8 +90,8 @@ struct LRUCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-  // A TieredCache instance to use a the non-volatile tier
-  std::shared_ptr<TieredCache> tiered_cache;
+  // A SecondaryCache instance to use a the non-volatile tier
+  std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
@@ -147,21 +147,20 @@ class Cache {
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  // A set of callbacks to allow objects in the volatile block cache to be
-  // be persisted in a NVM cache tier. Since the volatile cache holds C++
-  // objects and the NVM cache may only hold flat data that doesn't need
-  // relocation, these callbacks need to be provided by the user of the block
+  // A set of callbacks to allow objects in the primary block cache to be
+  // be persisted in a secondary cache. The purpose of the secondary cache
+  // is to support other ways of caching the object, such as persistent or
+  // compressed data, that may require the object to be parsed and transformed
+  // in some way. Since the primary cache holds C++ objects and the secondary
+  // cache may only hold flat data that doesn't need relocation, these
+  // callbacks need to be provided by the user of the block
   // cache to do the conversion.
   // The CacheItemHelperCallback is passed to Insert(). When invoked, it
   // returns the callback functions for size, saving and deletion of the
-  // object. We do it this way so that the cache implementation only needs to
-  // save one function pointer in its metadata per object, the
-  // CacheItemHelperCallback pointer which is a C-style function pointer.
+  // object. The callbacks are defined in C-style in order to make them
+  // stateless and not add to the cache metadata size.
   // Saving multiple std::function objects will take up 32 bytes per
-  // function, even if its not bound to an object and does no capture. The
-  // other alternative is to take a pointer to another object that implements
-  // this interface, but that would create issues with managing the object
-  // lifecycle.
+  // function, even if its not bound to an object and does no capture.
   //
   // All the callbacks are C-style function pointers in order to simplify
   // lifecycle management. Objects in the cache can outlive the parent DB,
@@ -169,33 +168,36 @@ class Cache {
   // object itself.
   //
   // The SizeCallback takes a void* pointer to the object and returns the size
-  // of the persistable data. It can be used by the NVM cache to allocate
+  // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
   typedef size_t (*SizeCallback)(void* obj);
 
   // The SaveToCallback takes a void* object pointer and saves the persistable
-  // data into a buffer. The NVM cache may decide to not store it in a
+  // data into a buffer. The secondary cache may decide to not store it in a
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
-  typedef ROCKSDB_NAMESPACE::Status (*SaveToCallback)(void* obj, size_t offset,
-                                                      size_t size, void* out);
+  typedef Status (*SaveToCallback)(void* obj, size_t offset, size_t size,
+                                   void* out);
 
   // DeletionCallback is a function pointer that deletes the cached
   // object. The signature matches the old deleter function.
   typedef void (*DeletionCallback)(const Slice&, void*);
 
-  // A callback function that returns the size, save to, and deletion
-  // callbacks. Fill any of size_cb, saveto_cb, del_cb that is non-null
-  typedef void (*CacheItemHelperCallback)(SizeCallback* size_cb,
-                                          SaveToCallback* saveto_cb,
-                                          DeletionCallback* del_cb);
+  // A struct with pointers to helper functions for spilling items from the
+  // cache into the secondary cache. May be extended in the future. An
+  // instance of this struct is expected to outlive the cache.
+  struct CacheItemHelper {
+    SizeCallback size_cb;
+    SaveToCallback saveto_cb;
+    DeletionCallback del_cb;
+  };
 
   // The CreateCallback is passed by the block cache user to Lookup(). It
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  typedef std::function<ROCKSDB_NAMESPACE::Status(
-      void* buf, size_t size, void** out_obj, size_t* charge)>
+  typedef std::function<Status(void* buf, size_t size, void** out_obj,
+                               size_t* charge)>
       CreateCallback;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
@@ -384,6 +386,10 @@ class Cache {
   // If strict_capacity_limit is true and cache reaches its full capacity,
   // return Status::Incomplete.
   //
+  // The helper argument is saved by the cache and will be used when the
+  // inserted object is evicted or promoted to the secondary cache. It,
+  // therefore, must outlive the cache.
+  //
   // If handle is not nullptr, returns a handle that corresponds to the
   // mapping. The caller must call this->Release(handle) when the returned
   // mapping is no longer needed. In case of error caller is responsible to
@@ -393,38 +399,42 @@ class Cache {
   // insert. In case of error value will be cleanup.
   //
   // Regardless of whether the item was inserted into the cache,
-  // it will attempt to insert it into the tiered cache if one is configured.
-  // The cache implementation must support the tiered cache, otherwise
-  // the item is only inserted into the volatile tier. It may
-  // defer the insertion to the next tier as it sees fit.
+  // it will attempt to insert it into the secondary cache if one is
+  // configured, and the helper supports it.
+  // The cache implementation must support a secondary cache, otherwise
+  // the item is only inserted into the primary cache. It may
+  // defer the insertion to the secondary cache as it sees fit.
   //
   // When the inserted entry is no longer needed, the key and
   // value will be passed to "deleter".
   virtual Status Insert(const Slice& key, void* value,
-                        CacheItemHelperCallback helper_cb, size_t charge,
+                        const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) {
-    DeletionCallback delete_cb = nullptr;
-    if (!helper_cb) {
+    if (!helper) {
       return Status::InvalidArgument();
     }
-    (*helper_cb)(nullptr, nullptr, &delete_cb);
-    return Insert(key, value, charge, delete_cb, handle, priority);
+    return Insert(key, value, charge, helper->del_cb, handle, priority);
   }
 
-  // Lookup the key in the volatile and other tiers (if one is configured).
+  // Lookup the key in the primary and secondary caches (if one is configured).
   // The create_cb callback function object will be used to contruct the
   // cached object.
-  // If none of the tiers have the mapping for the key, rturns nullptr.
+  // If none of the caches have the mapping for the key, rturns nullptr.
   // Else, returns a handle that corresponds to the mapping.
+  //
+  // This call may promote the object from the secondary cache (if one is
+  // configured, and has the given key) to the primary cache.
+  //
+  // The helper argument may be saved and used later when the object is evicted.
+  // Therefore, it must outlive the cache.
   //
   // The handle returned may not be ready. The caller should call isReady()
   // to check if the item value is ready, and call Wait() or WaitAll() if
   // its not ready. The caller should then call Value() to check if the
   // item was successfully retrieved. If unsuccessful (perhaps due to an
   // IO error), Value() will return nullptr.
-  virtual Handle* Lookup(const Slice& key,
-                         CacheItemHelperCallback /*helper_cb*/,
+  virtual Handle* Lookup(const Slice& key, const CacheItemHelper* /*helper_cb*/,
                          const CreateCallback& /*create_cb*/,
                          Priority /*priority*/, bool /*wait*/,
                          Statistics* stats = nullptr) {

@@ -34,9 +34,10 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(
-        capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        use_adaptive_mutex, kDontChargeCacheMetadata, nullptr /*tiered_cache*/);
+    new (cache_)
+        LRUCacheShard(capacity, false /*strict_capcity_limit*/,
+                      high_pri_pool_ratio, use_adaptive_mutex,
+                      kDontChargeCacheMetadata, nullptr /*secondary_cache*/);
   }
 
   void Insert(const std::string& key,
@@ -195,30 +196,27 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
-class TestTieredCache : public TieredCache {
+class TestSecondaryCache : public SecondaryCache {
  public:
-  TestTieredCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
+  TestSecondaryCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
-  ~TestTieredCache() { cache_.reset(); }
+  ~TestSecondaryCache() { cache_.reset(); }
 
-  std::string Name() override { return "TestTieredCache"; }
+  std::string Name() override { return "TestSecondaryCache"; }
 
   Status Insert(const Slice& key, void* value,
-                Cache::CacheItemHelperCallback helper_cb) override {
-    Cache::SizeCallback size_cb;
-    Cache::SaveToCallback save_cb;
+                const Cache::CacheItemHelper* helper) override {
     size_t size;
     char* buf;
     Status s;
 
     num_inserts_++;
-    (*helper_cb)(&size_cb, &save_cb, nullptr);
-    size = (*size_cb)(value);
+    size = (*helper->size_cb)(value);
     buf = new char[size + sizeof(uint64_t)];
     EncodeFixed64(buf, size);
-    s = (*save_cb)(value, 0, size, buf + sizeof(uint64_t));
+    s = (*helper->saveto_cb)(value, 0, size, buf + sizeof(uint64_t));
     if (!s.ok()) {
       return s;
     }
@@ -228,10 +226,10 @@ class TestTieredCache : public TieredCache {
                           });
   }
 
-  std::unique_ptr<TieredCacheHandle> Lookup(
+  std::unique_ptr<SecondaryCacheHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb,
       bool /*wait*/) override {
-    std::unique_ptr<TieredCacheHandle> tiered_handle;
+    std::unique_ptr<SecondaryCacheHandle> secondary_handle;
     Cache::Handle* handle = cache_->Lookup(key);
     num_lookups_++;
     if (handle) {
@@ -242,16 +240,16 @@ class TestTieredCache : public TieredCache {
       ptr += sizeof(uint64_t);
       Status s = create_cb(ptr, size, &value, &charge);
       if (s.ok()) {
-        tiered_handle.reset(
-            new TestTieredCacheHandle(cache_.get(), handle, value, charge));
+        secondary_handle.reset(
+            new TestSecondaryCacheHandle(cache_.get(), handle, value, charge));
       }
     }
-    return tiered_handle;
+    return secondary_handle;
   }
 
   void Erase(const Slice& /*key*/) override {}
 
-  void WaitAll(std::vector<TieredCacheHandle*> /*handles*/) override {}
+  void WaitAll(std::vector<SecondaryCacheHandle*> /*handles*/) override {}
 
   std::string GetPrintableOptions() const override { return ""; }
 
@@ -260,12 +258,12 @@ class TestTieredCache : public TieredCache {
   uint32_t num_lookups() { return num_lookups_; }
 
  private:
-  class TestTieredCacheHandle : public TieredCacheHandle {
+  class TestSecondaryCacheHandle : public SecondaryCacheHandle {
    public:
-    TestTieredCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
-                          size_t size)
+    TestSecondaryCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
+                             size_t size)
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
-    ~TestTieredCacheHandle() { cache_->Release(handle_); }
+    ~TestSecondaryCacheHandle() { cache_->Release(handle_); }
 
     bool isReady() override { return true; }
 
@@ -287,10 +285,10 @@ class TestTieredCache : public TieredCache {
   uint32_t num_lookups_;
 };
 
-class LRUTieredCacheTest : public LRUCacheTest {
+class LRUSecondaryCacheTest : public LRUCacheTest {
  public:
-  LRUTieredCacheTest() : fail_create_(false) {}
-  ~LRUTieredCacheTest() {}
+  LRUSecondaryCacheTest() : fail_create_(false) {}
+  ~LRUSecondaryCacheTest() {}
 
  protected:
   class TestItem {
@@ -308,52 +306,32 @@ class LRUTieredCacheTest : public LRUCacheTest {
     size_t size_;
   };
 
-  Cache::CacheItemHelperCallback helper_cb =
-      [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
-         Cache::DeletionCallback* del_cb) -> void {
-    if (size_cb) {
-      *size_cb = [](void* obj) -> size_t {
-        return reinterpret_cast<TestItem*>(obj)->Size();
-      };
-    }
-    if (saveto_cb) {
-      *saveto_cb = [](void* obj, size_t offset, size_t size,
-                      void* out) -> Status {
-        TestItem* item = reinterpret_cast<TestItem*>(obj);
-        char* buf = item->Buf();
-        EXPECT_EQ(size, item->Size());
-        EXPECT_EQ(offset, 0);
-        memcpy(out, buf, size);
-        return Status::OK();
-      };
-    }
-    if (del_cb) {
-      *del_cb = [](const Slice& /*key*/, void* obj) -> void {
-        delete reinterpret_cast<TestItem*>(obj);
-      };
-    }
-  };
+  static size_t SizeCallback(void* obj) {
+    return reinterpret_cast<TestItem*>(obj)->Size();
+  }
 
-  Cache::CacheItemHelperCallback helper_cb_fail =
-      [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
-         Cache::DeletionCallback* del_cb) -> void {
-    if (size_cb) {
-      *size_cb = [](void* obj) -> size_t {
-        return reinterpret_cast<TestItem*>(obj)->Size();
-      };
-    }
-    if (saveto_cb) {
-      *saveto_cb = [](void* /*obj*/, size_t /*offset*/, size_t /*size*/,
-                      void* /*out*/) -> Status {
-        return Status::NotSupported();
-      };
-    }
-    if (del_cb) {
-      *del_cb = [](const Slice& /*key*/, void* obj) -> void {
-        delete reinterpret_cast<TestItem*>(obj);
-      };
-    }
-  };
+  static Status SaveToCallback(void* obj, size_t offset, size_t size,
+                               void* out) {
+    TestItem* item = reinterpret_cast<TestItem*>(obj);
+    char* buf = item->Buf();
+    EXPECT_EQ(size, item->Size());
+    EXPECT_EQ(offset, 0);
+    memcpy(out, buf, size);
+    return Status::OK();
+  }
+
+  static void DeletionCallback(const Slice& /*key*/, void* obj) {
+    delete reinterpret_cast<TestItem*>(obj);
+  }
+
+  static Cache::CacheItemHelper helper_;
+
+  static Status SaveToCallbackFail(void* /*obj*/, size_t /*offset*/,
+                                   size_t /*size*/, void* /*out*/) {
+    return Status::NotSupported();
+  }
+
+  static Cache::CacheItemHelper helper_fail_;
 
   Cache::CreateCallback test_item_creator =
       [&](void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
@@ -371,161 +349,184 @@ class LRUTieredCacheTest : public LRUCacheTest {
   bool fail_create_;
 };
 
-TEST_F(LRUTieredCacheTest, BasicTest) {
+Cache::CacheItemHelper LRUSecondaryCacheTest::helper_ = {
+    LRUSecondaryCacheTest::SizeCallback, LRUSecondaryCacheTest::SaveToCallback,
+    LRUSecondaryCacheTest::DeletionCallback};
+
+Cache::CacheItemHelper LRUSecondaryCacheTest::helper_fail_ = {
+    LRUSecondaryCacheTest::SizeCallback,
+    LRUSecondaryCacheTest::SaveToCallbackFail,
+    LRUSecondaryCacheTest::DeletionCallback};
+
+TEST_F(LRUSecondaryCacheTest, BasicTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
-  opts.tiered_cache = tiered_cache;
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048));
+  opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, helper_cb, str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k2 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, helper_cb, str2.length()));
+  ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+                          str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should promote k1 and demote k2
-  handle = cache->Lookup("k1", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(tiered_cache->num_inserts(), 2u);
-  ASSERT_EQ(tiered_cache->num_lookups(), 1u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
 }
 
-TEST_F(LRUTieredCacheTest, BasicFailTest) {
+TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
-  opts.tiered_cache = tiered_cache;
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048));
+  opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_NOK(cache->Insert("k1", item1, nullptr, str1.length()));
-  ASSERT_OK(cache->Insert("k1", item1, helper_cb, str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+                          str1.length()));
 
   Cache::Handle* handle;
   handle = cache->Lookup("k2", nullptr, test_item_creator, Cache::Priority::LOW,
                          true);
   ASSERT_EQ(handle, nullptr);
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, false);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, false);
   ASSERT_EQ(handle, nullptr);
 }
 
-TEST_F(LRUTieredCacheTest, SaveFailTest) {
+TEST_F(LRUSecondaryCacheTest, SaveFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
-  opts.tiered_cache = tiered_cache;
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048));
+  opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, helper_cb_fail, str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_fail_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, helper_cb_fail, str2.length()));
+  ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_fail_,
+                          str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", helper_cb_fail, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_fail_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 demotion would have failed
-  handle = cache->Lookup("k1", helper_cb_fail, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_fail_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", helper_cb_fail, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_fail_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(tiered_cache->num_inserts(), 1u);
-  ASSERT_EQ(tiered_cache->num_lookups(), 1u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
 }
 
-TEST_F(LRUTieredCacheTest, CreateFailTest) {
+TEST_F(LRUSecondaryCacheTest, CreateFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
-  opts.tiered_cache = tiered_cache;
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048));
+  opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, helper_cb, str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, helper_cb, str2.length()));
+  ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+                          str2.length()));
 
   Cache::Handle* handle;
   SetFailCreate(true);
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 creation would have failed
-  handle = cache->Lookup("k1", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(tiered_cache->num_inserts(), 1u);
-  ASSERT_EQ(tiered_cache->num_lookups(), 1u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
 }
 
-TEST_F(LRUTieredCacheTest, FullCapacityTest) {
+TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
   LRUCacheOptions opts(1024, 0, /*strict_capacity_limit=*/true, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
-  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
-  opts.tiered_cache = tiered_cache;
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048));
+  opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, helper_cb, str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, helper_cb, str2.length()));
+  ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+                          str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   // This lookup should fail, since k1 promotion would have failed due to
   // the block cache being at capacity
   Cache::Handle* handle2;
-  handle2 = cache->Lookup("k1", helper_cb, test_item_creator,
-                          Cache::Priority::LOW, true);
+  handle2 = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle2, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
   cache->Release(handle);
-  handle = cache->Lookup("k2", helper_cb, test_item_creator,
-                         Cache::Priority::LOW, true);
+  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                         test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(tiered_cache->num_inserts(), 1u);
-  ASSERT_EQ(tiered_cache->num_lookups(), 1u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

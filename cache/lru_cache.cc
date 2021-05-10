@@ -106,12 +106,11 @@ void LRUHandleTable::Resize() {
   length_bits_ = new_length_bits;
 }
 
-LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
-                             double high_pri_pool_ratio,
-                             bool use_adaptive_mutex,
-                             CacheMetadataChargePolicy metadata_charge_policy,
-                             int max_upper_hash_bits,
-                             const std::shared_ptr<TieredCache>& tiered_cache)
+LRUCacheShard::LRUCacheShard(
+    size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
+    bool use_adaptive_mutex, CacheMetadataChargePolicy metadata_charge_policy,
+    int max_upper_hash_bits,
+    const std::shared_ptr<SecondaryCache>& secondary_cache)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -121,7 +120,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex),
-      tiered_cache_(tiered_cache) {
+      secondary_cache_(secondary_cache) {
   set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list
   lru_.next = &lru_;
@@ -293,9 +292,9 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   // Try to insert the evicted entries into tiered cache
   // Free the entries outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
-    if (tiered_cache_ && entry->IsTieredCacheCompatible() &&
+    if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsPromoted()) {
-      tiered_cache_->Insert(entry->key(), entry->value, entry->info_.helper_cb)
+      secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
     entry->Free();
@@ -359,12 +358,12 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle) {
     }
   }
 
-  // Try to insert the evicted entries into NVM cache
+  // Try to insert the evicted entries into the secondary cache
   // Free the entries here outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
-    if (tiered_cache_ && entry->IsTieredCacheCompatible() &&
+    if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsPromoted()) {
-      tiered_cache_->Insert(entry->key(), entry->value, entry->info_.helper_cb)
+      secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
     entry->Free();
@@ -375,7 +374,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle) {
 
 Cache::Handle* LRUCacheShard::Lookup(
     const Slice& key, uint32_t hash,
-    ShardedCache::CacheItemHelperCallback helper_cb,
+    const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
     bool wait) {
   LRUHandle* e = nullptr;
@@ -394,22 +393,22 @@ Cache::Handle* LRUCacheShard::Lookup(
   }
 
   // If handle table lookup failed, then allocate a handle outside the
-  // mutex if we're going to lookup in the NVM cache
+  // mutex if we're going to lookup in the secondary cache
   // Only support synchronous for now
-  // TODO: Support asynchronous lookup in NVM cache
-  if (!e && tiered_cache_ && helper_cb && wait) {
+  // TODO: Support asynchronous lookup in secondary cache
+  if (!e && secondary_cache_ && helper && helper->saveto_cb && wait) {
     assert(create_cb);
-    std::unique_ptr<TieredCacheHandle> tiered_handle =
-        tiered_cache_->Lookup(key, create_cb, wait);
-    if (tiered_handle != nullptr) {
+    std::unique_ptr<SecondaryCacheHandle> secondary_handle =
+        secondary_cache_->Lookup(key, create_cb, wait);
+    if (secondary_handle != nullptr) {
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
 
       e->flags = 0;
       e->SetPromoted(true);
-      e->SetTieredCacheCompatible(true);
-      e->info_.helper_cb = helper_cb;
-      e->charge = tiered_handle->Size();
+      e->SetSecondaryCacheCompatible(true);
+      e->info_.helper = helper;
+      e->charge = secondary_handle->Size();
       e->key_length = key.size();
       e->hash = hash;
       e->refs = 0;
@@ -418,8 +417,8 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->SetPriority(priority);
       memcpy(e->key_data, key.data(), key.size());
 
-      e->value = tiered_handle->Value();
-      e->charge = tiered_handle->Size();
+      e->value = secondary_handle->Value();
+      e->charge = secondary_handle->Size();
 
       // This call could nullify e if the cache is over capacity and
       // strict_capacity_limit_ is true. In such a case, the caller will try
@@ -488,7 +487,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge,
                              void (*deleter)(const Slice& key, void* value),
-                             Cache::CacheItemHelperCallback helper_cb,
+                             const Cache::CacheItemHelper* helper,
                              Cache::Handle** handle, Cache::Priority priority) {
   // Allocate the memory here outside of the mutex
   // If the cache is full, we'll have to release it
@@ -498,9 +497,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
   e->value = value;
   e->flags = 0;
-  if (helper_cb) {
-    e->SetTieredCacheCompatible(true);
-    e->info_.helper_cb = helper_cb;
+  if (helper) {
+    e->SetSecondaryCacheCompatible(true);
+    e->info_.helper = helper;
   } else {
     e->info_.deleter = deleter;
   }
@@ -570,7 +569,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    std::shared_ptr<MemoryAllocator> allocator,
                    bool use_adaptive_mutex,
                    CacheMetadataChargePolicy metadata_charge_policy,
-                   const std::shared_ptr<TieredCache>& tiered_cache)
+                   const std::shared_ptr<SecondaryCache>& secondary_cache)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
                    std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
@@ -580,12 +579,10 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
         LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio,
-<<<<<<< HEAD
                       use_adaptive_mutex, metadata_charge_policy,
                       /* max_upper_hash_bits */ 32 - num_shard_bits);
-=======
-                      use_adaptive_mutex, metadata_charge_policy, tiered_cache);
->>>>>>> 6c7feedc4 (Initial tiered cache support in LRUCache)
+                      use_adaptive_mutex, metadata_charge_policy,
+                      secondary_cache);
   }
 }
 
@@ -655,7 +652,7 @@ std::shared_ptr<Cache> NewLRUCache(
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<TieredCache>& tiered_cache) {
+    const std::shared_ptr<SecondaryCache>& secondary_cache) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
@@ -669,7 +666,7 @@ std::shared_ptr<Cache> NewLRUCache(
   return std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy,
-      tiered_cache);
+      secondary_cache);
 }
 
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
@@ -677,7 +674,7 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
       cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.tiered_cache);
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
 }
 
 std::shared_ptr<Cache> NewLRUCache(

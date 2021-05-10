@@ -64,14 +64,14 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
 }
 
 Status ShardedCache::Insert(const Slice& key, void* value,
-                            CacheItemHelperCallback helper_cb, size_t charge,
+                            const CacheItemHelper* helper, size_t charge,
                             Handle** handle, Priority priority) {
   uint32_t hash = HashSlice(key);
-  if (!helper_cb) {
+  if (!helper) {
     return Status::InvalidArgument();
   }
   return GetShard(Shard(hash))
-      ->Insert(key, hash, value, helper_cb, charge, handle, priority);
+      ->Insert(key, hash, value, helper, charge, handle, priority);
 }
 
 Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
@@ -80,13 +80,13 @@ Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
 }
 
 Cache::Handle* ShardedCache::Lookup(const Slice& key,
-                                    CacheItemHelperCallback helper_cb,
+                                    const CacheItemHelper* helper,
                                     const CreateCallback& create_cb,
                                     Priority priority, bool wait,
                                     Statistics* /*stats*/) {
   uint32_t hash = HashSlice(key);
   return GetShard(Shard(hash))
-      ->Lookup(key, hash, helper_cb, create_cb, priority, wait);
+      ->Lookup(key, hash, helper, create_cb, priority, wait);
 }
 
 bool ShardedCache::isReady(Handle* handle) {

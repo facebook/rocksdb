@@ -28,11 +28,11 @@ class CacheShard {
                         size_t charge, DeleterFn deleter,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
-                        Cache::CacheItemHelperCallback helper_cb, size_t charge,
+                        const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
-                                Cache::CacheItemHelperCallback helper_cb,
+                                const Cache::CacheItemHelper* helper,
                                 const Cache::CreateCallback& create_cb,
                                 Cache::Priority priority, bool wait) = 0;
   virtual bool Release(Cache::Handle* handle, bool useful,
@@ -90,11 +90,11 @@ class ShardedCache : public Cache {
                         DeleterFn deleter, Handle** handle,
                         Priority priority) override;
   virtual Status Insert(const Slice& key, void* value,
-                        CacheItemHelperCallback helper_cb, size_t chargge,
+                        const CacheItemHelper* helper, size_t chargge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
-  virtual Handle* Lookup(const Slice& key, CacheItemHelperCallback helper_cb,
+  virtual Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                          const CreateCallback& create_cb, Priority priority,
                          bool wait, Statistics* stats = nullptr) override;
   virtual bool Release(Handle* handle, bool useful,
