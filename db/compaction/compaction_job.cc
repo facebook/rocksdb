@@ -1921,9 +1921,13 @@ Status CompactionJob::OpenCompactionOutputFile(
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 
+  const auto prop_collector_factory_range =
+      cfd->int_tbl_prop_collector_factories(
+          sub_compact->compaction->mutable_cf_options()->enable_blob_files);
+
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
-      cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+      cfd->internal_comparator(), prop_collector_factory_range,
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),

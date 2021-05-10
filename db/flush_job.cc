@@ -406,9 +406,14 @@ Status FlushJob::WriteLevel0Table() {
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
+
+      const auto prop_collector_factory_range =
+          cfd_->int_tbl_prop_collector_factories(
+              mutable_cf_options_.enable_blob_files);
+
       TableBuilderOptions tboptions(
           *cfd_->ioptions(), mutable_cf_options_, cfd_->internal_comparator(),
-          cfd_->int_tbl_prop_collector_factories(), output_compression_,
+          prop_collector_factory_range, output_compression_,
           mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
           0 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,

@@ -443,7 +443,9 @@ class Repairer {
       CompressionOptions default_compression;
       TableBuilderOptions tboptions(
           *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(
+              false /* enable_blob_property_collector */),
           kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
           -1 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kRecovery, current_time,

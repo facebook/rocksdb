@@ -63,6 +63,7 @@ struct TablePropertiesNames {
   static const std::string kFileCreationTime;
   static const std::string kSlowCompressionEstimatedDataSize;
   static const std::string kFastCompressionEstimatedDataSize;
+  static const std::string kBlobFileMapping;
 };
 
 extern const std::string kPropertiesBlock;

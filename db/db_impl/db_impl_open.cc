@@ -1393,9 +1393,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       }
 
       IOStatus io_s;
+
+      const auto prop_collector_factory_range =
+          cfd->int_tbl_prop_collector_factories(
+              mutable_cf_options.enable_blob_files);
+
       TableBuilderOptions tboptions(
           *cfd->ioptions(), mutable_cf_options, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(),
+          prop_collector_factory_range,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
           0 /* level */, false /* is_bottommost */,

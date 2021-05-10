@@ -427,8 +427,17 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
-    return &int_tbl_prop_collector_factories_;
+  IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories(
+      bool enable_blob_property_collector) const {
+    assert(!int_tbl_prop_collector_factories_.empty());
+
+    auto it = int_tbl_prop_collector_factories_.begin();
+    if (!enable_blob_property_collector) {
+      ++it;
+    }
+
+    return IntTblPropCollectorFactoryRange(
+        it, int_tbl_prop_collector_factories_.end());
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }

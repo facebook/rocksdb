@@ -285,6 +285,8 @@ const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.slow.data.size";
 const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
+const std::string TablePropertiesNames::kBlobFileMapping =
+    "rocksdb.blob.file.mapping";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

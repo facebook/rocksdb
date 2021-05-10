@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_table_properties_collector.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -555,6 +556,8 @@ ColumnFamilyData::ColumnFamilyData(
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
+  int_tbl_prop_collector_factories_.emplace_back(
+      new BlobTablePropertiesCollectorFactory);
   GetIntTblPropCollectorFactory(ioptions_, &int_tbl_prop_collector_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
