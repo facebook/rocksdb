@@ -109,7 +109,8 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
 bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
                                           uint64_t offset, size_t n,
-                                          Slice* result, bool for_compaction) {
+                                          Slice* result, Status* status,
+                                          bool for_compaction) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -118,7 +119,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   }
 
   // If the buffer contains only a few of the requested bytes:
-  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
   //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
@@ -130,10 +131,31 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
         s = Prefetch(opts, file_reader_, offset, std::max(n, readahead_size_),
                      for_compaction);
       } else {
+        if (implicit_auto_readahead_) {
+          // Prefetch only if this read is sequential otherwise reset
+          // readahead_size_ to initial value.
+          if (!IsBlockSequential(offset)) {
+            UpdateReadPattern(offset, n);
+            ResetValues();
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+          num_file_reads_++;
+          if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+            UpdateReadPattern(offset, n);
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+        }
         s = Prefetch(opts, file_reader_, offset, n + readahead_size_,
                      for_compaction);
       }
       if (!s.ok()) {
+        if (status) {
+          *status = s;
+        }
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif
@@ -144,7 +166,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
       return false;
     }
   }
-
+  UpdateReadPattern(offset, n);
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;

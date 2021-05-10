@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "file/file_util.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -21,18 +22,29 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+IOStatus RandomAccessFileReader::Create(
+    const std::shared_ptr<FileSystem>& fs, const std::string& fname,
+    const FileOptions& file_opts,
+    std::unique_ptr<RandomAccessFileReader>* reader, IODebugContext* dbg) {
+  std::unique_ptr<FSRandomAccessFile> file;
+  IOStatus io_s = fs->NewRandomAccessFile(fname, file_opts, &file, dbg);
+  if (io_s.ok()) {
+    reader->reset(new RandomAccessFileReader(std::move(file), fname));
+  }
+  return io_s;
+}
 
-Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
-                                    size_t n, Slice* result, char* scratch,
-                                    AlignedBuf* aligned_buf,
-                                    bool for_compaction) const {
+IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
+                                      size_t n, Slice* result, char* scratch,
+                                      AlignedBuf* aligned_buf,
+                                      bool for_compaction) const {
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
-  Status s;
+  IOStatus io_s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -68,28 +80,28 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
-          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
-                          &tmp, buf.Destination(), nullptr);
+          io_s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
+                             &tmp, buf.Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
-                                 s);
+                                 io_s);
         }
 
         buf.Size(buf.CurrentSize() + tmp.size());
-        if (!s.ok() || tmp.size() < allowed) {
+        if (!io_s.ok() || tmp.size() < allowed) {
           break;
         }
       }
       size_t res_len = 0;
-      if (s.ok() && offset_advance < buf.CurrentSize()) {
+      if (io_s.ok() && offset_advance < buf.CurrentSize()) {
         res_len = std::min(buf.CurrentSize() - offset_advance, n);
         if (aligned_buf == nullptr) {
           buf.Read(scratch, offset_advance, res_len);
@@ -128,20 +140,20 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
 #endif
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == n);
-          s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                          scratch + pos, nullptr);
+          io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
+                             scratch + pos, nullptr);
         }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
-                                 finish_ts, s);
+                                 finish_ts, io_s);
         }
 #endif
 
@@ -154,11 +166,11 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           assert(tmp_result.data() == res_scratch + pos);
         }
         pos += tmp_result.size();
-        if (!s.ok() || tmp_result.size() < allowed) {
+        if (!io_s.ok() || tmp_result.size() < allowed) {
           break;
         }
       }
-      *result = Slice(res_scratch, s.ok() ? pos : 0);
+      *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
     IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
     SetPerfLevel(prev_perf_level);
@@ -167,7 +179,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
     file_read_hist_->Add(elapsed);
   }
 
-  return s;
+  return io_s;
 }
 
 size_t End(const FSReadRequest& r) {
@@ -196,16 +208,16 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
-                                         FSReadRequest* read_reqs,
-                                         size_t num_reqs,
-                                         AlignedBuf* aligned_buf) const {
+IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
+                                           FSReadRequest* read_reqs,
+                                           size_t num_reqs,
+                                           AlignedBuf* aligned_buf) const {
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
-  Status s;
+  IOStatus io_s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -221,11 +233,19 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
-      aligned_reqs.push_back(Align(read_reqs[0], alignment));
-      for (size_t i = 1; i < num_reqs; i++) {
+      for (size_t i = 0; i < num_reqs; i++) {
         const auto& r = Align(read_reqs[i], alignment);
-        if (!TryMerge(&aligned_reqs.back(), r)) {
+        if (i == 0) {
+          // head
           aligned_reqs.push_back(r);
+
+        } else if (!TryMerge(&aligned_reqs.back(), r)) {
+          // head + n
+          aligned_reqs.push_back(r);
+
+        } else {
+          // unused
+          r.status.PermitUncheckedError();
         }
       }
       TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
@@ -259,8 +279,8 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 #endif  // ROCKSDB_LITE
 
     {
-      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-      s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
 #ifndef ROCKSDB_LITE
@@ -301,7 +321,15 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
     file_read_hist_->Add(elapsed);
   }
 
-  return s;
+  return io_s;
 }
 
+IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
+                                                  IOOptions& opts) {
+  if (clock_ != nullptr) {
+    return PrepareIOFromReadOptions(ro, clock_, opts);
+  } else {
+    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

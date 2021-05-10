@@ -2546,7 +2546,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2570,7 +2572,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2599,7 +2603,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2626,7 +2632,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2658,7 +2666,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2685,7 +2695,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2717,7 +2729,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2746,7 +2760,9 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2834,8 +2850,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -2854,8 +2870,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -3574,9 +3590,8 @@ public class RocksDB extends RocksObject {
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
       final MutableColumnFamilyOptions mutableColumnFamilyOptions)
       throws RocksDBException {
-    setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        mutableColumnFamilyOptions.getKeys(),
-        mutableColumnFamilyOptions.getValues());
+    setOptions(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        mutableColumnFamilyOptions.getKeys(), mutableColumnFamilyOptions.getValues());
   }
 
   /**

@@ -65,7 +65,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 const int kLoadConcurency = 128;
 
-TableCache::TableCache(const ImmutableCFOptions& ioptions,
+TableCache::TableCache(const ImmutableOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer)
@@ -74,7 +74,7 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
-      loader_mutex_(kLoadConcurency, GetSliceNPHash64),
+      loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
       io_tracer_(io_tracer) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
@@ -106,31 +106,31 @@ Status TableCache::GetTableReader(
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
-  Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+  Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
-  RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  RecordTick(ioptions_.stats, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+    s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
     if (s.ok()) {
       s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                             nullptr);
     }
-    RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+    RecordTick(ioptions_.stats, NO_FILE_OPENS);
   }
 
   if (s.ok()) {
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
-    StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    StopWatch sw(ioptions_.clock, ioptions_.stats, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, ioptions_.env, io_tracer_,
-            record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
-            file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
+            std::move(file), fname, ioptions_.clock, io_tracer_,
+            record_read_stats ? ioptions_.stats : nullptr, SST_READ_MICROS,
+            file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
         ro,
         TableReaderOptions(ioptions_, prefix_extractor, file_options,
@@ -161,7 +161,7 @@ Status TableCache::FindTable(const ReadOptions& ro,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level, bool prefetch_index_and_filter_in_cache,
                              size_t max_file_size_for_l0_meta_pin) {
-  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
+  PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
@@ -187,7 +187,7 @@ Status TableCache::FindTable(const ReadOptions& ro,
         max_file_size_for_l0_meta_pin);
     if (!s.ok()) {
       assert(table_reader == nullptr);
-      RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
+      RecordTick(ioptions_.stats, NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
@@ -375,10 +375,10 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                                  ioptions_.row_cache.get(), row_handle);
     replayGetContextLog(*found_row_cache_entry, user_key, get_context,
                         &value_pinner);
-    RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
+    RecordTick(ioptions_.stats, ROW_CACHE_HIT);
     found = true;
   } else {
-    RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+    RecordTick(ioptions_.stats, ROW_CACHE_MISS);
   }
   return found;
 }

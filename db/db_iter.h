@@ -8,8 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
+#include <cstdint>
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
@@ -21,7 +22,6 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
@@ -68,7 +68,7 @@ class DBIter final : public Iterator {
   //        this->key().
   // (2) When moving backwards, the internal iterator is positioned
   //     just before all entries whose user key == this->key().
-  enum Direction { kForward, kReverse };
+  enum Direction : uint8_t { kForward, kReverse };
 
   // LocalStatistics contain Statistics counters that will be aggregated per
   // each iterator instance and then will be sent to the global statistics when
@@ -114,7 +114,7 @@ class DBIter final : public Iterator {
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableCFOptions& cf_options,
+         const ImmutableOptions& cf_options,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
@@ -185,6 +185,9 @@ class DBIter final : public Iterator {
   Slice timestamp() const override {
     assert(valid_);
     assert(timestamp_size_ > 0);
+    if (direction_ == kReverse) {
+      return saved_timestamp_;
+    }
     const Slice ukey_and_ts = saved_key_.GetUserKey();
     assert(timestamp_size_ < ukey_and_ts.size());
     return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
@@ -232,7 +235,7 @@ class DBIter final : public Iterator {
   // If `skipping_saved_key` is true, the function will keep iterating until it
   // finds a user key that is larger than `saved_key_`.
   // If `prefix` is not null, the iterator needs to stop when all keys for the
-  // prefix are exhausted and the interator is set to invalid.
+  // prefix are exhausted and the iterator is set to invalid.
   bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
   // Internal implementation of FindNextUserEntry().
   bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);
@@ -298,6 +301,7 @@ class DBIter final : public Iterator {
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
+  SystemClock* clock_;
   Logger* logger_;
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
@@ -372,6 +376,7 @@ class DBIter final : public Iterator {
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
+  std::string saved_timestamp_;
 };
 
 // Return a new iterator that converts internal keys (yielded by
@@ -379,7 +384,7 @@ class DBIter final : public Iterator {
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
     Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
+    const ImmutableOptions& cf_options,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const Version* version, const SequenceNumber& sequence,

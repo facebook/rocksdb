@@ -61,7 +61,7 @@ class ObsoleteFilesTest : public DBTestBase {
   void CheckFileTypeCounts(const std::string& dir, int required_log,
                            int required_sst, int required_manifest) {
     std::vector<std::string> filenames;
-    env_->GetChildren(dir, &filenames);
+    ASSERT_OK(env_->GetChildren(dir, &filenames));
 
     int log_cnt = 0;
     int sst_cnt = 0;
@@ -94,6 +94,12 @@ class ObsoleteFilesTest : public DBTestBase {
     options.WAL_ttl_seconds = 300;     // Used to test log files
     options.WAL_size_limit_MB = 1024;  // Used to test log files
     options.wal_dir = wal_dir_;
+
+    // Note: the following prevents an otherwise harmless data race between the
+    // test setup code (AddBlobFile) in ObsoleteFilesTest.BlobFiles and the
+    // periodic stat dumping thread.
+    options.stats_dump_period_sec = 0;
+
     Destroy(options);
     Reopen(options);
   }
@@ -192,6 +198,8 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
 }
 
 TEST_F(ObsoleteFilesTest, BlobFiles) {
+  ReopenDB();
+
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());

@@ -19,6 +19,7 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/system_clock.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
@@ -269,8 +270,8 @@ struct FilterBench : public MockBlockBasedTableTester {
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
-  StderrLogger stderr_logger_;
   double m_queries_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
@@ -281,7 +282,7 @@ struct FilterBench : public MockBlockBasedTableTester {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
-    ioptions_.info_log = &stderr_logger_;
+    ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
   }
@@ -358,8 +359,8 @@ void FilterBench::Go() {
     max_mem = static_cast<size_t>(1024 * 1024 * working_mem_size_mb);
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   infos_.clear();
   while ((working_mem_size_mb == 0 || total_size < max_mem) &&
@@ -598,8 +599,8 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     batch_slice_ptrs[i] = &batch_slices[i];
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     bool inside_this_time = random_.Next() <= inside_threshold;

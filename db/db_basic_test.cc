@@ -21,6 +21,7 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
@@ -146,7 +147,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
 
   // Reopen and flush memtable.
   Reopen(options);
-  Flush();
+  ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
   ASSERT_OK(ReadOnlyReopen(options));
@@ -182,7 +183,7 @@ TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
 
   // Reopen and flush memtable.
   Reopen(options);
-  Flush();
+  ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
   ASSERT_OK(ReadOnlyReopen(options));
@@ -205,7 +206,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   Reopen(options);
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
-  Flush();
+  ASSERT_OK(Flush());
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   Status s = Put("new", "value");
@@ -223,12 +224,12 @@ TEST_F(DBBasicTest, CompactedDB) {
   Reopen(options);
   // Add more L0 files
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
-  Flush();
+  ASSERT_OK(Flush());
   Close();
 
   ASSERT_OK(ReadOnlyReopen(options));
@@ -1413,10 +1414,10 @@ TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
     // mix with memtable
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     ASSERT_OK(Put(1, "k3", "v3"));
     ASSERT_OK(Put(1, "k4", "v4"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     ASSERT_OK(Delete(1, "k4"));
     ASSERT_OK(Put(1, "k5", "v5"));
     ASSERT_OK(Delete(1, "no_key"));
@@ -1459,19 +1460,19 @@ TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
   // mix with memtable
   ASSERT_OK(Merge(1, "k1", "v1"));
   ASSERT_OK(Merge(1, "k2", "v2"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
   ASSERT_OK(Merge(1, "k3", "v3"));
   ASSERT_OK(Merge(1, "k4", "v4"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
   ASSERT_OK(Merge(1, "k4", "v4_2"));
   ASSERT_OK(Merge(1, "k6", "v6"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
   ASSERT_OK(Merge(1, "k7", "v7"));
   ASSERT_OK(Merge(1, "k8", "v8"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
 
   get_perf_context()->Reset();
@@ -1511,12 +1512,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(2);
@@ -1525,12 +1526,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(1);
@@ -1539,12 +1540,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   ASSERT_EQ(0, num_keys);
@@ -1590,12 +1591,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(2);
@@ -1604,12 +1605,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
     ASSERT_OK(Merge("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(1);
@@ -1618,12 +1619,12 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
     ASSERT_OK(Merge("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   ASSERT_EQ(0, num_keys);
@@ -1705,7 +1706,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
     ASSERT_OK(Put(1, "k7", "v7_"));
     ASSERT_OK(Put(1, "k3", "v3_"));
     ASSERT_OK(Put(1, "k4", "v4"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     ASSERT_OK(Delete(1, "k4"));
     ASSERT_OK(Put(1, "k11", "v11"));
     ASSERT_OK(Delete(1, "no_key"));
@@ -1715,7 +1716,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
     ASSERT_OK(Put(1, "k15", "v15"));
     ASSERT_OK(Put(1, "k16", "v16"));
     ASSERT_OK(Put(1, "k17", "v17"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
 
     ASSERT_OK(Put(1, "k1", "v1_"));
     ASSERT_OK(Put(1, "k2", "v2_"));
@@ -1785,12 +1786,12 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
     ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(2);
@@ -1799,12 +1800,12 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
     ASSERT_OK(Merge("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   MoveFilesToLevel(1);
@@ -1813,12 +1814,12 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
     ASSERT_OK(Merge("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
     num_keys++;
     if (num_keys == 8) {
-      Flush();
+      ASSERT_OK(Flush());
       num_keys = 0;
     }
   }
   if (num_keys > 0) {
-    Flush();
+    ASSERT_OK(Flush());
     num_keys = 0;
   }
   ASSERT_EQ(0, num_keys);
@@ -1908,10 +1909,10 @@ TEST_F(DBBasicTest, MultiGetStats) {
     keys[i] = Slice(keys_str[i]);
     ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
-      Flush(1);
+      ASSERT_OK(Flush(1));
     }
   }
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
 
   for (int i = 501; i < 1000; ++i) {
@@ -1919,11 +1920,11 @@ TEST_F(DBBasicTest, MultiGetStats) {
     keys[i] = Slice(keys_str[i]);
     ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
-      Flush(1);
+      ASSERT_OK(Flush(1));
     }
   }
 
-  Flush(1);
+  ASSERT_OK(Flush(1));
   MoveFilesToLevel(2, 1);
 
   for (int i = 1001; i < total_keys; ++i) {
@@ -1931,10 +1932,10 @@ TEST_F(DBBasicTest, MultiGetStats) {
     keys[i] = Slice(keys_str[i]);
     ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
-      Flush(1);
+      ASSERT_OK(Flush(1));
     }
   }
-  Flush(1);
+  ASSERT_OK(Flush(1));
   Close();
 
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -1961,7 +1962,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   ASSERT_GT(hist_sst.max, 0);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 0);
+  ASSERT_EQ(hist_data_blocks.min, 3);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
   ASSERT_GT(hist_sst.max, 0);
@@ -2042,11 +2043,11 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
     ASSERT_OK(Put(1, "k2", "v2"));
     ASSERT_OK(Put(1, "k3", "v3"));
     ASSERT_OK(Put(1, "k4", "v4"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     ASSERT_OK(Put(1, "k5", "v5"));
     const Snapshot* snap1 = dbfull()->GetSnapshot();
     ASSERT_OK(Delete(1, "k4"));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     const Snapshot* snap2 = dbfull()->GetSnapshot();
 
     get_perf_context()->Reset();
@@ -2185,7 +2186,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
     std::string value(rnd.RandomString(128) + zero_str);
     assert(Put(Key(i), value) == Status::OK());
   }
-  Flush();
+  ASSERT_OK(Flush());
 
   std::vector<std::string> key_data(10);
   std::vector<Slice> keys;
@@ -2579,7 +2580,7 @@ class DBBasicTestTrackWal : public DBTestBase,
 
   int CountWalFiles() {
     VectorLogPtr log_files;
-    dbfull()->GetSortedWalFiles(log_files);
+    EXPECT_OK(dbfull()->GetSortedWalFiles(log_files));
     return static_cast<int>(log_files.size());
   };
 };
@@ -2714,9 +2715,9 @@ class DBBasicTestMultiGet : public DBTestBase {
                                : Put(cf, Key(i), values_[i])) == Status::OK());
       }
       if (num_cfs == 1) {
-        Flush();
+        EXPECT_OK(Flush());
       } else {
-        dbfull()->Flush(FlushOptions(), handles_[cf]);
+        EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
 
       for (int i = 0; i < 100; ++i) {
@@ -2728,9 +2729,9 @@ class DBBasicTestMultiGet : public DBTestBase {
                Status::OK());
       }
       if (num_cfs == 1) {
-        Flush();
+        EXPECT_OK(Flush());
       } else {
-        dbfull()->Flush(FlushOptions(), handles_[cf]);
+        EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
     }
   }
@@ -3273,7 +3274,9 @@ class DeadlineFS : public FileSystemWrapper {
 
   // Increment the IO counter and return a delay in microseconds
   IOStatus ShouldDelay(const IOOptions& opts) {
-    if (!deadline_.count() && !io_timeout_.count()) {
+    if (timedout_) {
+      return IOStatus::TimedOut();
+    } else if (!deadline_.count() && !io_timeout_.count()) {
       return IOStatus::OK();
     }
     if (!ignore_deadline_ && delay_trigger_ == io_count_++) {
@@ -3580,6 +3583,29 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+
+  // Does the right thing but with the wrong name -- using it should lead to an
+  // error.
+  class MisnamedFileChecksumGenerator : public FileChecksumGenCrc32c {
+   public:
+    MisnamedFileChecksumGenerator(const FileChecksumGenContext& context)
+        : FileChecksumGenCrc32c(context) {}
+
+    const char* Name() const override { return "sha1"; }
+  };
+
+  class MisnamedFileChecksumGenFactory : public FileChecksumGenCrc32cFactory {
+   public:
+    std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+        const FileChecksumGenContext& context) override {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new MisnamedFileChecksumGenerator(context));
+    }
+  };
+
+  options.file_checksum_gen_factory.reset(new MisnamedFileChecksumGenFactory());
+  Reopen(options);
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 #endif  // !ROCKSDB_LITE
 
@@ -3643,7 +3669,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
       std::string key = "k" + ToString(i);
       ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
-    Flush();
+    ASSERT_OK(Flush());
 
     bool timedout = true;
     // A timeout will be forced when the IO counter reaches this value

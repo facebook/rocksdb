@@ -21,9 +21,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobFileReader::Create(
-    const ImmutableCFOptions& immutable_cf_options,
+    const ImmutableOptions& immutable_cf_options,
     const FileOptions& file_options, uint32_t column_family_id,
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -34,7 +35,7 @@ Status BlobFileReader::Create(
   {
     const Status s =
         OpenFile(immutable_cf_options, file_options, blob_file_read_hist,
-                 blob_file_number, &file_size, &file_reader);
+                 blob_file_number, io_tracer, &file_size, &file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -66,9 +67,9 @@ Status BlobFileReader::Create(
 }
 
 Status BlobFileReader::OpenFile(
-    const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_opts, HistogramImpl* blob_file_read_hist,
-    uint64_t blob_file_number, uint64_t* file_size,
+    const ImmutableOptions& immutable_cf_options, const FileOptions& file_opts,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer, uint64_t* file_size,
     std::unique_ptr<RandomAccessFileReader>* file_reader) {
   assert(file_size);
   assert(file_reader);
@@ -79,7 +80,7 @@ Status BlobFileReader::OpenFile(
   const std::string blob_file_path =
       BlobFileName(cf_paths.front().path, blob_file_number);
 
-  FileSystem* const fs = immutable_cf_options.fs;
+  FileSystem* const fs = immutable_cf_options.fs.get();
   assert(fs);
 
   constexpr IODebugContext* dbg = nullptr;
@@ -117,10 +118,10 @@ Status BlobFileReader::OpenFile(
   }
 
   file_reader->reset(new RandomAccessFileReader(
-      std::move(file), blob_file_path, immutable_cf_options.env,
-      std::shared_ptr<IOTracer>(), immutable_cf_options.statistics,
-      BLOB_DB_BLOB_FILE_READ_MICROS, blob_file_read_hist,
-      immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
+      std::move(file), blob_file_path, immutable_cf_options.clock, io_tracer,
+      immutable_cf_options.stats, BLOB_DB_BLOB_FILE_READ_MICROS,
+      blob_file_read_hist, immutable_cf_options.rate_limiter.get(),
+      immutable_cf_options.listeners));
 
   return Status::OK();
 }
@@ -269,7 +270,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                CompressionType compression_type,
-                               PinnableSlice* value) const {
+                               PinnableSlice* value,
+                               uint64_t* bytes_read) const {
   assert(value);
 
   const uint64_t key_size = user_key.size();
@@ -292,15 +294,15 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
           : 0;
   assert(offset >= adjustment);
 
+  const uint64_t record_offset = offset - adjustment;
+  const uint64_t record_size = value_size + adjustment;
+
   Slice record_slice;
   Buffer buf;
   AlignedBuf aligned_buf;
 
   {
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
-
-    const uint64_t record_offset = offset - adjustment;
-    const uint64_t record_size = value_size + adjustment;
 
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
                                   static_cast<size_t>(record_size),
@@ -328,6 +330,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
+  }
+
+  if (bytes_read) {
+    *bytes_read = record_size;
   }
 
   return Status::OK();

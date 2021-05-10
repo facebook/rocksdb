@@ -98,4 +98,36 @@ inline uint64_t DecodeFixed64(const char* ptr) {
   }
 }
 
+// Swaps between big and little endian. Can be used to in combination
+// with the little-endian encoding/decoding functions to encode/decode
+// big endian.
+template <typename T>
+inline T EndianSwapValue(T v) {
+  static_assert(std::is_integral<T>::value, "non-integral type");
+
+#ifdef _MSC_VER
+  if (sizeof(T) == 2) {
+    return static_cast<T>(_byteswap_ushort(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(_byteswap_ulong(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(_byteswap_uint64(static_cast<uint64_t>(v)));
+  }
+#else
+  if (sizeof(T) == 2) {
+    return static_cast<T>(__builtin_bswap16(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(__builtin_bswap32(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(__builtin_bswap64(static_cast<uint64_t>(v)));
+  }
+#endif
+  // Recognized by clang as bswap, but not by gcc :(
+  T ret_val = 0;
+  for (size_t i = 0; i < sizeof(T); ++i) {
+    ret_val |= ((v >> (8 * i)) & 0xff) << (8 * (sizeof(T) - 1 - i));
+  }
+  return ret_val;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

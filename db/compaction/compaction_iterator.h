@@ -248,6 +248,7 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
   Env* env_;
+  SystemClock* clock_;
   bool report_detailed_time_;
   bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
@@ -338,6 +339,8 @@ class CompactionIterator {
 
   // Saved result of ucmp->CompareTimestamp(current_ts_, *full_history_ts_low_)
   int cmp_with_history_ts_low_;
+
+  const int level_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

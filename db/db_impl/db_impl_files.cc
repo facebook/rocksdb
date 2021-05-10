@@ -120,7 +120,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
              mutable_db_options_.delete_obsolete_files_period_micros == 0) {
     doing_the_full_scan = true;
   } else {
-    const uint64_t now_micros = env_->NowMicros();
+    const uint64_t now_micros = immutable_db_options_.clock->NowMicros();
     if ((delete_obsolete_files_last_run_ +
          mutable_db_options_.delete_obsolete_files_period_micros) <
         now_micros) {
@@ -191,7 +191,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(path, &files).PermitUncheckedError();  // Ignore errors
+      Status s = env_->GetChildren(path, &files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (const std::string& file : files) {
         uint64_t number;
         FileType type;
@@ -207,7 +208,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
           continue;
         }
 
-        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        // TODO(icanadi) clean up this mess to avoid having one-off "/"
+        // prefixes
         job_context->full_scan_candidate_files.emplace_back("/" + file, path);
       }
     }
@@ -215,9 +217,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     // Add log files in wal_dir
     if (immutable_db_options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
-      env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files)
-          .PermitUncheckedError();  // Ignore errors
+      Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (const std::string& log_file : log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.wal_dir);
@@ -227,9 +228,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
       std::vector<std::string> info_log_files;
-      // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
-          .PermitUncheckedError();
+      Status s =
+          env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (std::string& log_file : info_log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.db_log_dir);
@@ -557,8 +558,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
-                             immutable_db_options_.wal_size_limit_mb > 0)) {
+    if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
+                             immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }
@@ -853,7 +854,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId() {
+Status DBImpl::SetDBId(bool read_only) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -864,9 +865,15 @@ Status DBImpl::SetDBId() {
     // it is no longer available then at this point DB ID is not in Identity
     // file or Manifest.
     if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
+      // Create a new DB ID, saving to file only if allowed
+      if (read_only) {
+        db_id_ = env_->GenerateUniqueId();
+        return Status::OK();
+      } else {
+        s = SetIdentityFile(env_, dbname_);
+        if (!s.ok()) {
+          return s;
+        }
       }
     } else if (!s.ok()) {
       assert(s.IsIOError());
@@ -883,7 +890,7 @@ Status DBImpl::SetDBId() {
                                  mutable_cf_options, &edit, &mutex_, nullptr,
                                  /* new_descriptor_log */ false);
     }
-  } else {
+  } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
   return s;
@@ -936,7 +943,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
     return s;
   }
 
-  if (largest_file_number > next_file_number) {
+  if (largest_file_number >= next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
 

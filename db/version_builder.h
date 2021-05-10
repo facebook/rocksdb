@@ -44,6 +44,7 @@ class VersionBuilder {
                            bool is_initial_load,
                            const SliceTransform* prefix_extractor,
                            size_t max_file_size_for_l0_meta_pin);
+  uint64_t GetMinOldestBlobFileNumber() const;
 
  private:
   class Rep;

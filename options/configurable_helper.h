@@ -22,35 +22,6 @@ class ConfigurableHelper {
  public:
   constexpr static const char* kIdPropName = "id";
   constexpr static const char* kIdPropSuffix = ".id";
-  // Registers the input name with the options and associated map.
-  // When classes register their options in this manner, most of the
-  // functionality (excluding unknown options and validate/prepare) is
-  // implemented by the base class.
-  //
-  // This method should be called in the class constructor to register the
-  // option set for this object.  For example, to register the options
-  // associated with the BlockBasedTableFactory, the constructor calls this
-  // method passing in:
-  // - the name of the options ("BlockBasedTableOptions");
-  // - the options object (the BlockBasedTableOptions object for this object;
-  // - the options type map for the BlockBasedTableOptions.
-  // This registration allows the Configurable class to process the option
-  // values associated with the BlockBasedTableOptions without further code in
-  // the derived class.
-  //
-  // @param name    The name of this set of options (@see GetOptionsPtr)
-  // @param opt_ptr Pointer to the options to associate with this name
-  // @param opt_map Options map that controls how this option is configured.
-  template <typename T>
-  static void RegisterOptions(
-      Configurable& configurable, T* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
-    RegisterOptions(configurable, T::kName(), opt_ptr, opt_map);
-  }
-  static void RegisterOptions(
-      Configurable& configurable, const std::string& name, void* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
-
   // Configures the input Configurable object based on the parameters.
   // On successful completion, the Configurable is updated with the settings
   // from the opt_map.
@@ -108,7 +79,7 @@ class ConfigurableHelper {
   // @return InvalidArgument if the value could not be converted to a map or
   // there was or there is no id property in the map.
   static Status GetOptionsMap(
-      const std::string& opt_value, std::string* id,
+      const std::string& opt_value, const Customizable* custom, std::string* id,
       std::unordered_map<std::string, std::string>* options);
   static Status GetOptionsMap(
       const std::string& opt_value, const std::string& default_id,
@@ -245,6 +216,10 @@ class ConfigurableHelper {
       const std::vector<Configurable::RegisteredOptions>& options,
       const std::string& name, std::string* opt_name, void** opt_ptr);
 
+  static Status ConfigureCustomizableOption(
+      const ConfigOptions& config_options, Configurable& configurable,
+      const OptionTypeInfo& opt_info, const std::string& opt_name,
+      const std::string& name, const std::string& value, void* opt_ptr);
 #endif  // ROCKSDB_LITE
 };
 

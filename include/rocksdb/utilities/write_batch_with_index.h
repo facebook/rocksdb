@@ -40,12 +40,13 @@ enum WriteType {
   kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
+  kUnknownRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
 // Used in WBWIIterator.
 struct WriteEntry {
-  WriteType type;
+  WriteType type = kUnknownRecord;
   Slice key;
   Slice value;
 };
@@ -168,7 +169,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // returned iterator will also delete the base_iterator.
   //
   // Updating write batch with the current key of the iterator is not safe.
-  // We strongly recommand users not to do it. It will invalidate the current
+  // We strongly recommend users not to do it. It will invalidate the current
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
   // called.

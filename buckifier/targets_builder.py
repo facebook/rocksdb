@@ -25,10 +25,11 @@ def pretty_list(lst, indent=8):
 
 
 class TARGETSBuilder(object):
-    def __init__(self, path):
+    def __init__(self, path, extra_argv):
         self.path = path
         self.targets_file = open(path, 'wb')
-        header = targets_cfg.rocksdb_target_header_template
+        header = targets_cfg.rocksdb_target_header_template.format(
+            extra_argv=extra_argv)
         self.targets_file.write(header.encode("utf-8"))
         self.total_lib = 0
         self.total_bin = 0
@@ -86,6 +87,7 @@ cpp_binary(
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_test_lib"],
 ) if not is_opt_mode else None
 

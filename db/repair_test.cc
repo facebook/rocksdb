@@ -80,8 +80,8 @@ TEST_F(RepairTest, CorruptManifest) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
 
-  LegacyFileSystemWrapper fs(env_);
-  ASSERT_OK(CreateFile(&fs, manifest_path, "blah", false /* use_fsync */));
+  ASSERT_OK(CreateFile(env_->GetFileSystem(), manifest_path, "blah",
+                       false /* use_fsync */));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
@@ -163,8 +163,8 @@ TEST_F(RepairTest, CorruptSst) {
   ASSERT_OK(GetFirstSstPath(&sst_path));
   ASSERT_FALSE(sst_path.empty());
 
-  LegacyFileSystemWrapper fs(env_);
-  ASSERT_OK(CreateFile(&fs, sst_path, "blah", false /* use_fsync */));
+  ASSERT_OK(CreateFile(env_->GetFileSystem(), sst_path, "blah",
+                       false /* use_fsync */));
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
@@ -184,7 +184,7 @@ TEST_F(RepairTest, UnflushedSst) {
   {
     uint64_t total_ssts_size;
     std::unordered_map<std::string, uint64_t> sst_files;
-    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
     ASSERT_EQ(total_ssts_size, 0);
   }
   // Need to get path before Close() deletes db_, but delete it after Close() to
@@ -203,7 +203,7 @@ TEST_F(RepairTest, UnflushedSst) {
   {
     uint64_t total_ssts_size;
     std::unordered_map<std::string, uint64_t> sst_files;
-    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
     ASSERT_GT(total_ssts_size, 0);
   }
   ASSERT_EQ(Get("key"), "val");
@@ -221,7 +221,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     {
       uint64_t total_ssts_size;
       std::unordered_map<std::string, uint64_t> sst_files;
-      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
       ASSERT_EQ(total_ssts_size, 0);
     }
     std::string manifest_path =
@@ -241,7 +241,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     {
       uint64_t total_ssts_size;
       std::unordered_map<std::string, uint64_t> sst_files;
-      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
       ASSERT_GT(total_ssts_size, 0);
     }
     ASSERT_EQ(Get("key"), "val");

@@ -40,7 +40,8 @@ class SstFileDumper {
       const std::vector<std::pair<CompressionType, const char*>>&
           compression_types,
       int32_t compress_level_from, int32_t compress_level_to,
-      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes);
+      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+      uint64_t max_dict_buffer_bytes);
 
   Status ShowCompressionSize(size_t block_size, CompressionType compress_type,
                              const CompressionOptions& compress_opt);
@@ -62,7 +63,7 @@ class SstFileDumper {
 
   // Helper function to call the factory with settings specific to the
   // factory implementation
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
+  Status NewTableReader(const ImmutableOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
@@ -84,7 +85,7 @@ class SstFileDumper {
   std::unique_ptr<TableReader> table_reader_;
   std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   const MutableCFOptions moptions_;
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;

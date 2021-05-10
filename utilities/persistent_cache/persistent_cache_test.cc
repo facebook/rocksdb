@@ -14,6 +14,7 @@
 #include <memory>
 #include <thread>
 
+#include "file/file_util.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -38,30 +39,9 @@ static void OnOpenForWrite(void* arg) {
 }
 #endif
 
-static void RemoveDirectory(const std::string& folder) {
-  std::vector<std::string> files;
-  Status status = Env::Default()->GetChildren(folder, &files);
-  if (!status.ok()) {
-    // we assume the directory does not exist
-    return;
-  }
-
-  // cleanup files with the patter :digi:.rc
-  for (auto file : files) {
-    if (file == "." || file == "..") {
-      continue;
-    }
-    status = Env::Default()->DeleteFile(folder + "/" + file);
-    assert(status.ok());
-  }
-
-  status = Env::Default()->DeleteDir(folder);
-  assert(status.ok());
-}
-
 static void OnDeleteDir(void* arg) {
   char* dir = static_cast<char*>(arg);
-  RemoveDirectory(std::string(dir));
+  ASSERT_OK(DestroyDir(Env::Default(), std::string(dir)));
 }
 
 //

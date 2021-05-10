@@ -210,6 +210,106 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBBlobBasicTest, GenerateIOTracing) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::string trace_file = dbname_ + "/io_trace_file";
+
+  Reopen(options);
+  {
+    // Create IO trace file
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_file, &trace_writer));
+    ASSERT_OK(db_->StartIOTrace(TraceOptions(), std::move(trace_writer)));
+
+    constexpr char key[] = "key";
+    constexpr char blob_value[] = "blob_value";
+
+    ASSERT_OK(Put(key, blob_value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(Get(key), blob_value);
+
+    ASSERT_OK(db_->EndIOTrace());
+    ASSERT_OK(env_->FileExists(trace_file));
+  }
+  {
+    // Parse trace file to check file operations related to blob files are
+    // recorded.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(
+        NewFileTraceReader(env_, EnvOptions(), trace_file, &trace_reader));
+    IOTraceReader reader(std::move(trace_reader));
+
+    IOTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
+
+    // Read records.
+    int blob_files_op_count = 0;
+    Status status;
+    while (true) {
+      IOTraceRecord record;
+      status = reader.ReadIOOp(&record);
+      if (!status.ok()) {
+        break;
+      }
+      if (record.file_name.find("blob") != std::string::npos) {
+        blob_files_op_count++;
+      }
+    }
+    // Assuming blob files will have Append, Close and then Read operations.
+    ASSERT_GT(blob_files_op_count, 2);
+  }
+}
+#endif  // !ROCKSDB_LITE
+
+TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  Reopen(options);
+
+  ASSERT_OK(dbfull()->DisableFileDeletions());
+  constexpr int kNumTableFiles = 2;
+  for (int i = 0; i < kNumTableFiles; ++i) {
+    for (char ch = 'a'; ch != 'c'; ++ch) {
+      std::string key(1, ch);
+      ASSERT_OK(Put(key, "value" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  Close();
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  std::string blob_file_path;
+  uint64_t max_blob_file_num = kInvalidBlobFileNumber;
+  for (const auto& fname : files) {
+    uint64_t file_num = 0;
+    FileType type;
+    if (ParseFileName(fname, &file_num, /*info_log_name_prefix=*/"", &type) &&
+        type == kBlobFile) {
+      if (file_num > max_blob_file_num) {
+        max_blob_file_num = file_num;
+        blob_file_path = dbname_ + "/" + fname;
+      }
+    }
+  }
+  ASSERT_OK(env_->DeleteFile(blob_file_path));
+
+  options.best_efforts_recovery = true;
+  Reopen(options);
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "a", &value));
+  ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
+}
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:
@@ -296,6 +396,59 @@ TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
 
   ASSERT_TRUE(statuses[0].IsIOError());
   ASSERT_TRUE(statuses[1].IsIOError());
+}
+
+namespace {
+
+class ReadBlobCompactionFilter : public CompactionFilter {
+ public:
+  ReadBlobCompactionFilter() = default;
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.read.blob";
+  }
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice& existing_value, std::string* new_value,
+      std::string* /*skip_until*/) const override {
+    if (value_type != CompactionFilter::ValueType::kValue) {
+      return CompactionFilter::Decision::kKeep;
+    }
+    assert(new_value);
+    new_value->assign(existing_value.data(), existing_value.size());
+    return CompactionFilter::Decision::kChangeValue;
+  }
+};
+
+}  // anonymous namespace
+
+TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new ReadBlobCompactionFilter);
+  options.compaction_filter = compaction_filter_guard.get();
+
+  DestroyAndReopen(options);
+  constexpr char key[] = "foo";
+  constexpr char blob_value[] = "foo_blob_value";
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                                /*end=*/nullptr)
+                  .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

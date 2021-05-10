@@ -7,7 +7,7 @@
 
 #include <utility>
 
-#include "file/file_util.h"
+#include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -73,13 +73,16 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
-  // Add the prefix of the next key before finishing the partition. This hack,
-  // fixes a bug with format_verison=3 where seeking for the prefix would lead
-  // us to the previous partition.
-  const bool add_prefix =
+  // Add the prefix of the next key before finishing the partition without
+  // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
+  // where seeking for the prefix would lead us to the previous partition.
+  const bool maybe_add_prefix =
       next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
-  if (add_prefix) {
-    FullFilterBlockBuilder::AddPrefix(*next_key);
+  if (maybe_add_prefix) {
+    const Slice next_key_prefix = prefix_extractor()->Transform(*next_key);
+    if (next_key_prefix.compare(last_prefix_str()) != 0) {
+      AddKey(next_key_prefix);
+    }
   }
 
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
@@ -427,7 +430,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(rep->ioptions.info_log,
+    ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "
                     "cache filter partitions: %s",
                     s.ToString().c_str());
@@ -457,10 +460,11 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
+  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
+                                false /* Implicit autoreadahead */);
 
   IOOptions opts;
-  s = PrepareIOFromReadOptions(ro, rep->file->env(), opts);
+  s = rep->file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));

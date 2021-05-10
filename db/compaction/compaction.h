@@ -70,7 +70,7 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
-             const ImmutableCFOptions& immutable_cf_options,
+             const ImmutableOptions& immutable_options,
              const MutableCFOptions& mutable_cf_options,
              const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
@@ -162,7 +162,7 @@ class Compaction {
   CompressionType output_compression() const { return output_compression_; }
 
   // What compression options for output
-  CompressionOptions output_compression_opts() const {
+  const CompressionOptions& output_compression_opts() const {
     return output_compression_opts_;
   }
 
@@ -225,8 +225,8 @@ class Compaction {
 
   // Return the ImmutableCFOptions that should be used throughout the compaction
   // procedure
-  const ImmutableCFOptions* immutable_cf_options() const {
-    return &immutable_cf_options_;
+  const ImmutableOptions* immutable_cf_options() const {
+    return &immutable_options_;
   }
 
   // Return the MutableCFOptions that should be used throughout the compaction
@@ -330,7 +330,7 @@ class Compaction {
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
-  const ImmutableCFOptions immutable_cf_options_;
+  const ImmutableOptions immutable_options_;
   const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
@@ -341,7 +341,7 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
-  // If true, then the comaction can be done by simply deleting input files.
+  // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
   // Compaction input files organized by level. Constant after construction

@@ -8,6 +8,7 @@
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "rocksdb/comparator.h"
@@ -18,6 +19,305 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+BaseDeltaIterator::BaseDeltaIterator(Iterator* base_iterator,
+                                     WBWIIterator* delta_iterator,
+                                     const Comparator* comparator,
+                                     const ReadOptions* read_options)
+    : forward_(true),
+      current_at_base_(true),
+      equal_keys_(false),
+      status_(Status::OK()),
+      base_iterator_(base_iterator),
+      delta_iterator_(delta_iterator),
+      comparator_(comparator),
+      iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
+                                        : nullptr) {}
+
+bool BaseDeltaIterator::Valid() const {
+  return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
+}
+
+void BaseDeltaIterator::SeekToFirst() {
+  forward_ = true;
+  base_iterator_->SeekToFirst();
+  delta_iterator_->SeekToFirst();
+  UpdateCurrent();
+}
+
+void BaseDeltaIterator::SeekToLast() {
+  forward_ = false;
+  base_iterator_->SeekToLast();
+  delta_iterator_->SeekToLast();
+  UpdateCurrent();
+}
+
+void BaseDeltaIterator::Seek(const Slice& k) {
+  forward_ = true;
+  base_iterator_->Seek(k);
+  delta_iterator_->Seek(k);
+  UpdateCurrent();
+}
+
+void BaseDeltaIterator::SeekForPrev(const Slice& k) {
+  forward_ = false;
+  base_iterator_->SeekForPrev(k);
+  delta_iterator_->SeekForPrev(k);
+  UpdateCurrent();
+}
+
+void BaseDeltaIterator::Next() {
+  if (!Valid()) {
+    status_ = Status::NotSupported("Next() on invalid iterator");
+    return;
+  }
+
+  if (!forward_) {
+    // Need to change direction
+    // if our direction was backward and we're not equal, we have two states:
+    // * both iterators are valid: we're already in a good state (current
+    // shows to smaller)
+    // * only one iterator is valid: we need to advance that iterator
+    forward_ = true;
+    equal_keys_ = false;
+    if (!BaseValid()) {
+      assert(DeltaValid());
+      base_iterator_->SeekToFirst();
+    } else if (!DeltaValid()) {
+      delta_iterator_->SeekToFirst();
+    } else if (current_at_base_) {
+      // Change delta from larger than base to smaller
+      AdvanceDelta();
+    } else {
+      // Change base from larger than delta to smaller
+      AdvanceBase();
+    }
+    if (DeltaValid() && BaseValid()) {
+      if (comparator_->Equal(delta_iterator_->Entry().key,
+                             base_iterator_->key())) {
+        equal_keys_ = true;
+      }
+    }
+  }
+  Advance();
+}
+
+void BaseDeltaIterator::Prev() {
+  if (!Valid()) {
+    status_ = Status::NotSupported("Prev() on invalid iterator");
+    return;
+  }
+
+  if (forward_) {
+    // Need to change direction
+    // if our direction was backward and we're not equal, we have two states:
+    // * both iterators are valid: we're already in a good state (current
+    // shows to smaller)
+    // * only one iterator is valid: we need to advance that iterator
+    forward_ = false;
+    equal_keys_ = false;
+    if (!BaseValid()) {
+      assert(DeltaValid());
+      base_iterator_->SeekToLast();
+    } else if (!DeltaValid()) {
+      delta_iterator_->SeekToLast();
+    } else if (current_at_base_) {
+      // Change delta from less advanced than base to more advanced
+      AdvanceDelta();
+    } else {
+      // Change base from less advanced than delta to more advanced
+      AdvanceBase();
+    }
+    if (DeltaValid() && BaseValid()) {
+      if (comparator_->Equal(delta_iterator_->Entry().key,
+                             base_iterator_->key())) {
+        equal_keys_ = true;
+      }
+    }
+  }
+
+  Advance();
+}
+
+Slice BaseDeltaIterator::key() const {
+  return current_at_base_ ? base_iterator_->key()
+                          : delta_iterator_->Entry().key;
+}
+
+Slice BaseDeltaIterator::value() const {
+  return current_at_base_ ? base_iterator_->value()
+                          : delta_iterator_->Entry().value;
+}
+
+Status BaseDeltaIterator::status() const {
+  if (!status_.ok()) {
+    return status_;
+  }
+  if (!base_iterator_->status().ok()) {
+    return base_iterator_->status();
+  }
+  return delta_iterator_->status();
+}
+
+void BaseDeltaIterator::Invalidate(Status s) { status_ = s; }
+
+void BaseDeltaIterator::AssertInvariants() {
+#ifndef NDEBUG
+  bool not_ok = false;
+  if (!base_iterator_->status().ok()) {
+    assert(!base_iterator_->Valid());
+    not_ok = true;
+  }
+  if (!delta_iterator_->status().ok()) {
+    assert(!delta_iterator_->Valid());
+    not_ok = true;
+  }
+  if (not_ok) {
+    assert(!Valid());
+    assert(!status().ok());
+    return;
+  }
+
+  if (!Valid()) {
+    return;
+  }
+  if (!BaseValid()) {
+    assert(!current_at_base_ && delta_iterator_->Valid());
+    return;
+  }
+  if (!DeltaValid()) {
+    assert(current_at_base_ && base_iterator_->Valid());
+    return;
+  }
+  // we don't support those yet
+  assert(delta_iterator_->Entry().type != kMergeRecord &&
+         delta_iterator_->Entry().type != kLogDataRecord);
+  int compare =
+      comparator_->Compare(delta_iterator_->Entry().key, base_iterator_->key());
+  if (forward_) {
+    // current_at_base -> compare < 0
+    assert(!current_at_base_ || compare < 0);
+    // !current_at_base -> compare <= 0
+    assert(current_at_base_ && compare >= 0);
+  } else {
+    // current_at_base -> compare > 0
+    assert(!current_at_base_ || compare > 0);
+    // !current_at_base -> compare <= 0
+    assert(current_at_base_ && compare <= 0);
+  }
+  // equal_keys_ <=> compare == 0
+  assert((equal_keys_ || compare != 0) && (!equal_keys_ || compare == 0));
+#endif
+}
+
+void BaseDeltaIterator::Advance() {
+  if (equal_keys_) {
+    assert(BaseValid() && DeltaValid());
+    AdvanceBase();
+    AdvanceDelta();
+  } else {
+    if (current_at_base_) {
+      assert(BaseValid());
+      AdvanceBase();
+    } else {
+      assert(DeltaValid());
+      AdvanceDelta();
+    }
+  }
+  UpdateCurrent();
+}
+
+void BaseDeltaIterator::AdvanceDelta() {
+  if (forward_) {
+    delta_iterator_->Next();
+  } else {
+    delta_iterator_->Prev();
+  }
+}
+
+void BaseDeltaIterator::AdvanceBase() {
+  if (forward_) {
+    base_iterator_->Next();
+  } else {
+    base_iterator_->Prev();
+  }
+}
+
+bool BaseDeltaIterator::BaseValid() const { return base_iterator_->Valid(); }
+
+bool BaseDeltaIterator::DeltaValid() const { return delta_iterator_->Valid(); }
+
+void BaseDeltaIterator::UpdateCurrent() {
+// Suppress false positive clang analyzer warnings.
+#ifndef __clang_analyzer__
+  status_ = Status::OK();
+  while (true) {
+    WriteEntry delta_entry;
+    if (DeltaValid()) {
+      assert(delta_iterator_->status().ok());
+      delta_entry = delta_iterator_->Entry();
+    } else if (!delta_iterator_->status().ok()) {
+      // Expose the error status and stop.
+      current_at_base_ = false;
+      return;
+    }
+    equal_keys_ = false;
+    if (!BaseValid()) {
+      if (!base_iterator_->status().ok()) {
+        // Expose the error status and stop.
+        current_at_base_ = true;
+        return;
+      }
+
+      // Base has finished.
+      if (!DeltaValid()) {
+        // Finished
+        return;
+      }
+      if (iterate_upper_bound_) {
+        if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >= 0) {
+          // out of upper bound -> finished.
+          return;
+        }
+      }
+      if (delta_entry.type == kDeleteRecord ||
+          delta_entry.type == kSingleDeleteRecord) {
+        AdvanceDelta();
+      } else {
+        current_at_base_ = false;
+        return;
+      }
+    } else if (!DeltaValid()) {
+      // Delta has finished.
+      current_at_base_ = true;
+      return;
+    } else {
+      int compare =
+          (forward_ ? 1 : -1) *
+          comparator_->Compare(delta_entry.key, base_iterator_->key());
+      if (compare <= 0) {  // delta bigger or equal
+        if (compare == 0) {
+          equal_keys_ = true;
+        }
+        if (delta_entry.type != kDeleteRecord &&
+            delta_entry.type != kSingleDeleteRecord) {
+          current_at_base_ = false;
+          return;
+        }
+        // Delta is less advanced and is delete.
+        AdvanceDelta();
+        if (equal_keys_) {
+          AdvanceBase();
+        }
+      } else {
+        current_at_base_ = true;
+        return;
+      }
+    }
+  }
+
+  AssertInvariants();
+#endif  // __clang_analyzer__
+}
 
 class Env;
 class Logger;
@@ -155,34 +455,102 @@ int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
   }
 }
 
-WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
-    const ImmutableDBOptions& immuable_db_options, WriteBatchWithIndex* batch,
-    ColumnFamilyHandle* column_family, const Slice& key,
-    MergeContext* merge_context, WriteBatchEntryComparator* cmp,
-    std::string* value, bool overwrite_key, Status* s) {
-  uint32_t cf_id = GetColumnFamilyID(column_family);
-  *s = Status::OK();
-  WriteBatchWithIndexInternal::Result result =
-      WriteBatchWithIndexInternal::Result::kNotFound;
+WriteEntry WBWIIteratorImpl::Entry() const {
+  WriteEntry ret;
+  Slice blob, xid;
+  const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+  // this is guaranteed with Valid()
+  assert(iter_entry != nullptr &&
+         iter_entry->column_family == column_family_id_);
+  auto s = write_batch_->GetEntryFromDataOffset(
+      iter_entry->offset, &ret.type, &ret.key, &ret.value, &blob, &xid);
+  assert(s.ok());
+  assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
+         ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
+         ret.type == kMergeRecord);
+  return ret;
+}
 
-  std::unique_ptr<WBWIIterator> iter =
-      std::unique_ptr<WBWIIterator>(batch->NewIterator(column_family));
+bool WBWIIteratorImpl::MatchesKey(uint32_t cf_id, const Slice& key) {
+  if (Valid()) {
+    return comparator_->CompareKey(cf_id, key, Entry().key) == 0;
+  } else {
+    return false;
+  }
+}
+
+WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
+    DB* db, ColumnFamilyHandle* column_family)
+    : db_(db), db_options_(nullptr), column_family_(column_family) {
+  if (db_ != nullptr && column_family_ == nullptr) {
+    column_family_ = db_->DefaultColumnFamily();
+  }
+}
+
+WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
+    const DBOptions* db_options, ColumnFamilyHandle* column_family)
+    : db_(nullptr), db_options_(db_options), column_family_(column_family) {}
+
+Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
+                                             const Slice* value,
+                                             MergeContext& merge_context,
+                                             std::string* result,
+                                             Slice* result_operand) {
+  if (column_family_ != nullptr) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
+    const auto merge_operator = cfh->cfd()->ioptions()->merge_operator.get();
+    if (merge_operator == nullptr) {
+      return Status::InvalidArgument(
+          "Merge_operator must be set for column_family");
+    } else if (db_ != nullptr) {
+      const ImmutableDBOptions& immutable_db_options =
+          static_cast_with_check<DBImpl>(db_->GetRootDB())
+              ->immutable_db_options();
+      Statistics* statistics = immutable_db_options.statistics.get();
+      Logger* logger = immutable_db_options.info_log.get();
+      SystemClock* clock = immutable_db_options.clock;
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, merge_context.GetOperands(), result,
+          logger, statistics, clock, result_operand);
+    } else if (db_options_ != nullptr) {
+      Statistics* statistics = db_options_->statistics.get();
+      Env* env = db_options_->env;
+      Logger* logger = db_options_->info_log.get();
+      SystemClock* clock = env->GetSystemClock().get();
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, merge_context.GetOperands(), result,
+          logger, statistics, clock, result_operand);
+    } else {
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, merge_context.GetOperands(), result,
+          nullptr, nullptr, SystemClock::Default().get(), result_operand);
+    }
+  } else {
+    return Status::InvalidArgument("Must provide a column_family");
+  }
+}
+
+WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
+    WriteBatchWithIndex* batch, const Slice& key, MergeContext* merge_context,
+    std::string* value, bool overwrite_key, Status* s) {
+  uint32_t cf_id = GetColumnFamilyID(column_family_);
+  *s = Status::OK();
+  Result result = kNotFound;
+
+  std::unique_ptr<WBWIIteratorImpl> iter(
+      static_cast_with_check<WBWIIteratorImpl>(
+          batch->NewIterator(column_family_)));
 
   // We want to iterate in the reverse order that the writes were added to the
   // batch.  Since we don't have a reverse iterator, we must seek past the end.
   // TODO(agiardullo): consider adding support for reverse iteration
   iter->Seek(key);
-  while (iter->Valid()) {
-    const WriteEntry entry = iter->Entry();
-    if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
-      break;
-    }
-
+  while (iter->Valid() && iter->MatchesKey(cf_id, key)) {
     iter->Next();
   }
 
   if (!(*s).ok()) {
-    return WriteBatchWithIndexInternal::Result::kError;
+    return WriteBatchWithIndexInternal::kError;
   }
 
   if (!iter->Valid()) {
@@ -194,12 +562,12 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
 
   Slice entry_value;
   while (iter->Valid()) {
-    const WriteEntry entry = iter->Entry();
-    if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
+    if (!iter->MatchesKey(cf_id, key)) {
       // Unexpected error or we've reached a different next key
       break;
     }
 
+    const WriteEntry entry = iter->Entry();
     switch (entry.type) {
       case kPutRecord: {
         result = WriteBatchWithIndexInternal::Result::kFound;
@@ -250,27 +618,10 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         result == WriteBatchWithIndexInternal::Result::kDeleted) {
       // Found a Put or Delete.  Merge if necessary.
       if (merge_context->GetNumOperands() > 0) {
-        const MergeOperator* merge_operator;
-
-        if (column_family != nullptr) {
-          auto cfh =
-              static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-          merge_operator = cfh->cfd()->ioptions()->merge_operator;
+        if (result == WriteBatchWithIndexInternal::Result::kFound) {
+          *s = MergeKey(key, &entry_value, *merge_context, value);
         } else {
-          *s = Status::InvalidArgument("Must provide a column_family");
-          result = WriteBatchWithIndexInternal::Result::kError;
-          return result;
-        }
-        Statistics* statistics = immuable_db_options.statistics.get();
-        Env* env = immuable_db_options.env;
-        Logger* logger = immuable_db_options.info_log.get();
-
-        if (merge_operator) {
-          *s = MergeHelper::TimedFullMerge(merge_operator, key, &entry_value,
-                                           merge_context->GetOperands(), value,
-                                           logger, statistics, env);
-        } else {
-          *s = Status::InvalidArgument("Options::merge_operator must be set");
+          *s = MergeKey(key, nullptr, *merge_context, value);
         }
         if ((*s).ok()) {
           result = WriteBatchWithIndexInternal::Result::kFound;

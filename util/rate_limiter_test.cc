@@ -14,7 +14,7 @@
 #include <limits>
 
 #include "db/db_test_util.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -26,8 +26,8 @@ class RateLimiterTest : public testing::Test {};
 
 TEST_F(RateLimiterTest, OverflowRate) {
   GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
-                             RateLimiter::Mode::kWritesOnly, Env::Default(),
-                             false /* auto_tuned */);
+                             RateLimiter::Mode::kWritesOnly,
+                             SystemClock::Default(), false /* auto_tuned */);
   ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
 }
 
@@ -38,9 +38,10 @@ TEST_F(RateLimiterTest, StartStop) {
 TEST_F(RateLimiterTest, Modes) {
   for (auto mode : {RateLimiter::Mode::kWritesOnly,
                     RateLimiter::Mode::kReadsOnly, RateLimiter::Mode::kAllIo}) {
-    GenericRateLimiter limiter(
-        2000 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
-        10 /* fairness */, mode, Env::Default(), false /* auto_tuned */);
+    GenericRateLimiter limiter(2000 /* rate_bytes_per_sec */,
+                               1000 * 1000 /* refill_period_us */,
+                               10 /* fairness */, mode, SystemClock::Default(),
+                               false /* auto_tuned */);
     limiter.Request(1000 /* bytes */, Env::IO_HIGH, nullptr /* stats */,
                     RateLimiter::OpType::kRead);
     if (mode == RateLimiter::Mode::kWritesOnly) {
@@ -72,13 +73,13 @@ TEST_F(RateLimiterTest, Rate) {
   };
 
   auto writer = [](void* p) {
-    auto* thread_env = Env::Default();
+    const auto& thread_clock = SystemClock::Default();
     auto* arg = static_cast<Arg*>(p);
     // Test for 2 seconds
-    auto until = thread_env->NowMicros() + 2 * 1000000;
-    Random r((uint32_t)(thread_env->NowNanos() %
+    auto until = thread_clock->NowMicros() + 2 * 1000000;
+    Random r((uint32_t)(thread_clock->NowNanos() %
                         std::numeric_limits<uint32_t>::max()));
-    while (thread_env->NowMicros() < until) {
+    while (thread_clock->NowMicros() < until) {
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
                               Env::IO_HIGH, nullptr /* stats */,
@@ -169,7 +170,7 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
       std::shared_ptr<RateLimiter> limiter =
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
-              Env::Default(), false /* auto_tuned */);
+              SystemClock::Default(), false /* auto_tuned */);
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
@@ -204,7 +205,8 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
       1000 /* rate_bytes_per_sec */,
       std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, &special_env, true /* auto_tuned */));
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      true /* auto_tuned */));
 
   // Use callback to advance time because we need to advance (1) after Request()
   // has determined the bytes are not available; and (2) before Refill()

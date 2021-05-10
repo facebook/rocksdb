@@ -54,9 +54,6 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "trace_replay/block_cache_tracer.h"
-#include "trace_replay/io_tracer.h"
-#include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
@@ -132,7 +129,8 @@ class Directories {
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false, const bool batch_per_txn = true);
+         const bool seq_per_batch = false, const bool batch_per_txn = true,
+         bool read_only = false);
   // No copying allowed
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
@@ -450,9 +448,10 @@ class DBImpl : public DB {
   Status VerifyChecksumInternal(const ReadOptions& read_options,
                                 bool use_file_checksum);
 
-  Status VerifySstFileChecksum(const FileMetaData& fmeta,
-                               const std::string& fpath,
-                               const ReadOptions& read_options);
+  Status VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                const std::string& func_name_expected,
+                                const std::string& fpath,
+                                const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -471,7 +470,7 @@ class DBImpl : public DB {
   Status EndBlockCacheTrace() override;
 
   using DB::StartIOTrace;
-  Status StartIOTrace(Env* env, const TraceOptions& options,
+  Status StartIOTrace(const TraceOptions& options,
                       std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndIOTrace;
@@ -488,6 +487,7 @@ class DBImpl : public DB {
 #endif  // ROCKSDB_LITE
 
   // ---- End of implementations of the DB interface ----
+  SystemClock* GetSystemClock() const;
 
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
@@ -595,8 +595,11 @@ class DBImpl : public DB {
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
-  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                           const Slice& lower_bound, const Slice upper_bound);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                  const Slice& lower_bound,
+                                  const Slice upper_bound);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -954,6 +957,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Get the background error status
+  Status TEST_GetBGError();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1042,6 +1048,56 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
+  // Interface to block and signal the DB in case of stalling writes by
+  // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
+  // When DB needs to be blocked or signalled by WriteBufferManager,
+  // state_ is changed accordingly.
+  class WBMStallInterface : public StallInterface {
+   public:
+    enum State {
+      BLOCKED = 0,
+      RUNNING,
+    };
+
+    WBMStallInterface() : state_cv_(&state_mutex_) {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+    }
+
+    void SetState(State state) {
+      MutexLock lock(&state_mutex_);
+      state_ = state;
+    }
+
+    // Change the state_ to State::BLOCKED and wait until its state is
+    // changed by WriteBufferManager. When stall is cleared, Signal() is
+    // called to change the state and unblock the DB.
+    void Block() override {
+      MutexLock lock(&state_mutex_);
+      while (state_ == State::BLOCKED) {
+        TEST_SYNC_POINT("WBMStallInterface::BlockDB");
+        state_cv_.Wait();
+      }
+    }
+
+    // Called from WriteBufferManager. This function changes the state_
+    // to State::RUNNING indicating the stall is cleared and DB can proceed.
+    void Signal() override {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+      state_cv_.Signal();
+    }
+
+   private:
+    // Conditional variable and mutex to block and
+    // signal the DB during stalling process.
+    port::Mutex state_mutex_;
+    port::CondVar state_cv_;
+    // state represting whether DB is running or blocked because of stall by
+    // WriteBufferManager.
+    State state_;
+  };
+
  protected:
   const std::string dbname_;
   std::string db_id_;
@@ -1074,6 +1130,14 @@ class DBImpl : public DB {
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
 
+  // table_cache_ provides its own synchronization
+  std::shared_ptr<Cache> table_cache_;
+
+  ErrorHandler error_handler_;
+
+  // Unified interface for logging events
+  EventLogger event_logger_;
+
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
@@ -1103,6 +1167,12 @@ class DBImpl : public DB {
   //
   // Default: true
   const bool batch_per_txn_;
+
+  // Each flush or compaction gets its own job id. this counter makes sure
+  // they're unique
+  std::atomic<int> next_job_id_;
+
+  std::atomic<bool> shutting_down_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -1231,7 +1301,7 @@ class DBImpl : public DB {
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId();
+  Status SetDBId(bool read_only);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1303,6 +1373,7 @@ class DBImpl : public DB {
 
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
+    LogFileNumberSize() {}
     void AddSize(uint64_t new_size) { size += new_size; }
     uint64_t number;
     uint64_t size = 0;
@@ -1408,6 +1479,7 @@ class DBImpl : public DB {
     DBImpl* db;
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
+    Env::Priority compaction_pri_;
   };
 
   // Initialize the built-in column family for persistent stats. Depending on
@@ -1502,6 +1574,12 @@ class DBImpl : public DB {
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
 
+  // Get the size of a log file and, if truncate is true, truncate the
+  // log file to its actual size, thereby freeing preallocated space.
+  // Return success even if truncate fails
+  Status GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
+                                    LogFileNumberSize* log);
+
   // Restore alive_log_files_ and total_log_size_ after recovery.
   // It needs to run only when there's no flush during recovery
   // (e.g. avoid_flush_during_recovery=true). May also trigger flush
@@ -1511,6 +1589,10 @@ class DBImpl : public DB {
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
+
+  // Begin stalling of writes when memory usage increases beyond a certain
+  // threshold.
+  void WriteBufferManagerStallWrites();
 
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
@@ -1591,7 +1673,7 @@ class DBImpl : public DB {
   Status SwitchWAL(WriteContext* write_context);
 
   // REQUIRES: mutex locked and in write thread.
-  Status HandleWriteBufferFull(WriteContext* write_context);
+  Status HandleWriteBufferManagerFlush(WriteContext* write_context);
 
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
@@ -1870,8 +1952,7 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  // table_cache_ provides its own synchronization
-  std::shared_ptr<Cache> table_cache_;
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
@@ -1885,8 +1966,6 @@ class DBImpl : public DB {
   // Note: to avoid dealock, if needed to acquire both log_write_mutex_ and
   // mutex_, the order should be first mutex_ and then log_write_mutex_.
   InstrumentedMutex log_write_mutex_;
-
-  std::atomic<bool> shutting_down_;
 
   // If zero, manual compactions are allowed to proceed. If non-zero, manual
   // compactions may still be running, but will quickly fail with
@@ -2096,10 +2175,6 @@ class DBImpl : public DB {
   // Number of threads intending to write to memtable
   std::atomic<size_t> pending_memtable_writes_ = {};
 
-  // Each flush or compaction gets its own job id. this counter makes sure
-  // they're unique
-  std::atomic<int> next_job_id_;
-
   // A flag indicating whether the current rocksdb database has any
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
@@ -2127,9 +2202,6 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;
 #endif  // ROCKSDB_LITE
-
-  // Unified interface for logging events
-  EventLogger event_logger_;
 
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
@@ -2198,8 +2270,6 @@ class DBImpl : public DB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
-  ErrorHandler error_handler_;
-
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
   // column families, and different threads can flush different column
@@ -2212,11 +2282,18 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+
+  BlobFileCompletionCallback blob_callback_;
+
+  // Pointer to WriteBufferManager stalling interface.
+  std::unique_ptr<StallInterface> wbm_stall_;
 };
 
-extern Options SanitizeOptions(const std::string& db, const Options& src);
+extern Options SanitizeOptions(const std::string& db, const Options& src,
+                               bool read_only = false);
 
-extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
+                                 bool read_only = false);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,

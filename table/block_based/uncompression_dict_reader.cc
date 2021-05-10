@@ -64,7 +64,7 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(
-        rep->ioptions.info_log,
+        rep->ioptions.logger,
         "Encountered error while reading data from compression dictionary "
         "block %s",
         s.ToString().c_str());

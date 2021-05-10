@@ -241,6 +241,7 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
         MutexLock lock(&stall_mu_);
         writers = newest_writer->load(std::memory_order_relaxed);
         if (writers == &write_stall_dummy_) {
+          TEST_SYNC_POINT_CALLBACK("WriteThread::WriteStall::Wait", w);
           stall_cv_.Wait();
           // Load newest_writers_ again since it may have changed
           writers = newest_writer->load(std::memory_order_relaxed);
@@ -462,6 +463,11 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     if (w->disable_wal != leader->disable_wal) {
       // Do not mix writes that enable WAL with the ones whose
       // WAL disabled.
+      break;
+    }
+
+    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
+      // Do not mix writes with different levels of integrity protection.
       break;
     }
 

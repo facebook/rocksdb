@@ -23,99 +23,6 @@
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
-    WriteBatchEntrySkipList;
-
-class WBWIIteratorImpl : public WBWIIterator {
- public:
-  WBWIIteratorImpl(uint32_t column_family_id,
-                   WriteBatchEntrySkipList* skip_list,
-                   const ReadableWriteBatch* write_batch)
-      : column_family_id_(column_family_id),
-        skip_list_iter_(skip_list),
-        write_batch_(write_batch) {}
-
-  ~WBWIIteratorImpl() override {}
-
-  bool Valid() const override {
-    if (!skip_list_iter_.Valid()) {
-      return false;
-    }
-    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    return (iter_entry != nullptr &&
-            iter_entry->column_family == column_family_id_);
-  }
-
-  void SeekToFirst() override {
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
-  }
-
-  void SeekToLast() override {
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_ + 1,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
-    if (!skip_list_iter_.Valid()) {
-      skip_list_iter_.SeekToLast();
-    } else {
-      skip_list_iter_.Prev();
-    }
-  }
-
-  void Seek(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                      true /* is_forward_direction */,
-                                      false /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
-  }
-
-  void SeekForPrev(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                      false /* is_forward_direction */,
-                                      false /* is_seek_to_first */);
-    skip_list_iter_.SeekForPrev(&search_entry);
-  }
-
-  void Next() override { skip_list_iter_.Next(); }
-
-  void Prev() override { skip_list_iter_.Prev(); }
-
-  WriteEntry Entry() const override {
-    WriteEntry ret;
-    Slice blob, xid;
-    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    // this is guaranteed with Valid()
-    assert(iter_entry != nullptr &&
-           iter_entry->column_family == column_family_id_);
-    auto s = write_batch_->GetEntryFromDataOffset(
-        iter_entry->offset, &ret.type, &ret.key, &ret.value, &blob, &xid);
-    assert(s.ok());
-    assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
-           ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
-           ret.type == kMergeRecord);
-    return ret;
-  }
-
-  Status status() const override {
-    // this is in-memory data structure, so the only way status can be non-ok is
-    // through memory corruption
-    return Status::OK();
-  }
-
-  const WriteBatchIndexEntry* GetRawEntry() const {
-    return skip_list_iter_.key();
-  }
-
- private:
-  uint32_t column_family_id_;
-  WriteBatchEntrySkipList::Iterator skip_list_iter_;
-  const ReadableWriteBatch* write_batch_;
-};
-
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
                size_t max_bytes = 0, bool _overwrite_key = false)
@@ -179,12 +86,13 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     return false;
   }
 
-  WBWIIteratorImpl iter(column_family_id, &skip_list, &write_batch);
+  WBWIIteratorImpl iter(column_family_id, &skip_list, &write_batch,
+                        &comparator);
   iter.Seek(key);
   if (!iter.Valid()) {
     return false;
   }
-  if (comparator.CompareKey(column_family_id, key, iter.Entry().key) != 0) {
+  if (!iter.MatchesKey(column_family_id, key)) {
     return false;
   }
   WriteBatchIndexEntry* non_const_entry =
@@ -333,13 +241,15 @@ WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }
 
 WBWIIterator* WriteBatchWithIndex::NewIterator() {
-  return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
+  return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
+                              &(rep->comparator));
 }
 
 WBWIIterator* WriteBatchWithIndex::NewIterator(
     ColumnFamilyHandle* column_family) {
   return new WBWIIteratorImpl(GetColumnFamilyID(column_family),
-                              &(rep->skip_list), &rep->write_batch);
+                              &(rep->skip_list), &rep->write_batch,
+                              &(rep->comparator));
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
@@ -450,13 +360,8 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const DBOptions& options,
                                          const Slice& key, std::string* value) {
   Status s;
-  MergeContext merge_context;
-  const ImmutableDBOptions immuable_db_options(options);
-
-  WriteBatchWithIndexInternal::Result result =
-      WriteBatchWithIndexInternal::GetFromBatch(
-          immuable_db_options, this, column_family, key, &merge_context,
-          &rep->comparator, value, rep->overwrite_key, &s);
+  WriteBatchWithIndexInternal wbwii(&options, column_family);
+  auto result = wbwii.GetFromBatch(this, key, value, rep->overwrite_key, &s);
 
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
@@ -529,18 +434,14 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
   Status s;
-  MergeContext merge_context;
-  const ImmutableDBOptions& immuable_db_options =
-      static_cast_with_check<DBImpl>(db->GetRootDB())->immutable_db_options();
+  WriteBatchWithIndexInternal wbwii(db, column_family);
 
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
-  WriteBatchWithIndexInternal::Result result =
-      WriteBatchWithIndexInternal::GetFromBatch(
-          immuable_db_options, this, column_family, key, &merge_context,
-          &rep->comparator, &batch_value, rep->overwrite_key, &s);
+  auto result =
+      wbwii.GetFromBatch(this, key, &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     pinnable_val->PinSelf();
@@ -578,30 +479,16 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
     if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress) {
       // Merge result from DB with merges in Batch
-      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-      const MergeOperator* merge_operator =
-          cfh->cfd()->ioptions()->merge_operator;
-      Statistics* statistics = immuable_db_options.statistics.get();
-      Env* env = immuable_db_options.env;
-      Logger* logger = immuable_db_options.info_log.get();
-
-      Slice* merge_data;
+      std::string merge_result;
       if (s.ok()) {
-        merge_data = pinnable_val;
+        s = wbwii.MergeKey(key, pinnable_val, &merge_result);
       } else {  // Key not present in db (s.IsNotFound())
-        merge_data = nullptr;
+        s = wbwii.MergeKey(key, nullptr, &merge_result);
       }
-
-      if (merge_operator) {
-        std::string merge_result;
-        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
-                                        merge_context.GetOperands(),
-                                        &merge_result, logger, statistics, env);
+      if (s.ok()) {
         pinnable_val->Reset();
         *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();
-      } else {
-        s = Status::InvalidArgument("Options::merge_operator must be set");
       }
     }
   }
@@ -621,8 +508,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const size_t num_keys, const Slice* keys, PinnableSlice* values,
     Status* statuses, bool sorted_input, ReadCallback* callback) {
-  const ImmutableDBOptions& immuable_db_options =
-      static_cast_with_check<DBImpl>(db->GetRootDB())->immutable_db_options();
+  WriteBatchWithIndexInternal wbwii(db, column_family);
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -638,10 +524,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     PinnableSlice* pinnable_val = &values[i];
     std::string& batch_value = *pinnable_val->GetSelf();
     Status* s = &statuses[i];
-    WriteBatchWithIndexInternal::Result result =
-        WriteBatchWithIndexInternal::GetFromBatch(
-            immuable_db_options, this, column_family, keys[i], &merge_context,
-            &rep->comparator, &batch_value, rep->overwrite_key, s);
+    auto result = wbwii.GetFromBatch(this, keys[i], &merge_context,
+                                     &batch_value, rep->overwrite_key, s);
 
     if (result == WriteBatchWithIndexInternal::Result::kFound) {
       pinnable_val->PinSelf();
@@ -681,9 +565,6 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
       ->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 
-  ColumnFamilyHandleImpl* cfh =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  const MergeOperator* merge_operator = cfh->cfd()->ioptions()->merge_operator;
   for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
     KeyContext& key = *iter;
     if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
@@ -693,27 +574,14 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
       if (merge_result.first ==
           WriteBatchWithIndexInternal::Result::kMergeInProgress) {
         // Merge result from DB with merges in Batch
-        Statistics* statistics = immuable_db_options.statistics.get();
-        Env* env = immuable_db_options.env;
-        Logger* logger = immuable_db_options.info_log.get();
-
-        Slice* merge_data;
         if (key.s->ok()) {
-          merge_data = iter->value;
+          *key.s = wbwii.MergeKey(*key.key, iter->value, merge_result.second,
+                                  key.value->GetSelf());
         } else {  // Key not present in db (s.IsNotFound())
-          merge_data = nullptr;
+          *key.s = wbwii.MergeKey(*key.key, nullptr, merge_result.second,
+                                  key.value->GetSelf());
         }
-
-        if (merge_operator) {
-          *key.s = MergeHelper::TimedFullMerge(
-              merge_operator, *key.key, merge_data,
-              merge_result.second.GetOperands(), key.value->GetSelf(), logger,
-              statistics, env);
-          key.value->PinSelf();
-        } else {
-          *key.s =
-              Status::InvalidArgument("Options::merge_operator must be set");
-        }
+        key.value->PinSelf();
       }
     }
   }

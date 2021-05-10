@@ -71,7 +71,6 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -101,8 +100,8 @@ class Repairer {
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
-        default_cf_iopts_(
-            ImmutableCFOptions(immutable_db_options_, default_cf_opts_)),
+        default_iopts_(
+            ImmutableOptions(immutable_db_options_, default_cf_opts_)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -111,7 +110,7 @@ class Repairer {
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
         table_cache_(new TableCache(
-            default_cf_iopts_, env_options_, raw_table_cache_.get(),
+            default_iopts_, env_options_, raw_table_cache_.get(),
             /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
@@ -249,7 +248,7 @@ class Repairer {
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
-  const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference
+  const ImmutableOptions default_iopts_;  // table_cache_ holds reference
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -358,14 +357,14 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(db_options_.wal_dir, log);
-    std::unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(
-        logname, &lfile, env_->OptimizeForLogRead(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<SequentialFileReader> lfile_reader;
+    Status status = SequentialFileReader::Create(
+        fs, logname, fs->OptimizeForLogRead(env_options_), &lfile_reader,
+        nullptr);
     if (!status.ok()) {
       return status;
     }
-    std::unique_ptr<SequentialFileReader> lfile_reader(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(lfile), logname));
 
     // Create the log reader.
     LogReporter reporter;
@@ -426,7 +425,8 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       int64_t _current_time = 0;
-      status = env_->GetCurrentTime(&_current_time);  // ignore error
+      immutable_db_options_.clock->GetCurrentTime(&_current_time)
+          .PermitUncheckedError();  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
@@ -439,22 +439,24 @@ class Repairer {
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      LegacyFileSystemWrapper fs(env_);
       IOStatus io_s;
+      CompressionOptions default_compression;
+      TableBuilderOptions tboptions(
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
+          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
+          -1 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, current_time,
+          0 /* oldest_key_time */, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/);
       status = BuildTable(
-          dbname_, /* versions */ nullptr, immutable_db_options_,
-          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), env_options_,
-          table_cache_.get(), iter.get(), std::move(range_del_iters), &meta,
-          nullptr /* blob_file_additions */, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
-          0 /* sample_for_compression */, CompressionOptions(), false,
-          nullptr /* internal_stats */, TableFileCreationReason::kRecovery,
-          &io_s, nullptr /*IOTracer*/, nullptr /* event_logger */,
-          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
-          0 /* file_creation_time */, "DB Repairer" /* db_id */,
-          db_session_id_);
+          dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
+          env_options_, table_cache_.get(), iter.get(),
+          std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
+          {}, kMaxSequenceNumber, snapshot_checker,
+          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
+          nullptr /*IOTracer*/, nullptr /* event_logger */, 0 /* job_id */,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),

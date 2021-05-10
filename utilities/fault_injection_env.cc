@@ -165,7 +165,7 @@ TestWritableFile::TestWritableFile(const std::string& fname,
 
 TestWritableFile::~TestWritableFile() {
   if (writable_file_opened_) {
-    Close();
+    Close().PermitUncheckedError();
   }
 }
 

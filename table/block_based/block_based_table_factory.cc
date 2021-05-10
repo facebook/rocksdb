@@ -415,6 +415,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = reinterpret_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"max_auto_readahead_size",
+         {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 #endif  // ROCKSDB_LITE
 };
 
@@ -424,8 +428,7 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &block_based_table_type_info);
+  RegisterOptions(&table_options_, &block_based_table_type_info);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -489,24 +492,10 @@ Status BlockBasedTableFactory::NewTableReader(
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_builder_options.moptions,
-      table_options_, table_builder_options.internal_comparator,
-      table_builder_options.int_tbl_prop_collector_factories, column_family_id,
-      file, table_builder_options.compression_type,
-      table_builder_options.sample_for_compression,
-      table_builder_options.compression_opts,
-      table_builder_options.skip_filters,
-      table_builder_options.column_family_name, table_builder_options.level,
-      table_builder_options.creation_time,
-      table_builder_options.oldest_key_time,
-      table_builder_options.target_file_size,
-      table_builder_options.file_creation_time, table_builder_options.db_id,
-      table_builder_options.db_session_id);
-
-  return table_builder;
+  return new BlockBasedTableBuilder(table_options_, table_builder_options,
+                                    file);
 }
 
 Status BlockBasedTableFactory::ValidateOptions(
@@ -687,6 +676,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.max_auto_readahead_size);
   return ret;
 }
 

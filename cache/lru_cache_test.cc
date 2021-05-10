@@ -30,7 +30,7 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(capacity, false /*strict_capcity_limit*/,
+    new (cache_) LRUCacheShard(capacity, false /*strict_capacity_limit*/,
                                high_pri_pool_ratio, use_adaptive_mutex,
                                kDontChargeCacheMetadata);
   }

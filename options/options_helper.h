@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 struct ColumnFamilyOptions;
 struct ConfigOptions;
 struct DBOptions;
+struct ImmutableCFOptions;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 struct MutableCFOptions;
@@ -37,6 +38,11 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
+
+void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
+                               ColumnFamilyOptions* cf_opts);
+void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
+                               ColumnFamilyOptions* cf_opts);
 
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(

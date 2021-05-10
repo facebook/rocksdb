@@ -383,10 +383,12 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   contents.remove_prefix(dbname.size() + 1);
   std::string tmp = TempFileName(dbname, descriptor_number);
   IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
+  TEST_SYNC_POINT_CALLBACK("SetCurrentFile:BeforeRename", &s);
   if (s.ok()) {
-    TEST_KILL_RANDOM("SetCurrentFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
+    TEST_KILL_RANDOM_WITH_WEIGHT("SetCurrentFile:0", REDUCE_ODDS2);
     s = fs->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
-    TEST_KILL_RANDOM("SetCurrentFile:1", rocksdb_kill_odds * REDUCE_ODDS2);
+    TEST_KILL_RANDOM_WITH_WEIGHT("SetCurrentFile:1", REDUCE_ODDS2);
+    TEST_SYNC_POINT_CALLBACK("SetCurrentFile:AfterRename", &s);
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
@@ -419,15 +421,16 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   return s;
 }
 
-IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+IOStatus SyncManifest(const ImmutableDBOptions* db_options,
                       WritableFileWriter* file) {
-  TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
-  StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+  TEST_KILL_RANDOM_WITH_WEIGHT("SyncManifest:0", REDUCE_ODDS2);
+  StopWatch sw(db_options->clock, db_options->stats, MANIFEST_FILE_SYNC_MICROS);
   return file->Sync(db_options->use_fsync);
 }
 
-Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
-                       const std::string& dbname, std::string* parent_dir,
+Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
+                       const std::string& db_log_dir, const std::string& dbname,
+                       std::string* parent_dir,
                        std::vector<std::string>* info_log_list) {
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
@@ -443,7 +446,7 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
 
   std::vector<std::string> file_names;
-  Status s = env->GetChildren(*parent_dir, &file_names);
+  Status s = fs->GetChildren(*parent_dir, IOOptions(), &file_names, nullptr);
 
   if (!s.ok()) {
     return s;

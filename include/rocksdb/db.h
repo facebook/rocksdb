@@ -112,7 +112,7 @@ struct RangePtr {
 };
 
 // It is valid that files_checksums and files_checksum_func_names are both
-// empty (no checksum informaiton is provided for ingestion). Otherwise,
+// empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
 // be the same in three vectors and guaranteed by the caller.
 struct IngestExternalFileArg {
@@ -205,11 +205,11 @@ class DB {
   // to open the primary instance.
   // The secondary_path argument points to a directory where the secondary
   // instance stores its info log.
-  // The column_families argument specifieds a list of column families to open.
+  // The column_families argument specifies a list of column families to open.
   // If any of the column families does not exist, the function returns non-OK
   // status.
   // The handles is an out-arg corresponding to the opened database column
-  // familiy handles.
+  // family handles.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
   // The pointer points to a heap-allocated database, and the caller should
   // delete it after use. Before deleting the dbptr, the user should also
@@ -713,7 +713,9 @@ class DB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot) = 0;
 
 #ifndef ROCKSDB_LITE
-  // Contains all valid property arguments for GetProperty().
+  // Contains all valid property arguments for GetProperty() or
+  // GetMapProperty(). Each is a "string" property for retrieval with
+  // GetProperty() unless noted as a "map" property, for GetMapProperty().
   //
   // NOTE: Property names cannot end in numbers since those are interpreted as
   //       arguments, e.g., see kNumFilesAtLevelPrefix.
@@ -738,19 +740,14 @@ class DB {
     //      SST files.
     static const std::string kSSTables;
 
-    //  "rocksdb.cfstats" - Both of "rocksdb.cfstats-no-file-histogram" and
-    //      "rocksdb.cf-file-histogram" together. See below for description
-    //      of the two.
+    //  "rocksdb.cfstats" - Raw data from "rocksdb.cfstats-no-file-histogram"
+    //      and "rocksdb.cf-file-histogram" as a "map" property.
     static const std::string kCFStats;
 
     //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
-    //      general columm family stats per-level over db's lifetime ("L<n>"),
+    //      general column family stats per-level over db's lifetime ("L<n>"),
     //      aggregated over db's lifetime ("Sum"), and aggregated over the
     //      interval since the last retrieval ("Int").
-    //  It could also be used to return the stats in the format of the map.
-    //  In this case there will a pair of string to array of double for
-    //  each level as well as for "Sum". "Int" stats will not be affected
-    //  when this form of stats are retrieved.
     static const std::string kCFStatsNoFileHistogram;
 
     //  "rocksdb.cf-file-histogram" - print out how many file reads to every
@@ -891,8 +888,10 @@ class DB {
     //      based.
     static const std::string kEstimatePendingCompactionBytes;
 
-    //  "rocksdb.aggregated-table-properties" - returns a string representation
-    //      of the aggregated table properties of the target column family.
+    //  "rocksdb.aggregated-table-properties" - returns a string or map
+    //      representation of the aggregated table properties of the target
+    //      column family. Only properties that make sense for aggregation
+    //      are included.
     static const std::string kAggregatedTableProperties;
 
     //  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
@@ -930,15 +929,19 @@ class DB {
   };
 #endif /* ROCKSDB_LITE */
 
-  // DB implementations can export properties about their state via this method.
-  // If "property" is a valid property understood by this DB implementation (see
-  // Properties struct above for valid options), fills "*value" with its current
-  // value and returns true.  Otherwise, returns false.
+  // DB implementations export properties about their state via this method.
+  // If "property" is a valid "string" property understood by this DB
+  // implementation (see Properties struct above for valid options), fills
+  // "*value" with its current value and returns true.  Otherwise, returns
+  // false.
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
     return GetProperty(DefaultColumnFamily(), property, value);
   }
+
+  // Like GetProperty but for valid "map" properties. (Some properties can be
+  // accessed as either "string" properties or "map" properties.)
   virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
                               const Slice& property,
                               std::map<std::string, std::string>* value) = 0;
@@ -1022,22 +1025,24 @@ class DB {
                                      uint64_t* sizes) = 0;
 
   // Simpler versions of the GetApproximateSizes() method above.
-  // The include_flags argumenbt must of type DB::SizeApproximationFlags
+  // The include_flags argument must of type DB::SizeApproximationFlags
   // and can not be NONE.
-  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* ranges, int n, uint64_t* sizes,
-                                   uint8_t include_flags = INCLUDE_FILES) {
+  virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                     const Range* ranges, int n,
+                                     uint64_t* sizes,
+                                     uint8_t include_flags = INCLUDE_FILES) {
     SizeApproximationOptions options;
     options.include_memtabtles =
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    Status s = GetApproximateSizes(options, column_family, ranges, n, sizes);
-    s.PermitUncheckedError();
+    return GetApproximateSizes(options, column_family, ranges, n, sizes);
   }
-  virtual void GetApproximateSizes(const Range* ranges, int n, uint64_t* sizes,
-                                   uint8_t include_flags = INCLUDE_FILES) {
-    GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes, include_flags);
+  virtual Status GetApproximateSizes(const Range* ranges, int n,
+                                     uint64_t* sizes,
+                                     uint8_t include_flags = INCLUDE_FILES) {
+    return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
+                               include_flags);
   }
 
   // The method is similar to GetApproximateSizes, except it
@@ -1175,7 +1180,13 @@ class DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
+  // After this function call, CompactRange() or CompactFiles() will not
+  // run compactions and fail. The function will wait for all outstanding
+  // manual compactions to finish before returning
   virtual void DisableManualCompaction() = 0;
+  // Re-enable CompactRange() and ComapctFiles() that are disabled by
+  // DisableManualCompaction(). In debug mode, it might hit assertion if
+  // no DisableManualCompaction() was previously called.
   virtual void EnableManualCompaction() = 0;
 
   // Number of levels used for this DB.
@@ -1363,7 +1374,7 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Return a list of all table file checksum info.
+  // Return a list of all table and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
@@ -1607,7 +1618,7 @@ class DB {
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
-  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+  virtual Status StartIOTrace(const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartIOTrace() is not implemented.");
   }

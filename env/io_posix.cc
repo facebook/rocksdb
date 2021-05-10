@@ -58,7 +58,7 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
   switch (err_number) {
     case ENOSPC: {
       IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
-                                     strerror(err_number));
+                                     errnoStr(err_number).c_str());
       s.SetRetryable(true);
       return s;
     }
@@ -66,10 +66,10 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
       return IOStatus::IOError(IOStatus::kStaleFile);
     case ENOENT:
       return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
-                                    strerror(err_number));
+                                    errnoStr(err_number).c_str());
     default:
       return IOStatus::IOError(IOErrorMsg(context, file_name),
-                               strerror(err_number));
+                               errnoStr(err_number).c_str());
   }
 }
 
@@ -893,7 +893,7 @@ IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
  * knows enough to skip zero suffixes.
  */
 IOStatus PosixMmapFile::UnmapCurrentRegion() {
-  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0");
   if (base_ != nullptr) {
     int munmap_status = munmap(base_, limit_ - base_);
     if (munmap_status != 0) {
@@ -916,7 +916,7 @@ IOStatus PosixMmapFile::UnmapCurrentRegion() {
 IOStatus PosixMmapFile::MapNewRegion() {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   assert(base_ == nullptr);
-  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0");
   // we can't fallocate with FALLOC_FL_KEEP_SIZE here
   if (allow_fallocate_) {
     IOSTATS_TIMER_GUARD(allocate_nanos);
@@ -927,17 +927,17 @@ IOStatus PosixMmapFile::MapNewRegion() {
     }
     if (alloc_status != 0) {
       return IOStatus::IOError("Error allocating space to file : " + filename_ +
-                               "Error : " + strerror(alloc_status));
+                               "Error : " + errnoStr(alloc_status).c_str());
     }
   }
 
-  TEST_KILL_RANDOM("PosixMmapFile::Append:1", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Append:1");
   void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_,
                    file_offset_);
   if (ptr == MAP_FAILED) {
     return IOStatus::IOError("MMap failed on " + filename_);
   }
-  TEST_KILL_RANDOM("PosixMmapFile::Append:2", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
   base_ = reinterpret_cast<char*>(ptr);
   limit_ = base_ + map_size_;
@@ -958,7 +958,7 @@ IOStatus PosixMmapFile::Msync() {
   size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
   size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
   last_sync_ = dst_;
-  TEST_KILL_RANDOM("PosixMmapFile::Msync:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Msync:0");
   if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
     return IOError("While msync", filename_, errno);
   }
@@ -1011,7 +1011,7 @@ IOStatus PosixMmapFile::Append(const Slice& data, const IOOptions& /*opts*/,
       if (!s.ok()) {
         return s;
       }
-      TEST_KILL_RANDOM("PosixMmapFile::Append:0", rocksdb_kill_odds);
+      TEST_KILL_RANDOM("PosixMmapFile::Append:0");
     }
 
     size_t n = (left <= avail) ? left : avail;
@@ -1109,7 +1109,7 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
                                  IODebugContext* /*dbg*/) {
   assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
-  TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Allocate:0");
   int alloc_status = 0;
   if (allow_fallocate_) {
     alloc_status =
@@ -1213,6 +1213,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
   size_t block_size;
   size_t last_allocated_block;
   GetPreallocationStatus(&block_size, &last_allocated_block);
+  TEST_SYNC_POINT_CALLBACK("PosixWritableFile::Close", &last_allocated_block);
   if (last_allocated_block > 0) {
     // trim the extra space preallocated at the end of the file
     // NOTE(ljin): we probably don't want to surface failure as an IOError,
@@ -1332,7 +1333,7 @@ IOStatus PosixWritableFile::Allocate(uint64_t offset, uint64_t len,
                                      IODebugContext* /*dbg*/) {
   assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
-  TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixWritableFile::Allocate:0");
   IOSTATS_TIMER_GUARD(allocate_nanos);
   int alloc_status = 0;
   if (allow_fallocate_) {

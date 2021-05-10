@@ -96,6 +96,14 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.file_creation_time > 0) {
     Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
   }
+  if (props.slow_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+        props.slow_compression_estimated_data_size);
+  }
+  if (props.fast_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kFastCompressionEstimatedDataSize,
+        props.fast_compression_estimated_data_size);
+  }
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -144,8 +152,8 @@ Slice PropertyBlockBuilder::Finish() {
   return properties_block_->Finish();
 }
 
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name) {
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name) {
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
@@ -172,11 +180,11 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t blockRawBytes, const uint64_t blockCompressedBytesFast,
-    const uint64_t blockCompressedBytesSlow) {
+    const uint64_t block_raw_bytes, const uint64_t block_compressed_bytes_fast,
+    const uint64_t block_compressed_bytes_slow) {
   for (auto& collector : collectors) {
-    collector->BlockAdd(blockRawBytes, blockCompressedBytesFast,
-                        blockCompressedBytesSlow);
+    collector->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+                        block_compressed_bytes_slow);
   }
 }
 
@@ -203,7 +211,7 @@ bool NotifyCollectTableCollectorsOnFinish(
 Status ReadProperties(const ReadOptions& read_options,
                       const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-                      const ImmutableCFOptions& ioptions,
+                      const ImmutableOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,
                       BlockHandle* ret_block_handle,
                       CacheAllocationPtr* verification_buf,
@@ -279,6 +287,10 @@ Status ReadProperties(const ReadOptions& read_options,
        &new_table_properties->oldest_key_time},
       {TablePropertiesNames::kFileCreationTime,
        &new_table_properties->file_creation_time},
+      {TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+       &new_table_properties->slow_compression_estimated_data_size},
+      {TablePropertiesNames::kFastCompressionEstimatedDataSize,
+       &new_table_properties->fast_compression_estimated_data_size},
   };
 
   std::string last_key;
@@ -317,7 +329,7 @@ Status ReadProperties(const ReadOptions& read_options,
         auto error_msg =
           "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        ROCKS_LOG_ERROR(ioptions.info_log, "%s", error_msg.c_str());
+        ROCKS_LOG_ERROR(ioptions.logger, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
@@ -371,7 +383,7 @@ Status ReadProperties(const ReadOptions& read_options,
 
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions& ioptions,
+                           const ImmutableOptions& ioptions,
                            TableProperties** properties,
                            bool compression_type_missing,
                            MemoryAllocator* memory_allocator,
@@ -442,7 +454,7 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
                      bool /*compression_type_missing*/,
@@ -484,7 +496,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents, bool /*compression_type_missing*/,
                      MemoryAllocator* memory_allocator) {
