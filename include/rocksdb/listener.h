@@ -16,6 +16,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 

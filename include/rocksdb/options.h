@@ -128,9 +128,10 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Allows an application to modify/delete a key-value during background
   // compaction.
   //
-  // If the client requires a new compaction filter to be used for different
-  // compaction runs, it can specify compaction_filter_factory instead of this
-  // option.  The client should specify only one of the two.
+  // If the client requires a new `CompactionFilter` to be used for different
+  // compaction runs and/or requires a `CompactionFilter` for table file
+  // creations outside of compaction, it can specify compaction_filter_factory
+  // instead of this option.  The client should specify only one of the two.
   // compaction_filter takes precedence over compaction_filter_factory if
   // client specifies both.
   //
@@ -141,12 +142,21 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   const CompactionFilter* compaction_filter = nullptr;
 
-  // This is a factory that provides compaction filter objects which allow
-  // an application to modify/delete a key-value during background compaction.
+  // This is a factory that provides `CompactionFilter` objects which allow
+  // an application to modify/delete a key-value during table file creation.
   //
-  // A new filter will be created on each compaction run.  If multithreaded
-  // compaction is being used, each created CompactionFilter will only be used
-  // from a single thread and so does not need to be thread-safe.
+  // Unlike the `compaction_filter` option, which is used when compaction
+  // creates a table file, this factory allows using a `CompactionFilter` when a
+  // table file is created for various reasons. The factory can decide what
+  // `TableFileCreationReason`s use a `CompactionFilter`. For compatibility, by
+  // default the decision is to use a `CompactionFilter` for
+  // `TableFileCreationReason::kCompaction` only.
+  //
+  // Each thread of work involving creating table files will create a new
+  // `CompactionFilter` when it will be used according to the above
+  // `TableFileCreationReason`-based decision. This allows the application to
+  // know about the different ongoing threads of work and makes it unnecessary
+  // for `CompactionFilter` to provide thread-safety.
   //
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory = nullptr;
