@@ -287,7 +287,7 @@ class ClockCacheShard final : public CacheShard {
   void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      uint32_t average_entries_per_lock, uint32_t* state);
+      uint32_t average_entries_per_lock, uint32_t* state) override;
 
  private:
   static const uint32_t kInCacheBit = 1;

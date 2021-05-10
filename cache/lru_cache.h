@@ -156,7 +156,7 @@ class LRUHandleTable {
   // If the table uses more hash bits than `max_upper_hash_bits`,
   // it will eat into the bits used for sharding, which are constant
   // for a given LRUHandleTable.
-  LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int max_upper_hash_bits);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
