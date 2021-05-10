@@ -23,6 +23,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 class MergeContext;
+class WBWIIteratorImpl;
+class WriteBatchWithIndexInternal;
 struct Options;
 
 // when direction == forward
@@ -33,7 +35,8 @@ struct Options;
 // * equal_keys_ <=> base_iterator == delta_iterator
 class BaseDeltaIterator : public Iterator {
  public:
-  BaseDeltaIterator(Iterator* base_iterator, WBWIIterator* delta_iterator,
+  BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
+                    WBWIIteratorImpl* delta_iterator,
                     const Comparator* comparator,
                     const ReadOptions* read_options = nullptr);
 
@@ -60,14 +63,16 @@ class BaseDeltaIterator : public Iterator {
   bool DeltaValid() const;
   void UpdateCurrent();
 
+  std::unique_ptr<WriteBatchWithIndexInternal> wbwii_;
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
-  Status status_;
+  mutable Status status_;
   std::unique_ptr<Iterator> base_iterator_;
-  std::unique_ptr<WBWIIterator> delta_iterator_;
+  std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
   const Slice* iterate_upper_bound_;
+  mutable PinnableSlice merge_result_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
@@ -174,6 +179,7 @@ typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
 
 class WBWIIteratorImpl : public WBWIIterator {
  public:
+  enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
   WBWIIteratorImpl(uint32_t column_family_id,
                    WriteBatchEntrySkipList* skip_list,
                    const ReadableWriteBatch* write_batch,
@@ -245,6 +251,26 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   bool MatchesKey(uint32_t cf_id, const Slice& key);
 
+  // Moves the to first entry of the previous key.
+  void PrevKey();
+  // Moves the to first entry of the next key.
+  void NextKey();
+
+  // Moves the iterator to the Update (Put or Delete) for the current key
+  // If there are no Put/Delete, the Iterator will point to the first entry for
+  // this key
+  // @return kFound if a Put was found for the key
+  // @return kDeleted if a delete was found for the key
+  // @return kMergeInProgress if only merges were fouund for the key
+  // @return kError if an unsupported operation was found for the key
+  // @return kNotFound if no operations were found for this key
+  //
+  Result FindLatestUpdate(const Slice& key, MergeContext* merge_context);
+  Result FindLatestUpdate(MergeContext* merge_context);
+
+ protected:
+  void AdvanceKey(bool forward);
+
  private:
   uint32_t column_family_id_;
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
@@ -257,11 +283,11 @@ class WriteBatchWithIndexInternal {
   // For GetFromBatchAndDB or similar
   explicit WriteBatchWithIndexInternal(DB* db,
                                        ColumnFamilyHandle* column_family);
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
   // For GetFromBatch or similar
   explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
                                        ColumnFamilyHandle* column_family);
-
-  enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -271,19 +297,25 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
-                      std::string* value, bool overwrite_key, Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, overwrite_key, s);
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key, std::string* value,
+                                        Status* s) {
+    return GetFromBatch(batch, key, &merge_context_, value, s);
   }
-  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
-                      MergeContext* merge_context, std::string* value,
-                      bool overwrite_key, Status* s);
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key,
+                                        MergeContext* merge_context,
+                                        std::string* value, Status* s);
   Status MergeKey(const Slice& key, const Slice* value, std::string* result,
-                  Slice* result_operand = nullptr) {
+                  Slice* result_operand = nullptr) const {
     return MergeKey(key, value, merge_context_, result, result_operand);
   }
-  Status MergeKey(const Slice& key, const Slice* value, MergeContext& context,
-                  std::string* result, Slice* result_operand = nullptr);
+  Status MergeKey(const Slice& key, const Slice* value,
+                  const MergeContext& context, std::string* result,
+                  Slice* result_operand = nullptr) const;
+  size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
+  MergeContext* GetMergeContext() { return &merge_context_; }
+  Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
 
  private:
   DB* db_;
