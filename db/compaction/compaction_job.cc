@@ -969,8 +969,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       compaction_filter, db_options_.info_log.get(),
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
-      snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get());
+      snapshot_checker_, compact_->compaction->level(), db_options_.stats);
 
   const MutableCFOptions* mutable_cf_options =
       sub_compact->compaction->mutable_cf_options();
@@ -1685,9 +1684,16 @@ Status CompactionJob::OpenCompactionOutputFile(
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
+
+  // Pass temperature of botommost files to FileSystem.
+  FileOptions fo_copy = file_options_;
+  if (bottommost_level_) {
+    fo_copy.temperature =
+        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+  }
+
   Status s;
-  IOStatus io_s =
-      NewWritableFile(fs_.get(), fname, &writable_file, file_options_);
+  IOStatus io_s = NewWritableFile(fs_.get(), fname, &writable_file, fo_copy);
   s = io_s;
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
@@ -1751,22 +1757,17 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, db_options_.clock,
-      io_tracer_, db_options_.statistics.get(), listeners,
+      io_tracer_, db_options_.stats, listeners,
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
-
-  // If the Column family flag is to only optimize filters for hits,
-  // we can skip creating filters if this is the bottommost_level where
-  // data is going to be found
-  bool skip_filters =
-      cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       sub_compact->compaction->output_compression(),
-      sub_compact->compaction->output_compression_opts(), skip_filters,
-      cfd->GetID(), cfd->GetName(), sub_compact->compaction->output_level(),
+      sub_compact->compaction->output_compression_opts(), cfd->GetID(),
+      cfd->GetName(), sub_compact->compaction->output_level(),
+      bottommost_level_, TableFileCreationReason::kCompaction,
       oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
       db_session_id_, sub_compact->compaction->max_output_file_size());
   sub_compact->builder.reset(

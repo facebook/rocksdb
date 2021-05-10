@@ -129,7 +129,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   options.enable_blob_files = true;
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -214,7 +214,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   options.blob_file_size = value_size;
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -301,7 +301,7 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
   options.min_blob_size = 1024;
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -355,7 +355,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
   options.blob_compression_type = kSnappyCompression;
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -438,7 +438,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   options.enable_blob_files = true;
   options.blob_compression_type = kSnappyCompression;
   options.env = &mock_env_;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -517,7 +517,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
       std::make_shared<DummyFileChecksumGenFactory>();
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;
@@ -614,7 +614,7 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   options.blob_file_size = value_size;
   options.env = &mock_env_;
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
   constexpr int job_id = 1;

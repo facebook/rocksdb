@@ -214,7 +214,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
-    result.arena_block_size = result.write_buffer_size / 8;
+    result.arena_block_size =
+        std::min(size_t{1024 * 1024}, result.write_buffer_size / 8);
 
     // Align up to 4k
     const size_t align = 4 * 1024;
@@ -1417,7 +1418,8 @@ Status ColumnFamilyData::AddDirectories(
 
     if (existing_dir == created_dirs->end()) {
       std::unique_ptr<FSDirectory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(ioptions_.fs, p.path, &path_directory);
+      s = DBImpl::CreateAndNewDirectory(ioptions_.fs.get(), p.path,
+                                        &path_directory);
       if (!s.ok()) {
         return s;
       }

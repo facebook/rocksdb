@@ -64,9 +64,9 @@ Status BuildTable(
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-    InternalStats* internal_stats, TableFileCreationReason reason,
-    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    InternalStats* internal_stats, IOStatus* io_status,
+    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback) {
@@ -100,7 +100,7 @@ Status BuildTable(
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(ioptions.listeners, dbname,
                                                tboptions.column_family_name,
-                                               fname, job_id, reason);
+                                               fname, job_id, tboptions.reason);
 #endif  // !ROCKSDB_LITE
   Env* env = db_options.env;
   assert(env);
@@ -109,6 +109,26 @@ Status BuildTable(
 
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions.compaction_filter_factory != nullptr &&
+        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
+            tboptions.reason)) {
+      CompactionFilter::Context context;
+      context.is_full_compaction = false;
+      context.is_manual_compaction = false;
+      context.column_family_id = tboptions.column_family_id;
+      context.reason = tboptions.reason;
+      compaction_filter =
+          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s.PermitUncheckedError();
+        return Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+      }
+    }
+
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
     {
@@ -127,7 +147,7 @@ Status BuildTable(
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname,
             tboptions.column_family_name, fname, job_id, meta->fd,
-            kInvalidBlobFileNumber, tp, reason, s, file_checksum,
+            kInvalidBlobFileNumber, tp, tboptions.reason, s, file_checksum,
             file_checksum_func_name);
         return s;
       }
@@ -143,11 +163,11 @@ Status BuildTable(
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
-    MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
-                      ioptions.merge_operator.get(), nullptr, ioptions.logger,
-                      true /* internal key corruption is not ok */,
-                      snapshots.empty() ? 0 : snapshots.back(),
-                      snapshot_checker);
+    MergeHelper merge(
+        env, tboptions.internal_comparator.user_comparator(),
+        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
+        true /* internal key corruption is not ok */,
+        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
@@ -165,8 +185,8 @@ Status BuildTable(
         snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
-        /*compaction=*/nullptr,
-        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
         db_options.info_log, full_history_ts_low);
 
@@ -280,7 +300,7 @@ Status BuildTable(
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
-          /*skip_filter=*/false, tboptions.level,
+          /*skip_filter=*/false, tboptions.level_at_creation,
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
@@ -333,8 +353,8 @@ Status BuildTable(
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, tboptions.column_family_name,
-      fname, job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s,
-      file_checksum, file_checksum_func_name);
+      fname, job_id, meta->fd, meta->oldest_blob_file_number, tp,
+      tboptions.reason, s, file_checksum, file_checksum_func_name);
 
   return s;
 }

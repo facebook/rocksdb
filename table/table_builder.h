@@ -10,9 +10,11 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 #include "file/writable_file_writer.h"
@@ -28,7 +30,7 @@ class Status;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+  TableReaderOptions(const ImmutableOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -43,7 +45,7 @@ struct TableReaderOptions {
                            _max_file_size_for_l0_meta_pin) {}
 
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+  TableReaderOptions(const ImmutableOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -64,7 +66,7 @@ struct TableReaderOptions {
         block_cache_tracer(_block_cache_tracer),
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin) {}
 
-  const ImmutableCFOptions& ioptions;
+  const ImmutableOptions& ioptions;
   const SliceTransform* prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
@@ -76,7 +78,8 @@ struct TableReaderOptions {
   // fetch into RocksDB's buffer, rather than relying
   // RandomAccessFile::Prefetch().
   bool force_direct_prefetch;
-  // what level this table/file is on, -1 for "not set, don't know"
+  // What level this table/file is on, -1 for "not set, don't know." Used
+  // for level-specific statistics.
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
@@ -88,15 +91,16 @@ struct TableReaderOptions {
 
 struct TableBuilderOptions {
   TableBuilderOptions(
-      const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
+      const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, bool _skip_filters,
-      uint32_t _column_family_id, const std::string& _column_family_name,
-      int _level, const uint64_t _creation_time = 0,
-      const int64_t _oldest_key_time = 0,
+      const CompressionOptions& _compression_opts, uint32_t _column_family_id,
+      const std::string& _column_family_name, int _level,
+      bool _is_bottommost = false,
+      TableFileCreationReason _reason = TableFileCreationReason::kMisc,
+      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
       const uint64_t _target_file_size = 0)
@@ -106,35 +110,43 @@ struct TableBuilderOptions {
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        skip_filters(_skip_filters),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
-        level(_level),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
-        db_session_id(_db_session_id) {}
+        db_session_id(_db_session_id),
+        level_at_creation(_level),
+        is_bottommost(_is_bottommost),
+        reason(_reason) {}
 
-  const ImmutableCFOptions& ioptions;
+  const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  const bool skip_filters;  // only used by BlockBasedTableBuilder
   const uint32_t column_family_id;
   const std::string& column_family_name;
-  // what level this table/file is on, -1 for "not set, don't know"
-  const int level;
   const uint64_t creation_time;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
   const uint64_t file_creation_time;
   const std::string db_id;
   const std::string db_session_id;
+  // BEGIN for FilterBuildingContext
+  const int level_at_creation;
+  const bool is_bottommost;
+  const TableFileCreationReason reason;
+  // END for FilterBuildingContext
+
+  // XXX: only used by BlockBasedTableBuilder for SstFileWriter. If you
+  // want to skip filters, that should be (for example) null filter_policy
+  // in the table options of the ioptions.table_factory
+  bool skip_filters = false;
 };
 
 // TableBuilder provides the interface used to build a Table

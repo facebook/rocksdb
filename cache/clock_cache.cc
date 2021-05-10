@@ -176,10 +176,13 @@ namespace {
 // Cache entry meta data.
 struct CacheHandle {
   Slice key;
-  uint32_t hash;
   void* value;
   size_t charge;
   void (*deleter)(const Slice&, void* value);
+  uint32_t hash;
+
+  // Addition to "charge" to get "total charge" under metadata policy.
+  uint32_t meta_charge;
 
   // Flags and counters associated with the cache handle:
   //   lowest bit: in-cache bit
@@ -205,9 +208,8 @@ struct CacheHandle {
     return *this;
   }
 
-  inline static size_t CalcTotalCharge(
-      Slice key, size_t charge,
-      CacheMetadataChargePolicy metadata_charge_policy) {
+  inline static uint32_t CalcMetadataCharge(
+      Slice key, CacheMetadataChargePolicy metadata_charge_policy) {
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
       meta_charge += sizeof(CacheHandle);
@@ -218,13 +220,11 @@ struct CacheHandle {
       meta_charge += key.size();
 #endif
     }
-    return charge + meta_charge;
+    assert(meta_charge <= UINT32_MAX);
+    return static_cast<uint32_t>(meta_charge);
   }
 
-  inline size_t CalcTotalCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    return CalcTotalCharge(key, charge, metadata_charge_policy);
-  }
+  inline size_t GetTotalCharge() { return charge + meta_charge; }
 };
 
 // Key of hash map. We store hash value with the key for convenience.
@@ -428,10 +428,8 @@ void ClockCacheShard::RecycleHandle(CacheHandle* handle,
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
   context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
-  size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
-  handle->key.clear();
-  handle->value = nullptr;
-  handle->deleter = nullptr;
+  size_t total_charge = handle->GetTotalCharge();
+  // clearing `handle` fields would go here but not strictly required
   recycle_.push_back(handle);
   usage_.fetch_sub(total_charge, std::memory_order_relaxed);
 }
@@ -459,7 +457,7 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
                                             std::memory_order_relaxed)) {
       if (CountRefs(flags) == 0) {
         // No reference count before the operation.
-        size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
+        size_t total_charge = handle->GetTotalCharge();
         pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
       }
       return true;
@@ -473,6 +471,11 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   if (set_usage) {
     handle->flags.fetch_or(kUsageBit, std::memory_order_relaxed);
   }
+  // If the handle reaches state refs=0 and InCache=true after this
+  // atomic operation then we cannot access `handle` afterward, because
+  // it could be evicted before we access the `handle`.
+  size_t total_charge = handle->GetTotalCharge();
+
   // Use acquire-release semantics as previous operations on the cache entry
   // has to be order before reference count is decreased, and potential cleanup
   // of the entry has to be order after.
@@ -480,7 +483,6 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   assert(CountRefs(flags) > 0);
   if (CountRefs(flags) == 1) {
     // this is the last reference.
-    size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
     pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
@@ -567,8 +569,9 @@ CacheHandle* ClockCacheShard::Insert(
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
     CleanupContext* context, bool* overwritten) {
   assert(overwritten != nullptr && *overwritten == false);
-  size_t total_charge =
-      CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
+  uint32_t meta_charge =
+      CacheHandle::CalcMetadataCharge(key, metadata_charge_policy_);
+  size_t total_charge = charge + meta_charge;
   MutexLock l(&mutex_);
   bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
@@ -594,8 +597,18 @@ CacheHandle* ClockCacheShard::Insert(
   handle->hash = hash;
   handle->value = value;
   handle->charge = charge;
+  handle->meta_charge = meta_charge;
   handle->deleter = deleter;
   uint32_t flags = hold_reference ? kInCacheBit + kOneRef : kInCacheBit;
+
+  // TODO investigate+fix suspected race condition:
+  // [thread 1] Lookup starts, up to Ref()
+  // [thread 2] Erase/evict the entry just looked up
+  // [thread 1] Ref() the handle, even though it's in the recycle bin
+  // [thread 2] Insert with recycling that handle
+  // Here we obliterate the other thread's Ref
+  // Possible fix: never blindly overwrite the flags, but only make
+  // relative updates (fetch_add, etc).
   handle->flags.store(flags, std::memory_order_relaxed);
   HashTable::accessor accessor;
   if (table_.find(accessor, CacheKey(key, hash))) {
@@ -746,7 +759,17 @@ class ClockCache final : public ShardedCache {
     return reinterpret_cast<const CacheHandle*>(handle)->hash;
   }
 
-  void DisownData() override { shards_ = nullptr; }
+  void DisownData() override {
+#if defined(__clang__)
+#if !defined(__has_feature) || !__has_feature(address_sanitizer)
+    shards_ = nullptr;
+#endif
+#else  // __clang__
+#ifndef __SANITIZE_ADDRESS__
+    shards_ = nullptr;
+#endif  // !__SANITIZE_ADDRESS__
+#endif  // __clang__
+  }
 
  private:
   ClockCacheShard* shards_;

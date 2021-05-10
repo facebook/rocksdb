@@ -120,7 +120,7 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 9.4.1
+      xcode: 11.3.0
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -131,7 +131,7 @@ jobs:
 
   build-macos-cmake:
     macos:
-      xcode: 9.4.1
+      xcode: 11.3.0
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -460,10 +460,10 @@ jobs:
 
   build-macos-java:
     macos:
-      xcode: 9.4.1
+      xcode: 11.3.0
     resource_class: medium
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -486,10 +486,10 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 9.4.1
+      xcode: 11.3.0
     resource_class: medium
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos

@@ -126,11 +126,15 @@ extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 // more detail.
 //
 // Return nullptr if it is not supported.
+//
+// BROKEN: ClockCache is known to have bugs that could lead to crash or
+// corruption, so should not be used until fixed. Use NewLRUCache instead.
 extern std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
+
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less

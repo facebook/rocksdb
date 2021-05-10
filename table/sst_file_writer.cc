@@ -43,7 +43,7 @@ struct SstFileWriter::Rep {
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
-  ImmutableCFOptions ioptions;
+  ImmutableOptions ioptions;
   MutableCFOptions mutable_cf_options;
   Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;
@@ -253,10 +253,13 @@ Status SstFileWriter::Open(const std::string& file_path) {
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
-      r->skip_filters, cf_id, r->column_family_name, unknown_level,
-      0 /* creation_time */, 0 /* oldest_key_time */,
-      0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id,
-      0 /* target_file_size */);
+      cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
+      TableFileCreationReason::kMisc, 0 /* creation_time */,
+      0 /* oldest_key_time */, 0 /* file_creation_time */,
+      "SST Writer" /* db_id */, db_session_id, 0 /* target_file_size */);
+  // XXX: when we can remove skip_filters from the SstFileWriter public API
+  // we can remove it from TableBuilderOptions.
+  table_builder_options.skip_filters = r->skip_filters;
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,

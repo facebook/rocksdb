@@ -29,6 +29,7 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -99,19 +100,32 @@ struct FilterBuildingContext {
   // Options for the table being built
   const BlockBasedTableOptions& table_options;
 
+  // BEGIN from (DB|ColumnFamily)Options in effect at table creation time
+  CompactionStyle compaction_style = kCompactionStyleLevel;
+
+  // Number of LSM levels, or -1 if unknown
+  int num_levels = -1;
+
+  // An optional logger for reporting errors, warnings, etc.
+  Logger* info_log = nullptr;
+  // END from (DB|ColumnFamily)Options
+
   // Name of the column family for the table (or empty string if unknown)
   // TODO: consider changing to Slice
   std::string column_family_name;
 
-  // The compactions style in effect for the table
-  CompactionStyle compaction_style = kCompactionStyleLevel;
-
-  // The table level at time of constructing the SST file, or -1 if unknown.
-  // (The table file could later be used at a different level.)
+  // The table level at time of constructing the SST file, or -1 if unknown
+  // or N/A as in SstFileWriter. (The table file could later be used at a
+  // different level.)
   int level_at_creation = -1;
 
-  // An optional logger for reporting errors, warnings, etc.
-  Logger* info_log = nullptr;
+  // True if known to be going into bottommost sorted run for applicable
+  // key range (which might not even be last level with data). False
+  // otherwise.
+  bool is_bottommost = false;
+
+  // Reason for creating the file with the filter
+  TableFileCreationReason reason = TableFileCreationReason::kMisc;
 };
 
 // We add a new format of filter block called full filter block
