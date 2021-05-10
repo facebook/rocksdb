@@ -235,7 +235,7 @@ TEST_F(MemTableListTest, GetTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
@@ -358,7 +358,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
@@ -539,7 +539,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBufferManager wb(options.db_write_buffer_size);
   autovector<MemTable*> to_delete;
@@ -808,7 +808,7 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBufferManager wb(options.db_write_buffer_size);
 

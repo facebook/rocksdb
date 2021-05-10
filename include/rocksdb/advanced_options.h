@@ -390,7 +390,8 @@ struct AdvancedColumnFamilyOptions {
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
-  // writer_buffer_size, rounded up to a multiple of 4KB).
+  // writer_buffer_size, rounded up to a multiple of 4KB, or 1MB which ever is
+  // smaller).
   //
   // There are two additional restriction of the specified size:
   // (1) size should be in the range of [4096, 2 << 30] and

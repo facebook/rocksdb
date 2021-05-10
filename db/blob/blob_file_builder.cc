@@ -29,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 
 BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
-    const ImmutableCFOptions* immutable_cf_options,
+    const ImmutableOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
@@ -46,7 +46,7 @@ BlobFileBuilder::BlobFileBuilder(
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
-    const ImmutableCFOptions* immutable_cf_options,
+    const ImmutableOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,

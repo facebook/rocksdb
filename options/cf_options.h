@@ -23,10 +23,7 @@ struct ImmutableCFOptions {
  public:
   static const char* kName() { return "ImmutableCFOptions"; }
   explicit ImmutableCFOptions();
-  explicit ImmutableCFOptions(const Options& options);
-
-  ImmutableCFOptions(const ImmutableDBOptions& db_options,
-                     const ColumnFamilyOptions& cf_options);
+  explicit ImmutableCFOptions(const ColumnFamilyOptions& cf_options);
 
   CompactionStyle compaction_style;
 
@@ -54,28 +51,6 @@ struct ImmutableCFOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
 
-  Logger* logger;  // ImmutableDBOptions
-
-  Statistics* stats;  // ImmutableDBOptions
-
-  std::shared_ptr<RateLimiter> rate_limiter;  // ImmutableDBOptions
-
-  InfoLogLevel info_log_level;  // ImmutableDBOptions
-
-  Env* env;  // ImmutableDBOptions
-
-  FileSystem* fs;  // ImmutableDBOptions
-
-  SystemClock* clock;  // ImmutableDBOptions
-
-  // Allow the OS to mmap file for reading sst tables. Default: false
-  bool allow_mmap_reads;  // ImmutableDBOptions
-
-  // Allow the OS to mmap file for writing. Default: false
-  bool allow_mmap_writes;  // ImmutableDBOptions
-
-  std::vector<DbPath> db_paths;  // ImmutableDBOptions
-
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
   std::shared_ptr<TableFactory> table_factory;
@@ -83,39 +58,21 @@ struct ImmutableCFOptions {
   Options::TablePropertiesCollectorFactories
       table_properties_collector_factories;
 
-  bool advise_random_on_open;  // ImmutableDBOptions
-
   // This options is required by PlainTableReader. May need to move it
   // to PlainTableOptions just like bloom_bits_per_key
   uint32_t bloom_locality;
 
   bool purge_redundant_kvs_while_flush;
 
-  bool use_fsync;  // ImmutableDBOptions
-
   std::vector<CompressionType> compression_per_level;
 
   bool level_compaction_dynamic_level_bytes;
-
-  Options::AccessHint access_hint_on_compaction_start;  // ImmutableDBOptions
-
-  bool new_table_reader_for_compaction_inputs;  // ImmutableDBOptions
 
   int num_levels;
 
   bool optimize_filters_for_hits;
 
   bool force_consistency_checks;
-
-  bool allow_ingest_behind;  // ImmutableDBOptions
-
-  bool preserve_deletes;  // ImmutableDBOptions
-
-  // A vector of EventListeners which callback functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;  // ImmutableDBOptions
-
-  std::shared_ptr<Cache> row_cache;  // ImmutableDBOptions
 
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
@@ -124,16 +81,24 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
-  std::shared_ptr<FileChecksumGenFactory>
-      file_checksum_gen_factory;  // ImmutableDBOptions
-
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+};
 
-  bool allow_data_in_errors;  // ImmutableDBOptions
+struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
+  explicit ImmutableOptions();
+  explicit ImmutableOptions(const Options& options);
 
-  std::string db_host_id;  // ImmutableDBOptions
+  ImmutableOptions(const DBOptions& db_options,
+                   const ColumnFamilyOptions& cf_options);
 
-  FileTypeSet checksum_handoff_file_types;  // ImmutableDBOptions
+  ImmutableOptions(const ImmutableDBOptions& db_options,
+                   const ImmutableCFOptions& cf_options);
+
+  ImmutableOptions(const DBOptions& db_options,
+                   const ImmutableCFOptions& cf_options);
+
+  ImmutableOptions(const ImmutableDBOptions& db_options,
+                   const ColumnFamilyOptions& cf_options);
 };
 
 struct MutableCFOptions {

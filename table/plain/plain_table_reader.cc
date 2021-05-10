@@ -93,7 +93,7 @@ class PlainTableIterator : public InternalIterator {
 
 extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file,
     const EnvOptions& storage_options, const InternalKeyComparator& icomparator,
     EncodingType encoding_type, uint64_t file_size,
@@ -118,7 +118,7 @@ PlainTableReader::~PlainTableReader() {
 }
 
 Status PlainTableReader::Open(
-    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+    const ImmutableOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,

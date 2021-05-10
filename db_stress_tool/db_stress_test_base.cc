@@ -2083,13 +2083,16 @@ void StressTest::PrintEnv() const {
 
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
-  fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_exclude_prefixes.empty()) {
+#ifndef NDEBUG
+  KillPoint* kp = KillPoint::GetInstance();
+  fprintf(stdout, "Test kill odd             : %d\n", kp->rocksdb_kill_odds);
+  if (!kp->rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_exclude_prefixes) {
+    for (auto& p : kp->rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
+#endif
   fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
@@ -2110,6 +2113,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
+  fprintf(stdout, "Fail if OPTIONS file error: %d\n",
+          static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
 
@@ -2328,6 +2333,7 @@ void StressTest::Open() {
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
+  options_.fail_if_options_file_error = FLAGS_fail_if_options_file_error;
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
        FLAGS_allow_setting_blob_options_dynamically) &&
@@ -2462,6 +2468,16 @@ void StressTest::Open() {
 #ifndef NDEBUG
         if (ingest_meta_error) {
           fault_fs_guard->DisableMetadataWriteErrorInjection();
+          if (s.ok()) {
+            // Ingested errors might happen in background compactions. We
+            // wait for all compactions to finish to make sure DB is in
+            // clean state before executing queries.
+            s = static_cast_with_check<DBImpl>(db_->GetRootDB())
+                    ->TEST_WaitForCompact(true);
+            if (!s.ok()) {
+              delete db_;
+            }
+          }
           if (!s.ok()) {
             // After failure to opening a DB due to IO error, retry should
             // successfully open the DB with correct data if no IO error shows

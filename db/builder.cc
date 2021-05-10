@@ -109,6 +109,26 @@ Status BuildTable(
 
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions.compaction_filter_factory != nullptr &&
+        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
+            tboptions.reason)) {
+      CompactionFilter::Context context;
+      context.is_full_compaction = false;
+      context.is_manual_compaction = false;
+      context.column_family_id = tboptions.column_family_id;
+      context.reason = tboptions.reason;
+      compaction_filter =
+          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s.PermitUncheckedError();
+        return Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+      }
+    }
+
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
     {
@@ -143,11 +163,11 @@ Status BuildTable(
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
-    MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
-                      ioptions.merge_operator.get(), nullptr, ioptions.logger,
-                      true /* internal key corruption is not ok */,
-                      snapshots.empty() ? 0 : snapshots.back(),
-                      snapshot_checker);
+    MergeHelper merge(
+        env, tboptions.internal_comparator.user_comparator(),
+        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
+        true /* internal key corruption is not ok */,
+        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
@@ -165,8 +185,8 @@ Status BuildTable(
         snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
-        /*compaction=*/nullptr,
-        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
         db_options.info_log, full_history_ts_low);
 

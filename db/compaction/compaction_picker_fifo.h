@@ -15,7 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 class FIFOCompactionPicker : public CompactionPicker {
  public:
-  FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
+  FIFOCompactionPicker(const ImmutableOptions& ioptions,
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
 

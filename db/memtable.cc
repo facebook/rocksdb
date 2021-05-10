@@ -43,7 +43,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options)
     : arena_block_size(mutable_cf_options.arena_block_size),
       memtable_prefix_bloom_bits(
@@ -64,7 +64,7 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       allow_data_in_errors(ioptions.allow_data_in_errors) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
-                   const ImmutableCFOptions& ioptions,
+                   const ImmutableOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
                    SequenceNumber latest_seq, uint32_t column_family_id)
