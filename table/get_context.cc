@@ -46,7 +46,9 @@ GetContext::GetContext(
     MergeContext* merge_context, bool do_merge,
     SequenceNumber* _max_covering_tombstone_seq, SystemClock* clock,
     SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
-    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id,
+    std::function<Status(const Slice& blob_index, Slice& blob_value)>
+        get_blob_callback)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -65,7 +67,8 @@ GetContext::GetContext(
       callback_(callback),
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
-      tracing_get_id_(tracing_get_id) {
+      tracing_get_id_(tracing_get_id),
+      get_blob_callback_(get_blob_callback) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -79,11 +82,13 @@ GetContext::GetContext(
     bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
     SystemClock* clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id)
+    bool* is_blob_index, uint64_t tracing_get_id,
+    std::function<Status(const Slice& blob_index, Slice& blob_value)>
+        get_blob_callback)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, nullptr, value_found, merge_context, do_merge,
                  _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
-                 callback, is_blob_index, tracing_get_id) {}
+                 callback, is_blob_index, tracing_get_id, get_blob_callback) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -250,6 +255,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kUnexpectedBlobIndex;
           return false;
         }
+        if (is_blob_index_ != nullptr) {
+          *is_blob_index_ = (type == kTypeBlobIndex);
+        }
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
@@ -260,7 +268,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               } else {
                 TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
                                          this);
-
                 // Otherwise copy the value
                 pinnable_val_->PinSelf(value);
               }
@@ -273,7 +280,22 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
-          Merge(&value);
+          if (is_blob_index_ != nullptr && *is_blob_index_) {
+            Slice blob_value = value;
+            Status status = get_blob_callback_(value, blob_value);
+            if (!status.ok()) {
+              if (status.IsIncomplete()) {
+                MarkKeyMayExist();
+                return false;
+              }
+              state_ = kCorrupt;
+              return false;
+            }
+            Merge(&blob_value);
+            *is_blob_index_ = false;
+          } else {
+            Merge(&value);
+          }
           if (do_merge_ == false) {
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
@@ -287,9 +309,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
           }
-        }
-        if (is_blob_index_ != nullptr) {
-          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 

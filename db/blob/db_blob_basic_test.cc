@@ -310,6 +310,26 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
 }
 
+TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("Key1", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key1", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key1", "v3"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Key1", &value));
+  ASSERT_EQ(Get("Key1"), "v1,v2,v3");
+}
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:

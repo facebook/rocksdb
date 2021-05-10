@@ -103,7 +103,9 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0,
+             std::function<Status(const Slice& value, Slice& result)>
+                 merge_callback = nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -113,7 +115,9 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0,
+             std::function<Status(const Slice& value, Slice& result)>
+                 merge_callback = nullptr);
 
   GetContext() = delete;
 
@@ -202,6 +206,9 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
+
+  std::function<Status(const Slice& blob_index, Slice& blob_value)>
+      get_blob_callback_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

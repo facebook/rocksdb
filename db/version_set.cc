@@ -1876,13 +1876,25 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   bool is_blob_index = false;
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
 
+  auto get_blob_callback = [this, &is_blob_index, &read_options, &user_key,
+                            &value](const Slice& blob_index,
+                                    Slice& blob_value) -> Status {
+    Status s;
+    if (is_blob_index) {
+      constexpr uint64_t* bytes_read = nullptr;
+      s = GetBlob(read_options, user_key, blob_index, value, bytes_read);
+      blob_value = static_cast<Slice>(*value);
+    }
+    return s;
+  };
+
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
-      tracing_get_id);
+      tracing_get_id, get_blob_callback);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
