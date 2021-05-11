@@ -28,6 +28,20 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+ConfigOptions::ConfigOptions()
+#ifndef ROCKSDB_LITE
+    : registry(ObjectRegistry::NewInstance())
+#endif
+{
+  env = Env::Default();
+}
+
+ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
+#ifndef ROCKSDB_LITE
+  registry = ObjectRegistry::NewInstance();
+#endif
+}
+
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
   Status s;
@@ -703,7 +717,7 @@ Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
-  ConfigOptions config_options;
+  ConfigOptions config_options(db_options);
   config_options.delimiter = delimiter;
   return GetStringFromDBOptions(config_options, db_options, opt_string);
 }
@@ -816,7 +830,7 @@ Status GetDBOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
     bool ignore_unknown_options) {
-  ConfigOptions config_options;
+  ConfigOptions config_options(base_options);
   config_options.input_strings_escaped = input_strings_escaped;
   config_options.ignore_unknown_options = ignore_unknown_options;
   return GetDBOptionsFromMap(config_options, base_options, opts_map,
@@ -844,7 +858,7 @@ Status GetDBOptionsFromMap(
 Status GetDBOptionsFromString(const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options) {
-  ConfigOptions config_options;
+  ConfigOptions config_options(base_options);
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
 
@@ -868,7 +882,7 @@ Status GetDBOptionsFromString(const ConfigOptions& config_options,
 
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
-  ConfigOptions config_options;
+  ConfigOptions config_options(base_options);
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
 
@@ -883,6 +897,7 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
   std::unordered_map<std::string, std::string> unused_opts;
   std::unordered_map<std::string, std::string> opts_map;
 
+  assert(new_options);
   *new_options = base_options;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {

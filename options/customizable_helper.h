@@ -83,12 +83,13 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewSharedObject(id, result);
+      status = config_options.registry->NewSharedObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif
       if (!status.ok()) {
-        if (config_options.ignore_unsupported_options) {
+        if (config_options.ignore_unsupported_options &&
+            status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;
@@ -142,12 +143,13 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewUniqueObject(id, result);
+      status = config_options.registry->NewUniqueObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
       if (!status.ok()) {
-        if (config_options.ignore_unsupported_options) {
+        if (config_options.ignore_unsupported_options &&
+            status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;
@@ -199,12 +201,13 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewStaticObject(id, result);
+      status = config_options.registry->NewStaticObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
       if (!status.ok()) {
-        if (config_options.ignore_unsupported_options) {
+        if (config_options.ignore_unsupported_options &&
+            status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;

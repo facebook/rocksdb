@@ -23,6 +23,8 @@
 * Removed unused structure `CompactionFilterContext`.
 * The `skip_filters` parameter to SstFileWriter is now considered deprecated. Use `BlockBasedTableOptions::filter_policy` to control generation of filters.
 * ClockCache is known to have bugs that could lead to crash or corruption, so should not be used until fixed. Use NewLRUCache instead.
+* Added the ObjectRegistry to the ConfigOptions class.  This registry instance will be used to find any customizable loadable objects during initialization.
+* Expanded the ObjectRegistry functionality to allow nested ObjectRegistry instances.  Added methods to register a set of functions with the registry/library as a group.
 * Deprecated backupable_db.h and BackupableDBOptions in favor of new versions with appropriate names: backup_engine.h and BackupEngineOptions. Old API compatibility is preserved.
 
 ### Default Option Change

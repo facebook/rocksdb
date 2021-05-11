@@ -34,7 +34,7 @@ class DBOptionsTest : public DBTestBase {
       const DBOptions& options) {
     std::string options_str;
     std::unordered_map<std::string, std::string> mutable_map;
-    ConfigOptions config_options;
+    ConfigOptions config_options(options);
     config_options.delimiter = "; ";
 
     EXPECT_OK(GetStringFromMutableDBOptions(

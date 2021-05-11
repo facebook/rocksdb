@@ -1808,6 +1808,23 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 }
 
 #ifndef ROCKSDB_LITE
+const static std::string kCustomEnvName = "Custom";
+const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
+class CustomEnv : public EnvWrapper {
+ public:
+  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+};
+
+static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
+  library.Register<Env>(
+      arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+              std::string* /* errmsg */) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+  return 1;
+}
+
 // This test suite tests the old APIs into the Configure options methods.
 // Once those APIs are officially deprecated, this test suite can be deleted.
 class OptionsOldApiTest : public testing::Test {};
@@ -2507,14 +2524,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  const static char* kCustomEnvName = "CustomEnv";
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
   ObjectLibrary::Default()->Register<Env>(
-      kCustomEnvName,
+      "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -2528,7 +2539,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
-      "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
+      "rate_limiter_bytes_per_sec=1024;env=CustomEnvDefault",
       &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
@@ -2562,7 +2573,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_OK(Env::LoadEnv("CustomEnvDefault", &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
 
@@ -3980,6 +3991,46 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b1|b2");
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
+}
+
+class ConfigOptionsTest : public testing::Test {};
+
+TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
+  ConfigOptions config_options;
+  DBOptions db_opts;
+  Options opts;
+  Env* mem_env = NewMemEnv(Env::Default());
+  config_options.registry->AddLibrary("custom-env", RegisterCustomEnv,
+                                      kCustomEnvName);
+
+  config_options.env = mem_env;
+  // First test that we can get the env as expected
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), kCustomEnvProp,
+                                   &db_opts));
+  ASSERT_OK(
+      GetOptionsFromString(config_options, Options(), kCustomEnvProp, &opts));
+  ASSERT_NE(config_options.env, db_opts.env);
+  ASSERT_EQ(opts.env, db_opts.env);
+  Env* custom_env = db_opts.env;
+
+  // Now try a "bad" env" and check that nothing changed
+  config_options.ignore_unsupported_options = true;
+  ASSERT_OK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_OK(GetOptionsFromString(config_options, opts, "env=unknown", &opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  // Now try a "bad" env" ignoring unknown objects
+  config_options.ignore_unsupported_options = false;
+  ASSERT_NOK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  delete mem_env;
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
