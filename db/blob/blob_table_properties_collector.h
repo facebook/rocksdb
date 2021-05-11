@@ -2,13 +2,12 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// This file defines a collection of statistics collectors.
 #pragma once
 
 #include <unordered_map>
 
 #include "db/blob/blob_stats.h"
+#include "db/blob/blob_stats_collection.h"
 #include "db/table_properties_collector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -31,7 +30,7 @@ class BlobTablePropertiesCollector : public IntTblPropCollector {
   const char* Name() const override { return "BlobTablePropertiesCollector"; }
 
  private:
-  std::unordered_map<uint64_t, BlobStats> blob_stats_;
+  BlobStatsCollection<BlobStats> blob_stats_;
 };
 
 class BlobTablePropertiesCollectorFactory : public IntTblPropCollectorFactory {

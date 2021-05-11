@@ -47,30 +47,19 @@ Status BlobTablePropertiesCollector::InternalAdd(const Slice& key,
   const uint64_t bytes =
       blob_index.size() +
       BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
-  blob_stats_[blob_index.file_number()].AddBlob(bytes);
+  blob_stats_.AddBlob(blob_index.file_number(), bytes);
 
   return Status::OK();
 }
 
 Status BlobTablePropertiesCollector::Finish(
     UserCollectedProperties* properties) {
-  if (blob_stats_.empty()) {
-    return Status::OK();
-  }
-
   std::string value;
-  PutVarint64(&value, blob_stats_.size());
+  blob_stats_.EncodeTo(&value);
 
-  for (const auto& pair : blob_stats_) {
-    const uint64_t blob_file_number = pair.first;
-    const BlobStats& stats = pair.second;
-
-    BlobStatsRecord record(blob_file_number, stats.GetCount(),
-                           stats.GetBytes());
-    record.EncodeTo(BlobStatsRecord::kCurrentVersion, &value);
+  if (!value.empty()) {
+    properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
   }
-
-  properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
 
   return Status::OK();
 }

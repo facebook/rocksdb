@@ -2,13 +2,13 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// This file defines a collection of statistics collectors.
+
 #pragma once
 
 #include <string>
 
 #include "db/blob/blob_constants.h"
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 
@@ -24,13 +24,13 @@ class BlobStatsRecord {
   uint64_t GetCount() const { return count_; }
   uint64_t GetBytes() const { return bytes_; }
 
-  void EncodeTo(int /* version */, std::string* output) {
+  void EncodeTo(std::string* output) {
     PutVarint64(output, blob_file_number_);
     PutVarint64(output, count_);
     PutVarint64(output, bytes_);
   }
 
-  Status DecodeFrom(int /* version */, Slice* input) {
+  Status DecodeFrom(Slice* input) {
     constexpr char class_name[] = "BlobStatsRecord";
 
     if (!GetVarint64(input, &blob_file_number_)) {
@@ -47,8 +47,6 @@ class BlobStatsRecord {
 
     return Status::OK();
   }
-
-  static constexpr int kCurrentVersion = 1;
 
  private:
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
