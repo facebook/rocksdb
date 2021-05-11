@@ -220,7 +220,7 @@ Status BuildTable(
     }
 
     if (s.ok()) {
-      auto range_del_it = range_del_agg->NewIterator(nullptr, nullptr, false);
+      auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();

@@ -72,7 +72,10 @@ CompactionIterator::CompactionIterator(
     const std::atomic<int>* manual_compaction_paused,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
-    : input_(input, cmp, compaction == nullptr),
+    : input_(
+          input, cmp,
+          compaction ==
+              nullptr),  // Now only need to count number of entries in flush.
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
