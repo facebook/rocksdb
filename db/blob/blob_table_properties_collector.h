@@ -8,6 +8,7 @@
 
 #include <unordered_map>
 
+#include "db/blob/blob_stats.h"
 #include "db/table_properties_collector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -30,21 +31,6 @@ class BlobTablePropertiesCollector : public IntTblPropCollector {
   const char* Name() const override { return "BlobTablePropertiesCollector"; }
 
  private:
-  class BlobStats {
-   public:
-    void AddBlob(uint64_t bytes) {
-      ++count_;
-      bytes_ += bytes;
-    }
-
-    uint64_t GetCount() const { return count_; }
-    uint64_t GetBytes() const { return bytes_; }
-
-   private:
-    uint64_t count_ = 0;
-    uint64_t bytes_ = 0;
-  };
-
   std::unordered_map<uint64_t, BlobStats> blob_stats_;
 };
 
