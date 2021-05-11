@@ -283,4 +283,15 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
 // `pin_l0_filter_and_index_blocks_in_cache` is set.
 size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options);
 
+#ifndef ROCKSDB_LITE
+Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
+                                     const MutableCFOptions& mutable_opts,
+                                     std::string* opt_string);
+
+Status GetMutableOptionsFromStrings(
+    const MutableCFOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    Logger* info_log, MutableCFOptions* new_options);
+#endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE

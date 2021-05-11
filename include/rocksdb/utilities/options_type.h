@@ -664,6 +664,37 @@ class OptionTypeInfo {
                       const std::string& opt_name, const void* const this_ptr,
                       const std::string& that_value) const;
 
+  // Parses the input opts_map according to the type_map for the opt_addr
+  // For each name-value pair in opts_map, find the corresponding name in
+  // type_map If the name is found:
+  //    - set the corresponding value in opt_addr, returning the status on
+  //    failure;
+  // If the name is not found:
+  //    - If unused is specified, add the name-value to unused and continue
+  //    - If ingore_unknown_options is false, return NotFound
+  // Returns OK if all options were either:
+  //    - Successfully set
+  //    - options were not found and ignore_unknown_options=true
+  //    - options were not found and unused was specified
+  // Note that this method is much less sophisticated than the comparable
+  // Configurable::Configure methods.  For example, on error, there is no
+  // attempt to return opt_addr to the initial state.  Additionally, there
+  // is no effort to initialize (Configurable::PrepareOptions) the object
+  // on success.  This method should typically only be used for simpler,
+  // standalone structures and not those that contain shared and embedded
+  // objects.
+  static Status ParseType(
+      const ConfigOptions& config_options, const std::string& opts_str,
+      const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+      void* opt_addr,
+      std::unordered_map<std::string, std::string>* unused = nullptr);
+  static Status ParseType(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, std::string>& opts_map,
+      const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+      void* opt_addr,
+      std::unordered_map<std::string, std::string>* unused = nullptr);
+
   // Parses the input value according to the map for the struct at opt_addr
   // struct_name is the name of the struct option as registered
   // opt_name is the name of the option being evaluated.  This may
@@ -674,6 +705,14 @@ class OptionTypeInfo {
       const std::unordered_map<std::string, OptionTypeInfo>* map,
       const std::string& opt_name, const std::string& value, char* opt_addr);
 
+  // Serializes the values from opt_addr using the rules in type_map.
+  // Returns the serialized form in result.
+  // Returns OK on success or non-OK if some option could not be serialized.
+  static Status SerializeType(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+      const void* opt_addr, std::string* value);
+
   // Serializes the input addr according to the map for the struct to value.
   // struct_name is the name of the struct option as registered
   // opt_name is the name of the option being evaluated.  This may
@@ -682,6 +721,15 @@ class OptionTypeInfo {
       const ConfigOptions& config_options, const std::string& struct_name,
       const std::unordered_map<std::string, OptionTypeInfo>* map,
       const std::string& opt_name, const char* opt_addr, std::string* value);
+
+  // Compares the values in this_addr and that_addr using the rules in type_map.
+  // If the values are equal, returns true
+  // If the values are not equal, returns false and sets mismatch to the name
+  // of the first value that did not match.
+  static bool TypesAreEqual(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, OptionTypeInfo>& map,
+      const void* this_addr, const void* that_addr, std::string* mismatch);
 
   // Compares the input offsets according to the map for the struct and returns
   // true if they are equivalent, false otherwise.

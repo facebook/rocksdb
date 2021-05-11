@@ -1312,6 +1312,24 @@ TEST_F(OptionsTest, DBOptionsComposeImmutable) {
                                                   new_opts));
 }
 
+TEST_F(OptionsTest, GetMutableDBOptions) {
+  Random rnd(228);
+  DBOptions base_opts;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+
+  test::RandomInitDBOptions(&base_opts, &rnd);
+  ImmutableDBOptions i_opts(base_opts);
+  MutableDBOptions m_opts(base_opts);
+  MutableDBOptions new_opts;
+  ASSERT_OK(GetStringFromMutableDBOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableDBOptionsFromStrings(m_opts, opts_map, &new_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      config_options, base_opts, BuildDBOptions(i_opts, new_opts)));
+}
+
 TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   // Build a DBOptions from an Immutable/Mutable one and verify that
   // we get same constituent options.
@@ -1327,6 +1345,28 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
                                                   new_opts));
   delete new_opts.compaction_filter;
+}
+
+TEST_F(OptionsTest, GetMutableCFOptions) {
+  Random rnd(228);
+  ColumnFamilyOptions base, copy;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+  DBOptions dummy;  // Needed to create ImmutableCFOptions
+
+  test::RandomInitCFOptions(&base, dummy, &rnd);
+  ColumnFamilyOptions result;
+  MutableCFOptions m_opts(base), new_opts;
+
+  ASSERT_OK(GetStringFromMutableCFOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableOptionsFromStrings(m_opts, opts_map, nullptr, &new_opts));
+  UpdateColumnFamilyOptions(ImmutableCFOptions(base), &copy);
+  UpdateColumnFamilyOptions(new_opts, &copy);
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base, copy));
+  delete copy.compaction_filter;
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
@@ -3991,6 +4031,33 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b1|b2");
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
+}
+
+TEST_F(OptionTypeInfoTest, TestStaticType) {
+  struct SimpleOptions {
+    size_t size = 0;
+    bool verify = true;
+  };
+
+  static std::unordered_map<std::string, OptionTypeInfo> type_map = {
+      {"size", {offsetof(struct SimpleOptions, size), OptionType::kSizeT}},
+      {"verify",
+       {offsetof(struct SimpleOptions, verify), OptionType::kBoolean}},
+  };
+
+  ConfigOptions config_options;
+  SimpleOptions opts, copy;
+  opts.size = 12345;
+  opts.verify = false;
+  std::string str, mismatch;
+
+  ASSERT_OK(
+      OptionTypeInfo::SerializeType(config_options, type_map, &opts, &str));
+  ASSERT_FALSE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
+                                             &copy, &mismatch));
+  ASSERT_OK(OptionTypeInfo::ParseType(config_options, str, type_map, &copy));
+  ASSERT_TRUE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
+                                            &copy, &mismatch));
 }
 
 class ConfigOptionsTest : public testing::Test {};

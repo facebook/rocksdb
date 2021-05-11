@@ -129,4 +129,15 @@ struct MutableDBOptions {
   int max_background_flushes;
 };
 
+#ifndef ROCKSDB_LITE
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string);
+
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options);
+#endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE

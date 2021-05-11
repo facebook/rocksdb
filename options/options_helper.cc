@@ -640,32 +640,6 @@ Status ConfigureFromMap(
   return s;
 }
 
-Status GetMutableOptionsFromStrings(
-    const MutableCFOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    Logger* /*info_log*/, MutableCFOptions* new_options) {
-  assert(new_options);
-  *new_options = base_options;
-  ConfigOptions config_options;
-  const auto config = CFOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<MutableCFOptions>(config_options, options_map,
-                                            MutableCFOptions::kName(),
-                                            config.get(), new_options);
-}
-
-Status GetMutableDBOptionsFromStrings(
-    const MutableDBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    MutableDBOptions* new_options) {
-  assert(new_options);
-  *new_options = base_options;
-  ConfigOptions config_options;
-
-  auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<MutableDBOptions>(config_options, options_map,
-                                            MutableDBOptions::kName(),
-                                            config.get(), new_options);
-}
 
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
@@ -707,12 +681,6 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
-                                     const MutableDBOptions& mutable_opts,
-                                     std::string* opt_string) {
-  auto config = DBOptionsAsConfigurable(mutable_opts);
-  return config->GetOptionString(config_options, opt_string);
-}
 
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
@@ -731,14 +699,6 @@ Status GetStringFromDBOptions(const ConfigOptions& config_options,
   return config->GetOptionString(config_options, opt_string);
 }
 
-Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
-                                     const MutableCFOptions& mutable_opts,
-                                     std::string* opt_string) {
-  assert(opt_string);
-  opt_string->clear();
-  const auto config = CFOptionsAsConfigurable(mutable_opts);
-  return config->GetOptionString(config_options, opt_string);
-}
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,
@@ -1052,6 +1012,42 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
   }
 }
 
+Status OptionTypeInfo::ParseType(
+    const ConfigOptions& config_options, const std::string& opts_str,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+    void* opt_addr, std::unordered_map<std::string, std::string>* unused) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status status = StringToMap(opts_str, &opts_map);
+  if (!status.ok()) {
+    return status;
+  } else {
+    return ParseType(config_options, opts_map, type_map, opt_addr, unused);
+  }
+}
+
+Status OptionTypeInfo::ParseType(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+    void* opt_addr, std::unordered_map<std::string, std::string>* unused) {
+  for (const auto& opts_iter : opts_map) {
+    std::string opt_name;
+    const auto* opt_info = Find(opts_iter.first, type_map, &opt_name);
+    if (opt_info != nullptr) {
+      Status status =
+          opt_info->Parse(config_options, opt_name, opts_iter.second, opt_addr);
+      if (!status.ok()) {
+        return status;
+      }
+    } else if (unused != nullptr) {
+      (*unused)[opts_iter.first] = opts_iter.second;
+    } else if (!config_options.ignore_unknown_options) {
+      return Status::NotFound("Unrecognized option", opts_iter.first);
+    }
+  }
+  return Status::OK();
+}
+
 Status OptionTypeInfo::ParseStruct(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
@@ -1060,20 +1056,12 @@ Status OptionTypeInfo::ParseStruct(
   Status status;
   if (opt_name == struct_name || EndsWith(opt_name, "." + struct_name)) {
     // This option represents the entire struct
-    std::unordered_map<std::string, std::string> opt_map;
-    status = StringToMap(opt_value, &opt_map);
-    for (const auto& map_iter : opt_map) {
-      if (!status.ok()) {
-        break;
-      }
-      const auto iter = struct_map->find(map_iter.first);
-      if (iter != struct_map->end()) {
-        status = iter->second.Parse(config_options, map_iter.first,
-                                    map_iter.second, opt_addr);
-      } else {
-        status = Status::InvalidArgument("Unrecognized option",
-                                         struct_name + "." + map_iter.first);
-      }
+    std::unordered_map<std::string, std::string> unused;
+    status =
+        ParseType(config_options, opt_value, *struct_map, opt_addr, &unused);
+    if (status.ok() && !unused.empty()) {
+      status = Status::InvalidArgument(
+          "Unrecognized option", struct_name + "." + unused.begin()->first);
     }
   } else if (StartsWith(opt_name, struct_name + ".")) {
     // This option represents a nested field in the struct (e.g, struct.field)
@@ -1140,6 +1128,27 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
   }
 }
 
+Status OptionTypeInfo::SerializeType(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+    const void* opt_addr, std::string* result) {
+  Status status;
+  for (const auto& iter : type_map) {
+    std::string single;
+    const auto& opt_info = iter.second;
+    if (opt_info.ShouldSerialize()) {
+      status =
+          opt_info.Serialize(config_options, iter.first, opt_addr, &single);
+      if (!status.ok()) {
+        return status;
+      } else {
+        result->append(iter.first + "=" + single + config_options.delimiter);
+      }
+    }
+  }
+  return status;
+}
+
 Status OptionTypeInfo::SerializeStruct(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
@@ -1154,19 +1163,12 @@ Status OptionTypeInfo::SerializeStruct(
 
     // This option represents the entire struct
     std::string result;
-    for (const auto& iter : *struct_map) {
-      std::string single;
-      const auto& opt_info = iter.second;
-      if (opt_info.ShouldSerialize()) {
-        status = opt_info.Serialize(embedded, iter.first, opt_addr, &single);
-        if (!status.ok()) {
-          return status;
-        } else {
-          result.append(iter.first + "=" + single + embedded.delimiter);
-        }
-      }
+    status = SerializeType(embedded, *struct_map, opt_addr, &result);
+    if (!status.ok()) {
+      return status;
+    } else {
+      *value = "{" + result + "}";
     }
-    *value = "{" + result + "}";
   } else if (StartsWith(opt_name, struct_name + ".")) {
     // This option represents a nested field in the struct (e.g, struct.field)
     std::string elem_name;
@@ -1304,6 +1306,20 @@ bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,
   return false;
 }
 
+bool OptionTypeInfo::TypesAreEqual(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+    const void* this_addr, const void* that_addr, std::string* mismatch) {
+  for (const auto& iter : type_map) {
+    const auto& opt_info = iter.second;
+    if (!opt_info.AreEqual(config_options, iter.first, this_addr, that_addr,
+                           mismatch)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool OptionTypeInfo::StructsAreEqual(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
@@ -1314,15 +1330,11 @@ bool OptionTypeInfo::StructsAreEqual(
   std::string result;
   if (EndsWith(opt_name, struct_name)) {
     // This option represents the entire struct
-    for (const auto& iter : *struct_map) {
-      const auto& opt_info = iter.second;
-
-      matches = opt_info.AreEqual(config_options, iter.first, this_addr,
-                                  that_addr, &result);
-      if (!matches) {
-        *mismatch = struct_name + "." + result;
-        return false;
-      }
+    matches = TypesAreEqual(config_options, *struct_map, this_addr, that_addr,
+                            &result);
+    if (!matches) {
+      *mismatch = struct_name + "." + result;
+      return false;
     }
   } else if (StartsWith(opt_name, struct_name + ".")) {
     // This option represents a nested field in the struct (e.g, struct.field)
