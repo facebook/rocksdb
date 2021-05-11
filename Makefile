@@ -1919,7 +1919,7 @@ gen-pc:
 	-echo Version: $(shell ./build_tools/version.sh full) >> rocksdb.pc
 	-echo 'Libs: -L$${libdir} $(EXEC_LDFLAGS) -lrocksdb' >> rocksdb.pc
 	-echo 'Libs.private: $(PLATFORM_LDFLAGS)' >> rocksdb.pc
-	-echo 'Cflags: -I$${includedir} $(PLATFORM_CXXFLAGS)' >> rocksdb.pc
+	-echo 'Cflags: -I$${includedir}' >> rocksdb.pc
 
 #-------------------------------------------------
 
