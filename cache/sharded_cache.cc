@@ -124,14 +124,14 @@ size_t ShardedCache::GetPinnedUsage() const {
 void ShardedCache::ApplyToAllEntries(
     const std::function<void(const Slice& key, void* value, size_t charge,
                              DeleterFn deleter)>& callback,
-    size_t average_entries_per_lock) {
+    const ApplyToAllEntriesOptions& opts) {
   uint32_t num_shards = GetNumShards();
   // Iterate over part of each shard, rotating between shards, to
   // minimize impact on latency of concurrent operations.
   std::unique_ptr<uint32_t[]> states(new uint32_t[num_shards]{});
 
   uint32_t aepl_in_32 = static_cast<uint32_t>(
-      std::min(size_t{UINT32_MAX}, average_entries_per_lock));
+      std::min(size_t{UINT32_MAX}, opts.average_entries_per_lock));
   aepl_in_32 = std::min(aepl_in_32, uint32_t{1});
 
   bool remaining_work;

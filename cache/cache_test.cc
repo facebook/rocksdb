@@ -755,7 +755,7 @@ TEST_P(CacheTest, ApplyToAllEntriesTest) {
     inserted.push_back(ToString(i) + "," + ToString(i * 2) + "," +
                        ToString(i + 1));
   }
-  cache_->ApplyToAllEntries(callback);
+  cache_->ApplyToAllEntries(callback, /*opts*/ {});
 
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
@@ -791,7 +791,9 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
   // Start counting
   std::thread apply_thread([&]() {
     // Use small average_entries_per_lock to make the problem difficult
-    cache_->ApplyToAllEntries(callback, /* average_entries_per_lock */ 2);
+    Cache::ApplyToAllEntriesOptions opts;
+    opts.average_entries_per_lock = 2;
+    cache_->ApplyToAllEntries(callback, opts);
   });
 
   // In parallel, add more entries, enough to cause resize but not enough

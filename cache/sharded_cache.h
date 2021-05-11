@@ -90,7 +90,7 @@ class ShardedCache : public Cache {
   virtual void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      size_t average_entries_per_lock) override;
+      const ApplyToAllEntriesOptions& opts) override;
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
 

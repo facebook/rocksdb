@@ -880,8 +880,8 @@ class CacheWrapper : public Cache {
   void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      size_t average_entries_per_lock) override {
-    target_->ApplyToAllEntries(callback, average_entries_per_lock);
+      const ApplyToAllEntriesOptions& opts) override {
+    target_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }

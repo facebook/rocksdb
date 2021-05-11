@@ -374,8 +374,9 @@ class CacheBench {
         deleters.insert(deleter);
       };
       timer.Start();
-      shared->GetCacheBench()->cache_->ApplyToAllEntries(
-          fn, FLAGS_gather_stats_entries_per_lock);
+      Cache::ApplyToAllEntriesOptions opts;
+      opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
+      shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
       stats_hist->Add(timer.ElapsedNanos() / 1000);
     }
   }

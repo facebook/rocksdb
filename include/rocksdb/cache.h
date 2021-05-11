@@ -285,26 +285,32 @@ class Cache {
       // default implementation is noop
   }
 
+  struct ApplyToAllEntriesOptions {
+    // If the Cache uses locks, setting `average_entries_per_lock` to
+    // a higher value suggests iterating over more entries each time a lock
+    // is acquired, likely reducing the time for ApplyToAllEntries but
+    // increasing latency for concurrent users of the Cache. Setting
+    // `average_entries_per_lock` to a smaller value could be helpful if
+    // callback is relatively expensive, such as using large data structures.
+    size_t average_entries_per_lock = 256;
+  };
+
   // Apply a callback to all entries in the cache. The Cache must ensure
   // thread safety but does not guarantee that a consistent snapshot of all
   // entries is iterated over if other threads are operating on the Cache
-  // also. If the Cache uses locks, setting `average_entries_per_lock` to
-  // a higher value suggests iterating over more entries each time a lock
-  // is acquired, likely reducing the time for ApplyToAllEntries but
-  // increasing latency for concurrent users of the Cache. Setting
-  // `average_entries_per_lock` to a smaller value could be helpful if
-  // callback is relatively expensive, such as using large data structures.
+  // also.
   virtual void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      size_t average_entries_per_lock = 256) = 0;
+      const ApplyToAllEntriesOptions& opts) = 0;
 
   // DEPRECATED version of above. (Default implementation uses above.)
   virtual void ApplyToAllCacheEntries(void (*callback)(void* value,
                                                        size_t charge),
                                       bool /*thread_safe*/) {
     ApplyToAllEntries([callback](const Slice&, void* value, size_t charge,
-                                 DeleterFn) { callback(value, charge); });
+                                 DeleterFn) { callback(value, charge); },
+                      {});
   }
 
   // Remove all entries.
