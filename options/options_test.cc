@@ -1312,6 +1312,24 @@ TEST_F(OptionsTest, DBOptionsComposeImmutable) {
                                                   new_opts));
 }
 
+TEST_F(OptionsTest, GetMutableDBOptions) {
+  Random rnd(228);
+  DBOptions base_opts;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+
+  test::RandomInitDBOptions(&base_opts, &rnd);
+  ImmutableDBOptions i_opts(base_opts);
+  MutableDBOptions m_opts(base_opts);
+  MutableDBOptions new_opts;
+  ASSERT_OK(GetStringFromMutableDBOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableDBOptionsFromStrings(m_opts, opts_map, &new_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      config_options, base_opts, BuildDBOptions(i_opts, new_opts)));
+}
+
 TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   // Build a DBOptions from an Immutable/Mutable one and verify that
   // we get same constituent options.
@@ -1327,6 +1345,27 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
                                                   new_opts));
   delete new_opts.compaction_filter;
+}
+
+TEST_F(OptionsTest, GetMutableCFOptions) {
+  Random rnd(228);
+  ColumnFamilyOptions base, copy;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+  DBOptions dummy;  // Needed to create ImmutableCFOptions
+
+  test::RandomInitCFOptions(&base, dummy, &rnd);
+  ColumnFamilyOptions result;
+  MutableCFOptions m_opts(base), new_opts;
+
+  ASSERT_OK(GetStringFromMutableCFOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableOptionsFromStrings(m_opts, opts_map, nullptr, &new_opts));
+  UpdateColumnFamilyOptions(ImmutableCFOptions(base), &copy);
+  UpdateColumnFamilyOptions(new_opts, &copy);
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base, copy));
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
