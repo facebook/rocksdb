@@ -16,6 +16,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,13 +27,6 @@ class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
-
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
 
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created

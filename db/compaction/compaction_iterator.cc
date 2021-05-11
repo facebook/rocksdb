@@ -100,8 +100,8 @@ CompactionIterator::CompactionIterator(
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
       current_key_committed_(false),
-      cmp_with_history_ts_low_(0) {
-  assert(compaction_filter_ == nullptr || compaction_ != nullptr);
+      cmp_with_history_ts_low_(0),
+      level_(compaction_ == nullptr ? 0 : compaction_->level()) {
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
                           ? false
@@ -232,7 +232,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (kTypeBlobIndex == ikey_.type) {
       blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(
-          compaction_->level(), filter_key, &compaction_filter_value_,
+          level_, filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
@@ -248,6 +248,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         }
         if (blob_index.HasTTL() || blob_index.IsInlined()) {
           status_ = Status::Corruption("Unexpected TTL/inlined blob index");
+          valid_ = false;
+          return false;
+        }
+        if (compaction_ == nullptr) {
+          status_ =
+              Status::Corruption("Unexpected blob index outside of compaction");
           valid_ = false;
           return false;
         }
@@ -271,7 +277,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
     if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
-          compaction_->level(), filter_key, value_type,
+          level_, filter_key, value_type,
           blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
     }

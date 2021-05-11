@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 struct SstFileReader::Rep {
   Options options;
   EnvOptions soptions;
-  ImmutableCFOptions ioptions;
+  ImmutableOptions ioptions;
   MutableCFOptions moptions;
 
   std::unique_ptr<TableReader> table_reader;

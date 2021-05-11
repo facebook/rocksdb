@@ -48,7 +48,7 @@ class HistogramImpl;
 // ioptions.row_cache
 class TableCache {
  public:
-  TableCache(const ImmutableCFOptions& ioptions,
+  TableCache(const ImmutableOptions& ioptions,
              const FileOptions& storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer);
@@ -220,7 +220,7 @@ class TableCache {
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                        size_t prefix_size, GetContext* get_context);
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
   Cache* const cache_;
   std::string row_cache_id_;

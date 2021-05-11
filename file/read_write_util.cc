@@ -18,7 +18,7 @@ IOStatus NewWritableFile(FileSystem* fs, const std::string& fname,
                          std::unique_ptr<FSWritableFile>* result,
                          const FileOptions& options) {
   IOStatus s = fs->NewWritableFile(fname, options, result, nullptr);
-  TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM_WITH_WEIGHT("NewWritableFile:0", REDUCE_ODDS2);
   return s;
 }
 

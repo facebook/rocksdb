@@ -1180,7 +1180,13 @@ class DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
+  // After this function call, CompactRange() or CompactFiles() will not
+  // run compactions and fail. The function will wait for all outstanding
+  // manual compactions to finish before returning
   virtual void DisableManualCompaction() = 0;
+  // Re-enable CompactRange() and ComapctFiles() that are disabled by
+  // DisableManualCompaction(). In debug mode, it might hit assertion if
+  // no DisableManualCompaction() was previously called.
   virtual void EnableManualCompaction() = 0;
 
   // Number of levels used for this DB.
@@ -1368,7 +1374,7 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Return a list of all table file checksum info.
+  // Return a list of all table and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;

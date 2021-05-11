@@ -205,6 +205,7 @@ LIB_SOURCES =                                                   \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
+  util/crc32c_arm64.cc                                          \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
@@ -275,11 +276,6 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
 
-ifeq ($(ARMCRC_SOURCE),1)
-LIB_SOURCES +=\
-  util/crc32c_arm64.cc
-endif
-
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
   util/crc32c_ppc_asm.S
@@ -322,6 +318,7 @@ MOCK_LIB_SOURCES =                                              \
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
+  tools/simulated_hybrid_file_system.cc                         \
 
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
@@ -428,6 +425,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
   db/db_with_timestamp_compaction_test.cc                               \
+  db/db_write_buffer_manager_test.cc                                    \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \

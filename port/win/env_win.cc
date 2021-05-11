@@ -9,8 +9,6 @@
 
 #if defined(OS_WIN)
 
-#include "port/win/env_win.h"
-
 #include <direct.h>  // _rmdir, _mkdir, _getcwd
 #include <errno.h>
 #include <io.h>   // _access
@@ -29,6 +27,7 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
+#include "port/win/env_win.h"
 #include "port/win/io_win.h"
 #include "port/win/win_logger.h"
 #include "port/win/win_thread.h"
@@ -89,9 +88,8 @@ WinClock::WinClock()
 
   HMODULE module = GetModuleHandle("kernel32.dll");
   if (module != NULL) {
-    GetSystemTimePreciseAsFileTime_ =
-        (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
-            module, "GetSystemTimePreciseAsFileTime");
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)(
+        void*)GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
   }
 }
 
@@ -682,7 +680,8 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
     // which appear only on some platforms
     const bool ignore =
         ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) &&
-        (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
+        (RX_FNCMP(data.cFileName, ".") == 0 ||
+         RX_FNCMP(data.cFileName, "..") == 0);
     if (!ignore) {
       auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
       result->push_back(FN_TO_RX(x));

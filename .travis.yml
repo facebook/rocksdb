@@ -62,6 +62,10 @@ matrix:
   - os: linux
     compiler: clang
   - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: arm64
+    env: TEST_GROUP=platform_dependent
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: TEST_GROUP=1
@@ -93,6 +97,10 @@ matrix:
     os: linux
     arch: ppc64le
     env: TEST_GROUP=4
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake
   - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os : linux
     arch: arm64
