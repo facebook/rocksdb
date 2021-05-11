@@ -166,7 +166,6 @@ void FlushJob::RecordFlushIOStats() {
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
-
 void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
@@ -403,6 +402,7 @@ Status FlushJob::WriteLevel0Table() {
                                    ? current_time
                                    : meta_.oldest_ancester_time;
 
+      uint64_t num_input_entries = 0;
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
@@ -420,9 +420,15 @@ Status FlushJob::WriteLevel0Table() {
           earliest_write_conflict_snapshot_, snapshot_checker_,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
-          &table_properties_, write_hint, full_history_ts_low, blob_callback_);
+          &table_properties_, write_hint, full_history_ts_low, blob_callback_,
+          &num_input_entries);
       if (!io_s.ok()) {
         io_status_ = io_s;
+      }
+      if (num_input_entries != total_num_entries && s.ok()) {
+        s = Status::Corruption("Expected " + ToString(total_num_entries) +
+                               " entries in memtables, but read " +
+                               ToString(num_input_entries));
       }
       LogFlush(db_options_.info_log);
     }

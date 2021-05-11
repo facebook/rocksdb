@@ -4988,7 +4988,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_OK(Put("key", "2"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "3"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "4"));
-  Flush();
+  ASSERT_OK(Flush());
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = 2;
