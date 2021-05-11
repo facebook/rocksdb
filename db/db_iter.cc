@@ -576,12 +576,8 @@ bool DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
-      Status s = MergeHelper::TimedFullMerge(
-          merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
-          &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+      Status s = Merge(&val, ikey.user_key);
       if (!s.ok()) {
-        valid_ = false;
-        status_ = s;
         return false;
       }
       // iter_ is positioned after put
@@ -619,16 +615,10 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, saved_key_.GetUserKey(), nullptr,
-      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
-      &pinned_value_, true);
+  Status s = Merge(nullptr, saved_key_.GetUserKey());
   if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
     return false;
   }
-
   assert(status_.ok());
   return true;
 }
@@ -931,10 +921,11 @@ bool DBIter::FindValueForCurrentKey() {
       if (last_not_merge_type == kTypeDeletion ||
           last_not_merge_type == kTypeSingleDeletion ||
           last_not_merge_type == kTypeRangeDeletion) {
-        s = MergeHelper::TimedFullMerge(
-            merge_operator_, saved_key_.GetUserKey(), nullptr,
-            merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            clock_, &pinned_value_, true);
+        s = Merge(nullptr, saved_key_.GetUserKey());
+        if (!s.ok()) {
+          return false;
+        }
+        return true;
       } else if (last_not_merge_type == kTypeBlobIndex) {
         status_ =
             Status::NotSupported("BlobDB does not support merge operator.");
@@ -942,10 +933,11 @@ bool DBIter::FindValueForCurrentKey() {
         return false;
       } else {
         assert(last_not_merge_type == kTypeValue);
-        s = MergeHelper::TimedFullMerge(
-            merge_operator_, saved_key_.GetUserKey(), &pinned_value_,
-            merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            clock_, &pinned_value_, true);
+        s = Merge(&pinned_value_, saved_key_.GetUserKey());
+        if (!s.ok()) {
+          return false;
+        }
+        return true;
       }
       break;
     case kTypeValue:
@@ -1095,16 +1087,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     if (ikey.type == kTypeValue) {
       const Slice val = iter_.value();
-      Status s = MergeHelper::TimedFullMerge(
-          merge_operator_, saved_key_.GetUserKey(), &val,
-          merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-          clock_, &pinned_value_, true);
+      Status s = Merge(&val, saved_key_.GetUserKey());
       if (!s.ok()) {
-        valid_ = false;
-        status_ = s;
         return false;
       }
-      valid_ = true;
       return true;
     } else if (ikey.type == kTypeMerge) {
       merge_context_.PushOperand(
@@ -1123,13 +1109,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
   }
 
-  Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, saved_key_.GetUserKey(), nullptr,
-      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
-      &pinned_value_, true);
+  Status s = Merge(nullptr, saved_key_.GetUserKey());
   if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
     return false;
   }
 
@@ -1150,6 +1131,19 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   valid_ = true;
   return true;
+}
+
+Status DBIter::Merge(const Slice* val, const Slice& user_key) {
+  Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key, val, merge_context_.GetOperands(),
+      &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+  if (!s.ok()) {
+    valid_ = false;
+    status_ = s;
+    return s;
+  }
+  valid_ = true;
+  return s;
 }
 
 // Move backwards until the key smaller than saved_key_.
