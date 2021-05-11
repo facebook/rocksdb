@@ -7659,15 +7659,19 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (env_opts == 1) {
-    Status s = Env::CreateFromFlags(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
-                                    &FLAGS_env, &env_guard);
+    Status s = Env::CreateFromFlags(ConfigOptions(), FLAGS_env_uri,
+                                    FLAGS_fs_uri, &FLAGS_env, &env_guard);
     if (!s.ok()) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
   } else if (FLAGS_simulate_hybrid_fs_file != "") {
-    FLAGS_env = GetCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-        FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    //**TODO: Make the siimulated fs something that can be loaded
+    // from the ObjectRegistry...
+    static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+        NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
