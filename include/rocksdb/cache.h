@@ -22,9 +22,11 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
@@ -171,6 +173,11 @@ class Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
+  // A function pointer type for custom destruction of an entry's
+  // value. The Cache is responsible for copying and reclaiming space
+  // for the key, but values are managed by the caller.
+  using DeleterFn = void (*)(const Slice& key, void* value);
+
   // The type of the Cache
   virtual const char* Name() const = 0;
 
@@ -188,10 +195,11 @@ class Cache {
   // insert. In case of error value will be cleanup.
   //
   // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter".
+  // value will be passed to "deleter" which must delete the value.
+  // (The Cache is responsible for copying and reclaiming space for
+  // the key.)
   virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
-                        Handle** handle = nullptr,
+                        DeleterFn deleter, Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.
@@ -277,11 +285,33 @@ class Cache {
       // default implementation is noop
   }
 
-  // Apply callback to all entries in the cache
-  // If thread_safe is true, it will also lock the accesses. Otherwise, it will
-  // access the cache without the lock held
-  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                      bool thread_safe) = 0;
+  struct ApplyToAllEntriesOptions {
+    // If the Cache uses locks, setting `average_entries_per_lock` to
+    // a higher value suggests iterating over more entries each time a lock
+    // is acquired, likely reducing the time for ApplyToAllEntries but
+    // increasing latency for concurrent users of the Cache. Setting
+    // `average_entries_per_lock` to a smaller value could be helpful if
+    // callback is relatively expensive, such as using large data structures.
+    size_t average_entries_per_lock = 256;
+  };
+
+  // Apply a callback to all entries in the cache. The Cache must ensure
+  // thread safety but does not guarantee that a consistent snapshot of all
+  // entries is iterated over if other threads are operating on the Cache
+  // also.
+  virtual void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) = 0;
+
+  // DEPRECATED version of above. (Default implementation uses above.)
+  virtual void ApplyToAllCacheEntries(void (*callback)(void* value,
+                                                       size_t charge),
+                                      bool /*thread_safe*/) {
+    ApplyToAllEntries([callback](const Slice&, void* value, size_t charge,
+                                 DeleterFn) { callback(value, charge); },
+                      {});
+  }
 
   // Remove all entries.
   // Prerequisite: no entry is referenced.

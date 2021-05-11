@@ -284,8 +284,10 @@ class ClockCacheShard final : public CacheShard {
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;
   void EraseUnRefEntries() override;
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override;
+  void ApplyToSomeEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      uint32_t average_entries_per_lock, uint32_t* state) override;
 
  private:
   static const uint32_t kInCacheBit = 1;
@@ -404,21 +406,45 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   return pinned_usage_.load(std::memory_order_relaxed);
 }
 
-void ClockCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                             bool thread_safe) {
-  if (thread_safe) {
-    mutex_.Lock();
+void ClockCacheShard::ApplyToSomeEntries(
+    const std::function<void(const Slice& key, void* value, size_t charge,
+                             DeleterFn deleter)>& callback,
+    uint32_t average_entries_per_lock, uint32_t* state) {
+  assert(average_entries_per_lock > 0);
+  MutexLock lock(&mutex_);
+
+  // Figure out the range to iterate, update `state`
+  size_t list_size = list_.size();
+  size_t start_idx = *state;
+  size_t end_idx = start_idx + average_entries_per_lock;
+  if (start_idx > list_size) {
+    // Shouldn't reach here, but recoverable
+    assert(false);
+    // Mark finished with all
+    *state = UINT32_MAX;
+    return;
   }
-  for (auto& handle : list_) {
-    // Use relaxed semantics instead of acquire semantics since we are either
-    // holding mutex, or don't have thread safe requirement.
+  if (end_idx >= list_size || end_idx >= UINT32_MAX) {
+    // This also includes the hypothetical case of >4 billion
+    // cache handles.
+    end_idx = list_size;
+    // Mark finished with all
+    *state = UINT32_MAX;
+  } else {
+    *state = end_idx;
+  }
+
+  // Do the iteration
+  auto cur = list_.begin() + start_idx;
+  auto end = list_.begin() + end_idx;
+  for (; cur != end; ++cur) {
+    const CacheHandle& handle = *cur;
+    // Use relaxed semantics instead of acquire semantics since we are
+    // holding mutex
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);
     if (InCache(flags)) {
-      callback(handle.value, handle.charge);
+      callback(handle.key, handle.value, handle.charge, handle.deleter);
     }
-  }
-  if (thread_safe) {
-    mutex_.Unlock();
   }
 }
 
@@ -739,11 +765,11 @@ class ClockCache final : public ShardedCache {
 
   const char* Name() const override { return "ClockCache"; }
 
-  CacheShard* GetShard(int shard) override {
+  CacheShard* GetShard(uint32_t shard) override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 
-  const CacheShard* GetShard(int shard) const override {
+  const CacheShard* GetShard(uint32_t shard) const override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 

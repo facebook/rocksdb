@@ -30,9 +30,10 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(capacity, false /*strict_capacity_limit*/,
-                               high_pri_pool_ratio, use_adaptive_mutex,
-                               kDontChargeCacheMetadata);
+    new (cache_)
+        LRUCacheShard(capacity, false /*strict_capacity_limit*/,
+                      high_pri_pool_ratio, use_adaptive_mutex,
+                      kDontChargeCacheMetadata, 24 /*max_upper_hash_bits*/);
   }
 
   void Insert(const std::string& key,

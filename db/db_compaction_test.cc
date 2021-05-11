@@ -503,6 +503,10 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   options.new_table_reader_for_compaction_inputs = true;
   options.max_open_files = 20;
   options.level0_file_num_compaction_trigger = 3;
+  // Avoid many shards with small max_open_files, where as little as
+  // two table insertions could lead to an LRU eviction, depending on
+  // hash values.
+  options.table_cache_numshardbits = 2;
   DestroyAndReopen(options);
   Random rnd(301);
 
