@@ -17,11 +17,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
+class ObjectLibrary;
+
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
 template <typename T>
 using FactoryFunc =
     std::function<T*(const std::string&, std::unique_ptr<T>*, std::string*)>;
+
+// The signature of the function for loading factories
+// into an object library.  This method is expected to register
+// factory functions in the supplied ObjectLibrary.
+// The ObjectLibrary is the library in which the factories will be loaded.
+// The std::string is the argument passed to the loader function.
+// The RegistrarFunc should return the number of objects loaded into this
+// library
+using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
 class ObjectLibrary {
  public:
@@ -62,9 +73,18 @@ class ObjectLibrary {
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
+  explicit ObjectLibrary(const std::string& id) { id_ = id; }
+
+  const std::string& GetID() const { return id_; }
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
                          const std::string& name) const;
+
+  // Returns the total number of factories registered for this library.
+  // This method returns the sum of all factories registered for all types.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(size_t* num_types) const;
+
   void Dump(Logger* logger) const;
 
   // Registers the factory with the library for the pattern.
@@ -76,6 +96,12 @@ class ObjectLibrary {
     AddEntry(T::Type(), entry);
     return factory;
   }
+
+  // Invokes the registrar function with the supplied arg for this library.
+  int Register(const RegistrarFunc& registrar, const std::string& arg) {
+    return registrar(*this, arg);
+  }
+
   // Returns the default ObjectLibrary
   static std::shared_ptr<ObjectLibrary>& Default();
 
@@ -85,6 +111,9 @@ class ObjectLibrary {
 
   // ** FactoryFunctions for this loader, organized by type
   std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
+
+  // The name for this library
+  std::string id_;
 };
 
 // The ObjectRegistry is used to register objects that can be created by a
@@ -93,11 +122,26 @@ class ObjectLibrary {
 class ObjectRegistry {
  public:
   static std::shared_ptr<ObjectRegistry> NewInstance();
+  static std::shared_ptr<ObjectRegistry> NewInstance(
+      const std::shared_ptr<ObjectRegistry>& parent);
+  static std::shared_ptr<ObjectRegistry> Default();
+  explicit ObjectRegistry(const std::shared_ptr<ObjectRegistry>& parent)
+      : parent_(parent) {}
 
-  ObjectRegistry();
+  std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
+    auto library = std::make_shared<ObjectLibrary>(id);
+    libraries_.push_back(library);
+    return library;
+  }
 
   void AddLibrary(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.emplace_back(library);
+    libraries_.push_back(library);
+  }
+
+  void AddLibrary(const std::string& id, const RegistrarFunc& registrar,
+                  const std::string& arg) {
+    auto library = AddLibrary(id);
+    library->Register(registrar, arg);
   }
 
   // Creates a new T using the factory function that was registered with a
@@ -193,6 +237,10 @@ class ObjectRegistry {
   void Dump(Logger* logger) const;
 
  private:
+  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
+    libraries_.push_back(library);
+  }
+
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
                                         const std::string& name) const;
 
@@ -200,6 +248,7 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::shared_ptr<ObjectRegistry> parent_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

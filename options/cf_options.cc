@@ -541,12 +541,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kComparator, OptionVerificationType::kByName,
           OptionTypeFlags::kCompareLoose,
           // Parses the string and sets the corresponding comparator
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
              const std::string& value, char* addr) {
             auto old_comparator = reinterpret_cast<const Comparator**>(addr);
             const Comparator* new_comparator = *old_comparator;
-            Status status = ObjectRegistry::NewInstance()->NewStaticObject(
-                value, &new_comparator);
+            Status status =
+                opts.registry->NewStaticObject(value, &new_comparator);
             if (status.ok()) {
               *old_comparator = new_comparator;
               return status;
@@ -661,12 +661,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kByNameAllowFromNull,
           OptionTypeFlags::kCompareLoose,
           // Parses the input value as a MergeOperator, updating the value
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
              const std::string& value, char* addr) {
             auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
             Status status =
-                ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
-                    value, mop);
+                opts.registry->NewSharedObject<MergeOperator>(value, mop);
             // Only support static comparator for now.
             if (status.ok()) {
               return status;
