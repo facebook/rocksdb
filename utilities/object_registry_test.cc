@@ -62,7 +62,8 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   std::string msg;
   std::unique_ptr<Env> guard;
   auto registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("local");
   registry->AddLibrary(library);
   library->Register<Env>(
       "test-local",
@@ -87,7 +88,8 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
 TEST_F(EnvRegistryTest, CheckShared) {
   std::shared_ptr<Env> shared;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("shared");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
@@ -111,7 +113,8 @@ TEST_F(EnvRegistryTest, CheckShared) {
 TEST_F(EnvRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("static");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
@@ -135,7 +138,8 @@ TEST_F(EnvRegistryTest, CheckStatic) {
 TEST_F(EnvRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("unique");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
@@ -156,6 +160,51 @@ TEST_F(EnvRegistryTest, CheckUnique) {
   ASSERT_EQ(unique, nullptr);
 }
 
+TEST_F(EnvRegistryTest, TestRegistryParents) {
+  auto grand = ObjectRegistry::Default();
+  auto parent = ObjectRegistry::NewInstance();  // parent with a grandparent
+  auto uncle = ObjectRegistry::NewInstance(grand);
+  auto child = ObjectRegistry::NewInstance(parent);
+  auto cousin = ObjectRegistry::NewInstance(uncle);
+
+  auto library = parent->AddLibrary("parent");
+  library->Register<Env>(
+      "parent", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                   std::string* /* errmsg */) {
+        guard->reset(new EnvWrapper(Env::Default()));
+        return guard->get();
+      });
+  library = cousin->AddLibrary("cousin");
+  library->Register<Env>(
+      "cousin", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                   std::string* /* errmsg */) {
+        guard->reset(new EnvWrapper(Env::Default()));
+        return guard->get();
+      });
+
+  std::unique_ptr<Env> guard;
+  std::string msg;
+
+  // a:://* is registered in Default, so they should all workd
+  ASSERT_NE(parent->NewObject<Env>("a://test", &guard, &msg), nullptr);
+  ASSERT_NE(child->NewObject<Env>("a://test", &guard, &msg), nullptr);
+  ASSERT_NE(uncle->NewObject<Env>("a://test", &guard, &msg), nullptr);
+  ASSERT_NE(cousin->NewObject<Env>("a://test", &guard, &msg), nullptr);
+
+  // The parent env is only registered for parent, not uncle,
+  // So parent and child should return success and uncle and cousin should fail
+  ASSERT_OK(parent->NewUniqueObject<Env>("parent", &guard));
+  ASSERT_OK(child->NewUniqueObject<Env>("parent", &guard));
+  ASSERT_NOK(uncle->NewUniqueObject<Env>("parent", &guard));
+  ASSERT_NOK(cousin->NewUniqueObject<Env>("parent", &guard));
+
+  // The cousin is only registered in the cousin, so all of the others should
+  // fail
+  ASSERT_OK(cousin->NewUniqueObject<Env>("cousin", &guard));
+  ASSERT_NOK(parent->NewUniqueObject<Env>("cousin", &guard));
+  ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
+  ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

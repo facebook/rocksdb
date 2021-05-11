@@ -695,6 +695,68 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+static int RegisterTestObjects(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  size_t num_types;
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+static int RegisterLocalObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  size_t num_types;
+  // Load any locally defined objects here
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+class LoadCustomizableTest : public testing::Test {
+ public:
+  LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
+  bool RegisterTests(const std::string& arg) {
+#ifndef ROCKSDB_LITE
+    config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
+                                         arg);
+    config_options_.registry->AddLibrary("local-tests", RegisterLocalObjects,
+                                         arg);
+    return true;
+#else
+    (void)arg;
+    return false;
+#endif  // !ROCKSDB_LITE
+  }
+
+ protected:
+  DBOptions db_opts_;
+  ColumnFamilyOptions cf_opts_;
+  ConfigOptions config_options_;
+};
+
+TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  std::shared_ptr<TableFactory> factory;
+  ASSERT_NOK(
+      TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, TableFactory::kBlockBasedTableName(), &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "MockTable");
+  }
+}
+#endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
