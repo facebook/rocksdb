@@ -364,7 +364,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct MutableCFOptions, compaction_options_fifo),
              OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
              [](const ConfigOptions& opts, const std::string& name,
-                const std::string& value, char* addr) {
+                const std::string& value, void* addr) {
                // This is to handle backward compatibility, where
                // compaction_options_fifo could be assigned a single scalar
                // value, say, like "23", which would be assigned to
@@ -372,7 +372,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                if (name == "compaction_options_fifo" &&
                    value.find("=") == std::string::npos) {
                  // Old format. Parse just a single uint64_t value.
-                 auto options = reinterpret_cast<CompactionOptionsFIFO*>(addr);
+                 auto options = static_cast<CompactionOptionsFIFO*>(addr);
                  options->max_table_files_size = ParseUint64(value);
                  return Status::OK();
                } else {
@@ -433,13 +433,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionVerificationType::kNormal,
              (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
              [](const ConfigOptions& opts, const std::string& name,
-                const std::string& value, char* addr) {
+                const std::string& value, void* addr) {
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameCompOpts &&
                    value.find("=") == std::string::npos) {
-                 auto* compression =
-                     reinterpret_cast<CompressionOptions*>(addr);
+                 auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
                  return OptionTypeInfo::ParseStruct(
@@ -454,13 +453,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionVerificationType::kNormal,
              (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
              [](const ConfigOptions& opts, const std::string& name,
-                const std::string& value, char* addr) {
+                const std::string& value, void* addr) {
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameBMCompOpts &&
                    value.find("=") == std::string::npos) {
-                 auto* compression =
-                     reinterpret_cast<CompressionOptions*>(addr);
+                 auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
                  return OptionTypeInfo::ParseStruct(
@@ -542,8 +540,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kCompareLoose,
           // Parses the string and sets the corresponding comparator
           [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto old_comparator = reinterpret_cast<const Comparator**>(addr);
+             const std::string& value, void* addr) {
+            auto old_comparator = static_cast<const Comparator**>(addr);
             const Comparator* new_comparator = *old_comparator;
             Status status =
                 opts.registry->NewStaticObject(value, &new_comparator);
@@ -568,12 +566,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone,
           // Parses the value string and updates the memtable_factory
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
+             const std::string& value, void* addr) {
             std::unique_ptr<MemTableRepFactory> new_mem_factory;
             Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
             if (s.ok()) {
               auto memtable_factory =
-                  reinterpret_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+                  static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
               memtable_factory->reset(new_mem_factory.release());
             }
             return s;
@@ -590,10 +588,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a BlockBasedTableFactory
           [](const ConfigOptions& opts, const std::string& name,
-             const std::string& value, char* addr) {
+             const std::string& value, void* addr) {
             BlockBasedTableOptions* old_opts = nullptr;
             auto table_factory =
-                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+                static_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
               old_opts =
                   table_factory->get()->GetOptions<BlockBasedTableOptions>();
@@ -622,10 +620,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a PlainTableFactory
           [](const ConfigOptions& opts, const std::string& name,
-             const std::string& value, char* addr) {
+             const std::string& value, void* addr) {
             PlainTableOptions* old_opts = nullptr;
             auto table_factory =
-                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+                static_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
               old_opts = table_factory->get()->GetOptions<PlainTableOptions>();
             }
@@ -662,8 +660,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kCompareLoose,
           // Parses the input value as a MergeOperator, updating the value
           [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
+             const std::string& value, void* addr) {
+            auto mop = static_cast<std::shared_ptr<MergeOperator>*>(addr);
             Status status =
                 opts.registry->NewSharedObject<MergeOperator>(value, mop);
             // Only support static comparator for now.
