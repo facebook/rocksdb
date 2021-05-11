@@ -31,23 +31,12 @@ class SequenceIterWrapper : public InternalIterator {
   SequenceIterWrapper(InternalIterator* iter, const Comparator* cmp,
                       bool need_count_entries)
       : cmp_(cmp), inner_iter_(iter), need_count_entries_(need_count_entries) {}
-
   bool Valid() const override { return inner_iter_->Valid(); }
   Status status() const override { return inner_iter_->status(); }
-
-  void SeekToFirst() override { assert(false); }
-
   void Next() override {
     num_itered_++;
     inner_iter_->Next();
   }
-
-  Slice key() const override { return inner_iter_->key(); }
-
-  Slice value() const override { return inner_iter_->value(); }
-
-  // Unused InternalIterator methods
-  void Prev() override { assert(false); }
   void Seek(const Slice& target) override {
     if (!need_count_entries_) {
       inner_iter_->Seek(target);
@@ -60,8 +49,15 @@ class SequenceIterWrapper : public InternalIterator {
       }
     }
   }
+  Slice key() const override { return inner_iter_->key(); }
+  Slice value() const override { return inner_iter_->value(); }
+
+  // Unused InternalIterator methods
+  void SeekToFirst() override { assert(false); }
+  void Prev() override { assert(false); }
   void SeekForPrev(const Slice& /* target */) override { assert(false); }
   void SeekToLast() override { assert(false); }
+
   uint64_t num_itered() const { return num_itered_; }
 
  private:
