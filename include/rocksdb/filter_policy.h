@@ -29,6 +29,7 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -99,18 +100,32 @@ struct FilterBuildingContext {
   // Options for the table being built
   const BlockBasedTableOptions& table_options;
 
-  // Name of the column family for the table (or empty string if unknown)
-  std::string column_family_name;
-
-  // The compactions style in effect for the table
+  // BEGIN from (DB|ColumnFamily)Options in effect at table creation time
   CompactionStyle compaction_style = kCompactionStyleLevel;
 
-  // The table level at time of constructing the SST file, or -1 if unknown.
-  // (The table file could later be used at a different level.)
-  int level_at_creation = -1;
+  // Number of LSM levels, or -1 if unknown
+  int num_levels = -1;
 
   // An optional logger for reporting errors, warnings, etc.
   Logger* info_log = nullptr;
+  // END from (DB|ColumnFamily)Options
+
+  // Name of the column family for the table (or empty string if unknown)
+  // TODO: consider changing to Slice
+  std::string column_family_name;
+
+  // The table level at time of constructing the SST file, or -1 if unknown
+  // or N/A as in SstFileWriter. (The table file could later be used at a
+  // different level.)
+  int level_at_creation = -1;
+
+  // True if known to be going into bottommost sorted run for applicable
+  // key range (which might not even be last level with data). False
+  // otherwise.
+  bool is_bottommost = false;
+
+  // Reason for creating the file with the filter
+  TableFileCreationReason reason = TableFileCreationReason::kMisc;
 };
 
 // We add a new format of filter block called full filter block
@@ -216,16 +231,18 @@ class FilterPolicy {
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
 
-// An EXPERIMENTAL new Bloom alternative that saves about 30% space
-// compared to Bloom filters, with about 3-4x construction time and
-// similar query times. For example, if you pass in 10 for
+// An new Bloom alternative that saves about 30% space compared to
+// Bloom filters, with about 3-4x construction CPU time and similar
+// query times. For example, if you pass in 10 for
 // bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
 // as Bloom filter but only using about 7 bits per key. (This
 // way of configuring the new filter is considered experimental
-// and/or transitional, so is expected to go away.)
+// and/or transitional, so is expected to be replaced with a new API.
+// The constructed filters will be given long-term support.)
 //
-// Ribbon filters are ignored by previous versions of RocksDB, as if
-// no filter was used.
+// Ribbon filters are compatible with RocksDB >= 6.15.0. Earlier
+// versions reading the data will behave as if no filter was used
+// (degraded performance until compaction rebuilds filters).
 //
 // Note: this policy can generate Bloom filters in some cases.
 // For very small filters (well under 1KB), Bloom fallback is by

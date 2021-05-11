@@ -318,6 +318,7 @@ MOCK_LIB_SOURCES =                                              \
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
+  tools/simulated_hybrid_file_system.cc                         \
 
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
@@ -424,6 +425,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
   db/db_with_timestamp_compaction_test.cc                               \
+  db/db_write_buffer_manager_test.cc                                    \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \

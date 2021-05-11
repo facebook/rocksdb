@@ -42,8 +42,7 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   IOStatus s;
   pending_sync_ = true;
 
-  TEST_KILL_RANDOM("WritableFileWriter::Append:0",
-                   rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Append:0", REDUCE_ODDS2);
 
   // Calculate the checksum of appended data
   UpdateFileChecksum(data);
@@ -104,7 +103,7 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
     s = WriteBuffered(src, left);
   }
 
-  TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Append:1");
   if (s.ok()) {
     filesize_ += data.size();
   }
@@ -192,7 +191,7 @@ IOStatus WritableFileWriter::Close() {
     }
   }
 
-  TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Close:0");
   {
 #ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
@@ -213,7 +212,7 @@ IOStatus WritableFileWriter::Close() {
   }
 
   writable_file_.reset();
-  TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Close:1");
 
   if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {
     checksum_generator_->Finalize();
@@ -227,8 +226,7 @@ IOStatus WritableFileWriter::Close() {
 // enabled
 IOStatus WritableFileWriter::Flush() {
   IOStatus s;
-  TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
-                   rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Flush:0", REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
@@ -317,14 +315,14 @@ IOStatus WritableFileWriter::Sync(bool use_fsync) {
   if (!s.ok()) {
     return s;
   }
-  TEST_KILL_RANDOM("WritableFileWriter::Sync:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:0");
   if (!use_direct_io() && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
     }
   }
-  TEST_KILL_RANDOM("WritableFileWriter::Sync:1", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:1");
   pending_sync_ = false;
   return IOStatus::OK();
 }
@@ -447,7 +445,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     }
 
     IOSTATS_ADD(bytes_written, allowed);
-    TEST_KILL_RANDOM("WritableFileWriter::WriteBuffered:0", rocksdb_kill_odds);
+    TEST_KILL_RANDOM("WritableFileWriter::WriteBuffered:0");
 
     left -= allowed;
     src += allowed;

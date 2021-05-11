@@ -22,7 +22,7 @@ class VersionBuilderTest : public testing::Test {
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   VersionStorageInfo vstorage_;
   uint32_t file_num_;

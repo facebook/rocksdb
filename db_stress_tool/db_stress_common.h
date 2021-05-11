@@ -258,6 +258,7 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);

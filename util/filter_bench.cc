@@ -270,8 +270,8 @@ struct FilterBench : public MockBlockBasedTableTester {
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
-  StderrLogger stderr_logger_;
   double m_queries_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
@@ -282,7 +282,7 @@ struct FilterBench : public MockBlockBasedTableTester {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
-    ioptions_.info_log = &stderr_logger_;
+    ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
   }

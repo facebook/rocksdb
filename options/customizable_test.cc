@@ -98,8 +98,9 @@ static std::unordered_map<std::string, OptionTypeInfo> a_option_info = {
 };
 class ACustomizable : public TestCustomizable {
  public:
-  ACustomizable(const std::string& id) : TestCustomizable("A"), id_(id) {
-    ConfigurableHelper::RegisterOptions(*this, "A", &opts_, &a_option_info);
+  explicit ACustomizable(const std::string& id)
+      : TestCustomizable("A"), id_(id) {
+    RegisterOptions("A", &opts_, &a_option_info);
   }
   std::string GetId() const override { return id_; }
   static const char* kClassName() { return "A"; }
@@ -141,8 +142,8 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 class BCustomizable : public TestCustomizable {
  private:
  public:
-  BCustomizable(const std::string& name) : TestCustomizable(name) {
-    ConfigurableHelper::RegisterOptions(*this, name, &opts_, &b_option_info);
+  explicit BCustomizable(const std::string& name) : TestCustomizable(name) {
+    RegisterOptions(name, &opts_, &b_option_info);
   }
   static const char* kClassName() { return "B"; }
 
@@ -246,13 +247,12 @@ class SimpleConfigurable : public Configurable {
 
  public:
   SimpleConfigurable() {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_,
-                                        &simple_option_info);
+    RegisterOptions("simple", &simple_, &simple_option_info);
   }
 
-  SimpleConfigurable(
+  explicit SimpleConfigurable(
       const std::unordered_map<std::string, OptionTypeInfo>* map) {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_, map);
+    RegisterOptions("simple", &simple_, map);
   }
 
   bool IsPrepared() const override {
@@ -509,8 +509,7 @@ class ShallowCustomizable : public Customizable {
  public:
   ShallowCustomizable() {
     inner_ = std::make_shared<ACustomizable>("a");
-    ConfigurableHelper::RegisterOptions(*this, "inner", &inner_,
-                                        &inner_option_info);
+    RegisterOptions("inner", &inner_, &inner_option_info);
   };
   static const char* kClassName() { return "shallow"; }
   const char* Name() const override { return kClassName(); }
@@ -641,10 +640,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 
    public:
     MutableCustomizable() {
-      ConfigurableHelper::RegisterOptions(*this, "mutable", &mutable_,
-                                          &mutable_option_info);
-      ConfigurableHelper::RegisterOptions(*this, "immutable", &immutable_,
-                                          &immutable_option_info);
+      RegisterOptions("mutable", &mutable_, &mutable_option_info);
+      RegisterOptions("immutable", &immutable_, &immutable_option_info);
     }
     const char* Name() const override { return "MutableCustomizable"; }
   };
@@ -695,6 +692,68 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   mm_a = mm->get()->GetOptions<AOptions>("A");
   ASSERT_EQ(mm_a->i, 11);
   ASSERT_EQ(mm_a->b, false);
+}
+#endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+static int RegisterTestObjects(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  size_t num_types;
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+static int RegisterLocalObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  size_t num_types;
+  // Load any locally defined objects here
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+class LoadCustomizableTest : public testing::Test {
+ public:
+  LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
+  bool RegisterTests(const std::string& arg) {
+#ifndef ROCKSDB_LITE
+    config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
+                                         arg);
+    config_options_.registry->AddLibrary("local-tests", RegisterLocalObjects,
+                                         arg);
+    return true;
+#else
+    (void)arg;
+    return false;
+#endif  // !ROCKSDB_LITE
+  }
+
+ protected:
+  DBOptions db_opts_;
+  ColumnFamilyOptions cf_opts_;
+  ConfigOptions config_options_;
+};
+
+TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  std::shared_ptr<TableFactory> factory;
+  ASSERT_NOK(
+      TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, TableFactory::kBlockBasedTableName(), &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "MockTable");
+  }
 }
 #endif  // !ROCKSDB_LITE
 

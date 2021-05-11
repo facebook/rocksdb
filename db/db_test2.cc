@@ -5439,6 +5439,98 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ASSERT_EQ("a1", iterator->key().ToString());
   }
 }
+
+class RenameCurrentTest : public DBTestBase,
+                          public testing::WithParamInterface<std::string> {
+ public:
+  RenameCurrentTest()
+      : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
+        sync_point_(GetParam()) {}
+
+  ~RenameCurrentTest() override {}
+
+  void SetUp() override {
+    env_->no_file_overwrite_.store(true, std::memory_order_release);
+  }
+
+  void TearDown() override {
+    env_->no_file_overwrite_.store(false, std::memory_order_release);
+  }
+
+  void SetupSyncPoints() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->SetCallBack(sync_point_, [&](void* arg) {
+      Status* s = reinterpret_cast<Status*>(arg);
+      assert(s);
+      *s = Status::IOError("Injected IO error.");
+    });
+  }
+
+  const std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
+                        ::testing::Values("SetCurrentFile:BeforeRename",
+                                          "SetCurrentFile:AfterRename"));
+
+TEST_P(RenameCurrentTest, Open) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = TryReopen(options);
+  ASSERT_NOK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+}
+
+TEST_P(RenameCurrentTest, Flush) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.max_manifest_file_size = 1;
+  options.create_if_missing = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(Flush());
+
+  ASSERT_NOK(Put("foo", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+  ASSERT_EQ("value", Get("key"));
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
+TEST_P(RenameCurrentTest, Compaction) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.max_manifest_file_size = 1;
+  options.create_if_missing = true;
+  Reopen(options);
+  ASSERT_OK(Put("a", "a_value"));
+  ASSERT_OK(Put("c", "c_value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b", "b_value"));
+  ASSERT_OK(Put("d", "d_value"));
+  ASSERT_OK(Flush());
+
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                               /*end=*/nullptr));
+
+  ASSERT_NOK(Put("foo", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ("d_value", Get("d"));
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
@@ -5466,6 +5558,35 @@ TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
   Status s = TryReopen(options);
   ASSERT_TRUE(s.IsIOError());
 }
+
+TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:Start:1",
+        "PointInTimeRecoveryWithSyncFailureInCFCreation:1"},
+       {"PointInTimeRecoveryWithSyncFailureInCFCreation:2",
+        "DBImpl::BackgroundCallFlush:Start:2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"test1"}, Options());
+  ASSERT_OK(Put("foo", "bar"));
+
+  // Creating a CF when a flush is going on, log is synced but the
+  // closed log file is not synced and corrupted.
+  port::Thread flush_thread([&]() { ASSERT_NOK(Flush()); });
+  TEST_SYNC_POINT("PointInTimeRecoveryWithSyncFailureInCFCreation:1");
+  CreateColumnFamilies({"test2"}, Options());
+  env_->corrupt_in_sync_ = true;
+  TEST_SYNC_POINT("PointInTimeRecoveryWithSyncFailureInCFCreation:2");
+  flush_thread.join();
+  env_->corrupt_in_sync_ = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Reopening the DB should not corrupt anything
+  Options options = CurrentOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

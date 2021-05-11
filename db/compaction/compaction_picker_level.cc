@@ -49,7 +49,7 @@ class LevelCompactionBuilder {
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
-                         const ImmutableCFOptions& ioptions,
+                         const ImmutableOptions& ioptions,
                          const MutableDBOptions& mutable_db_options)
       : cf_name_(cf_name),
         vstorage_(vstorage),
@@ -121,7 +121,7 @@ class LevelCompactionBuilder {
   CompactionReason compaction_reason_ = CompactionReason::kUnknown;
 
   const MutableCFOptions& mutable_cf_options_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const MutableDBOptions& mutable_db_options_;
   // Pick a path ID to place a newly generated file, with its level
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,

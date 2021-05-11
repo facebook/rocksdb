@@ -63,7 +63,7 @@ class SstFileDumper {
 
   // Helper function to call the factory with settings specific to the
   // factory implementation
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
+  Status NewTableReader(const ImmutableOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
@@ -85,7 +85,7 @@ class SstFileDumper {
   std::unique_ptr<TableReader> table_reader_;
   std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   const MutableCFOptions moptions_;
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;

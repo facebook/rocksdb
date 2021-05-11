@@ -441,6 +441,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
+  options->bottommost_temperature = Temperature::kUnknown;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =
