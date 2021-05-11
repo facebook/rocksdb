@@ -9,8 +9,8 @@
 
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_stats_record.h"
 #include "db/dbformat.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -65,9 +65,9 @@ Status BlobTablePropertiesCollector::Finish(
     const uint64_t blob_file_number = pair.first;
     const BlobStats& stats = pair.second;
 
-    PutVarint64(&value, blob_file_number);
-    PutVarint64(&value, stats.GetCount());
-    PutVarint64(&value, stats.GetBytes());
+    BlobStatsRecord record(blob_file_number, stats.GetCount(),
+                           stats.GetBytes());
+    record.EncodeTo(BlobStatsRecord::kCurrentVersion, &value);
   }
 
   properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
