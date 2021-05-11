@@ -235,7 +235,9 @@ struct CompactionServiceInput {
   int output_level;
 
   // information for subcompaction
+  bool has_begin;
   std::string begin;
+  bool has_end;
   std::string end;
   uint64_t approx_size = 0;
 

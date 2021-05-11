@@ -1990,7 +1990,8 @@ Status CompactionServiceCompactionJob::Run() {
   Slice begin = compaction_input_.begin;
   Slice end = compaction_input_.end;
   compact_->sub_compact_states.emplace_back(
-      c, begin.size() > 0 ? &begin : nullptr, end.size() > 0 ? &end : nullptr,
+      c, compaction_input_.has_begin ? &begin : nullptr,
+      compaction_input_.has_end ? &end : nullptr,
       compaction_input_.approx_size);
 
   log_buffer_->FlushBufferToLog();
@@ -2186,8 +2187,14 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
     {"output_level",
      {offset_of(&CompactionServiceInput::output_level), OptionType::kInt,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"has_begin",
+     {offset_of(&CompactionServiceInput::has_begin), OptionType::kBoolean,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"begin",
      {offset_of(&CompactionServiceInput::begin), OptionType::kBinaryString,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"has_end",
+     {offset_of(&CompactionServiceInput::has_end), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"end",
      {offset_of(&CompactionServiceInput::end), OptionType::kBinaryString,

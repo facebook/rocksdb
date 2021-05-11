@@ -1120,8 +1120,14 @@ TEST_F(CompactionJobTest, InputSerialization) {
     input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
   }
   input.output_level = 4;
-  input.begin = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
-  input.end = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  input.has_begin = rnd.OneIn(2);
+  if (input.has_begin) {
+    input.begin = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  }
+  input.has_end = rnd.OneIn(2);
+  if (input.has_end) {
+    input.end = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  }
   input.approx_size = rnd64.Uniform(UINT64_MAX);
 
   std::string output;
