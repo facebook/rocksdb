@@ -401,6 +401,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     std::unique_ptr<SecondaryCacheHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait);
     if (secondary_handle != nullptr) {
+      void* value = nullptr;
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
 
@@ -408,7 +409,6 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->SetPromoted(true);
       e->SetSecondaryCacheCompatible(true);
       e->info_.helper = helper;
-      e->charge = secondary_handle->Size();
       e->key_length = key.size();
       e->hash = hash;
       e->refs = 0;
@@ -417,15 +417,22 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->SetPriority(priority);
       memcpy(e->key_data, key.data(), key.size());
 
-      e->value = secondary_handle->Value();
+      value = secondary_handle->Value();
+      e->value = value;
       e->charge = secondary_handle->Size();
 
       // This call could nullify e if the cache is over capacity and
       // strict_capacity_limit_ is true. In such a case, the caller will try
       // to insert later, which might again fail, but its ok as this should
       // not be common
-      InsertItem(e, reinterpret_cast<Cache::Handle**>(&e))
-          .PermitUncheckedError();
+      // Being conservative here since there could be lookups that are
+      // actually ok to fail rather than succeed and bloat up the memory
+      // usage (preloading partitioned index blocks, for example).
+      Status s = InsertItem(e, reinterpret_cast<Cache::Handle**>(&e));
+      if (!s.ok()) {
+        assert(e == nullptr);
+        (*helper->del_cb)(key, value);
+      }
     }
   }
   return reinterpret_cast<Cache::Handle*>(e);

@@ -218,11 +218,12 @@ class TestSecondaryCache : public SecondaryCache {
     EncodeFixed64(buf, size);
     s = (*helper->saveto_cb)(value, 0, size, buf + sizeof(uint64_t));
     if (!s.ok()) {
+      delete[] buf;
       return s;
     }
     return cache_->Insert(key, buf, size,
                           [](const Slice& /*key*/, void* val) -> void {
-                            delete[] reinterpret_cast<char*>(val);
+                            delete[] static_cast<char*>(val);
                           });
   }
 
@@ -242,6 +243,8 @@ class TestSecondaryCache : public SecondaryCache {
       if (s.ok()) {
         secondary_handle.reset(
             new TestSecondaryCacheHandle(cache_.get(), handle, value, charge));
+      } else {
+        cache_->Release(handle);
       }
     }
     return secondary_handle;
@@ -389,6 +392,9 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  cache.reset();
+  secondary_cache.reset();
 }
 
 TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
@@ -413,6 +419,9 @@ TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
   handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, false);
   ASSERT_EQ(handle, nullptr);
+
+  cache.reset();
+  secondary_cache.reset();
 }
 
 TEST_F(LRUSecondaryCacheTest, SaveFailTest) {
@@ -450,6 +459,9 @@ TEST_F(LRUSecondaryCacheTest, SaveFailTest) {
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  cache.reset();
+  secondary_cache.reset();
 }
 
 TEST_F(LRUSecondaryCacheTest, CreateFailTest) {
@@ -488,6 +500,9 @@ TEST_F(LRUSecondaryCacheTest, CreateFailTest) {
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  cache.reset();
+  secondary_cache.reset();
 }
 
 TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
@@ -527,6 +542,9 @@ TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  cache.reset();
+  secondary_cache.reset();
 }
 }  // namespace ROCKSDB_NAMESPACE
 
