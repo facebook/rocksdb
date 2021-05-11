@@ -2043,7 +2043,21 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
   autovector<GetContext, 16> get_ctx;
+
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    auto get_blob_callback = [this, iter, &read_options](
+                                 const Slice& blob_index,
+                                 Slice& blob_value) mutable -> Status {
+      Status s;
+      if (iter->is_blob_index) {
+        constexpr uint64_t* bytes_read = nullptr;
+        s = GetBlob(read_options, iter->ukey_with_ts, blob_index, iter->value,
+                    bytes_read);
+        blob_value = static_cast<Slice>(*(iter->value));
+      }
+      return s;
+    };
+
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
@@ -2051,7 +2065,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq, clock_,
         nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
-        &iter->is_blob_index, tracing_mget_id);
+        &iter->is_blob_index, tracing_mget_id, get_blob_callback);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
