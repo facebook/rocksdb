@@ -1366,6 +1366,7 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
   UpdateColumnFamilyOptions(new_opts, &copy);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base, copy));
+  delete copy.compaction_filter;
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
