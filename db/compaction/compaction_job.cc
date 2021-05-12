@@ -2103,20 +2103,17 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, char* addr) {
-        auto conf = CFOptionsAsConfigurable(ColumnFamilyOptions());
-        auto status = conf->ConfigureFromString(opts, value);
         auto cf_options = reinterpret_cast<ColumnFamilyOptions*>(addr);
-        *cf_options = *conf->GetOptions<ColumnFamilyOptions>(
-            OptionsHelper::kCFOptionsName);
-        return status;
+        return GetColumnFamilyOptionsFromString(opts, ColumnFamilyOptions(),
+                                                value, cf_options);
       },
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const char* addr, std::string* value) {
         const auto cf_options =
             reinterpret_cast<const ColumnFamilyOptions*>(addr);
-        auto conf = CFOptionsAsConfigurable(*cf_options);
         std::string result;
-        auto status = conf->GetOptionString(opts, &result);
+        auto status =
+            GetStringFromColumnFamilyOptions(opts, *cf_options, &result);
         *value = "{" + result + "}";
         return status;
       },
@@ -2150,17 +2147,13 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, char* addr) {
         auto options = reinterpret_cast<DBOptions*>(addr);
-        auto conf = DBOptionsAsConfigurable(*options);
-        auto status = conf->ConfigureFromString(opts, value);
-        *options = *conf->GetOptions<DBOptions>(OptionsHelper::kDBOptionsName);
-        return status;
+        return GetDBOptionsFromString(opts, DBOptions(), value, options);
       },
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const char* addr, std::string* value) {
         const auto options = reinterpret_cast<const DBOptions*>(addr);
-        auto conf = DBOptionsAsConfigurable(*options);
         std::string result;
-        auto status = conf->GetOptionString(opts, &result);
+        auto status = GetStringFromDBOptions(opts, *options, &result);
         *value = "{" + result + "}";
         return status;
       },
