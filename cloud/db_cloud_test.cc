@@ -129,30 +129,27 @@ class CloudTest : public testing::Test {
 
   // Open database via the cloud interface
   void OpenDB() {
+    std::vector<ColumnFamilyHandle*> handles;
+    OpenDB(&handles);
+    // Delete the handle for the default column family because the DBImpl
+    // always holds a reference to it.
+    ASSERT_TRUE(handles.size() > 0);
+    delete handles[0];
+  }
+
+  // Open database via the cloud interface
+  void OpenDB(std::vector<ColumnFamilyHandle*>* handles) {
     // default column family
-    ColumnFamilyOptions cfopt = options_;
-    std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.emplace_back(
-        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
-
-    OpenWithColumnFamilies({kDefaultColumnFamilyName});
+    OpenWithColumnFamilies({kDefaultColumnFamilyName}, handles);
   }
 
-  void CreateColumnFamilies(const std::vector<std::string>& cfs) {
-    size_t cfi = handles_.size();
-    handles_.resize(cfi + cfs.size());
-    for (auto cf : cfs) {
-      ASSERT_OK(db_->CreateColumnFamily(options_, cf, &handles_[cfi++]));
-    }
-  }
-
-  void OpenWithColumnFamilies(const std::vector<std::string>& cfs) {
+  void OpenWithColumnFamilies(const std::vector<std::string>& cfs,
+                              std::vector<ColumnFamilyHandle*>* handles) {
     ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
 
     // Create new AWS env
     CreateCloudEnv();
     options_.env = aenv_.get();
-
     // Sleep for a second because S3 is eventual consistency.
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -163,8 +160,18 @@ class CloudTest : public testing::Test {
     }
     ASSERT_OK(DBCloud::Open(options_, dbname_, column_families,
                             persistent_cache_path_, persistent_cache_size_gb_,
-                            &handles_, &db_));
+                            handles, &db_));
     ASSERT_OK(db_->GetDbIdentity(dbid_));
+  }
+
+  void CreateColumnFamilies(const std::vector<std::string>& cfs,
+                            std::vector<ColumnFamilyHandle*>* handles) {
+    ASSERT_NE(db_, nullptr);
+    size_t cfi = handles->size();
+    handles->resize(cfi + cfs.size());
+    for (auto cf : cfs) {
+      ASSERT_OK(db_->CreateColumnFamily(options_, cf, &handles->at(cfi++)));
+    }
   }
 
   // Creates and Opens a clone
@@ -233,11 +240,15 @@ class CloudTest : public testing::Test {
     return st;
   }
 
-  void CloseDB() {
-    for (auto h : handles_) {
+  void CloseDB(std::vector<ColumnFamilyHandle*>* handles) {
+    for (auto h : *handles) {
       delete h;
     }
-    handles_.clear();
+    handles->clear();
+    CloseDB();
+  }
+
+  void CloseDB() {
     if (db_) {
       db_->Flush(FlushOptions());  // convert pending writes to sst files
       delete db_;
@@ -301,8 +312,6 @@ class CloudTest : public testing::Test {
   uint64_t persistent_cache_size_gb_;
   DBCloud* db_;
   std::unique_ptr<CloudEnv> aenv_;
-
-  std::vector<ColumnFamilyHandle*> handles_;
 };
 
 //
@@ -438,38 +447,39 @@ TEST_F(CloudTest, Newdb) {
 }
 
 TEST_F(CloudTest, ColumnFamilies) {
+  std::vector<ColumnFamilyHandle*> handles;
   // Put one key-value
-  OpenDB();
+  OpenDB(&handles);
 
-  CreateColumnFamilies({"cf1", "cf2"});
+  CreateColumnFamilies({"cf1", "cf2"}, &handles);
 
-  ASSERT_OK(db_->Put(WriteOptions(), handles_[0], "hello", "a"));
-  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "hello", "b"));
-  ASSERT_OK(db_->Put(WriteOptions(), handles_[2], "hello", "c"));
+  ASSERT_OK(db_->Put(WriteOptions(), handles[0], "hello", "a"));
+  ASSERT_OK(db_->Put(WriteOptions(), handles[1], "hello", "b"));
+  ASSERT_OK(db_->Put(WriteOptions(), handles[2], "hello", "c"));
 
   auto validate = [&]() {
     std::string value;
-    ASSERT_OK(db_->Get(ReadOptions(), handles_[0], "hello", &value));
+    ASSERT_OK(db_->Get(ReadOptions(), handles[0], "hello", &value));
     ASSERT_EQ(value, "a");
-    ASSERT_OK(db_->Get(ReadOptions(), handles_[1], "hello", &value));
+    ASSERT_OK(db_->Get(ReadOptions(), handles[1], "hello", &value));
     ASSERT_EQ(value, "b");
-    ASSERT_OK(db_->Get(ReadOptions(), handles_[2], "hello", &value));
+    ASSERT_OK(db_->Get(ReadOptions(), handles[2], "hello", &value));
     ASSERT_EQ(value, "c");
   };
 
   validate();
 
-  CloseDB();
-  OpenWithColumnFamilies({kDefaultColumnFamilyName, "cf1", "cf2"});
+  CloseDB(&handles);
+  OpenWithColumnFamilies({kDefaultColumnFamilyName, "cf1", "cf2"}, &handles);
 
   validate();
-  CloseDB();
+  CloseDB(&handles);
 
   // destory local state
   DestroyDir(dbname_);
 
-  // new aws env
-  CreateAwsEnv();
+  // new cloud env
+  CreateCloudEnv();
   options_.env = aenv_.get();
 
   std::vector<std::string> families;
@@ -478,10 +488,9 @@ TEST_F(CloudTest, ColumnFamilies) {
   ASSERT_TRUE(families == std::vector<std::string>(
                               {"cf1", "cf2", kDefaultColumnFamilyName}));
 
-
-  OpenWithColumnFamilies({kDefaultColumnFamilyName, "cf1", "cf2"});
+  OpenWithColumnFamilies({kDefaultColumnFamilyName, "cf1", "cf2"}, &handles);
   validate();
-  CloseDB();
+  CloseDB(&handles);
 }
 
 //
@@ -1090,7 +1099,6 @@ TEST_F(CloudTest, TwoConcurrentWriters) {
   // S3 bucket
   ASSERT_OK(db1->Put(WriteOptions(), "ShouldNotBeApplied", ""));
   ASSERT_OK(db1->Flush(FlushOptions()));
-
   closeDB1();
   closeDB2();
 
