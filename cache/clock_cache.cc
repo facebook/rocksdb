@@ -431,7 +431,7 @@ void ClockCacheShard::ApplyToSomeEntries(
     // Mark finished with all
     *state = UINT32_MAX;
   } else {
-    *state = end_idx;
+    *state = static_cast<uint32_t>(end_idx);
   }
 
   // Do the iteration
