@@ -1131,13 +1131,11 @@ TEST_F(CompactionJobTest, InputSerialization) {
   input.approx_size = rnd64.Uniform(UINT64_MAX);
 
   std::string output;
-  Status s = input.Write(&output);
-  ASSERT_OK(s);
+  ASSERT_OK(input.Write(&output));
 
   // Test deserialization
   CompactionServiceInput deserialized1;
-  s = CompactionServiceInput::Read(output, &deserialized1);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized1));
   ASSERT_TRUE(deserialized1.TEST_Equals(&input));
 
   // Test mismatch
@@ -1149,12 +1147,10 @@ TEST_F(CompactionJobTest, InputSerialization) {
   // Test unknown field
   CompactionServiceInput deserialized2;
   output.clear();
-  s = input.Write(&output);
-  ASSERT_OK(s);
+  ASSERT_OK(input.Write(&output));
   output.append("new_field=123;");
 
-  s = CompactionServiceInput::Read(output, &deserialized2);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized2));
   ASSERT_TRUE(deserialized2.TEST_Equals(&input));
 
   // Test missing field
@@ -1164,8 +1160,7 @@ TEST_F(CompactionJobTest, InputSerialization) {
   size_t pos = output.find(to_remove);
   ASSERT_TRUE(pos != std::string::npos);
   output.erase(pos, to_remove.length());
-  s = CompactionServiceInput::Read(output, &deserialized3);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized3));
   mismatch.clear();
   ASSERT_FALSE(deserialized3.TEST_Equals(&input, &mismatch));
   ASSERT_EQ(mismatch, "output_level");
@@ -1173,6 +1168,20 @@ TEST_F(CompactionJobTest, InputSerialization) {
   // manually set the value back, should match the original structure
   deserialized3.output_level = 4;
   ASSERT_TRUE(deserialized3.TEST_Equals(&input));
+
+  // Test invalid version
+  output.clear();
+  ASSERT_OK(input.Write(&output));
+
+  uint32_t data_version = DecodeFixed32(output.data());
+  const size_t kDataVersionSize = sizeof(data_version);
+  ASSERT_EQ(data_version,
+            1);  // Update once the default data version is changed
+  char buf[kDataVersionSize];
+  EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
+  output.replace(0, kDataVersionSize, buf, kDataVersionSize);
+  Status s = CompactionServiceInput::Read(output, &deserialized3);
+  ASSERT_TRUE(s.IsNotSupported());
 }
 
 TEST_F(CompactionJobTest, ResultSerialization) {
@@ -1203,13 +1212,11 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   result.stats.num_input_files = 9;
 
   std::string output;
-  Status s = result.Write(&output);
-  ASSERT_OK(s);
+  ASSERT_OK(result.Write(&output));
 
   // Test deserialization
   CompactionServiceResult deserialized1;
-  s = CompactionServiceResult::Read(output, &deserialized1);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized1));
   ASSERT_TRUE(deserialized1.TEST_Equals(&result));
 
   // Test mismatch
@@ -1221,12 +1228,10 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   // Test unknown field
   CompactionServiceResult deserialized2;
   output.clear();
-  s = result.Write(&output);
-  ASSERT_OK(s);
+  ASSERT_OK(result.Write(&output));
   output.append("new_field=123;");
 
-  s = CompactionServiceResult::Read(output, &deserialized2);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized2));
   ASSERT_TRUE(deserialized2.TEST_Equals(&result));
 
   // Test missing field
@@ -1236,14 +1241,27 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   size_t pos = output.find(to_remove);
   ASSERT_TRUE(pos != std::string::npos);
   output.erase(pos, to_remove.length());
-  s = CompactionServiceResult::Read(output, &deserialized3);
-  ASSERT_OK(s);
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized3));
   mismatch.clear();
   ASSERT_FALSE(deserialized3.TEST_Equals(&result, &mismatch));
   ASSERT_EQ(mismatch, "bytes_read");
 
   deserialized3.bytes_read = 123;
   ASSERT_TRUE(deserialized3.TEST_Equals(&result));
+
+  // Test invalid version
+  output.clear();
+  ASSERT_OK(result.Write(&output));
+
+  uint32_t data_version = DecodeFixed32(output.data());
+  const size_t kDataVersionSize = sizeof(data_version);
+  ASSERT_EQ(data_version,
+            1);  // Update once the default data version is changed
+  char buf[kDataVersionSize];
+  EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
+  output.replace(0, kDataVersionSize, buf, kDataVersionSize);
+  Status s = CompactionServiceResult::Read(output, &deserialized3);
+  ASSERT_TRUE(s.IsNotSupported());
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {
