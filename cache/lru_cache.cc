@@ -397,7 +397,12 @@ Cache::Handle* LRUCacheShard::Lookup(
   // Only support synchronous for now
   // TODO: Support asynchronous lookup in secondary cache
   if (!e && secondary_cache_ && helper && helper->saveto_cb && wait) {
-    assert(create_cb);
+    // For objects from the secondary cache, we expect the caller to provide
+    // a way to create/delete the primary cache object. The only case where
+    // a deleter would not be required is for dummy entries inserted for
+    // accounting purposes, which we won't demote to the secondary cache
+    // anyway.
+    assert(create_cb && helper->del_cb);
     std::unique_ptr<SecondaryCacheHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait);
     if (secondary_handle != nullptr) {

@@ -155,8 +155,8 @@ class Cache {
   // cache may only hold flat data that doesn't need relocation, these
   // callbacks need to be provided by the user of the block
   // cache to do the conversion.
-  // The CacheItemHelperCallback is passed to Insert(). When invoked, it
-  // returns the callback functions for size, saving and deletion of the
+  // The CacheItemHelper is passed to Insert() and Lookup(). It has pointers
+  // to callback functions for size, saving and deletion of the
   // object. The callbacks are defined in C-style in order to make them
   // stateless and not add to the cache metadata size.
   // Saving multiple std::function objects will take up 32 bytes per
@@ -170,18 +170,18 @@ class Cache {
   // The SizeCallback takes a void* pointer to the object and returns the size
   // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
-  typedef size_t (*SizeCallback)(void* obj);
+  using SizeCallback = size_t (*)(void* obj);
 
   // The SaveToCallback takes a void* object pointer and saves the persistable
   // data into a buffer. The secondary cache may decide to not store it in a
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
-  typedef Status (*SaveToCallback)(void* obj, size_t offset, size_t size,
-                                   void* out);
+  using SaveToCallback = Status (*)(void* obj, size_t offset, size_t size,
+                                    void* out);
 
   // DeletionCallback is a function pointer that deletes the cached
   // object. The signature matches the old deleter function.
-  typedef void (*DeletionCallback)(const Slice&, void*);
+  using DeletionCallback = void (*)(const Slice&, void*);
 
   // A struct with pointers to helper functions for spilling items from the
   // cache into the secondary cache. May be extended in the future. An
@@ -196,9 +196,11 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  typedef std::function<Status(void* buf, size_t size, void** out_obj,
-                               size_t* charge)>
-      CreateCallback;
+  // typedef std::function<Status(void* buf, size_t size, void** out_obj,
+  //                             size_t* charge)>
+  //    CreateCallback;
+  using CreateCallback = std::function<Status(void* buf, size_t size,
+                                              void** out_obj, size_t* charge)>;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
       : memory_allocator_(std::move(allocator)) {}
@@ -420,7 +422,7 @@ class Cache {
   // Lookup the key in the primary and secondary caches (if one is configured).
   // The create_cb callback function object will be used to contruct the
   // cached object.
-  // If none of the caches have the mapping for the key, rturns nullptr.
+  // If none of the caches have the mapping for the key, returns nullptr.
   // Else, returns a handle that corresponds to the mapping.
   //
   // This call may promote the object from the secondary cache (if one is
