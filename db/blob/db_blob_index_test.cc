@@ -399,7 +399,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_normal_iterator);
     verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
            create_normal_iterator);
-    verify(11, Status::kNotSupported, "", "", create_normal_iterator);
+    verify(11, Status::kCorruption, "", "", create_normal_iterator);
     verify(13, Status::kOk,
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
@@ -418,7 +418,11 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
            create_blob_iterator, check_is_blob(false));
-    verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    if (tier <= kImmutableMemtables) {
+      verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    } else {
+      verify(11, Status::kCorruption, "", "", create_blob_iterator);
+    }
     verify(13, Status::kOk,
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
@@ -440,7 +444,11 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
            create_blob_iterator, check_is_blob(false));
-    verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    if (tier <= kImmutableMemtables) {
+      verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    } else {
+      verify(11, Status::kCorruption, "", "", create_blob_iterator);
+    }
     verify(13, Status::kOk,
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
@@ -452,6 +460,124 @@ TEST_F(DBBlobIndexTest, Iterate) {
     for (auto* snapshot : snapshots) {
       dbfull()->ReleaseSnapshot(snapshot);
     }
+  }
+}
+
+TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
+  const std::vector<std::vector<ValueType>> data = {
+      /*00*/ {kTypeValue},
+      /*01*/ {kTypeBlobIndex, kTypeMerge, kTypeMerge, kTypeMerge},
+      /*02*/ {kTypeValue}};
+
+  auto get_key = [](size_t index) { return ("key" + std::to_string(index)); };
+
+  auto get_value = [&](size_t index, size_t version) {
+    return get_key(index) + "_value" + ToString(version);
+  };
+
+  auto check_iterator = [&](Iterator* iterator, Status::Code expected_status,
+                            const Slice& expected_value) {
+    ASSERT_EQ(expected_status, iterator->status().code());
+    if (expected_status == Status::kOk) {
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ(expected_value, iterator->value());
+    } else {
+      ASSERT_FALSE(iterator->Valid());
+    }
+  };
+
+  auto create_normal_iterator = [&]() -> Iterator* {
+    return dbfull()->NewIterator(ReadOptions());
+  };
+
+  auto verify = [&](int index, Status::Code expected_status,
+                    const Slice& forward_value, const Slice& backward_value,
+                    std::function<Iterator*()> create_iterator) {
+    // Seek
+    {
+      auto iterator = create_iterator();
+      ASSERT_OK(iterator->status());
+      ASSERT_OK(iterator->Refresh());
+      iterator->Seek(get_key(index));
+      check_iterator(iterator, expected_status, forward_value);
+      delete iterator;
+    }
+    // Next
+    {
+      auto iterator = create_iterator();
+      ASSERT_OK(iterator->Refresh());
+      iterator->Seek(get_key(index - 1));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_OK(iterator->status());
+      iterator->Next();
+      check_iterator(iterator, expected_status, forward_value);
+      delete iterator;
+    }
+    // SeekForPrev
+    {
+      auto iterator = create_iterator();
+      ASSERT_OK(iterator->status());
+      ASSERT_OK(iterator->Refresh());
+      iterator->SeekForPrev(get_key(index));
+      check_iterator(iterator, expected_status, backward_value);
+      delete iterator;
+    }
+    // Prev
+    {
+      auto iterator = create_iterator();
+      iterator->Seek(get_key(index + 1));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_OK(iterator->status());
+      iterator->Prev();
+      check_iterator(iterator, expected_status, backward_value);
+      delete iterator;
+    }
+  };
+
+  Options options = GetTestOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  // Avoid values from being purged.
+  std::vector<const Snapshot*> snapshots;
+  DestroyAndReopen(options);
+
+  // fill data
+  for (size_t i = 0; i < data.size(); i++) {
+    for (size_t j = 0; j < data[i].size(); j++) {
+      std::string key = get_key(i);
+      std::string value = get_value(i, j);
+      switch (data[i][j]) {
+        case kTypeValue:
+          ASSERT_OK(Put(key, value));
+          ASSERT_OK(Flush());
+          break;
+        case kTypeBlobIndex:
+          ASSERT_OK(Put(key, value));
+          ASSERT_OK(Flush());
+          break;
+        case kTypeMerge:
+          ASSERT_OK(Merge(key, value));
+          ASSERT_OK(Flush());
+          break;
+        default:
+          FAIL();
+      };
+    }
+    snapshots.push_back(dbfull()->GetSnapshot());
+  }
+  snapshots.push_back(dbfull()->GetSnapshot());
+
+  // Iterator
+  verify(1, Status::kOk,
+         get_value(1, 0) + "," + get_value(1, 1) + "," + get_value(1, 2) + "," +
+             get_value(1, 3),
+         get_value(1, 0) + "," + get_value(1, 1) + "," + get_value(1, 2) + "," +
+             get_value(1, 3),
+         create_normal_iterator);
+
+  for (auto* snapshot : snapshots) {
+    dbfull()->ReleaseSnapshot(snapshot);
   }
 }
 

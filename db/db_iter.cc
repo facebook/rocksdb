@@ -204,6 +204,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   }
 
   is_blob_ = true;
+  valid_ = true;
   return true;
 }
 
@@ -594,9 +595,30 @@ bool DBIter::MergeValuesNewToOld() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      status_ = Status::NotSupported("BlobDB does not support merge operator.");
-      valid_ = false;
-      return false;
+      if (expose_blob_index_) {
+        status_ =
+            Status::NotSupported("BlobDB does not support merge operator.");
+        valid_ = false;
+        return false;
+      }
+      // hit a put, merge the put value with operands and store the
+      // final result in saved_value_. We are done!
+      if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
+        return false;
+      }
+      const Slice blob_value = value();
+      Status s = Merge(&blob_value, ikey.user_key);
+      if (!s.ok()) {
+        return false;
+      }
+      is_blob_ = false;
+      // iter_ is positioned after put
+      iter_.Next();
+      if (!iter_.status().ok()) {
+        valid_ = false;
+        return false;
+      }
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -927,10 +949,22 @@ bool DBIter::FindValueForCurrentKey() {
         }
         return true;
       } else if (last_not_merge_type == kTypeBlobIndex) {
-        status_ =
-            Status::NotSupported("BlobDB does not support merge operator.");
-        valid_ = false;
-        return false;
+        if (expose_blob_index_) {
+          status_ =
+              Status::NotSupported("BlobDB does not support merge operator.");
+          valid_ = false;
+          return false;
+        }
+        if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
+          return false;
+        }
+        const Slice blob_value = value();
+        s = Merge(&blob_value, saved_key_.GetUserKey());
+        if (!s.ok()) {
+          return false;
+        }
+        is_blob_ = false;
+        return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = Merge(&pinned_value_, saved_key_.GetUserKey());
@@ -947,7 +981,6 @@ bool DBIter::FindValueForCurrentKey() {
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
-
       break;
     default:
       valid_ = false;
@@ -1097,9 +1130,22 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
-      status_ = Status::NotSupported("BlobDB does not support merge operator.");
-      valid_ = false;
-      return false;
+      if (expose_blob_index_) {
+        status_ =
+            Status::NotSupported("BlobDB does not support merge operator.");
+        valid_ = false;
+        return false;
+      }
+      if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
+        return false;
+      }
+      const Slice blob_value = value();
+      Status s = Merge(&blob_value, ikey.user_key);
+      if (!s.ok()) {
+        return false;
+      }
+      is_blob_ = false;
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
