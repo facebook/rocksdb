@@ -49,7 +49,7 @@ namespace ROCKSDB_NAMESPACE {
 
 struct LRUHandle {
   void* value;
-  void (*deleter)(const Slice&, void* value);
+  Cache::DeleterFn deleter;
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
@@ -223,8 +223,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
-                        size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
+                        size_t charge, Cache::DeleterFn deleter,
                         Cache::Handle** handle,
                         Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
@@ -340,6 +339,7 @@ class LRUCache
   virtual void* Value(Handle* handle) override;
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
+  virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only

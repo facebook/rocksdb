@@ -12,15 +12,20 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstddef>
 #include <limits>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
+#include "table/block_based/cachable_entry.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -502,6 +507,96 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
 };
+
+InternalStats::InternalStats(int num_levels, SystemClock* clock,
+                             ColumnFamilyData* cfd)
+    : db_stats_{},
+      cf_stats_value_{},
+      cf_stats_count_{},
+      comp_stats_(num_levels),
+      comp_stats_by_pri_(Env::Priority::TOTAL),
+      file_read_latency_(num_levels),
+      bg_error_count_(0),
+      number_levels_(num_levels),
+      clock_(clock),
+      cfd_(cfd),
+      started_at_(clock->NowMicros()) {}
+
+bool InternalStats::CollectCacheEntryStats() {
+  using Collector = CacheEntryStatsCollector<CacheEntryRoleStats>;
+  Cache* block_cache;
+  bool ok = HandleBlockCacheStat(&block_cache);
+  if (ok) {
+    // Extract or create stats collector.
+    std::shared_ptr<Collector> collector;
+    Status s = Collector::GetShared(block_cache, clock_, &collector);
+    if (s.ok()) {
+      collector->GetStats(&cache_entry_stats);  // IAMHERE
+      return true;
+    } else {
+      // Block cache likely under pressure. Scanning could make it worse,
+      // so skip.
+      return false;
+    }
+  } else {
+    // No block cache, so can't do anything
+    return false;
+  }
+}
+
+std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
+InternalStats::CacheEntryRoleStats::GetEntryCallback() {
+  return [&](const Slice& /*key*/, void* /*value*/, size_t charge,
+             Cache::DeleterFn deleter) {
+    auto e = role_map_.find(deleter);
+    size_t role_idx;
+    if (e == role_map_.end()) {
+      role_idx = static_cast<size_t>(CacheEntryRole::kMisc);
+    } else {
+      role_idx = static_cast<size_t>(e->second);
+    }
+    entry_counts[role_idx]++;
+    total_charges[role_idx] += charge;
+  };
+}
+
+void InternalStats::CacheEntryRoleStats::BeginCollection(Cache* cache) {
+  Clear();
+  ++collection_count;
+  role_map_ = CopyCacheDeleterRoleMap();
+  std::ostringstream str;
+  str << cache->Name() << "@" << static_cast<void*>(cache);
+  cache_id = str.str();
+  cache_capacity = cache->GetCapacity();
+}
+
+void InternalStats::CacheEntryRoleStats::EndCollection(
+    Cache*, uint64_t duration_micros) {
+  last_duration_micros = duration_micros;
+}
+
+void InternalStats::CacheEntryRoleStats::SkippedCollection() {
+  ++copies_of_last_collection;
+}
+
+std::string InternalStats::CacheEntryRoleStats::ToString() const {
+  std::ostringstream str;
+  str << "Block cache " << cache_id
+      << " capacity: " << BytesToHumanString(cache_capacity)
+      << " collections: " << collection_count
+      << " last_copies: " << copies_of_last_collection
+      << " last_secs: " << (last_duration_micros / 1000000.0) << "\n";
+  str << "Block cache entry stats(count,size,portion):";
+  for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    if (entry_counts[i] > 0) {
+      str << " " << kCacheEntryRoleToString[i] << "(" << entry_counts[i] << ","
+          << BytesToHumanString(total_charges[i]) << ","
+          << (100.0 * total_charges[i] / cache_capacity) << "%)";
+    }
+  }
+  str << "\n";
+  return str.str();
+}
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
   std::string ppt_name = GetPropertyNameAndArg(property).first.ToString();
@@ -1454,6 +1549,11 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
   cf_stats_snapshot_.comp_stats = compaction_stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
+
+  bool collected = CollectCacheEntryStats();
+  if (collected) {
+    value->append(cache_entry_stats.ToString());
+  }
 }
 
 void InternalStats::DumpCFFileHistogram(std::string* value) {

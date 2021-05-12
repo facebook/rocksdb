@@ -599,6 +599,7 @@ find_package(Threads REQUIRED)
 
 set(SOURCES
         cache/cache.cc
+        cache/cache_entry_roles.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
