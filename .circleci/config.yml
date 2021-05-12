@@ -138,7 +138,7 @@ jobs:
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
