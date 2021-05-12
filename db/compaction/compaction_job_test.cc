@@ -1176,7 +1176,7 @@ TEST_F(CompactionJobTest, InputSerialization) {
   uint32_t data_version = DecodeFixed32(output.data());
   const size_t kDataVersionSize = sizeof(data_version);
   ASSERT_EQ(data_version,
-            1);  // Update once the default data version is changed
+            1U);  // Update once the default data version is changed
   char buf[kDataVersionSize];
   EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
   output.replace(0, kDataVersionSize, buf, kDataVersionSize);
@@ -1256,7 +1256,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   uint32_t data_version = DecodeFixed32(output.data());
   const size_t kDataVersionSize = sizeof(data_version);
   ASSERT_EQ(data_version,
-            1);  // Update once the default data version is changed
+            1U);  // Update once the default data version is changed
   char buf[kDataVersionSize];
   EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
   output.replace(0, kDataVersionSize, buf, kDataVersionSize);
