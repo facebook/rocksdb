@@ -5321,7 +5321,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
 
         // Force txn1 to expire
         /* sleep override */
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
         Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
         Status s;
@@ -5337,7 +5337,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   WriteOptions write_options;
   TransactionOptions txn_options;
 
-  txn_options.expiration = 100;
+  txn_options.expiration = 1000;  // 1 second
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
 
   Status s;
