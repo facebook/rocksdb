@@ -179,9 +179,10 @@ class Cache {
   using SaveToCallback = Status (*)(void* obj, size_t offset, size_t size,
                                     void* out);
 
-  // DeletionCallback is a function pointer that deletes the cached
-  // object. The signature matches the old deleter function.
-  using DeletionCallback = void (*)(const Slice&, void*);
+  // A function pointer type for custom destruction of an entry's
+  // value. The Cache is responsible for copying and reclaiming space
+  // for the key, but values are managed by the caller.
+  using DeleterFn = void (*)(const Slice& key, void* value);
 
   // A struct with pointers to helper functions for spilling items from the
   // cache into the secondary cache. May be extended in the future. An
@@ -189,7 +190,7 @@ class Cache {
   struct CacheItemHelper {
     SizeCallback size_cb;
     SaveToCallback saveto_cb;
-    DeletionCallback del_cb;
+    DeleterFn del_cb;
   };
 
   // The CreateCallback is passed by the block cache user to Lookup(). It
@@ -231,11 +232,6 @@ class Cache {
 
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
-
-  // A function pointer type for custom destruction of an entry's
-  // value. The Cache is responsible for copying and reclaiming space
-  // for the key, but values are managed by the caller.
-  using DeleterFn = void (*)(const Slice& key, void* value);
 
   // The type of the Cache
   virtual const char* Name() const = 0;

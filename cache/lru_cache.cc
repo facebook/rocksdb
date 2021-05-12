@@ -180,7 +180,10 @@ void LRUCacheShard::ApplyToSomeEntries(
 
   table_.ApplyToEntriesRange(
       [callback](LRUHandle* h) {
-        callback(h->key(), h->value, h->charge, h->deleter);
+        DeleterFn deleter = h->IsSecondaryCacheCompatible()
+                                ? h->info_.helper->del_cb
+                                : h->info_.deleter;
+        callback(h->key(), h->value, h->charge, deleter);
       },
       index_begin, index_end);
 }
@@ -589,12 +592,10 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
   for (int i = 0; i < num_shards_; i++) {
-    new (&shards_[i])
-        LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio,
-                      use_adaptive_mutex, metadata_charge_policy,
-                      /* max_upper_hash_bits */ 32 - num_shard_bits);
-                      use_adaptive_mutex, metadata_charge_policy,
-                      secondary_cache);
+    new (&shards_[i]) LRUCacheShard(
+        per_shard, strict_capacity_limit, high_pri_pool_ratio,
+        use_adaptive_mutex, metadata_charge_policy,
+        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   }
 }
 
