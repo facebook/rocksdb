@@ -9,7 +9,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_stats_record.h"
+#include "db/blob/blob_stats_collection.h"
 #include "db/dbformat.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -47,19 +47,22 @@ Status BlobTablePropertiesCollector::InternalAdd(const Slice& key,
   const uint64_t bytes =
       blob_index.size() +
       BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
-  blob_stats_.AddBlob(blob_index.file_number(), bytes);
+  blob_stats_[blob_index.file_number()].AddBlob(bytes);
 
   return Status::OK();
 }
 
 Status BlobTablePropertiesCollector::Finish(
     UserCollectedProperties* properties) {
-  std::string value;
-  blob_stats_.EncodeTo(&value);
-
-  if (!value.empty()) {
-    properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
+  if (blob_stats_.empty()) {
+    return Status::OK();
   }
+
+  std::string value;
+  BlobStatsCollection::EncodeTo(blob_stats_.begin(), blob_stats_.end(),
+                                blob_stats_.size(), &value);
+
+  properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
 
   return Status::OK();
 }

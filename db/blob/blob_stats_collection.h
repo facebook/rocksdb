@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cstdint>
-#include <unordered_map>
 
 #include "db/blob/blob_stats_record.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -15,45 +14,28 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-template <typename T>
 class BlobStatsCollection {
  public:
-  struct I {
-    const T& operator()(const T& t) { return t; }
-    T& operator()(T& t) { return t; }
-  };
+  template <typename Iterator>
+  static void EncodeTo(Iterator begin, Iterator end, size_t size,
+                       std::string* output) {
+    PutVarint64(output, size);
 
-  template <typename F = I>
-  void AddBlob(uint64_t blob_file_number, uint64_t bytes, F f = F()) {
-    f(blob_stats_[blob_file_number]).AddBlob(bytes);
-  }
-
-  template <typename F = I>
-  void AddBlobs(uint64_t blob_file_number, uint64_t count, uint64_t bytes,
-                F f = F()) {
-    f(blob_stats_[blob_file_number]).AddBlobs(count, bytes);
-  }
-
-  template <typename F = I>
-  void EncodeTo(std::string* output, F f = F()) {
-    if (blob_stats_.empty()) {
-      return;
-    }
-
-    PutVarint64(output, blob_stats_.size());
-
-    for (const auto& pair : blob_stats_) {
-      const uint64_t blob_file_number = pair.first;
-      const auto& stats = f(pair.second);
+    size_t n = 0;
+    for (auto it = begin; it != end; ++it, ++n) {
+      const uint64_t blob_file_number = it->first;
+      const auto& stats = it->second;
 
       BlobStatsRecord record(blob_file_number, stats.GetCount(),
                              stats.GetBytes());
       record.EncodeTo(output);
     }
+
+    assert(n == size);
   }
 
-  template <typename F = I>
-  Status DecodeFrom(Slice* input, F f = F()) {
+  template <typename F>
+  static Status DecodeFrom(Slice* input, F f) {
     constexpr char class_name[] = "BlobStatsCollection";
 
     uint64_t size = 0;
@@ -69,15 +51,11 @@ class BlobStatsCollection {
         return s;
       }
 
-      f(blob_stats_[record.GetBlobFileNumber()])
-          .AddBlobs(record.GetCount(), record.GetBytes());
+      f(record.GetBlobFileNumber(), record.GetCount(), record.GetBytes());
     }
 
     return Status::OK();
   }
-
- private:
-  std::unordered_map<uint64_t, T> blob_stats_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
