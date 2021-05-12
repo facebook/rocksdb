@@ -237,7 +237,7 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev
+      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
       - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all | .circleci/cat_ignore_eagain
       - post-steps
 
