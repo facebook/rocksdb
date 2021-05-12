@@ -478,6 +478,11 @@ static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
           reinterpret_cast<CompactionStopStyle*>(opt_address));
+    case OptionType::kEncodedString: {
+      std::string* output_addr = reinterpret_cast<std::string*>(opt_address);
+      (Slice(value)).DecodeHex(output_addr);
+      break;
+    }
     default:
       return false;
   }
@@ -622,6 +627,11 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
           *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
+    case OptionType::kEncodedString: {
+      const auto* ptr = reinterpret_cast<const std::string*>(opt_address);
+      *value = (Slice(*ptr)).ToString(true);
+      break;
+    }
     default:
       return false;
   }
@@ -1251,6 +1261,8 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
       return IsOptionEqual<ChecksumType>(this_offset, that_offset);
     case OptionType::kEncodingType:
       return IsOptionEqual<EncodingType>(this_offset, that_offset);
+    case OptionType::kEncodedString:
+      return IsOptionEqual<std::string>(this_offset, that_offset);
     default:
       return false;
   }  // End switch

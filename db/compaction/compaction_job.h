@@ -235,9 +235,23 @@ struct CompactionServiceInput {
   int output_level;
 
   // information for subcompaction
-  Slice* begin = nullptr;
-  Slice* end = nullptr;
+  bool has_begin = false;
+  std::string begin;
+  bool has_end = false;
+  std::string end;
   uint64_t approx_size = 0;
+
+  // serialization interface to read and write the object
+  static Status Read(const std::string& data_str, CompactionServiceInput* obj);
+  Status Write(std::string* output);
+
+  // Initialize a dummy ColumnFamilyDescriptor
+  CompactionServiceInput() : column_family("", ColumnFamilyOptions()) {}
+
+#ifndef NDEBUG
+  bool TEST_Equals(CompactionServiceInput* other);
+  bool TEST_Equals(CompactionServiceInput* other, std::string* mismatch);
+#endif  // NDEBUG
 };
 
 // CompactionServiceOutputFile is the metadata for the output SST file
@@ -285,6 +299,15 @@ struct CompactionServiceResult {
   uint64_t bytes_read;
   uint64_t bytes_written;
   CompactionJobStats stats;
+
+  // serialization interface to read and write the object
+  static Status Read(const std::string& data_str, CompactionServiceResult* obj);
+  Status Write(std::string* output);
+
+#ifndef NDEBUG
+  bool TEST_Equals(CompactionServiceResult* other);
+  bool TEST_Equals(CompactionServiceResult* other, std::string* mismatch);
+#endif  // NDEBUG
 };
 
 // CompactionServiceCompactionJob is an read-only compaction job, it takes

@@ -50,6 +50,7 @@ enum class OptionType {
   kVector,
   kConfigurable,
   kCustomizable,
+  kEncodedString,
   kUnknown,
 };
 
