@@ -10,7 +10,11 @@
 // A portable implementation of crc32c, optimized to handle
 // four bytes at a time.
 #include "util/crc32c.h"
+
 #include <stdint.h>
+
+#include <array>
+#include <utility>
 #ifdef HAVE_SSE42
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -1278,6 +1282,142 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);
 }
 
+
+// The code for crc32c combine
+template <size_t i, uint32_t m>
+struct gf_powers_memo {
+  static constexpr uint32_t value =
+      gf_square_sw(gf_powers_memo<i - 1, m>::value, m);
+};
+template <uint32_t m>
+struct gf_powers_memo<0, m> {
+  static constexpr uint32_t value = m;
+};
+
+template<typename T, T... Ints>
+struct integer_sequence {
+	typedef T value_type;
+	static constexpr size_t size() { return sizeof...(Ints); }
+};
+
+template<typename T, std::size_t N, T... Is>
+struct make_integer_sequence : make_integer_sequence<T, N-1, N-1, Is...> {};
+
+template<typename T, T... Is>
+struct make_integer_sequence<T, 0, Is...> : integer_sequence<T, Is...> {};
+
+template<std::size_t N>
+using make_index_sequence = make_integer_sequence<std::size_t, N>;
+
+template <uint32_t m>
+struct gf_powers_make {
+  template <size_t... i>
+  using index_sequence = integer_sequence<size_t, i...>;
+  template <size_t... i>
+  constexpr auto operator()(index_sequence<i...>) const {
+    return std::array<uint32_t, sizeof...(i)>{{gf_powers_memo<i, m>::value...}};
+  }
+};
+
+struct to_signed {
+  template <typename..., typename T>
+  constexpr auto operator()(T const& t) const noexcept ->
+      typename std::make_signed<T>::type {
+    using S = typename std::make_signed<T>::type;
+    // note: static_cast<S>(t) would be more straightforward, but it would also
+    // be implementation-defined behavior and that is typically to be avoided;
+    // the following code optimized into the same thing, though
+    return static_cast<T>(std::numeric_limits<S>::max()) < t ? -static_cast<S>(~t) + S{-1} : static_cast<S>(t);
+  }
+};
+
+struct to_unsigned {
+  template <typename..., typename T>
+  constexpr auto operator()(T const& t) const noexcept ->
+      typename std::make_unsigned<T>::type {
+    using U = typename std::make_unsigned<T>::type;
+    return static_cast<U>(t);
+  }
+};
+
+template <typename Dst, typename Src>
+constexpr std::make_signed<Dst> bits_to_signed(Src const s) {
+  static_assert(std::is_signed<Dst>::value, "unsigned type");
+  return to_signed(static_cast<std::make_unsigned<Dst>>(to_unsigned(s)));
+}
+
+template <typename T>
+inline constexpr unsigned int findFirstSet(T const v) {
+  using S0 = int;
+  using S1 = long int;
+  using S2 = long long int;
+  static_assert(sizeof(T) <= sizeof(S2), "over-sized type");
+  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(!std::is_same<T, bool>::value, "bool type");
+
+  // clang-format off
+  return static_cast<unsigned int>(
+      sizeof(T) <= sizeof(S0) ? __builtin_ffs(bits_to_signed<S0>(v)) :
+      sizeof(T) <= sizeof(S1) ? __builtin_ffsl(bits_to_signed<S1>(v)) :
+      sizeof(T) <= sizeof(S2) ? __builtin_ffsll(bits_to_signed<S2>(v)) :
+      0);
+  // clang-format on
+}
+
+static constexpr uint32_t crc32c_m = 0x82f63b78;
+
+static constexpr std::array<uint32_t, 62> const crc32c_powers =
+    gf_powers_make<crc32c_m>{}(make_index_sequence<62>{});
+
+static constexpr uint32_t GfMultiplySw1(size_t i, uint32_t p, uint32_t a,
+                                        uint32_t b, uint32_t m) {
+  // clang-format off
+  return i == 32 ? p : GfMultiplySw1(
+      /* i = */ i + 1,
+      /* p = */ p ^ (-((b >> 31) & 1) & a),
+      /* a = */ (a >> 1) ^ (-(a & 1) & m),
+      /* b = */ b << 1,
+      /* m = */ m);
+  // clang-format on
+}
+
+static constexpr uint32_t GfMultiplySw(uint32_t a, uint32_t b, uint32_t m) {
+  return GfMultiplySw1(/* i = */ 0, /* p = */ 0, a, b, m);
+}
+
+static uint32_t Crc32AppendZeroes(
+    uint32_t crc, size_t len, uint32_t polynomial,
+    std::array<uint32_t, 62> const& powers_array) {
+  auto powers = powers_array.data();
+
+  // Append by multiplying by consecutive powers of two of the zeroes
+  // array
+  len >>= 2;
+
+  while (len) {
+    // Advance directly to next bit set.
+    auto r = findFirstSet(len) - 1;
+    len >>= r;
+    powers += r;
+
+    crc = GfMultiplySw(crc, *powers, polynomial);
+
+    len >>= 1;
+    powers++;
+  }
+
+  return crc;
+}
+
+uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len) {
+  // Append up to 32 bits of zeroes in the normal way
+  char data[4] = {0, 0, 0, 0};
+  auto len = crc2len & 3;
+  if (len) {
+    crc1 = crc32c::Extend(crc1, data, len);
+  }
+  return crc2 ^ Crc32AppendZeroes(crc1, crc2len, crc32c_m, crc32c_powers);
+}
 
 }  // namespace crc32c
 }  // namespace ROCKSDB_NAMESPACE
