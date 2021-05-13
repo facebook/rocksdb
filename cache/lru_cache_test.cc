@@ -352,14 +352,14 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
   bool fail_create_;
 };
 
-Cache::CacheItemHelper LRUSecondaryCacheTest::helper_ = {
+Cache::CacheItemHelper LRUSecondaryCacheTest::helper_(
     LRUSecondaryCacheTest::SizeCallback, LRUSecondaryCacheTest::SaveToCallback,
-    LRUSecondaryCacheTest::DeletionCallback};
+    LRUSecondaryCacheTest::DeletionCallback);
 
-Cache::CacheItemHelper LRUSecondaryCacheTest::helper_fail_ = {
+Cache::CacheItemHelper LRUSecondaryCacheTest::helper_fail_(
     LRUSecondaryCacheTest::SizeCallback,
     LRUSecondaryCacheTest::SaveToCallbackFail,
-    LRUSecondaryCacheTest::DeletionCallback};
+    LRUSecondaryCacheTest::DeletionCallback);
 
 TEST_F(LRUSecondaryCacheTest, BasicTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,

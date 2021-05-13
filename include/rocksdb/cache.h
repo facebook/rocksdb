@@ -191,6 +191,11 @@ class Cache {
     SizeCallback size_cb;
     SaveToCallback saveto_cb;
     DeleterFn del_cb;
+
+    CacheItemHelper() : size_cb(nullptr), saveto_cb(nullptr), del_cb(nullptr) {}
+    CacheItemHelper(SizeCallback _size_cb, SaveToCallback _saveto_cb,
+                    DeleterFn _del_cb)
+        : size_cb(_size_cb), saveto_cb(_saveto_cb), del_cb(_del_cb) {}
   };
 
   // The CreateCallback is passed by the block cache user to Lookup(). It
@@ -378,6 +383,17 @@ class Cache {
 
   // EXPERIMENTAL
   // The following APIs are experimental and might change in the future.
+  // The Insert and Lookup APIs below are intended to allow cached objects
+  // to be demoted/promoted between the primary block cache and a secondary
+  // cache. The secondary cache could be a non-volatile cache, and will
+  // likely store the object in a different representation more suitable
+  // for on disk storage. They rely on a per object CacheItemHelper to do
+  // the conversions.
+  // The secondary cache may persist across process and system restarts,
+  // and may even be moved between hosts. Therefore, the cache key must
+  // be repeatable across restarts/reboots, and globally unique if
+  // multiple DBs share the same cache and the set of DBs can change
+  // over time.
 
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
@@ -424,8 +440,11 @@ class Cache {
   // This call may promote the object from the secondary cache (if one is
   // configured, and has the given key) to the primary cache.
   //
-  // The helper argument may be saved and used later when the object is evicted.
-  // Therefore, it must outlive the cache.
+  // The helper argument should be provided if the caller wants the lookup
+  // to include the secondary cache (if one is configured) and the object,
+  // if it exists, to be promoted to the primary cache. The helper may be
+  // saved and used later when the object is evicted. Therefore, it must
+  // outlive the cache.
   //
   // The handle returned may not be ready. The caller should call IsReady()
   // to check if the item value is ready, and call Wait() or WaitAll() if
