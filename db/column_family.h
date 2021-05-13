@@ -258,8 +258,7 @@ extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 // one too.
 extern void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories);
+    IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 
@@ -428,9 +427,10 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-  int_tbl_prop_collector_factories() const {
-    return &int_tbl_prop_collector_factories_;
+  IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories() const {
+    return IntTblPropCollectorFactoryRange(
+        int_tbl_prop_collector_factories_.begin(),
+        int_tbl_prop_collector_factories_.end());
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
@@ -548,8 +548,7 @@ class ColumnFamilyData {
   std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories_;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
   const ImmutableOptions ioptions_;
