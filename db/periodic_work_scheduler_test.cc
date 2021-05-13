@@ -226,6 +226,128 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   delete db;
   Close();
 }
+
+TEST_F(PeriodicWorkSchedulerTest, OverlapCompactionTest) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  for (int i = 5; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 30; i < 60; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 150; i < 200; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  std::cout << FilesPerLevel() << std::endl;
+  MoveFilesToLevel(3);
+  std::cout << FilesPerLevel() << std::endl;
+
+  for (int i = 8; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  for (int i = 100; i < 200; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::cout << FilesPerLevel() << std::endl;
+  MoveFilesToLevel(2);
+  std::cout << FilesPerLevel() << std::endl;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  std::cout << FilesPerLevel() << std::endl;
+}
+
+TEST_F(PeriodicWorkSchedulerTest, OverlapCompactionTest2) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 10; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 40; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 60; i < 80; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 120; i < 160; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 170; i < 220; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 240; i < 260; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 310; i < 330; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 350; i < 380; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 410; i < 420; i++) {
+    ASSERT_OK(Put(Key(i), "value_old" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  std::cout << FilesPerLevel() << std::endl;
+  MoveFilesToLevel(3);
+  std::cout << FilesPerLevel() << std::endl;
+
+  for (int i = 15; i < 30; i++) {
+    ASSERT_OK(Put(Key(i), "value_new" + Key(i)));
+  }
+  for (int i = 100; i < 200; i++) {
+    ASSERT_OK(Put(Key(i), "value_new" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 300; i < 320; i++) {
+    ASSERT_OK(Put(Key(i), "value_new" + Key(i)));
+  }
+  for (int i = 400; i < 420; i++) {
+    ASSERT_OK(Put(Key(i), "value_new" + Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::cout << FilesPerLevel() << std::endl;
+  MoveFilesToLevel(2);
+  std::cout << FilesPerLevel() << std::endl;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  std::cout << FilesPerLevel() << std::endl;
+}
+
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 

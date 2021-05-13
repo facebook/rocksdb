@@ -755,6 +755,65 @@ Compaction* CompactionPicker::CompactRange(
     }
   }
 
+  if (inputs.level > 0 && !output_level_inputs.files.empty()) {
+    uint64_t total_skippable_bytes = 0;
+    uint64_t total_input_level_bytes = 0;
+    uint64_t total_output_level_bytes = 0;
+    std::vector<uint64_t> skipped_files;
+    for (const auto& i_file : inputs.files) {
+      total_input_level_bytes += i_file->fd.file_size;
+      ReadOptions read_options;
+      std::unique_ptr<InternalIterator> iter(i_file->fd.table_reader->NewIterator(
+          read_options, mutable_cf_options.prefix_extractor.get(), nullptr, false, kCompaction));
+      iter->SeekToFirst();
+      total_output_level_bytes = 0;
+      for (const auto& o_file : output_level_inputs.files) {
+        total_output_level_bytes += o_file->fd.file_size;
+        if (icmp_->Compare(o_file->smallest, i_file->largest) <= 0 &&
+        icmp_->Compare(o_file->largest, i_file->smallest) >= 0) {
+          // has overlap
+          iter->Seek(o_file->smallest.Encode());
+          bool small_it_valid = iter->Valid();
+          auto small_it = small_it_valid ? iter->key().ToString() : "";
+
+          iter->Seek(o_file->largest.Encode());
+          bool large_it_valid = iter->Valid();
+          auto large_it = large_it_valid ? iter->key().ToString() : "";
+
+          if (!small_it_valid && !large_it_valid) {
+            ROCKS_LOG_INFO(ioptions_.logger, "YYY4: error: file num: %" PRIu64 " + %" PRIu64 "\n",
+                           i_file->fd.GetNumber(), o_file->fd.GetNumber());
+          }
+
+          if (small_it_valid && large_it_valid) {
+            if (icmp_->Compare(small_it, large_it) == 0) {
+//              fprintf(stdout, "JJJ1: found, skip: %" PRIu64 ". %s -> %s\n",
+//                      o_file->fd.file_size, o_file->smallest.user_key().ToString().c_str(),
+//                      o_file->largest.user_key().ToString().c_str());
+              total_skippable_bytes += o_file->fd.file_size;
+              skipped_files.emplace_back(o_file->fd.GetNumber());
+            }
+          }
+        }
+      }
+    }
+//    fprintf(stdout, "JJJ9: level: %d + %d, total: %" PRIu64 ", skippable: %" PRIu64 ", input level: %" PRIu64 ", output level: %" PRIu64 "\n",
+//            inputs.level, output_level, total_output_level_bytes + total_input_level_bytes, total_skippable_bytes, total_input_level_bytes, total_output_level_bytes);
+//    fprintf(stdout, "JJJ8: %zu: ", skipped_files.size());
+//    for (const auto& item : skipped_files) {
+//      fprintf(stdout, "%" PRIu64 ", ", item);
+//    }
+//    fprintf(stdout, "\n");
+
+    ROCKS_LOG_INFO(ioptions_.logger,
+        "YYY2: level: %zu@%d + %zu@%d, skippable: %" PRIu64 ", total: %" PRIu64 " (input %" PRIu64 " + output %" PRIu64 "), num: %zu\n",
+        inputs.files.size(), inputs.level, output_level_inputs.files.size(), output_level, total_skippable_bytes,
+        total_input_level_bytes + total_output_level_bytes, total_input_level_bytes, total_output_level_bytes, skipped_files.size());
+    for (const auto& item : skipped_files) {
+      ROCKS_LOG_INFO(ioptions_.logger, "YYY3: %" PRIu64 "\n", item);
+    }
+  }
+
   std::vector<CompactionInputFiles> compaction_inputs({inputs});
   if (!output_level_inputs.empty()) {
     compaction_inputs.push_back(output_level_inputs);
