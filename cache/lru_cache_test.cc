@@ -268,7 +268,7 @@ class TestSecondaryCache : public SecondaryCache {
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
     ~TestSecondaryCacheHandle() { cache_->Release(handle_); }
 
-    bool isReady() override { return true; }
+    bool IsReady() override { return true; }
 
     void Wait() override {}
 

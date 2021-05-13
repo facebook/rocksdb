@@ -89,9 +89,9 @@ Cache::Handle* ShardedCache::Lookup(const Slice& key,
       ->Lookup(key, hash, helper, create_cb, priority, wait);
 }
 
-bool ShardedCache::isReady(Handle* handle) {
+bool ShardedCache::IsReady(Handle* handle) {
   uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->isReady(handle);
+  return GetShard(Shard(hash))->IsReady(handle);
 }
 
 void ShardedCache::Wait(Handle* handle) {

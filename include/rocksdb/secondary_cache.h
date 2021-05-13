@@ -26,7 +26,7 @@ class SecondaryCacheHandle {
   virtual ~SecondaryCacheHandle() {}
 
   // Returns whether the handle is ready or not
-  virtual bool isReady() = 0;
+  virtual bool IsReady() = 0;
 
   // Block until handle becomes ready
   virtual void Wait() = 0;

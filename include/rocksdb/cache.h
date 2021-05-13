@@ -427,7 +427,7 @@ class Cache {
   // The helper argument may be saved and used later when the object is evicted.
   // Therefore, it must outlive the cache.
   //
-  // The handle returned may not be ready. The caller should call isReady()
+  // The handle returned may not be ready. The caller should call IsReady()
   // to check if the item value is ready, and call Wait() or WaitAll() if
   // its not ready. The caller should then call Value() to check if the
   // item was successfully retrieved. If unsuccessful (perhaps due to an
@@ -448,7 +448,7 @@ class Cache {
   }
 
   // Determines if the handle returned by Lookup() has a valid value yet.
-  virtual bool isReady(Handle* /*handle*/) { return true; }
+  virtual bool IsReady(Handle* /*handle*/) { return true; }
 
   // If the handle returned by Lookup() is not ready yet, wait till it
   // becomes ready.

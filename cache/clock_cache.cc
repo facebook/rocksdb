@@ -287,7 +287,7 @@ class ClockCacheShard final : public CacheShard {
                bool force_erase) override {
     return Release(handle, force_erase);
   }
-  bool isReady(Cache::Handle* /*handle*/) override { return true; }
+  bool IsReady(Cache::Handle* /*handle*/) override { return true; }
   void Wait(Cache::Handle* /*handle*/) override {}
 
   // If the entry in in cache, increase reference count and return true.

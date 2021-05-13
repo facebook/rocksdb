@@ -294,7 +294,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                        bool force_erase) override {
     return Release(handle, force_erase);
   }
-  virtual bool isReady(Cache::Handle* /*handle*/) override { return true; }
+  virtual bool IsReady(Cache::Handle* /*handle*/) override { return true; }
   virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,

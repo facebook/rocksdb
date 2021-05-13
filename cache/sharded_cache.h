@@ -37,7 +37,7 @@ class CacheShard {
                                 Cache::Priority priority, bool wait) = 0;
   virtual bool Release(Cache::Handle* handle, bool useful,
                        bool force_erase) = 0;
-  virtual bool isReady(Cache::Handle* handle) = 0;
+  virtual bool IsReady(Cache::Handle* handle) = 0;
   virtual void Wait(Cache::Handle* handle) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
   virtual bool Release(Cache::Handle* handle, bool force_erase) = 0;
@@ -99,7 +99,7 @@ class ShardedCache : public Cache {
                          bool wait, Statistics* stats = nullptr) override;
   virtual bool Release(Handle* handle, bool useful,
                        bool force_erase = false) override;
-  virtual bool isReady(Handle* handle) override;
+  virtual bool IsReady(Handle* handle) override;
   virtual void Wait(Handle* handle) override;
   virtual bool Ref(Handle* handle) override;
   virtual bool Release(Handle* handle, bool force_erase = false) override;
