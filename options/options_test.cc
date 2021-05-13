@@ -3707,8 +3707,8 @@ TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
                            OptionVerificationType::kNormal,
                            OptionTypeFlags::kNone,
                            [](const ConfigOptions&, const std::string&,
-                              const std::string& value, char* addr) {
-                             auto ptr = reinterpret_cast<int*>(addr);
+                              const std::string& value, void* addr) {
+                             auto ptr = static_cast<int*>(addr);
                              *ptr = ParseInt(value);
                              return Status::OK();
                            });
@@ -3721,8 +3721,8 @@ TEST_F(OptionTypeInfoTest, TestParseFunc) {
       0, OptionType::kUnknown, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const std::string& value, char* addr) {
-        auto ptr = reinterpret_cast<std::string*>(addr);
+         const std::string& value, void* addr) {
+        auto ptr = static_cast<std::string*>(addr);
         if (name == "Oops") {
           return Status::InvalidArgument(value);
         } else {
@@ -3742,7 +3742,7 @@ TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
       0, OptionType::kString, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone, nullptr,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const char* /*addr*/, std::string* value) {
+         const void* /*addr*/, std::string* value) {
         if (name == "Oops") {
           return Status::InvalidArgument(name);
         } else {
@@ -3764,9 +3764,9 @@ TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
       0, OptionType::kInt, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone, nullptr, nullptr,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const char* addr1, const char* addr2, std::string* mismatch) {
-        auto i1 = *(reinterpret_cast<const int*>(addr1));
-        auto i2 = *(reinterpret_cast<const int*>(addr2));
+         const void* addr1, const void* addr2, std::string* mismatch) {
+        auto i1 = *(static_cast<const int*>(addr1));
+        auto i2 = *(static_cast<const int*>(addr2));
         if (name == "LT") {
           return i1 < i2;
         } else if (name == "GT") {
@@ -3820,8 +3820,7 @@ TEST_F(OptionTypeInfoTest, TestOptionFlags) {
   // An alias can change the value via parse, but does nothing on serialize on
   // match
   std::string result;
-  ASSERT_OK(opt_alias.Parse(config_options, "Alias", "Alias",
-                            reinterpret_cast<char*>(&base)));
+  ASSERT_OK(opt_alias.Parse(config_options, "Alias", "Alias", &base));
   ASSERT_OK(opt_alias.Serialize(config_options, "Alias", &base, &result));
   ASSERT_TRUE(
       opt_alias.AreEqual(config_options, "Alias", &base, &comp, &result));

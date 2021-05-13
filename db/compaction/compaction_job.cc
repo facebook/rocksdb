@@ -2102,27 +2102,24 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
      {offset_of(&ColumnFamilyDescriptor::options), OptionType::kConfigurable,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
-         const std::string& value, char* addr) {
-        auto cf_options = reinterpret_cast<ColumnFamilyOptions*>(addr);
+         const std::string& value, void* addr) {
+        auto cf_options = static_cast<ColumnFamilyOptions*>(addr);
         return GetColumnFamilyOptionsFromString(opts, ColumnFamilyOptions(),
                                                 value, cf_options);
       },
       [](const ConfigOptions& opts, const std::string& /*name*/,
-         const char* addr, std::string* value) {
-        const auto cf_options =
-            reinterpret_cast<const ColumnFamilyOptions*>(addr);
+         const void* addr, std::string* value) {
+        const auto cf_options = static_cast<const ColumnFamilyOptions*>(addr);
         std::string result;
         auto status =
             GetStringFromColumnFamilyOptions(opts, *cf_options, &result);
         *value = "{" + result + "}";
         return status;
       },
-      [](const ConfigOptions& opts, const std::string& name, const char* addr1,
-         const char* addr2, std::string* mismatch) {
-        const auto this_one =
-            reinterpret_cast<const ColumnFamilyOptions*>(addr1);
-        const auto that_one =
-            reinterpret_cast<const ColumnFamilyOptions*>(addr2);
+      [](const ConfigOptions& opts, const std::string& name, const void* addr1,
+         const void* addr2, std::string* mismatch) {
+        const auto this_one = static_cast<const ColumnFamilyOptions*>(addr1);
+        const auto that_one = static_cast<const ColumnFamilyOptions*>(addr2);
         auto this_conf = CFOptionsAsConfigurable(*this_one);
         auto that_conf = CFOptionsAsConfigurable(*that_one);
         std::string mismatch_opt;
@@ -2145,22 +2142,22 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
      {offset_of(&CompactionServiceInput::db_options), OptionType::kConfigurable,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
-         const std::string& value, char* addr) {
-        auto options = reinterpret_cast<DBOptions*>(addr);
+         const std::string& value, void* addr) {
+        auto options = static_cast<DBOptions*>(addr);
         return GetDBOptionsFromString(opts, DBOptions(), value, options);
       },
       [](const ConfigOptions& opts, const std::string& /*name*/,
-         const char* addr, std::string* value) {
-        const auto options = reinterpret_cast<const DBOptions*>(addr);
+         const void* addr, std::string* value) {
+        const auto options = static_cast<const DBOptions*>(addr);
         std::string result;
         auto status = GetStringFromDBOptions(opts, *options, &result);
         *value = "{" + result + "}";
         return status;
       },
-      [](const ConfigOptions& opts, const std::string& name, const char* addr1,
-         const char* addr2, std::string* mismatch) {
-        const auto this_one = reinterpret_cast<const DBOptions*>(addr1);
-        const auto that_one = reinterpret_cast<const DBOptions*>(addr2);
+      [](const ConfigOptions& opts, const std::string& name, const void* addr1,
+         const void* addr2, std::string* mismatch) {
+        const auto this_one = static_cast<const DBOptions*>(addr1);
+        const auto that_one = static_cast<const DBOptions*>(addr2);
         auto this_conf = DBOptionsAsConfigurable(*this_one);
         auto that_conf = DBOptionsAsConfigurable(*that_one);
         std::string mismatch_opt;
