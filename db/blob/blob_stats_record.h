@@ -5,14 +5,16 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "db/blob/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/status.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class Slice;
+class Status;
 
 class BlobStatsRecord {
  public:
@@ -24,29 +26,8 @@ class BlobStatsRecord {
   uint64_t GetCount() const { return count_; }
   uint64_t GetBytes() const { return bytes_; }
 
-  void EncodeTo(std::string* output) {
-    PutVarint64(output, blob_file_number_);
-    PutVarint64(output, count_);
-    PutVarint64(output, bytes_);
-  }
-
-  Status DecodeFrom(Slice* input) {
-    constexpr char class_name[] = "BlobStatsRecord";
-
-    if (!GetVarint64(input, &blob_file_number_)) {
-      return Status::Corruption(class_name, "Error decoding blob file number");
-    }
-
-    if (!GetVarint64(input, &count_)) {
-      return Status::Corruption(class_name, "Error decoding blob count");
-    }
-
-    if (!GetVarint64(input, &bytes_)) {
-      return Status::Corruption(class_name, "Error decoding blob bytes");
-    }
-
-    return Status::OK();
-  }
+  void EncodeTo(std::string* output);
+  Status DecodeFrom(Slice* input);
 
  private:
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
