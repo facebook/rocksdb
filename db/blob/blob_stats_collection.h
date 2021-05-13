@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "db/blob/blob_stats.h"
 #include "db/blob/blob_stats_record.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
@@ -16,22 +17,18 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobStatsCollection {
  public:
-  template <typename Iterator>
-  static void EncodeTo(Iterator begin, Iterator end, size_t size,
-                       std::string* output) {
-    PutVarint64(output, size);
+  template <typename Container>
+  static void EncodeTo(const Container& c, std::string* output) {
+    PutVarint64(output, c.size());
 
-    size_t n = 0;
-    for (auto it = begin; it != end; ++it, ++n) {
+    for (auto it = c.begin(); it != c.end(); ++it) {
       const uint64_t blob_file_number = it->first;
-      const auto& stats = it->second;
+      const BlobStats& stats = it->second;
 
-      BlobStatsRecord record(blob_file_number, stats.GetCount(),
-                             stats.GetBytes());
+      const BlobStatsRecord record(blob_file_number, stats.GetCount(),
+                                   stats.GetBytes());
       record.EncodeTo(output);
     }
-
-    assert(n == size);
   }
 
   template <typename F>

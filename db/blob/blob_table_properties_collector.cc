@@ -21,7 +21,7 @@ Status BlobTablePropertiesCollector::InternalAdd(const Slice& key,
 
   {
     constexpr bool log_err_key = false;
-    Status s = ParseInternalKey(key, &ikey, log_err_key);
+    const Status s = ParseInternalKey(key, &ikey, log_err_key);
     if (!s.ok()) {
       return s;
     }
@@ -34,7 +34,7 @@ Status BlobTablePropertiesCollector::InternalAdd(const Slice& key,
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(value);
+    const Status s = blob_index.DecodeFrom(value);
     if (!s.ok()) {
       return s;
     }
@@ -59,8 +59,7 @@ Status BlobTablePropertiesCollector::Finish(
   }
 
   std::string value;
-  BlobStatsCollection::EncodeTo(blob_stats_.begin(), blob_stats_.end(),
-                                blob_stats_.size(), &value);
+  BlobStatsCollection::EncodeTo(blob_stats_, &value);
 
   properties->emplace(TablePropertiesNames::kBlobFileMapping, value);
 

@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <cstdint>
 #include <unordered_map>
 
 #include "db/blob/blob_stats.h"

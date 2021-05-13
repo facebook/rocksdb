@@ -26,7 +26,7 @@ class BlobStatsRecord {
   uint64_t GetCount() const { return count_; }
   uint64_t GetBytes() const { return bytes_; }
 
-  void EncodeTo(std::string* output);
+  void EncodeTo(std::string* output) const;
   Status DecodeFrom(Slice* input);
 
  private:

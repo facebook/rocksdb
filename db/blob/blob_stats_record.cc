@@ -10,7 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void BlobStatsRecord::EncodeTo(std::string* output) {
+void BlobStatsRecord::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);
   PutVarint64(output, count_);
   PutVarint64(output, bytes_);
