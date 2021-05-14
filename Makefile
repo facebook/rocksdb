@@ -1840,6 +1840,9 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+blob_stats_test: $(OBJ_DIR)/db/blob/blob_stats_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
