@@ -198,11 +198,12 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 
 class TestSecondaryCache : public SecondaryCache {
  public:
-  TestSecondaryCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
+  explicit TestSecondaryCache(size_t capacity)
+      : num_inserts_(0), num_lookups_(0) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
-  ~TestSecondaryCache() { cache_.reset(); }
+  ~TestSecondaryCache() override { cache_.reset(); }
 
   std::string Name() override { return "TestSecondaryCache"; }
 
@@ -266,7 +267,7 @@ class TestSecondaryCache : public SecondaryCache {
     TestSecondaryCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
                              size_t size)
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
-    ~TestSecondaryCacheHandle() { cache_->Release(handle_); }
+    ~TestSecondaryCacheHandle() override { cache_->Release(handle_); }
 
     bool IsReady() override { return true; }
 
@@ -364,8 +365,8 @@ Cache::CacheItemHelper LRUSecondaryCacheTest::helper_fail_(
 TEST_F(LRUSecondaryCacheTest, BasicTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048));
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -400,8 +401,8 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
 TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048));
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -427,8 +428,8 @@ TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
 TEST_F(LRUSecondaryCacheTest, SaveFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048));
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -467,8 +468,8 @@ TEST_F(LRUSecondaryCacheTest, SaveFailTest) {
 TEST_F(LRUSecondaryCacheTest, CreateFailTest) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048));
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -506,10 +507,10 @@ TEST_F(LRUSecondaryCacheTest, CreateFailTest) {
 }
 
 TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
-  LRUCacheOptions opts(1024, 0, /*strict_capacity_limit=*/true, 0.5, nullptr,
+  LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048));
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
