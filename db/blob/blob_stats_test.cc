@@ -7,6 +7,8 @@
 
 #include <cstring>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "db/blob/blob_stats_collection.h"
 #include "db/blob/blob_stats_record.h"
@@ -28,6 +30,31 @@ class BlobStatsTest : public testing::Test {
     ASSERT_EQ(record.GetBlobFileNumber(), decoded.GetBlobFileNumber());
     ASSERT_EQ(record.GetCount(), decoded.GetCount());
     ASSERT_EQ(record.GetBytes(), decoded.GetBytes());
+  }
+
+  using BlobStatsVec = std::vector<std::pair<uint64_t, BlobStats>>;
+
+  static void TestEncodeDecode(const BlobStatsVec& blob_stats_vec) {
+    std::string encoded;
+    BlobStatsCollection::EncodeTo(blob_stats_vec, &encoded);
+
+    BlobStatsVec decoded;
+    Slice input(encoded);
+    ASSERT_OK(BlobStatsCollection::DecodeFrom(
+        &input,
+        [&decoded](uint64_t blob_file_number, uint64_t count, uint64_t bytes) {
+          decoded.emplace_back(blob_file_number, BlobStats(count, bytes));
+        }));
+
+    ASSERT_EQ(blob_stats_vec.size(), decoded.size());
+
+    for (BlobStatsVec::size_type i = 0; i < blob_stats_vec.size(); ++i) {
+      ASSERT_EQ(blob_stats_vec[i].first, decoded[i].first);
+      ASSERT_EQ(blob_stats_vec[i].second.GetCount(),
+                decoded[i].second.GetCount());
+      ASSERT_EQ(blob_stats_vec[i].second.GetBytes(),
+                decoded[i].second.GetBytes());
+    }
   }
 };
 
@@ -55,7 +82,7 @@ TEST_F(BlobStatsTest, NonEmptyRecord) {
   TestEncodeDecode(record);
 }
 
-TEST_F(BlobStatsTest, RecordDecodeErrors) {
+TEST_F(BlobStatsTest, RecordDecodingErrors) {
   std::string str;
   Slice slice(str);
 
@@ -86,6 +113,19 @@ TEST_F(BlobStatsTest, RecordDecodeErrors) {
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "blob bytes"));
   }
+}
+TEST_F(BlobStatsTest, EmptyCollection) {
+  BlobStatsVec blob_stats_vec;
+
+  TestEncodeDecode(blob_stats_vec);
+}
+
+TEST_F(BlobStatsTest, NonEmptyCollection) {
+  BlobStatsVec blob_stats_vec{{1, BlobStats(1111, 2222)},
+                              {23, BlobStats(4545, 676767)},
+                              {456, BlobStats(888888, 98765432)}};
+
+  TestEncodeDecode(blob_stats_vec);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

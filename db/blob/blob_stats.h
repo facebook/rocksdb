@@ -12,6 +12,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobStats {
  public:
+  BlobStats() = default;
+  BlobStats(uint64_t count, uint64_t bytes) : count_(count), bytes_(bytes) {}
+
   void AddBlob(uint64_t bytes) {
     ++count_;
     bytes_ += bytes;
