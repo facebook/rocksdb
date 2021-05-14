@@ -15,6 +15,13 @@
 #include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
+// The FactoryFunc functions are used to create a new customizable object
+// without going through the ObjectRegistry.  This methodology is especially
+// useful in LITE mode, where there is no ObjectRegistry.  The methods take
+// in an ID of the object to create and a pointer to store the created object.
+// If the factory successfully recognized the input ID, the method should return
+// success; otherwise false should be returned.  On success, the object
+// parameter contains the new object.
 template <typename T>
 using SharedFactoryFunc =
     std::function<bool(const std::string&, std::shared_ptr<T>*)>;
@@ -28,7 +35,7 @@ using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 
 // Creates a new shared Customizable object based on the input parameters.
 // This method parses the input value to determine the type of instance to
-// create. If there is an existing instance (in result) and it is the same type
+// create. If there is an existing instance (in result) and it is the same ID
 // as the object being created, the existing configuration is stored and used as
 // the default for the new object.
 //
@@ -37,20 +44,19 @@ using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 // created using the default settings.  If the value is a set of name-value
 // pairs, then the "id" value is used to determine the instance to create and
 // the remaining parameters are used to configure the object.  Id name-value
-// pairs are specified, there must be an "id=value" pairing or an error will
+// pairs are specified, there should be an "id=value" pairing or an error may
 // result.
 //
 // The config_options parameter controls the process and how errors are
 // returned. If ignore_unknown_options=true, unknown values are ignored during
-// the configuration If ignore_unsupported_options=true, unknown instance types
-// are ignored If invoke_prepare_options=true, the resulting instance wll be
-// initialized (via PrepareOptions
+// the configuration. If ignore_unsupported_options=true, unknown instance types
+// are ignored. If invoke_prepare_options=true, the resulting instance wll be
+// initialized (via PrepareOptions)
 //
 // @param config_options Controls how the instance is created and errors are
 // handled
 // @param value Either the simple name of the instance to create, or a set of
-// name-value pairs to
-//              create and initailzie the object
+// name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
@@ -60,45 +66,37 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
                                std::shared_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status =
-      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
+
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  }
-  std::string curr_opts;
-#ifndef ROCKSDB_LITE
-  if (result->get() != nullptr && result->get()->GetId() == id) {
-    // Try to get the existing options, ignoring any errors
-    ConfigOptions embedded = config_options;
-    embedded.delimiter = ";";
-    result->get()->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
-  }
-#endif
-  if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {
-      // No Id and no options.  Clear the object
-      result->reset();
+  } else if (func == nullptr ||
+             !func(id, result)) {  // No factory, or it failed
+    if (value.empty()) {           // No Id and no options.  Clear the object
+      *result = nullptr;
       return Status::OK();
-    } else if (id.empty()) {  // We have no Id but have options.  Not good
-      return Status::NotSupported("Cannot reset object ", id);
-    } else {
+    } else if (!id.empty()) {
 #ifndef ROCKSDB_LITE
       status = config_options.registry->NewSharedObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif
-      if (!status.ok()) {
-        if (config_options.ignore_unsupported_options &&
-            status.IsNotSupported()) {
-          return Status::OK();
-        } else {
-          return status;
-        }
+#endif  // ROCKSDB_LITE
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        return Status::OK();
       }
+    } else {
+      status = Status::NotSupported("Cannot reset object ");
     }
   }
-  return ConfigurableHelper::ConfigureNewObject(config_options, result->get(),
-                                                id, curr_opts, opt_map);
+  if (!status.ok() || opt_map.empty()) {
+    return status;
+  } else if (result->get() != nullptr) {
+    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ");
+  }
 }
 
 // Creates a new unique customizable instance object based on the input
@@ -109,8 +107,7 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
 // @param config_options Controls how the instance is created and errors are
 // handled
 // @param value Either the simple name of the instance to create, or a set of
-// name-value pairs to
-//              create and initailzie the object
+// name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
@@ -120,46 +117,38 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
                                std::unique_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status =
-      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  }
-  std::string curr_opts;
-#ifndef ROCKSDB_LITE
-  if (result->get() != nullptr && result->get()->GetId() == id) {
-    // Try to get the existing options, ignoring any errors
-    ConfigOptions embedded = config_options;
-    embedded.delimiter = ";";
-    result->get()->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
-  }
-#endif
-  if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {
-      // No Id and no options.  Clear the object
-      result->reset();
+  } else if (func == nullptr ||
+             !func(id, result)) {  // No factory, or it failed
+    if (value.empty()) {           // No Id and no options.  Clear the object
+      *result = nullptr;
       return Status::OK();
-    } else if (id.empty()) {  // We have no Id but have options.  Not good
-      return Status::NotSupported("Cannot reset object ", id);
-    } else {
+    } else if (!id.empty()) {
 #ifndef ROCKSDB_LITE
       status = config_options.registry->NewUniqueObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-      if (!status.ok()) {
-        if (config_options.ignore_unsupported_options &&
-            status.IsNotSupported()) {
-          return Status::OK();
-        } else {
-          return status;
-        }
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        return Status::OK();
       }
+    } else {
+      status = Status::NotSupported("Cannot reset object ");
     }
   }
-  return ConfigurableHelper::ConfigureNewObject(config_options, result->get(),
-                                                id, curr_opts, opt_map);
+  if (!status.ok() || opt_map.empty()) {
+    return status;
+  } else if (result->get() != nullptr) {
+    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ");
+  }
 }
+
 // Creates a new static (raw pointer) customizable instance object based on the
 // input parameters.
 // @see LoadSharedObject for more information on the inner workings of this
@@ -168,8 +157,7 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
 // @param config_options Controls how the instance is created and errors are
 // handled
 // @param value Either the simple name of the instance to create, or a set of
-// name-value pairs to
-//              create and initailzie the object
+// name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
@@ -178,44 +166,35 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
                                const StaticFactoryFunc<T>& func, T** result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status =
-      ConfigurableHelper::GetOptionsMap(value, *result, &id, &opt_map);
+  Status status = Customizable::GetOptionsMap(config_options, *result, value,
+                                              &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  }
-  std::string curr_opts;
-#ifndef ROCKSDB_LITE
-  if (*result != nullptr && (*result)->GetId() == id) {
-    // Try to get the existing options, ignoring any errors
-    ConfigOptions embedded = config_options;
-    embedded.delimiter = ";";
-    (*result)->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
-  }
-#endif
-  if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {
-      // No Id and no options.  Clear the object
+  } else if (func == nullptr ||
+             !func(id, result)) {  // No factory, or it failed
+    if (value.empty()) {           // No Id and no options.  Clear the object
       *result = nullptr;
       return Status::OK();
-    } else if (id.empty()) {  // We have no Id but have options.  Not good
-      return Status::NotSupported("Cannot reset object ", id);
-    } else {
+    } else if (!id.empty()) {
 #ifndef ROCKSDB_LITE
       status = config_options.registry->NewStaticObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-      if (!status.ok()) {
-        if (config_options.ignore_unsupported_options &&
-            status.IsNotSupported()) {
-          return Status::OK();
-        } else {
-          return status;
-        }
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        return Status::OK();
       }
+    } else {
+      status = Status::NotSupported("Cannot reset object ");
     }
   }
-  return ConfigurableHelper::ConfigureNewObject(config_options, *result, id,
-                                                curr_opts, opt_map);
+  if (!status.ok() || opt_map.empty()) {
+    return status;
+  } else if (*result != nullptr) {
+    return (*result)->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ");
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
