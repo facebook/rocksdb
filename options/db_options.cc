@@ -403,9 +403,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as a RateLimiter
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto limiter =
-                reinterpret_cast<std::shared_ptr<RateLimiter>*>(addr);
+             const std::string& value, void* addr) {
+            auto limiter = static_cast<std::shared_ptr<RateLimiter>*>(addr);
             limiter->reset(NewGenericRateLimiter(
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
@@ -416,8 +415,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as an Env
           [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto old_env = reinterpret_cast<Env**>(addr);  // Get the old value
+             const std::string& value, void* addr) {
+            auto old_env = static_cast<Env**>(addr);       // Get the old value
             Env* new_env = *old_env;                       // Set new to old
             Status s = Env::CreateFromString(opts, value,
                                              &new_env);    // Update new value
@@ -841,4 +840,27 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
 }
 
+#ifndef ROCKSDB_LITE
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  ConfigOptions config_options;
+  Status s = OptionTypeInfo::ParseType(
+      config_options, options_map, db_mutable_options_type_info, new_options);
+  if (!s.ok()) {
+    *new_options = base_options;
+  }
+  return s;
+}
+
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string) {
+  return OptionTypeInfo::SerializeType(
+      config_options, db_mutable_options_type_info, &mutable_opts, opt_string);
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

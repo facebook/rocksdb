@@ -44,9 +44,9 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
   } else {
 #ifndef ROCKSDB_LITE
     LRUCacheOptions cache_opts;
-    status = OptionTypeInfo::ParseStruct(
-        config_options, "", &lru_cache_options_type_info, "", value,
-        reinterpret_cast<char*>(&cache_opts));
+    status = OptionTypeInfo::ParseStruct(config_options, "",
+                                         &lru_cache_options_type_info, "",
+                                         value, &cache_opts);
     if (status.ok()) {
       cache = NewLRUCache(cache_opts);
     }

@@ -1312,6 +1312,24 @@ TEST_F(OptionsTest, DBOptionsComposeImmutable) {
                                                   new_opts));
 }
 
+TEST_F(OptionsTest, GetMutableDBOptions) {
+  Random rnd(228);
+  DBOptions base_opts;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+
+  test::RandomInitDBOptions(&base_opts, &rnd);
+  ImmutableDBOptions i_opts(base_opts);
+  MutableDBOptions m_opts(base_opts);
+  MutableDBOptions new_opts;
+  ASSERT_OK(GetStringFromMutableDBOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableDBOptionsFromStrings(m_opts, opts_map, &new_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      config_options, base_opts, BuildDBOptions(i_opts, new_opts)));
+}
+
 TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   // Build a DBOptions from an Immutable/Mutable one and verify that
   // we get same constituent options.
@@ -1327,6 +1345,28 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
                                                   new_opts));
   delete new_opts.compaction_filter;
+}
+
+TEST_F(OptionsTest, GetMutableCFOptions) {
+  Random rnd(228);
+  ColumnFamilyOptions base, copy;
+  std::string opts_str;
+  std::unordered_map<std::string, std::string> opts_map;
+  ConfigOptions config_options;
+  DBOptions dummy;  // Needed to create ImmutableCFOptions
+
+  test::RandomInitCFOptions(&base, dummy, &rnd);
+  ColumnFamilyOptions result;
+  MutableCFOptions m_opts(base), new_opts;
+
+  ASSERT_OK(GetStringFromMutableCFOptions(config_options, m_opts, &opts_str));
+  ASSERT_OK(StringToMap(opts_str, &opts_map));
+  ASSERT_OK(GetMutableOptionsFromStrings(m_opts, opts_map, nullptr, &new_opts));
+  UpdateColumnFamilyOptions(ImmutableCFOptions(base), &copy);
+  UpdateColumnFamilyOptions(new_opts, &copy);
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base, copy));
+  delete copy.compaction_filter;
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
@@ -1808,6 +1848,23 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 }
 
 #ifndef ROCKSDB_LITE
+const static std::string kCustomEnvName = "Custom";
+const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
+class CustomEnv : public EnvWrapper {
+ public:
+  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+};
+
+static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
+  library.Register<Env>(
+      arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+              std::string* /* errmsg */) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+  return 1;
+}
+
 // This test suite tests the old APIs into the Configure options methods.
 // Once those APIs are officially deprecated, this test suite can be deleted.
 class OptionsOldApiTest : public testing::Test {};
@@ -2507,14 +2564,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  const static char* kCustomEnvName = "CustomEnv";
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
   ObjectLibrary::Default()->Register<Env>(
-      kCustomEnvName,
+      "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -2528,7 +2579,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
-      "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
+      "rate_limiter_bytes_per_sec=1024;env=CustomEnvDefault",
       &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
@@ -2562,7 +2613,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_OK(Env::LoadEnv("CustomEnvDefault", &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
 
@@ -3656,8 +3707,8 @@ TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
                            OptionVerificationType::kNormal,
                            OptionTypeFlags::kNone,
                            [](const ConfigOptions&, const std::string&,
-                              const std::string& value, char* addr) {
-                             auto ptr = reinterpret_cast<int*>(addr);
+                              const std::string& value, void* addr) {
+                             auto ptr = static_cast<int*>(addr);
                              *ptr = ParseInt(value);
                              return Status::OK();
                            });
@@ -3670,8 +3721,8 @@ TEST_F(OptionTypeInfoTest, TestParseFunc) {
       0, OptionType::kUnknown, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const std::string& value, char* addr) {
-        auto ptr = reinterpret_cast<std::string*>(addr);
+         const std::string& value, void* addr) {
+        auto ptr = static_cast<std::string*>(addr);
         if (name == "Oops") {
           return Status::InvalidArgument(value);
         } else {
@@ -3691,7 +3742,7 @@ TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
       0, OptionType::kString, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone, nullptr,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const char* /*addr*/, std::string* value) {
+         const void* /*addr*/, std::string* value) {
         if (name == "Oops") {
           return Status::InvalidArgument(name);
         } else {
@@ -3713,9 +3764,9 @@ TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
       0, OptionType::kInt, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone, nullptr, nullptr,
       [](const ConfigOptions& /*opts*/, const std::string& name,
-         const char* addr1, const char* addr2, std::string* mismatch) {
-        auto i1 = *(reinterpret_cast<const int*>(addr1));
-        auto i2 = *(reinterpret_cast<const int*>(addr2));
+         const void* addr1, const void* addr2, std::string* mismatch) {
+        auto i1 = *(static_cast<const int*>(addr1));
+        auto i2 = *(static_cast<const int*>(addr2));
         if (name == "LT") {
           return i1 < i2;
         } else if (name == "GT") {
@@ -3769,8 +3820,7 @@ TEST_F(OptionTypeInfoTest, TestOptionFlags) {
   // An alias can change the value via parse, but does nothing on serialize on
   // match
   std::string result;
-  ASSERT_OK(opt_alias.Parse(config_options, "Alias", "Alias",
-                            reinterpret_cast<char*>(&base)));
+  ASSERT_OK(opt_alias.Parse(config_options, "Alias", "Alias", &base));
   ASSERT_OK(opt_alias.Serialize(config_options, "Alias", &base, &result));
   ASSERT_TRUE(
       opt_alias.AreEqual(config_options, "Alias", &base, &comp, &result));
@@ -3980,6 +4030,73 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b1|b2");
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
+}
+
+TEST_F(OptionTypeInfoTest, TestStaticType) {
+  struct SimpleOptions {
+    size_t size = 0;
+    bool verify = true;
+  };
+
+  static std::unordered_map<std::string, OptionTypeInfo> type_map = {
+      {"size", {offsetof(struct SimpleOptions, size), OptionType::kSizeT}},
+      {"verify",
+       {offsetof(struct SimpleOptions, verify), OptionType::kBoolean}},
+  };
+
+  ConfigOptions config_options;
+  SimpleOptions opts, copy;
+  opts.size = 12345;
+  opts.verify = false;
+  std::string str, mismatch;
+
+  ASSERT_OK(
+      OptionTypeInfo::SerializeType(config_options, type_map, &opts, &str));
+  ASSERT_FALSE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
+                                             &copy, &mismatch));
+  ASSERT_OK(OptionTypeInfo::ParseType(config_options, str, type_map, &copy));
+  ASSERT_TRUE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
+                                            &copy, &mismatch));
+}
+
+class ConfigOptionsTest : public testing::Test {};
+
+TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
+  ConfigOptions config_options;
+  DBOptions db_opts;
+  Options opts;
+  Env* mem_env = NewMemEnv(Env::Default());
+  config_options.registry->AddLibrary("custom-env", RegisterCustomEnv,
+                                      kCustomEnvName);
+
+  config_options.env = mem_env;
+  // First test that we can get the env as expected
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), kCustomEnvProp,
+                                   &db_opts));
+  ASSERT_OK(
+      GetOptionsFromString(config_options, Options(), kCustomEnvProp, &opts));
+  ASSERT_NE(config_options.env, db_opts.env);
+  ASSERT_EQ(opts.env, db_opts.env);
+  Env* custom_env = db_opts.env;
+
+  // Now try a "bad" env" and check that nothing changed
+  config_options.ignore_unsupported_options = true;
+  ASSERT_OK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_OK(GetOptionsFromString(config_options, opts, "env=unknown", &opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  // Now try a "bad" env" ignoring unknown objects
+  config_options.ignore_unsupported_options = false;
+  ASSERT_NOK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  delete mem_env;
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

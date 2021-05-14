@@ -32,6 +32,15 @@ void ObjectLibrary::AddEntry(const std::string &type,
   entries.emplace_back(std::move(entry));
 }
 
+size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
+  *types = entries_.size();
+  size_t factories = 0;
+  for (const auto &e : entries_) {
+    factories += e.second.size();
+  }
+  return factories;
+}
+
 void ObjectLibrary::Dump(Logger *logger) const {
   for (const auto &iter : entries_) {
     ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
@@ -50,17 +59,23 @@ void ObjectLibrary::Dump(Logger *logger) const {
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   static std::shared_ptr<ObjectLibrary> instance =
-      std::make_shared<ObjectLibrary>();
+      std::make_shared<ObjectLibrary>("default");
+  return instance;
+}
+
+std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
+  static std::shared_ptr<ObjectRegistry> instance(
+      new ObjectRegistry(ObjectLibrary::Default()));
   return instance;
 }
 
 std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
-  std::shared_ptr<ObjectRegistry> instance = std::make_shared<ObjectRegistry>();
-  return instance;
+  return std::make_shared<ObjectRegistry>(Default());
 }
 
-ObjectRegistry::ObjectRegistry() {
-  libraries_.push_back(ObjectLibrary::Default());
+std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
+    const std::shared_ptr<ObjectRegistry> &parent) {
+  return std::make_shared<ObjectRegistry>(parent);
 }
 
 // Searches (from back to front) the libraries looking for the
@@ -74,12 +89,19 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
       return entry;
     }
   }
-  return nullptr;
+  if (parent_ != nullptr) {
+    return parent_->FindEntry(type, name);
+  } else {
+    return nullptr;
+  }
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {
   for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
     iter->get()->Dump(logger);
+  }
+  if (parent_ != nullptr) {
+    parent_->Dump(logger);
   }
 }
 
