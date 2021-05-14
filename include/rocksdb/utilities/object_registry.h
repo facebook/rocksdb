@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <functional>
 #include <memory>
 #include <regex>
@@ -24,6 +22,8 @@ class ObjectLibrary;
 template <typename T>
 using FactoryFunc =
     std::function<T*(const std::string&, std::unique_ptr<T>*, std::string*)>;
+
+#ifndef ROCKSDB_LITE
 
 // The signature of the function for loading factories
 // into an object library.  This method is expected to register
@@ -116,11 +116,31 @@ class ObjectLibrary {
   std::string id_;
 };
 
+#endif  // ROCKSDB_LITE
 // The ObjectRegistry is used to register objects that can be created by a
 // name/pattern at run-time where the specific implementation of the object may
 // not be known in advance.
 class ObjectRegistry {
+ private:
+  static std::string CannotLoadMessage(const std::string& type) {
+    std::string errmsg = "Cannot load ";
+    errmsg.append(type);
+#ifdef ROCKSDB_LITE
+    errmsg.append(" in LITE mode");
+#endif  // ROCKSDB_LITE
+    return errmsg;
+  }
+  static std::string InvalidTypeMessage(const std::string& guard,
+                                        const std::string& type, bool guarded) {
+    std::string errmsg = "Cannot make a ";
+    errmsg.append(guard).append(" ");
+    errmsg.append(type).append(" from ");
+    errmsg.append(guarded ? "an unguarded one" : "a guarded one");
+    return errmsg;
+  }
+
  public:
+#ifndef ROCKSDB_LITE
   static std::shared_ptr<ObjectRegistry> NewInstance();
   static std::shared_ptr<ObjectRegistry> NewInstance(
       const std::shared_ptr<ObjectRegistry>& parent);
@@ -162,11 +182,10 @@ class ObjectRegistry {
           static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
       return factory->NewFactoryObject(target, guard, errmsg);
     } else {
-      *errmsg = std::string("Could not load ") + T::Type();
+      *errmsg = CannotLoadMessage(T::Type());
       return nullptr;
     }
   }
-
   // Creates a new unique T using the input factory functions.
   // Returns OK if a new unique T was successfully created
   // Returns NotSupported if the type/target could not be created
@@ -182,12 +201,39 @@ class ObjectRegistry {
     } else if (*result) {
       return Status::OK();
     } else {
-      return Status::InvalidArgument(std::string("Cannot make a unique ") +
-                                         T::Type() + " from unguarded one ",
-                                     target);
+      errmsg = InvalidTypeMessage("unique", T::Type(), true);
+      return Status::InvalidArgument(errmsg, target);
+    }
+  }
+#endif  // ROCKSDB_LITE
+
+  // Creates a new unique T using the input factory functions.
+  // Returns OK if a new unique T was successfully created
+  // Returns NotSupported if the type/target could not be created
+  // Returns InvalidArgument if the factory return an unguarded object
+  //                      (meaning it cannot be managed by a unique ptr)
+  template <typename T>
+  static Status NewUniqueObject(const std::string& target,
+                                const FactoryFunc<T>& factory,
+                                std::unique_ptr<T>* result) {
+    if (factory) {
+      std::string errmsg;
+      T* ptr = factory(target, result, &errmsg);
+      if (ptr == nullptr) {
+        return Status::NotSupported(errmsg, target);
+      } else if (*result) {
+        return Status::OK();
+      } else {
+        errmsg = InvalidTypeMessage("unique", T::Type(), true);
+        return Status::InvalidArgument(errmsg, target);
+      }
+    } else {
+      result->reset();
+      return Status::NotSupported(CannotLoadMessage(T::Type()), target);
     }
   }
 
+#ifndef ROCKSDB_LITE
   // Creates a new shared T using the input factory functions.
   // Returns OK if a new shared T was successfully created
   // Returns NotSupported if the type/target could not be created
@@ -205,12 +251,41 @@ class ObjectRegistry {
       result->reset(guard.release());
       return Status::OK();
     } else {
-      return Status::InvalidArgument(std::string("Cannot make a shared ") +
-                                         T::Type() + " from unguarded one ",
-                                     target);
+      errmsg = InvalidTypeMessage("shared", T::Type(), true);
+      return Status::InvalidArgument(errmsg, target);
+    }
+  }
+#endif  // ROCKSDB_LITE
+
+  // Creates a new shared T using the input factory functions.
+  // Returns OK if a shared unique T was successfully created
+  // Returns NotSupported if the type/target could not be created
+  // Returns InvalidArgument if the factory return an unguarded object
+  //                      (meaning it cannot be managed by a unique ptr)
+  template <typename T>
+  static Status NewSharedObject(const std::string& target,
+                                const FactoryFunc<T>& factory,
+                                std::shared_ptr<T>* result) {
+    if (factory) {
+      std::string errmsg;
+      std::unique_ptr<T> guard;
+      T* ptr = factory(target, guard, &errmsg);
+      if (ptr == nullptr) {
+        return Status::NotSupported(errmsg, target);
+      } else if (guard) {
+        result->reset(guard.release());
+        return Status::OK();
+      } else {
+        errmsg = InvalidTypeMessage("shared", T::Type(), true);
+        return Status::InvalidArgument(errmsg, target);
+      }
+    } else {
+      result->reset();
+      return Status::NotSupported(CannotLoadMessage(T::Type()), target);
     }
   }
 
+#ifndef ROCKSDB_LITE
   // Creates a new static T using the input factory functions.
   // Returns OK if a new static T was successfully created
   // Returns NotSupported if the type/target could not be created
@@ -224,15 +299,42 @@ class ObjectRegistry {
     if (ptr == nullptr) {
       return Status::NotSupported(errmsg, target);
     } else if (guard.get()) {
-      return Status::InvalidArgument(std::string("Cannot make a static ") +
-                                         T::Type() + " from a guarded one ",
-                                     target);
+      errmsg = InvalidTypeMessage("static", T::Type(), false);
+      return Status::InvalidArgument(errmsg, target);
     } else {
       *result = ptr;
       return Status::OK();
     }
   }
+#endif  // ROCKSDB_LITE
+  // Creates a new static T using the input factory functions.
+  // Returns OK if a new static T was successfully created
+  // Returns NotSupported if the type/target could not be created
+  // Returns InvalidArgument if the factory return a guarded object
+  //                      (meaning it is managed by a unique ptr)
+  template <typename T>
+  static Status NewStaticObject(const std::string& target,
+                                const FactoryFunc<T>& factory, T** result) {
+    if (factory) {
+      std::string errmsg;
+      std::unique_ptr<T> guard;
+      T* ptr = factory(target, &guard, &errmsg);
+      if (ptr == nullptr) {
+        return Status::NotSupported(errmsg, target);
+      } else if (guard.get()) {
+        errmsg = InvalidTypeMessage("static", T::Type(), false);
+        return Status::InvalidArgument(errmsg, target);
+      } else {
+        *result = ptr;
+        return Status::OK();
+      }
+    } else {
+      *result = nullptr;
+      return Status::NotSupported(CannotLoadMessage(T::Type()), target);
+    }
+  }
 
+#ifndef ROCKSDB_LITE
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
@@ -249,6 +351,6 @@ class ObjectRegistry {
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
   std::shared_ptr<ObjectRegistry> parent_;
+#endif  // ROCKSDB_LITE
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE
