@@ -505,8 +505,10 @@ struct BlockBasedTableBuilder::Rep {
           use_delta_encoding_for_index_values, p_index_builder_));
     }
 
-    for (auto it = tbo.int_tbl_prop_collector_factories.first;
-         it != tbo.int_tbl_prop_collector_factories.second; ++it) {
+    const auto& factory_range = tbo.int_tbl_prop_collector_factories;
+    for (auto it = factory_range.first; it != factory_range.second; ++it) {
+      assert(*it);
+
       table_properties_collectors.emplace_back(
           (*it)->CreateIntTblPropCollector(column_family_id));
     }

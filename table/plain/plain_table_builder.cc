@@ -114,6 +114,8 @@ PlainTableBuilder::PlainTableBuilder(
 
   for (auto it = int_tbl_prop_collector_factories.first;
        it != int_tbl_prop_collector_factories.second; ++it) {
+    assert(*it);
+
     table_properties_collectors_.emplace_back(
         (*it)->CreateIntTblPropCollector(column_family_id));
   }

@@ -110,6 +110,8 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
     IntTblPropCollectorFactories* int_tbl_prop_collector_factories) {
+  assert(int_tbl_prop_collector_factories);
+
   auto& collector_factories = ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {
