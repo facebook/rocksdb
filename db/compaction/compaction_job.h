@@ -292,6 +292,7 @@ struct CompactionServiceOutputFile {
 // instance, with these information, the primary db instance with write
 // permission is able to install the result to the DB.
 struct CompactionServiceResult {
+  Status status;
   std::vector<CompactionServiceOutputFile> output_files;
   int output_level;
 

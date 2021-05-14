@@ -435,6 +435,9 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
     case OptionType::kUInt:
       *static_cast<unsigned int*>(opt_address) = ParseUint32(value);
       break;
+    case OptionType::kUInt8T:
+      *static_cast<uint8_t*>(opt_address) = ParseUint8(value);
+      break;
     case OptionType::kUInt32T:
       *static_cast<uint32_t*>(opt_address) = ParseUint32(value);
       break;
@@ -509,6 +512,9 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kUInt:
       *value = ToString(*(static_cast<const unsigned int*>(opt_address)));
+      break;
+    case OptionType::kUInt8T:
+      *value = ToString(*(static_cast<const uint8_t*>(opt_address)));
       break;
     case OptionType::kUInt32T:
       *value = ToString(*(static_cast<const uint32_t*>(opt_address)));
@@ -1224,6 +1230,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
+    case OptionType::kUInt8T:
+      return IsOptionEqual<uint8_t>(this_offset, that_offset);
     case OptionType::kUInt32T:
       return IsOptionEqual<uint32_t>(this_offset, that_offset);
     case OptionType::kUInt64T: {

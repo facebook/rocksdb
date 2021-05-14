@@ -120,6 +120,8 @@ bool StartsWith(const std::string& string, const std::string& pattern);
 #ifndef ROCKSDB_LITE
 bool ParseBoolean(const std::string& type, const std::string& value);
 
+uint8_t ParseUint8(const std::string& value);
+
 uint32_t ParseUint32(const std::string& value);
 
 int32_t ParseInt32(const std::string& value);

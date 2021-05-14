@@ -598,20 +598,14 @@ Status CompactionJob::Run() {
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
-
-  auto compaction_func = [this](SubcompactionState* subcompaction_state) {
-    db_options_.compaction_service
-        ? ProcessKeyValueCompactionWithCompactionService(subcompaction_state)
-        : ProcessKeyValueCompaction(subcompaction_state);
-  };
-
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(compaction_func, &compact_->sub_compact_states[i]);
+    thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
+                             &compact_->sub_compact_states[i]);
   }
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  compaction_func(&compact_->sub_compact_states[0]);
+  ProcessKeyValueCompaction(&compact_->sub_compact_states[0]);
 
   // Wait for all other threads (if there are any) to finish execution
   for (auto& thread : thread_pool) {
@@ -910,6 +904,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   return status;
 }
 
+#ifndef ROCKSDB_LITE
 void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     SubcompactionState* sub_compact) {
   assert(sub_compact);
@@ -941,7 +936,6 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.approx_size = sub_compact->approx_size;
 
   std::string compaction_input_binary;
-  std::string user_job_id;
   Status s = compaction_input.Write(&compaction_input_binary);
   if (!s.ok()) {
     sub_compact->status = s;
@@ -960,18 +954,27 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
       compaction_input.column_family.name.c_str(), job_id_,
       compaction_input.output_level, oss_buff.str().c_str());
-  s = db_options_.compaction_service->Start(compaction_input_binary,
-                                            &user_job_id);
-  if (!s.ok()) {
-    sub_compact->status = s;
+  CompactionServiceJobStatus compaction_status =
+      db_options_.compaction_service->Start(compaction_input_binary, job_id_);
+  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
+    sub_compact->status =
+        Status::Incomplete("CompactionService failed to start compaction job.");
     return;
   }
 
   std::string compaction_result_binary;
-  s = db_options_.compaction_service->WaitForComplete(
-      user_job_id, &compaction_result_binary);
-  if (!s.ok()) {
-    sub_compact->status = s;
+  compaction_status = db_options_.compaction_service->WaitForComplete(
+      job_id_, &compaction_result_binary);
+
+  CompactionServiceResult compaction_result;
+  s = CompactionServiceResult::Read(compaction_result_binary,
+                                    &compaction_result);
+  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
+    sub_compact->status =
+        s.ok() ? compaction_result.status
+               : Status::Incomplete(
+                     "CompactionService failed to run compaction job.");
+    compaction_result.status.PermitUncheckedError();
     ROCKS_LOG_WARN(db_options_.info_log,
                    "[%s] [JOB %d] Remote compaction failed, status: %s",
                    compaction_input.column_family.name.c_str(), job_id_,
@@ -979,9 +982,12 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     return;
   }
 
-  CompactionServiceResult compaction_result;
-  s = CompactionServiceResult::Read(compaction_result_binary,
-                                    &compaction_result);
+  if (!s.ok()) {
+    sub_compact->status = s;
+    compaction_result.status.PermitUncheckedError();
+    return;
+  }
+  sub_compact->status = compaction_result.status;
 
   oss_buff.clear();
   is_first_one = true;
@@ -1006,7 +1012,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     auto src_file = compaction_result.output_path + "/" + file.file_name;
     auto tgt_file = TableFileName(compaction->immutable_cf_options()->cf_paths,
                                   file_num, compaction->output_path_id());
-    s = db_options_.compaction_service->InstallFile(src_file, tgt_file);
+    s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
       return;
@@ -1039,14 +1045,17 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   IOSTATS_ADD(bytes_written, compaction_result.bytes_written);
   IOSTATS_ADD(bytes_read, compaction_result.bytes_read);
 }
+#endif  // !ROCKSDB_LITE
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
 
+#ifndef ROCKSDB_LITE
   if (db_options_.compaction_service) {
     return ProcessKeyValueCompactionWithCompactionService(sub_compact);
   }
+#endif  // !ROCKSDB_LITE
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUNanos() / 1000;
 
@@ -2500,7 +2509,81 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 };
 
+struct StatusSerializationAdapter {
+  uint8_t code;
+  uint8_t subcode;
+  uint8_t severity;
+  std::string message;
+
+  StatusSerializationAdapter() {}
+  explicit StatusSerializationAdapter(const Status& s) {
+    code = s.code();
+    subcode = s.subcode();
+    severity = s.severity();
+    auto msg = s.getState();
+    message = msg ? msg : "";
+  }
+
+  Status GetStatus() {
+    return Status(static_cast<Status::Code>(code),
+                  static_cast<Status::SubCode>(subcode),
+                  static_cast<Status::Severity>(severity), message);
+  }
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    status_adapter_type_info = {
+        {"code",
+         {offsetof(struct StatusSerializationAdapter, code),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"subcode",
+         {offsetof(struct StatusSerializationAdapter, subcode),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"severity",
+         {offsetof(struct StatusSerializationAdapter, severity),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"message",
+         {offsetof(struct StatusSerializationAdapter, message),
+          OptionType::kEncodedString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+};
+
 static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
+    {"status",
+     {offsetof(struct CompactionServiceResult, status),
+      OptionType::kCustomizable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const std::string& value, void* addr) {
+        auto status_obj = static_cast<Status*>(addr);
+        StatusSerializationAdapter adapter;
+        Status s = OptionTypeInfo::ParseType(
+            opts, value, status_adapter_type_info, &adapter);
+        *status_obj = adapter.GetStatus();
+        return s;
+      },
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const void* addr, std::string* value) {
+        const auto status_obj = static_cast<const Status*>(addr);
+        StatusSerializationAdapter adapter(*status_obj);
+        std::string result;
+        Status s = OptionTypeInfo::SerializeType(opts, status_adapter_type_info,
+                                                 &adapter, &result);
+        *value = "{" + result + "}";
+        return s;
+      },
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const void* addr1, const void* addr2, std::string* mismatch) {
+        const auto status1 = static_cast<const Status*>(addr1);
+        const auto status2 = static_cast<const Status*>(addr2);
+        StatusSerializationAdapter adatper1(*status1);
+        StatusSerializationAdapter adapter2(*status2);
+        return OptionTypeInfo::TypesAreEqual(opts, status_adapter_type_info,
+                                             &adatper1, &adapter2, mismatch);
+      }}},
     {"output_files",
      OptionTypeInfo::Vector<CompactionServiceOutputFile>(
          offsetof(struct CompactionServiceResult, output_files),
@@ -2539,6 +2622,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
 
 Status CompactionServiceInput::Read(const std::string& data_str,
                                     CompactionServiceInput* obj) {
+  if (data_str.size() <= sizeof(BinaryFormatVersion)) {
+    return Status::InvalidArgument("Invalid CompactionServiceInput string");
+  }
   auto format_version = DecodeFixed32(data_str.data());
   if (format_version == kOptionsString) {
     ConfigOptions cf;
@@ -2565,6 +2651,9 @@ Status CompactionServiceInput::Write(std::string* output) {
 
 Status CompactionServiceResult::Read(const std::string& data_str,
                                      CompactionServiceResult* obj) {
+  if (data_str.size() <= sizeof(BinaryFormatVersion)) {
+    return Status::InvalidArgument("Invalid CompactionServiceResult string");
+  }
   auto format_version = DecodeFixed32(data_str.data());
   if (format_version == kOptionsString) {
     ConfigOptions cf;

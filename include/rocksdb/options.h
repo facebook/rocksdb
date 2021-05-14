@@ -364,20 +364,26 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
+enum class CompactionServiceJobStatus : char {
+  kSuccess,
+  kFailure,
+  kUseLocal,  // TODO: Add support for use local compaction
+};
+
 class CompactionService {
  public:
   // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact`.
-  virtual Status Start(const std::string& compaction_service_input,
-                       std::string* job_id) = 0;
+  // `DB::OpenAndCompact()`.
+  // job_id is pre-assigned, it will be reset after DB re-open.
+  // TODO: sub-compaction is not supported, as they will have the same job_id, a
+  // sub-compaction id might be added
+  virtual CompactionServiceJobStatus Start(
+      const std::string& compaction_service_input, int job_id) = 0;
 
   // Wait compaction to be finish.
-  virtual Status WaitForComplete(const std::string& job_id,
-                                 std::string* compaction_service_result) = 0;
-
-  // Install compaction results to the DB.
-  virtual Status InstallFile(const std::string& source_file,
-                             const std::string& target_file) = 0;
+  // TODO: Add output path override
+  virtual CompactionServiceJobStatus WaitForComplete(
+      int job_id, std::string* compaction_service_result) = 0;
 
   virtual ~CompactionService() {}
 };

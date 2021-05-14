@@ -1190,6 +1190,14 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   const int kStrMaxLen = 1000;
   Random rnd(static_cast<uint32_t>(time(nullptr)));
   Random64 rnd64(time(nullptr));
+  std::vector<Status> status_list = {
+      Status::OK(),
+      Status::InvalidArgument("invalid option"),
+      Status::Aborted("failed to run"),
+      Status::NotSupported("not supported option"),
+  };
+  result.status =
+      status_list.at(rnd.Uniform(static_cast<int>(status_list.size())));
   while (!rnd.OneIn(10)) {
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)), rnd64.Uniform(UINT64_MAX),
@@ -1262,6 +1270,9 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   output.replace(0, kDataVersionSize, buf, kDataVersionSize);
   Status s = CompactionServiceResult::Read(output, &deserialized3);
   ASSERT_TRUE(s.IsNotSupported());
+  for (const auto& item : status_list) {
+    item.PermitUncheckedError();
+  }
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {

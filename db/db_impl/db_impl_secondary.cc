@@ -743,6 +743,9 @@ Status DBImplSecondary::CompactWithoutInstallation(
   c->ReleaseCompactionFiles(s);
   c.reset();
 
+  TEST_SYNC_POINT_CALLBACK("DBImplSecondary::CompactWithoutInstallation::End",
+                           &s);
+  result->status = s;
   return s;
 }
 
@@ -803,14 +806,15 @@ Status DB::OpenAndCompact(
   s = db_secondary->CompactWithoutInstallation(handles[0], compaction_input,
                                                &compaction_result);
 
-  if (s.ok()) {
-    s = compaction_result.Write(result);
-  }
+  Status serialization_status = compaction_result.Write(result);
 
   for (auto& handle : handles) {
     delete handle;
   }
   delete db;
+  if (s.ok()) {
+    return serialization_status;
+  }
   return s;
 }
 

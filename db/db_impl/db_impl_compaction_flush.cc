@@ -1092,7 +1092,7 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   assert(cfd);
 
   Status s;
-  JobContext job_context(0, true);
+  JobContext job_context(next_job_id_.fetch_add(1), true);
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
