@@ -446,6 +446,7 @@ class MockCache : public LRUCache {
                  false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
   }
 
+  using ShardedCache::Insert;
   Status Insert(const Slice& key, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value), Handle** handle,
                 Priority priority) override {
@@ -533,6 +534,7 @@ class LookupLiarCache : public CacheWrapper {
   explicit LookupLiarCache(std::shared_ptr<Cache> target)
       : CacheWrapper(std::move(target)) {}
 
+  using Cache::Lookup;
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     if (nth_lookup_not_found_ == 1) {
       nth_lookup_not_found_ = 0;

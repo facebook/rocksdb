@@ -27,9 +27,20 @@ class CacheShard {
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
                         size_t charge, DeleterFn deleter,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
+  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+                        const Cache::CacheItemHelper* helper, size_t charge,
+                        Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
+  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+                                const Cache::CacheItemHelper* helper,
+                                const Cache::CreateCallback& create_cb,
+                                Cache::Priority priority, bool wait) = 0;
+  virtual bool Release(Cache::Handle* handle, bool useful,
+                       bool force_erase) = 0;
+  virtual bool IsReady(Cache::Handle* handle) = 0;
+  virtual void Wait(Cache::Handle* handle) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
-  virtual bool Release(Cache::Handle* handle, bool force_erase = false) = 0;
+  virtual bool Release(Cache::Handle* handle, bool force_erase) = 0;
   virtual void Erase(const Slice& key, uint32_t hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
@@ -67,6 +78,7 @@ class ShardedCache : public Cache {
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
   virtual void* Value(Handle* handle) override = 0;
   virtual size_t GetCharge(Handle* handle) const override = 0;
+  virtual void WaitAll(std::vector<Handle*>& handles) override = 0;
 
   virtual uint32_t GetHash(Handle* handle) const = 0;
   virtual void DisownData() override = 0;
@@ -77,7 +89,18 @@ class ShardedCache : public Cache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         DeleterFn deleter, Handle** handle,
                         Priority priority) override;
+  virtual Status Insert(const Slice& key, void* value,
+                        const CacheItemHelper* helper, size_t chargge,
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
+  virtual Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                         const CreateCallback& create_cb, Priority priority,
+                         bool wait, Statistics* stats = nullptr) override;
+  virtual bool Release(Handle* handle, bool useful,
+                       bool force_erase = false) override;
+  virtual bool IsReady(Handle* handle) override;
+  virtual void Wait(Handle* handle) override;
   virtual bool Ref(Handle* handle) override;
   virtual bool Release(Handle* handle, bool force_erase = false) override;
   virtual void Erase(const Slice& key) override;
