@@ -87,11 +87,11 @@ class CacheEntryStatsCollector {
   static Status GetShared(Cache *cache, SystemClock *clock,
                           std::shared_ptr<CacheEntryStatsCollector> *ptr) {
     std::array<uint64_t, 3> cache_key_data{
-        // First 16 bytes == md5 of class name
-        0x7eba5a8fb5437c90U, 0x8ca68c9b11655855U,
-        // Last 8 bytes based on a function pointer to make unique for each
-        // template instantiation
-        reinterpret_cast<uint64_t>(&CacheEntryStatsCollector::GetShared)};
+        {// First 16 bytes == md5 of class name
+         0x7eba5a8fb5437c90U, 0x8ca68c9b11655855U,
+         // Last 8 bytes based on a function pointer to make unique for each
+         // template instantiation
+         reinterpret_cast<uint64_t>(&CacheEntryStatsCollector::GetShared)}};
     Slice cache_key = GetSlice(&cache_key_data);
 
     Cache::Handle *h = cache->Lookup(cache_key);
