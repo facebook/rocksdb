@@ -1246,8 +1246,23 @@ Status BlockBasedTable::GetDataBlockFromCache(
                               &DeleteCachedEntry<TBlocklike>, &cache_handle);
       if (s.ok()) {
         assert(cache_handle != nullptr);
-        block->SetCachedValue(block_holder.release(), block_cache,
-                              cache_handle);
+        void* ptr_in_cache = block_cache->Value(cache_handle);
+        block->SetCachedValue(reinterpret_cast<TBlocklike*>(ptr_in_cache),
+                              block_cache, cache_handle);
+        // If ptr_in_cache is equal to block_holder.get(), it means original
+        // TBlocklike object has been inserted into the cache. Therefore, the
+        // block cache starts to take the responsibility of managing the
+        // underlying object, and block_holder needs to release ownership.
+        // If ptr_in_cache is not equal to block_holder.get(), it means
+        // block_cache deep-copies the TBlocklike object to an
+        // internally-created TBlocklike object. When block_holder goes out of
+        // scope, its underlying object should be free'ed, while block will
+        // point to the new object.
+        if (ptr_in_cache == block_holder.get()) {
+          block_holder.release();
+        } else {
+          assert(ptr_in_cache);
+        }
 
         UpdateCacheInsertionMetrics(block_type, get_context, charge,
                                     s.IsOkOverwritten());
@@ -1330,13 +1345,27 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
+    Cache::Handle* cache_handle = nullptr;
     s = block_cache_compressed->Insert(
         compressed_block_cache_key, block_cont_for_comp_cache,
         block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        &DeleteCachedEntry<BlockContents>, &cache_handle);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
+      assert(cache_handle);
+      void* ptr_in_cache = block_cache_compressed->Value(cache_handle);
+      block_cache_compressed->Release(cache_handle);
+      // If ptr_in_cache is equal to block_cont_for_comp_cache, it means the
+      // original BlockContents has been inserted into the cache. Therefore, the
+      // block cache starts to take the responsibility of managing this object.
+      // If ptr_in_cache is not equal to block_cont_for_comp_cache, it means
+      // block_cache deep-copies the BlockContents to an internally-created
+      // BlockContents. Therefore, block_cont_for_comp_cache should be free'ed.
+      if (ptr_in_cache != block_cont_for_comp_cache) {
+        assert(ptr_in_cache);
+        delete block_cont_for_comp_cache;
+      }
     } else {
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
       delete block_cont_for_comp_cache;
@@ -1352,8 +1381,23 @@ Status BlockBasedTable::PutDataBlockToCache(
                             priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
-      cached_block->SetCachedValue(block_holder.release(), block_cache,
-                                   cache_handle);
+      void* ptr_in_cache = block_cache->Value(cache_handle);
+      cached_block->SetCachedValue(reinterpret_cast<TBlocklike*>(ptr_in_cache),
+                                   block_cache, cache_handle);
+      // If ptr_in_cache is equal to block_holder.get(), it means original
+      // TBlocklike object has been inserted into the cache. Therefore, the
+      // block cache starts to take the responsibility of managing the
+      // underlying object, and block_holder needs to release ownership.
+      // If ptr_in_cache is not equal to block_holder.get(), it means
+      // block_cache deep-copies the TBlocklike object to an internally-created
+      // TBlocklike object. When block_holder goes out of scope, its underlying
+      // object should be free'ed, while cached_block will point to the new
+      // object.
+      if (ptr_in_cache == block_holder.get()) {
+        block_holder.release();
+      } else {
+        assert(ptr_in_cache);
+      }
 
       UpdateCacheInsertionMetrics(block_type, get_context, charge,
                                   s.IsOkOverwritten());
