@@ -34,17 +34,30 @@ class BlobStatsTest : public testing::Test {
 
   using BlobStatsVec = std::vector<std::pair<uint64_t, BlobStats>>;
 
+  static void Encode(const BlobStatsVec& blob_stats_vec, std::string* encoded) {
+    assert(encoded);
+
+    BlobStatsCollection::EncodeTo(blob_stats_vec, encoded);
+  }
+
+  static Status Decode(const std::string& encoded, BlobStatsVec* decoded) {
+    assert(decoded);
+
+    Slice input(encoded);
+
+    return BlobStatsCollection::DecodeFrom(
+        &input,
+        [decoded](uint64_t blob_file_number, uint64_t count, uint64_t bytes) {
+          decoded->emplace_back(blob_file_number, BlobStats(count, bytes));
+        });
+  }
+
   static void TestEncodeDecode(const BlobStatsVec& blob_stats_vec) {
     std::string encoded;
-    BlobStatsCollection::EncodeTo(blob_stats_vec, &encoded);
+    Encode(blob_stats_vec, &encoded);
 
     BlobStatsVec decoded;
-    Slice input(encoded);
-    ASSERT_OK(BlobStatsCollection::DecodeFrom(
-        &input,
-        [&decoded](uint64_t blob_file_number, uint64_t count, uint64_t bytes) {
-          decoded.emplace_back(blob_file_number, BlobStats(count, bytes));
-        }));
+    ASSERT_OK(Decode(encoded, &decoded));
 
     ASSERT_EQ(blob_stats_vec.size(), decoded.size());
 
@@ -114,6 +127,7 @@ TEST_F(BlobStatsTest, RecordDecodingErrors) {
     ASSERT_TRUE(std::strstr(s.getState(), "blob bytes"));
   }
 }
+
 TEST_F(BlobStatsTest, EmptyCollection) {
   BlobStatsVec blob_stats_vec;
 
@@ -126,6 +140,26 @@ TEST_F(BlobStatsTest, NonEmptyCollection) {
                               {456, BlobStats(888888, 98765432)}};
 
   TestEncodeDecode(blob_stats_vec);
+}
+
+TEST_F(BlobStatsTest, CollectionDecodingErrors) {
+  std::string str;
+  BlobStatsVec blob_stats_vec;
+
+  {
+    const Status s = Decode(str, &blob_stats_vec);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), "size"));
+  }
+
+  constexpr uint64_t size = 100;
+  PutVarint64(&str, size);
+
+  {
+    const Status s = Decode(str, &blob_stats_vec);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), "blob file number"));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
