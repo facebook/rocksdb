@@ -18,7 +18,7 @@ template <typename TBlocklike>
 class BlocklikeTraits;
 
 template <>
-class BlocklikeTraits<rocksdb::BlockContents> {
+class BlocklikeTraits<BlockContents> {
  public:
   static BlockContents* Create(BlockContents&& contents,
                                size_t /* read_amp_bytes_per_bit */,

@@ -11,10 +11,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToString{
-    "DataBlock",  "FilterBlock", "FilterMetaBlock", "DeprecatedFilterBlock",
-    "IndexBlock", "OtherBlock",  "WriteBuffer",     "Misc",
-};
+std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToString{{
+    "DataBlock",
+    "FilterBlock",
+    "FilterMetaBlock",
+    "DeprecatedFilterBlock",
+    "IndexBlock",
+    "OtherBlock",
+    "WriteBuffer",
+    "Misc",
+}};
 
 namespace {
 
