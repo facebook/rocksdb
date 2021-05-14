@@ -427,10 +427,8 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories() const {
-    return IntTblPropCollectorFactoryRange(
-        int_tbl_prop_collector_factories_.begin(),
-        int_tbl_prop_collector_factories_.end());
+  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
+    return &int_tbl_prop_collector_factories_;
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
