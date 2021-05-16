@@ -460,7 +460,7 @@ bool BaseDeltaIterator::BaseIsWithinBounds() const {
   if (IsMovingBackward()) {
     const Slice* lower_bound;
     bool lower_bound_equals_base_lower_bound;
-    calc_upper_bound(&lower_bound, &lower_bound_equals_base_lower_bound);
+    calc_lower_bound(&lower_bound, &lower_bound_equals_base_lower_bound);
 
     if (lower_bound != nullptr) {
       return comparator_->Compare(base_iterator_->key(), *lower_bound) >= 0;
