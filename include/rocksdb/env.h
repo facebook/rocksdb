@@ -25,9 +25,9 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/utilities/functor_wrapper.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
-#include "util/functor_wrapper.h"
 
 #ifdef _WIN32
 // Windows API macro interference

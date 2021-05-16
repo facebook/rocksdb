@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <memory>
-#include <utility>
+#include <c++/10/memory>
+#include <c++/10/utility>
 
 namespace ROCKSDB_NAMESPACE {
 
