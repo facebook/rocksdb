@@ -2471,6 +2471,8 @@ TEST_F(WriteBatchWithIndexTest,
 
   ASSERT_OK(iter->status());
 
+  ASSERT_EQ(upper_bound_batch, *iter->upper_bound());
+
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2533,6 +2535,8 @@ TEST_F(WriteBatchWithIndexTest,
 
   ASSERT_OK(iter->status());
 
+  ASSERT_EQ(upper_bound_batch, *iter->upper_bound());
+
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2592,6 +2596,8 @@ TEST_F(WriteBatchWithIndexTest,
       &read_options_batch));
 
   ASSERT_OK(iter->status());
+
+  ASSERT_EQ(upper_bound_batch, *iter->upper_bound());
 
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
@@ -2655,6 +2661,8 @@ TEST_F(WriteBatchWithIndexTest,
 
   ASSERT_OK(iter->status());
 
+  ASSERT_EQ(upper_bound_base, *iter->upper_bound());
+
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2717,6 +2725,8 @@ TEST_F(WriteBatchWithIndexTest,
 
   ASSERT_OK(iter->status());
 
+  ASSERT_EQ(upper_bound_base, *iter->upper_bound());
+
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2776,6 +2786,8 @@ TEST_F(WriteBatchWithIndexTest,
       &read_options_batch));
 
   ASSERT_OK(iter->status());
+
+  ASSERT_EQ(upper_bound_base, *iter->upper_bound());
 
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
