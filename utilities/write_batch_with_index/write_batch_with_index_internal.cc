@@ -108,12 +108,10 @@ void BaseDeltaIterator::SeekToLast() {
   }
 
   // is there an upper bound constraint on delta_iterator_?
-  // TODO(AR) should we use the same upper_bound_ here?
-  if (read_options_ != nullptr &&
-      read_options_->iterate_upper_bound != nullptr) {
+  if (upper_bound != nullptr) {
     // delta iterator does not itself support iterate_upper_bound,
-    // so we have to seek it to before iterate_upper_bound
-    delta_iterator_->Seek(*(read_options_->iterate_upper_bound));
+    // so we have to seek it to before upper_bound
+    delta_iterator_->Seek(*upper_bound);
     if (delta_iterator_->Valid()) {
       delta_iterator_->Prev();  // upper bound should be exclusive!
     } else {
@@ -402,10 +400,12 @@ void BaseDeltaIterator::UpdateCurrent() {
         return;
       }
 
-      if (read_options_ != nullptr &&
-          read_options_->iterate_upper_bound != nullptr) {
-        if (comparator_->Compare(delta_entry.key,
-                                 *(read_options_->iterate_upper_bound)) >= 0) {
+      const Slice* upper_bound;
+      bool upper_bound_equals_base_upper_bound;
+      calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+
+      if (upper_bound != nullptr) {
+        if (comparator_->Compare(delta_entry.key, *upper_bound) >= 0) {
           // out of upper bound -> finished.
           return;
         }
@@ -481,17 +481,26 @@ bool BaseDeltaIterator::BaseIsWithinBounds() const {
 }
 
 bool BaseDeltaIterator::DeltaIsWithinBounds() const {
-  if (read_options_ != nullptr) {
-    if (IsMovingBackward() && read_options_->iterate_lower_bound != nullptr) {
-      return comparator_->Compare(delta_iterator_->Entry().key,
-                                  *(read_options_->iterate_lower_bound)) >= 0;
-    }
+  if (IsMovingBackward()) {
+    const Slice* lower_bound;
+    bool lower_bound_equals_base_lower_bound;
+    calc_lower_bound(&lower_bound, &lower_bound_equals_base_lower_bound);
 
-    if (IsMovingForward() && read_options_->iterate_upper_bound != nullptr) {
-      return comparator_->Compare(delta_iterator_->Entry().key,
-                                  *(read_options_->iterate_upper_bound)) < 0;
+    if (lower_bound != nullptr) {
+      return comparator_->Compare(delta_iterator_->Entry().key, *lower_bound) >= 0;
     }
   }
+
+  if (IsMovingForward()) {
+    const Slice* upper_bound;
+    bool upper_bound_equals_base_upper_bound;
+    calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+
+    if (upper_bound != nullptr) {
+      return comparator_->Compare(delta_iterator_->Entry().key, *upper_bound) < 0;
+    }
+  }
+
   return true;
 }
 
