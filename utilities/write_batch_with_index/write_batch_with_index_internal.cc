@@ -30,44 +30,39 @@ BaseDeltaIterator::BaseDeltaIterator(Iterator* base_iterator,
       base_iterator_(base_iterator),
       delta_iterator_(delta_iterator),
       comparator_(comparator),
-      read_options_(read_options) {
+      read_options_(read_options) {}
 
-  // We have to consider the upper_bound constraint of both
-  // the base_iterator and the read_options provdied
-  // to us. We use the tightest constraint, i.e. the
-  // lower of the two.
+void BaseDeltaIterator::calc_upper_bound(const Slice** out_upper_bound, bool* out_upper_bound_equals_base_upper_bound) const {
   const Slice* base_iterator_upper_bound = base_iterator_->upper_bound();
-  const Slice* read_iterate_upper_bound = read_options == nullptr ? nullptr : read_options->iterate_upper_bound;
-  calc_bound(upper_bound_, upper_bound_equals_base_upper_bound_, base_iterator_upper_bound, read_iterate_upper_bound, [&comparator](const Slice* const base_upper, const Slice* const read_upper){
-    return comparator->Compare(*base_upper, *read_upper) <= 0;
-  });
-
-  // We have to consider the lower_bound constraint of both
-  // the base_iterator and the read_options provdied
-  // to us. We use the tightest constraint, i.e. the
-  // higher of the two.
-  const Slice* base_iterator_lower_bound = base_iterator_->lower_bound();
-  const Slice* read_iterate_lower_bound = read_options == nullptr ? nullptr : read_options->iterate_lower_bound;
-  calc_bound(lower_bound_, lower_bound_equals_base_lower_bound_, base_iterator_lower_bound, read_iterate_lower_bound, [&comparator](const Slice* const base_lower, const Slice* const read_lower){
-    return comparator->Compare(*base_lower, *read_lower) >= 0;
+  const Slice* read_iterate_upper_bound = read_options_ == nullptr ? nullptr : read_options_->iterate_upper_bound;
+  calc_bound(out_upper_bound, out_upper_bound_equals_base_upper_bound, base_iterator_upper_bound, read_iterate_upper_bound, [this](const Slice* base_upper, const Slice* read_upper){
+    return comparator_->Compare(*base_upper, *read_upper) <= 0;
   });
 }
 
-void BaseDeltaIterator::calc_bound(const Slice*& out_bound, bool& out_bound_equals_base_bound, const Slice* const base_iterator_bound, const Slice* const read_iterate_bound,
-    const std::function<bool(const Slice* const, const Slice* const)> use_base_bound) {
+void BaseDeltaIterator::calc_lower_bound(const Slice** out_lower_bound, bool* out_lower_bound_equals_base_lower_bound) const {
+  const Slice* base_iterator_lower_bound = base_iterator_->lower_bound();
+  const Slice* read_iterate_lower_bound = read_options_ == nullptr ? nullptr : read_options_->iterate_lower_bound;
+  calc_bound(out_lower_bound, out_lower_bound_equals_base_lower_bound, base_iterator_lower_bound, read_iterate_lower_bound, [this](const Slice* base_lower, const Slice* read_lower){
+    return comparator_->Compare(*base_lower, *read_lower) >= 0;
+  });
+}
+
+void BaseDeltaIterator::calc_bound(const Slice** out_bound, bool* out_bound_equals_base_bound, const Slice* base_iterator_bound, const Slice* read_iterate_bound,
+    const std::function<bool(const Slice*, const Slice*)> use_base_bound) {
   if (base_iterator_bound == nullptr) {
-    out_bound = read_iterate_bound;
-    out_bound_equals_base_bound = false;
+    *out_bound = read_iterate_bound;
+    *out_bound_equals_base_bound = false;
   } else if (read_iterate_bound == nullptr) {
-    out_bound = base_iterator_bound;
-    out_bound_equals_base_bound = true;
+    *out_bound = base_iterator_bound;
+    *out_bound_equals_base_bound = true;
   } else {
     if (use_base_bound(base_iterator_bound, read_iterate_bound)) {
-      out_bound = base_iterator_bound;
-      out_bound_equals_base_bound = true;
+      *out_bound = base_iterator_bound;
+      *out_bound_equals_base_bound = true;
     } else {
-      out_bound = read_iterate_bound;
-      out_bound_equals_base_bound = false;
+      *out_bound = read_iterate_bound;
+      *out_bound_equals_base_bound = false;
     }
   }
 }
@@ -86,12 +81,16 @@ void BaseDeltaIterator::SeekToFirst() {
 void BaseDeltaIterator::SeekToLast() {
   progress_ = Progress::SEEK_TO_LAST;
 
+  const Slice* upper_bound;
+  bool upper_bound_equals_base_upper_bound;
+  calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+
   // is there an upper bound constraint?
-  if (upper_bound_ != nullptr) {
+  if (upper_bound != nullptr) {
     // yes, and is base_iterator already constrained by the same upper_bound?
-    if (!upper_bound_equals_base_upper_bound_) {
+    if (!upper_bound_equals_base_upper_bound) {
       // no, so we have to seek it to before base_upper_bound
-      base_iterator_->Seek(*upper_bound_);
+      base_iterator_->Seek(*upper_bound);
       if (base_iterator_->Valid()) {
         base_iterator_->Prev();  // upper bound should be exclusive!
       } else {
@@ -267,7 +266,10 @@ const Slice* BaseDeltaIterator::lower_bound() const {
 }
 
 const Slice* BaseDeltaIterator::upper_bound() const {
-  return upper_bound_;
+  const Slice* upper_bound;
+  bool upper_bound_equals_base_upper_bound;
+  calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+  return upper_bound;
 }
 
 void BaseDeltaIterator::Invalidate(Status s) { status_ = s; }
@@ -355,11 +357,15 @@ void BaseDeltaIterator::AdvanceBase() {
 }
 
 bool BaseDeltaIterator::BaseValid() const {
+  const Slice* upper_bound;
+  bool upper_bound_equals_base_upper_bound;
+  calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+
   // NOTE: we don't need the bounds check on
   // base_iterator if the base iterator has an
   // upper_bounds_check already
   return base_iterator_->Valid() &&
-         (upper_bound_equals_base_upper_bound_ ? true : BaseIsWithinBounds());
+         (upper_bound_equals_base_upper_bound ? true : BaseIsWithinBounds());
 }
 
 bool BaseDeltaIterator::DeltaValid() const {
@@ -452,14 +458,22 @@ void BaseDeltaIterator::UpdateCurrent() {
 
 bool BaseDeltaIterator::BaseIsWithinBounds() const {
   if (IsMovingBackward()) {
-    if (lower_bound_ != nullptr) {
-      return comparator_->Compare(base_iterator_->key(), *lower_bound_) >= 0;
+    const Slice* lower_bound;
+    bool lower_bound_equals_base_lower_bound;
+    calc_upper_bound(&lower_bound, &lower_bound_equals_base_lower_bound);
+
+    if (lower_bound != nullptr) {
+      return comparator_->Compare(base_iterator_->key(), *lower_bound) >= 0;
     }
   }
 
   if (IsMovingForward()) {
-    if (upper_bound_ != nullptr) {
-      return comparator_->Compare(base_iterator_->key(), *upper_bound_) < 0;
+      const Slice* upper_bound;
+      bool upper_bound_equals_base_upper_bound;
+      calc_upper_bound(&upper_bound, &upper_bound_equals_base_upper_bound);
+
+    if (upper_bound != nullptr) {
+      return comparator_->Compare(base_iterator_->key(), *upper_bound) < 0;
     }
   }
 

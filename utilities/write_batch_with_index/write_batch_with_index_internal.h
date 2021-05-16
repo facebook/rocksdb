@@ -55,8 +55,43 @@ class BaseDeltaIterator : public Iterator {
   void Invalidate(Status s);
 
  private:
-  static void calc_bound(const Slice*& out_bound, bool& out_bound_equals_base_bound, const Slice* const base_iterator_bound, const Slice* const read_iterate_bound,
-    const std::function<bool(const Slice* const, const Slice* const)> use_base_bound);
+  /**
+    * We have to consider the upper_bound constraint of both
+    * the base_iterator and the read_options provdied
+    * to us. We use the tightest constraint, i.e. the
+    * lower of the two.
+    *
+    * @param out_upper_bound a pointer to receive the upper bound pointer
+    * @param out_upper_bound_equals_base_upper_bound true if the upper bound is equal to the upper bound of the base_iterator
+    */
+  void calc_upper_bound(const Slice** out_upper_bound, bool* out_upper_bound_equals_base_upper_bound) const;
+
+  /**
+    * We have to consider the lower_bound constraint of both
+    * the base_iterator and the read_options provdied
+    * to us. We use the tightest constraint, i.e. the
+    * higher of the two.
+    *
+    * @param out_lower_bound a pointer to receive the lower bound pointer
+    * @param out_lower_bound_equals_base_lower_bound true if the lower is equal to the lower bound of the base iterator
+    */
+  void calc_lower_bound(const Slice** out_lower_bound, bool* out_lower_bound_equals_base_lower_bound) const;
+
+  /**
+    * Calculates a bound constraint by considering
+    * possible bounds of the base_iterator and the read_options
+    *
+    * @param out_bound a pointer to receive the bound pointer
+    * @param out_bound_equals_base_bound true if the bound is equal to the bound of the base iterator
+    *
+    * @param base_iterator_bound the bound of the base_iterator
+    * @param read_iterate_bound the bound of the read_options
+    *
+    * @param use_base_bound a function that compares two bounds, and returns true if the first (the base bound) is the bound that should be used, returns false otherwise
+    */
+  static void calc_bound(const Slice** out_bound, bool* out_bound_equals_base_bound, const Slice* base_iterator_bound, const Slice* read_iterate_bound,
+    const std::function<bool(const Slice*, const Slice*)> use_base_bound);
+
   void AssertInvariants();
   void Advance();
   void AdvanceDelta();
@@ -106,10 +141,6 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<WBWIIterator> delta_iterator_;
   const Comparator* comparator_;  // not owned
   const ReadOptions* read_options_;  // not owned
-  const Slice* lower_bound_;  // not owned
-  bool lower_bound_equals_base_lower_bound_;
-  const Slice* upper_bound_;  // not owned
-  bool upper_bound_equals_base_upper_bound_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
