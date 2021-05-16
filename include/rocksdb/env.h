@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-#include "rocksdb/utilities/functor_wrapper.h"
+#include "rocksdb/functor_wrapper.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -430,7 +430,7 @@ class Env {
   template <typename FunctionT, typename... Args>
   auto WrapStartThread(FunctionT function, Args&&... args) ->
       typename std::enable_if<
-          detail::is_invocable<void, FunctionT, Args...>::value>::type {
+          is_invocable<void, FunctionT, Args...>::value>::type {
     using FWType = FunctorWrapper<Args...>;
     StartThread(
         [](void* arg) {

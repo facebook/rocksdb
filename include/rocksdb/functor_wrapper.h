@@ -5,8 +5,10 @@
 
 #pragma once
 
-#include <c++/10/memory>
-#include <c++/10/utility>
+#include <memory>
+#include <utility>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -42,10 +44,10 @@ struct is_invocable_r
     : std::is_constructible<
           std::function<R(Args...)>,
           std::reference_wrapper<typename std::remove_reference<F>::type>> {};
+}  // namespace detail
 
 template <typename R, typename F, typename... Args>
-using is_invocable = typename is_invocable_r<R, F, Args...>::is_constructible;
-}  // namespace detail
+using is_invocable = typename detail::is_invocable_r<R, F, Args...>::is_constructible;
 
 template <typename... Args>
 class FunctorWrapper {
