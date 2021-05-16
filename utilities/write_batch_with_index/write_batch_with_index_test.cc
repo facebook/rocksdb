@@ -2433,7 +2433,7 @@ TEST_F(WriteBatchWithIndexTest,
  * upper bound than the WBWI Iterator upper bound,
  * then values are only returned upto the lower of
  * the two higher bounds.
- * 
+ *
  * Exercises the Base Iterator as all keys upto the bound will be in the base.
  */
 TEST_F(WriteBatchWithIndexTest,
@@ -2495,7 +2495,7 @@ TEST_F(WriteBatchWithIndexTest,
  * upper bound than the WBWI Iterator upper bound,
  * then values are only returned upto the lower of
  * the two higher bounds.
- * 
+ *
  * Exercises the Delta Iterator as all keys upto the bound will be in the batch.
  */
 TEST_F(WriteBatchWithIndexTest,
@@ -2557,7 +2557,7 @@ TEST_F(WriteBatchWithIndexTest,
  * upper bound than the WBWI Iterator upper bound,
  * then values are only returned upto the lower of
  * the two higher bounds.
- * 
+ *
  * Exercises both Base and Delta Iterators as keys upto the bound will be split between base and batch.
  */
 TEST_F(WriteBatchWithIndexTest,
@@ -2580,6 +2580,190 @@ TEST_F(WriteBatchWithIndexTest,
 
   Slice upper_bound_base("k07");   // higher than that for the batch
   Slice upper_bound_batch("k06");  // lower than that for the base
+
+
+  ReadOptions read_options_base;
+  read_options_base.iterate_upper_bound = &upper_bound_base;
+  ReadOptions read_options_batch;
+  read_options_batch.iterate_upper_bound = &upper_bound_batch;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options_base),
+      &read_options_batch));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  // NOTE: k06 is the upper bound set on the batch
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+/**
+ * Checks that when the Base Iterator has a lower
+ * upper bound than the WBWI Iterator upper bound,
+ * then values are only returned upto the lower of
+ * the two higher bounds.
+ *
+ * Exercises the Base Iterator as all keys upto the bound will be in the base.
+ */
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundLowerOnBaseThanBatchBaseIterator) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+  base["k07"] = "v07";
+  base["k08"] = "v08";
+
+  batch.Put(&cf1, "k09", "v09");
+  batch.Put(&cf1, "k10", "v10");
+  batch.Put(&cf1, "k11", "v11");
+  batch.Put(&cf1, "k12", "v12");
+
+  Slice upper_bound_base("k06");   // lower than that for the batch
+  Slice upper_bound_batch("k07");  // higher than that for the base
+
+
+  ReadOptions read_options_base;
+  read_options_base.iterate_upper_bound = &upper_bound_base;
+  ReadOptions read_options_batch;
+  read_options_batch.iterate_upper_bound = &upper_bound_batch;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options_base),
+      &read_options_batch));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  // NOTE: k06 is the upper bound set on the batch
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+/**
+ * Checks that when the Base Iterator has a lower
+ * upper bound than the WBWI Iterator upper bound,
+ * then values are only returned upto the lower of
+ * the two higher bounds.
+ *
+ * Exercises the Delta Iterator as all keys upto the bound will be in the batch.
+ */
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundLowerOnBaseThanBatchDeltaIterator) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k09"] = "v09";
+  base["k10"] = "v10";
+  base["k11"] = "v11";
+  base["k12"] = "v12";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+  batch.Put(&cf1, "k03", "v03");
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  Slice upper_bound_base("k06");   // lower than that for the batch
+  Slice upper_bound_batch("k07");  // higher than that for the base
+
+
+  ReadOptions read_options_base;
+  read_options_base.iterate_upper_bound = &upper_bound_base;
+  ReadOptions read_options_batch;
+  read_options_batch.iterate_upper_bound = &upper_bound_batch;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options_base),
+      &read_options_batch));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  // NOTE: k06 is the upper bound set on the batch
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+/**
+ * Checks that when the Base Iterator has a lower
+ * upper bound than the WBWI Iterator upper bound,
+ * then values are only returned upto the lower of
+ * the two higher bounds.
+ *
+ * Exercises both Base and Delta Iterators as keys upto the bound will be split between base and batch.
+ */
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundLowerOnBaseThanBatchOverlappingIterators) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k03", "v03");
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  Slice upper_bound_base("k06");   // lower than that for the batch
+  Slice upper_bound_batch("k07");  // higher than that for the base
 
 
   ReadOptions read_options_base;
