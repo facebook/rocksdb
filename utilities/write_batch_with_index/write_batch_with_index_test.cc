@@ -2152,7 +2152,7 @@ TEST_F(WriteBatchWithIndexTest,
   Slice upper_bound_base("k04");
   read_options_base.iterate_upper_bound = &upper_bound_base;
 
-  // upper bound for base
+  // upper bound for batch
   ReadOptions read_options_batch;
   Slice upper_bound_batch("k08");
   read_options_batch.iterate_upper_bound = &upper_bound_batch;
