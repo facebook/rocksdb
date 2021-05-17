@@ -403,9 +403,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as a RateLimiter
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto limiter =
-                reinterpret_cast<std::shared_ptr<RateLimiter>*>(addr);
+             const std::string& value, void* addr) {
+            auto limiter = static_cast<std::shared_ptr<RateLimiter>*>(addr);
             limiter->reset(NewGenericRateLimiter(
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
@@ -416,8 +415,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as an Env
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto old_env = reinterpret_cast<Env**>(addr);  // Get the old value
+             const std::string& value, void* addr) {
+            auto old_env = static_cast<Env**>(addr);       // Get the old value
             Env* new_env = *old_env;                       // Set new to old
             Status s = Env::LoadEnv(value, &new_env);      // Update new value
             if (s.ok()) {                                  // It worked

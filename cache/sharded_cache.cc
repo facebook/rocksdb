@@ -63,9 +63,40 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
       ->Insert(key, hash, value, charge, deleter, handle, priority);
 }
 
+Status ShardedCache::Insert(const Slice& key, void* value,
+                            const CacheItemHelper* helper, size_t charge,
+                            Handle** handle, Priority priority) {
+  uint32_t hash = HashSlice(key);
+  if (!helper) {
+    return Status::InvalidArgument();
+  }
+  return GetShard(Shard(hash))
+      ->Insert(key, hash, value, helper, charge, handle, priority);
+}
+
 Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
   uint32_t hash = HashSlice(key);
   return GetShard(Shard(hash))->Lookup(key, hash);
+}
+
+Cache::Handle* ShardedCache::Lookup(const Slice& key,
+                                    const CacheItemHelper* helper,
+                                    const CreateCallback& create_cb,
+                                    Priority priority, bool wait,
+                                    Statistics* /*stats*/) {
+  uint32_t hash = HashSlice(key);
+  return GetShard(Shard(hash))
+      ->Lookup(key, hash, helper, create_cb, priority, wait);
+}
+
+bool ShardedCache::IsReady(Handle* handle) {
+  uint32_t hash = GetHash(handle);
+  return GetShard(Shard(hash))->IsReady(handle);
+}
+
+void ShardedCache::Wait(Handle* handle) {
+  uint32_t hash = GetHash(handle);
+  GetShard(Shard(hash))->Wait(handle);
 }
 
 bool ShardedCache::Ref(Handle* handle) {
@@ -76,6 +107,11 @@ bool ShardedCache::Ref(Handle* handle) {
 bool ShardedCache::Release(Handle* handle, bool force_erase) {
   uint32_t hash = GetHash(handle);
   return GetShard(Shard(hash))->Release(handle, force_erase);
+}
+
+bool ShardedCache::Release(Handle* handle, bool useful, bool force_erase) {
+  uint32_t hash = GetHash(handle);
+  return GetShard(Shard(hash))->Release(handle, useful, force_erase);
 }
 
 void ShardedCache::Erase(const Slice& key) {

@@ -417,69 +417,66 @@ bool ParseSliceTransform(
   return false;
 }
 
-static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
+static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {
     case OptionType::kBoolean:
-      *reinterpret_cast<bool*>(opt_address) = ParseBoolean("", value);
+      *static_cast<bool*>(opt_address) = ParseBoolean("", value);
       break;
     case OptionType::kInt:
-      *reinterpret_cast<int*>(opt_address) = ParseInt(value);
+      *static_cast<int*>(opt_address) = ParseInt(value);
       break;
     case OptionType::kInt32T:
-      *reinterpret_cast<int32_t*>(opt_address) = ParseInt32(value);
+      *static_cast<int32_t*>(opt_address) = ParseInt32(value);
       break;
     case OptionType::kInt64T:
-      PutUnaligned(reinterpret_cast<int64_t*>(opt_address), ParseInt64(value));
+      PutUnaligned(static_cast<int64_t*>(opt_address), ParseInt64(value));
       break;
     case OptionType::kUInt:
-      *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
+      *static_cast<unsigned int*>(opt_address) = ParseUint32(value);
       break;
     case OptionType::kUInt32T:
-      *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
+      *static_cast<uint32_t*>(opt_address) = ParseUint32(value);
       break;
     case OptionType::kUInt64T:
-      PutUnaligned(reinterpret_cast<uint64_t*>(opt_address), ParseUint64(value));
+      PutUnaligned(static_cast<uint64_t*>(opt_address), ParseUint64(value));
       break;
     case OptionType::kSizeT:
-      PutUnaligned(reinterpret_cast<size_t*>(opt_address), ParseSizeT(value));
+      PutUnaligned(static_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
     case OptionType::kString:
-      *reinterpret_cast<std::string*>(opt_address) = value;
+      *static_cast<std::string*>(opt_address) = value;
       break;
     case OptionType::kDouble:
-      *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
+      *static_cast<double*>(opt_address) = ParseDouble(value);
       break;
     case OptionType::kCompactionStyle:
       return ParseEnum<CompactionStyle>(
           compaction_style_string_map, value,
-          reinterpret_cast<CompactionStyle*>(opt_address));
+          static_cast<CompactionStyle*>(opt_address));
     case OptionType::kCompactionPri:
-      return ParseEnum<CompactionPri>(
-          compaction_pri_string_map, value,
-          reinterpret_cast<CompactionPri*>(opt_address));
+      return ParseEnum<CompactionPri>(compaction_pri_string_map, value,
+                                      static_cast<CompactionPri*>(opt_address));
     case OptionType::kCompressionType:
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
-          reinterpret_cast<CompressionType*>(opt_address));
+          static_cast<CompressionType*>(opt_address));
     case OptionType::kSliceTransform:
       return ParseSliceTransform(
-          value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
-                     opt_address));
+          value,
+          static_cast<std::shared_ptr<const SliceTransform>*>(opt_address));
     case OptionType::kChecksumType:
-      return ParseEnum<ChecksumType>(
-          checksum_type_string_map, value,
-          reinterpret_cast<ChecksumType*>(opt_address));
+      return ParseEnum<ChecksumType>(checksum_type_string_map, value,
+                                     static_cast<ChecksumType*>(opt_address));
     case OptionType::kEncodingType:
-      return ParseEnum<EncodingType>(
-          encoding_type_string_map, value,
-          reinterpret_cast<EncodingType*>(opt_address));
+      return ParseEnum<EncodingType>(encoding_type_string_map, value,
+                                     static_cast<EncodingType*>(opt_address));
     case OptionType::kCompactionStopStyle:
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
-          reinterpret_cast<CompactionStopStyle*>(opt_address));
+          static_cast<CompactionStopStyle*>(opt_address));
     case OptionType::kEncodedString: {
-      std::string* output_addr = reinterpret_cast<std::string*>(opt_address);
+      std::string* output_addr = static_cast<std::string*>(opt_address);
       (Slice(value)).DecodeHex(output_addr);
       break;
     }
@@ -489,70 +486,69 @@ static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
   return true;
 }
 
-bool SerializeSingleOptionHelper(const char* opt_address,
+bool SerializeSingleOptionHelper(const void* opt_address,
                                  const OptionType opt_type,
                                  std::string* value) {
-
   assert(value);
   switch (opt_type) {
     case OptionType::kBoolean:
-      *value = *(reinterpret_cast<const bool*>(opt_address)) ? "true" : "false";
+      *value = *(static_cast<const bool*>(opt_address)) ? "true" : "false";
       break;
     case OptionType::kInt:
-      *value = ToString(*(reinterpret_cast<const int*>(opt_address)));
+      *value = ToString(*(static_cast<const int*>(opt_address)));
       break;
     case OptionType::kInt32T:
-      *value = ToString(*(reinterpret_cast<const int32_t*>(opt_address)));
+      *value = ToString(*(static_cast<const int32_t*>(opt_address)));
       break;
     case OptionType::kInt64T:
       {
         int64_t v;
-        GetUnaligned(reinterpret_cast<const int64_t*>(opt_address), &v);
+        GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
         *value = ToString(v);
       }
       break;
     case OptionType::kUInt:
-      *value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
+      *value = ToString(*(static_cast<const unsigned int*>(opt_address)));
       break;
     case OptionType::kUInt32T:
-      *value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
+      *value = ToString(*(static_cast<const uint32_t*>(opt_address)));
       break;
     case OptionType::kUInt64T:
       {
         uint64_t v;
-        GetUnaligned(reinterpret_cast<const uint64_t*>(opt_address), &v);
+        GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
         *value = ToString(v);
       }
       break;
     case OptionType::kSizeT:
       {
         size_t v;
-        GetUnaligned(reinterpret_cast<const size_t*>(opt_address), &v);
+        GetUnaligned(static_cast<const size_t*>(opt_address), &v);
         *value = ToString(v);
       }
       break;
     case OptionType::kDouble:
-      *value = ToString(*(reinterpret_cast<const double*>(opt_address)));
+      *value = ToString(*(static_cast<const double*>(opt_address)));
       break;
     case OptionType::kString:
-      *value = EscapeOptionString(
-          *(reinterpret_cast<const std::string*>(opt_address)));
+      *value =
+          EscapeOptionString(*(static_cast<const std::string*>(opt_address)));
       break;
     case OptionType::kCompactionStyle:
       return SerializeEnum<CompactionStyle>(
           compaction_style_string_map,
-          *(reinterpret_cast<const CompactionStyle*>(opt_address)), value);
+          *(static_cast<const CompactionStyle*>(opt_address)), value);
     case OptionType::kCompactionPri:
       return SerializeEnum<CompactionPri>(
           compaction_pri_string_map,
-          *(reinterpret_cast<const CompactionPri*>(opt_address)), value);
+          *(static_cast<const CompactionPri*>(opt_address)), value);
     case OptionType::kCompressionType:
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
-          *(reinterpret_cast<const CompressionType*>(opt_address)), value);
+          *(static_cast<const CompressionType*>(opt_address)), value);
     case OptionType::kSliceTransform: {
       const auto* slice_transform_ptr =
-          reinterpret_cast<const std::shared_ptr<const SliceTransform>*>(
+          static_cast<const std::shared_ptr<const SliceTransform>*>(
               opt_address);
       *value = slice_transform_ptr->get() ? slice_transform_ptr->get()->Name()
                                           : kNullptrString;
@@ -560,7 +556,7 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     }
     case OptionType::kComparator: {
       // it's a const pointer of const Comparator*
-      const auto* ptr = reinterpret_cast<const Comparator* const*>(opt_address);
+      const auto* ptr = static_cast<const Comparator* const*>(opt_address);
       // Since the user-specified comparator will be wrapped by
       // InternalKeyComparator, we should persist the user-specified one
       // instead of InternalKeyComparator.
@@ -578,43 +574,42 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kCompactionFilter: {
       // it's a const pointer of const CompactionFilter*
       const auto* ptr =
-          reinterpret_cast<const CompactionFilter* const*>(opt_address);
+          static_cast<const CompactionFilter* const*>(opt_address);
       *value = *ptr ? (*ptr)->Name() : kNullptrString;
       break;
     }
     case OptionType::kCompactionFilterFactory: {
       const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<CompactionFilterFactory>*>(
+          static_cast<const std::shared_ptr<CompactionFilterFactory>*>(
               opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kMemTableRepFactory: {
       const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<MemTableRepFactory>*>(
-              opt_address);
+          static_cast<const std::shared_ptr<MemTableRepFactory>*>(opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kMergeOperator: {
       const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<MergeOperator>*>(opt_address);
+          static_cast<const std::shared_ptr<MergeOperator>*>(opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kFilterPolicy: {
       const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
+          static_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
-          *reinterpret_cast<const ChecksumType*>(opt_address), value);
+          *static_cast<const ChecksumType*>(opt_address), value);
     case OptionType::kFlushBlockPolicyFactory: {
       const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
+          static_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
               opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
@@ -622,13 +617,13 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kEncodingType:
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
-          *reinterpret_cast<const EncodingType*>(opt_address), value);
+          *static_cast<const EncodingType*>(opt_address), value);
     case OptionType::kCompactionStopStyle:
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
-          *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
+          *static_cast<const CompactionStopStyle*>(opt_address), value);
     case OptionType::kEncodedString: {
-      const auto* ptr = reinterpret_cast<const std::string*>(opt_address);
+      const auto* ptr = static_cast<const std::string*>(opt_address);
       *value = (Slice(*ptr)).ToString(true);
       break;
     }
@@ -980,7 +975,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
     return Status::OK();
   }
   try {
-    char* opt_addr = reinterpret_cast<char*>(opt_ptr) + offset_;
+    void* opt_addr = static_cast<char*>(opt_ptr) + offset_;
     const std::string& opt_value = config_options.input_strings_escaped
                                        ? UnescapeOptionString(value)
                                        : value;
@@ -1061,7 +1056,7 @@ Status OptionTypeInfo::ParseType(
 Status OptionTypeInfo::ParseStruct(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
-    const std::string& opt_name, const std::string& opt_value, char* opt_addr) {
+    const std::string& opt_name, const std::string& opt_value, void* opt_addr) {
   assert(struct_map);
   Status status;
   if (opt_name == struct_name || EndsWith(opt_name, "." + struct_name)) {
@@ -1103,7 +1098,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
                                  std::string* opt_value) const {
   // If the option is no longer used in rocksdb and marked as deprecated,
   // we skip it in the serialization.
-  const char* opt_addr = reinterpret_cast<const char*>(opt_ptr) + offset_;
+  const void* opt_addr = static_cast<const char*>(opt_ptr) + offset_;
   if (opt_addr == nullptr || IsDeprecated()) {
     return Status::OK();
   } else if (IsEnabled(OptionTypeFlags::kDontSerialize)) {
@@ -1162,7 +1157,7 @@ Status OptionTypeInfo::SerializeType(
 Status OptionTypeInfo::SerializeStruct(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
-    const std::string& opt_name, const char* opt_addr, std::string* value) {
+    const std::string& opt_name, const void* opt_addr, std::string* value) {
   assert(struct_map);
   Status status;
   if (EndsWith(opt_name, struct_name)) {
@@ -1204,17 +1199,16 @@ Status OptionTypeInfo::SerializeStruct(
 }
 
 template <typename T>
-bool IsOptionEqual(const char* offset1, const char* offset2) {
-  return (*reinterpret_cast<const T*>(offset1) ==
-          *reinterpret_cast<const T*>(offset2));
+bool IsOptionEqual(const void* offset1, const void* offset2) {
+  return (*static_cast<const T*>(offset1) == *static_cast<const T*>(offset2));
 }
 
 static bool AreEqualDoubles(const double a, const double b) {
   return (fabs(a - b) < 0.00001);
 }
 
-static bool AreOptionsEqual(OptionType type, const char* this_offset,
-                            const char* that_offset) {
+static bool AreOptionsEqual(OptionType type, const void* this_offset,
+                            const void* that_offset) {
   switch (type) {
     case OptionType::kBoolean:
       return IsOptionEqual<bool>(this_offset, that_offset);
@@ -1226,29 +1220,29 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
       return IsOptionEqual<int32_t>(this_offset, that_offset);
     case OptionType::kInt64T: {
       int64_t v1, v2;
-      GetUnaligned(reinterpret_cast<const int64_t*>(this_offset), &v1);
-      GetUnaligned(reinterpret_cast<const int64_t*>(that_offset), &v2);
+      GetUnaligned(static_cast<const int64_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
     case OptionType::kUInt32T:
       return IsOptionEqual<uint32_t>(this_offset, that_offset);
     case OptionType::kUInt64T: {
       uint64_t v1, v2;
-      GetUnaligned(reinterpret_cast<const uint64_t*>(this_offset), &v1);
-      GetUnaligned(reinterpret_cast<const uint64_t*>(that_offset), &v2);
+      GetUnaligned(static_cast<const uint64_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const uint64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
     case OptionType::kSizeT: {
       size_t v1, v2;
-      GetUnaligned(reinterpret_cast<const size_t*>(this_offset), &v1);
-      GetUnaligned(reinterpret_cast<const size_t*>(that_offset), &v2);
+      GetUnaligned(static_cast<const size_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);
     }
     case OptionType::kString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kDouble:
-      return AreEqualDoubles(*reinterpret_cast<const double*>(this_offset),
-                             *reinterpret_cast<const double*>(that_offset));
+      return AreEqualDoubles(*static_cast<const double*>(this_offset),
+                             *static_cast<const double*>(that_offset));
     case OptionType::kCompactionStyle:
       return IsOptionEqual<CompactionStyle>(this_offset, that_offset);
     case OptionType::kCompactionStopStyle:
@@ -1277,8 +1271,8 @@ bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,
   if (!config_options.IsCheckEnabled(level)) {
     return true;  // If the sanity level is not being checked, skip it
   }
-  const auto this_addr = reinterpret_cast<const char*>(this_ptr) + offset_;
-  const auto that_addr = reinterpret_cast<const char*>(that_ptr) + offset_;
+  const void* this_addr = static_cast<const char*>(this_ptr) + offset_;
+  const void* that_addr = static_cast<const char*>(that_ptr) + offset_;
   if (this_addr == nullptr || that_addr == nullptr) {
     if (this_addr == that_addr) {
       return true;
@@ -1335,7 +1329,7 @@ bool OptionTypeInfo::TypesAreEqual(
 bool OptionTypeInfo::StructsAreEqual(
     const ConfigOptions& config_options, const std::string& struct_name,
     const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
-    const std::string& opt_name, const char* this_addr, const char* that_addr,
+    const std::string& opt_name, const void* this_addr, const void* that_addr,
     std::string* mismatch) {
   assert(struct_map);
   bool matches = true;
