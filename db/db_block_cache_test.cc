@@ -151,6 +151,7 @@ class DBBlockCacheTest : public DBTestBase {
     compressed_failure_count_ = new_failure_count;
   }
 
+#ifndef ROCKSDB_LITE
   const std::array<size_t, kNumCacheEntryRoles>& GetCacheEntryRoleCounts() {
     // Verify in cache entry role stats
     ColumnFamilyHandleImpl* cfh =
@@ -158,6 +159,7 @@ class DBBlockCacheTest : public DBTestBase {
     InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
     return internal_stats_ptr->TEST_GetCacheEntryRoleStats().entry_counts;
   }
+#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
