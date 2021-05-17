@@ -416,13 +416,18 @@ void CompactionJob::Prepare() {
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
   // Generate file_levels_ for compaction before making Iterator
-  auto* c = compact_->compaction;
-  assert(c->column_family_data() != nullptr);
-  assert(c->column_family_data()->current()->storage_info()->NumLevelFiles(
-             compact_->compaction->level()) > 0);
+  Compaction* const c = compact_->compaction;
+  assert(c);
 
-  write_hint_ =
-      c->column_family_data()->CalculateSSTWriteHint(c->output_level());
+  ColumnFamilyData* const cfd = c->column_family_data();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  assert(current->storage_info()->NumLevelFiles(c->level()) > 0);
+
+  write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
