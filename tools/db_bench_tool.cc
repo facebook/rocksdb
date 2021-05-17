@@ -889,6 +889,8 @@ DEFINE_bool(fifo_compaction_allow_compaction, true,
 
 DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 
+DEFINE_uint64(fifo_age_for_warm, 0, "age_for_warm for FIFO compaction.");
+
 // Stacked BlobDB Options
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
@@ -3964,6 +3966,7 @@ class Benchmark {
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
         FLAGS_fifo_compaction_allow_compaction);
+    options.compaction_options_fifo.age_for_warm = FLAGS_fifo_age_for_warm;
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
