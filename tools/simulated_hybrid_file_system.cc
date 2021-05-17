@@ -7,6 +7,7 @@
 
 #include "tools/simulated_hybrid_file_system.h"
 
+#include <algorithm>
 #include <sstream>
 #include <string>
 
