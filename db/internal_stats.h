@@ -461,7 +461,10 @@ class InternalStats {
 
   const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats() {
     bool success = CollectCacheEntryStats();
-    assert(success);
+    if (!success) {
+      assert(false);
+      cache_entry_stats.Clear();
+    }
     return cache_entry_stats;
   }
 

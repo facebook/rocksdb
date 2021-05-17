@@ -531,7 +531,7 @@ bool InternalStats::CollectCacheEntryStats() {
     std::shared_ptr<Collector> collector;
     Status s = Collector::GetShared(block_cache, clock_, &collector);
     if (s.ok()) {
-      collector->GetStats(&cache_entry_stats);  // IAMHERE
+      collector->GetStats(&cache_entry_stats);
       return true;
     } else {
       // Block cache likely under pressure. Scanning could make it worse,
