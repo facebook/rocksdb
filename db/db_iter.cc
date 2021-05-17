@@ -1377,20 +1377,18 @@ void DBIter::SeekForPrev(const Slice& target) {
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
-    Slice lower_bound, upper_bound;
+    Slice lower, upper;
     if (iterate_lower_bound_ != nullptr) {
-      lower_bound = *iterate_lower_bound_;
+      lower = *iterate_lower_bound_;
     } else {
-      lower_bound = Slice("");
+      lower = Slice("");
     }
     if (iterate_upper_bound_ != nullptr) {
-      upper_bound = *iterate_upper_bound_;
+      upper = *iterate_upper_bound_;
     } else {
-      upper_bound = Slice("");
+      upper = Slice("");
     }
-    db_impl_
-        ->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower_bound,
-                                   upper_bound)
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower, upper)
         .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE

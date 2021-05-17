@@ -3,12 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <utility>
-
 #include "db/db_iter.h"
+
+#include <algorithm>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
@@ -19,6 +20,7 @@
 #include "table/merging_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/bounded_iterator.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -672,6 +674,140 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "c");
     ASSERT_EQ(db_iter->value().ToString(), "val_c");
+  }
+}
+
+static void CheckIterValue(Iterator* iter, bool valid, const std::string& key) {
+  ASSERT_EQ(valid, iter->Valid());
+  if (valid) {
+    ASSERT_EQ(iter->key().ToString(), key);
+    ASSERT_EQ(iter->value().ToString(), key);
+  }
+}
+
+TEST_F(DBIteratorTest, BoundedIterator) {
+  Options options;
+  ImmutableOptions cf_options = ImmutableOptions(options);
+  MutableCFOptions mutable_cf_options = MutableCFOptions(options);
+  const Comparator* comparator = BytewiseComparator();
+
+  // 0 means no upper bounds
+  // 1 means bounds in BoundedIterator but not read options
+  // 2 means bounds in read options and not BoundedIterator
+  // 3 means same bounds in both ReadOptions+ BoundedIterator
+  // 4 means bounds in ReadOptions < BoundedIterator
+  // 5 means bounds in ReadOptions > BoundedIterator
+  for (int l = 0; l < 6; l++) {
+    for (int u = 0; u < 6; u++) {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("c", "c");
+      internal_iter->AddPut("e", "e");
+      internal_iter->AddPut("f", "f");
+      internal_iter->AddPut("h", "h");
+      internal_iter->AddPut("i", "i");
+      internal_iter->AddPut("k", "k");
+      internal_iter->AddPut("l", "l");
+      internal_iter->AddPut("n", "n");
+      internal_iter->Finish();
+
+      ReadOptions ro;
+      Slice ek("e");
+      Slice fk("f");
+      Slice kk("k");
+      Slice lk("l");
+
+      Slice* lower_bound = nullptr;
+      Slice* upper_bound = nullptr;
+      switch (l) {
+        case 0:  // No lower bound
+          break;
+        case 1:  // Lower bound in read options
+          ro.iterate_lower_bound = &fk;
+          break;
+        case 2:  // Lower bound in iterator
+          lower_bound = &fk;
+          break;
+        case 3:  // Same lower bound in both
+          lower_bound = &fk;
+          ro.iterate_lower_bound = &fk;
+          break;
+        case 4:
+          lower_bound = &fk;
+          ro.iterate_lower_bound = &ek;
+        case 5:
+          lower_bound = &ek;
+          ro.iterate_lower_bound = &fk;
+      }
+      switch (u) {
+        case 0:  // No upper bound
+          break;
+        case 1:  // Upper bound in read options
+          ro.iterate_upper_bound = &kk;
+          break;
+        case 2:  // Upper bound in iterator
+          upper_bound = &kk;
+          break;
+        case 3:  // Same upper bound in both
+          upper_bound = &kk;
+          ro.iterate_upper_bound = &kk;
+          break;
+        case 4:
+          upper_bound = &lk;
+          ro.iterate_upper_bound = &kk;
+        case 5:
+          upper_bound = &kk;
+          ro.iterate_upper_bound = &kk;
+      }
+
+      std::unique_ptr<Iterator> bounded_iter(BoundedIterator::Create(
+          NewDBIterator(env_, ro, cf_options, mutable_cf_options, comparator,
+                        internal_iter, nullptr /* version */, 10 /* sequence */,
+                        options.max_sequential_skip_in_iterations,
+                        nullptr /* read_callback */),
+          comparator, lower_bound, upper_bound));
+
+      bounded_iter->SeekToLast();
+      CheckIterValue(bounded_iter.get(), true, (u == 0) ? "n" : "i");
+
+      bounded_iter->Prev();
+      CheckIterValue(bounded_iter.get(), true, (u == 0) ? "l" : "h");
+
+      bounded_iter->Next();
+      CheckIterValue(bounded_iter.get(), true, (u == 0) ? "n" : "i");
+
+      bounded_iter->Next();
+      CheckIterValue(bounded_iter.get(), false, "");
+
+      bounded_iter->SeekToFirst();
+      CheckIterValue(bounded_iter.get(), true, (l == 0) ? "c" : "f");
+
+      bounded_iter->Next();
+      CheckIterValue(bounded_iter.get(), true, (l == 0) ? "e" : "h");
+
+      bounded_iter->Prev();
+      CheckIterValue(bounded_iter.get(), true, (l == 0) ? "c" : "f");
+
+      bounded_iter->Prev();
+      CheckIterValue(bounded_iter.get(), false, "");
+
+      bounded_iter->Seek("h");
+      CheckIterValue(bounded_iter.get(), true, "h");
+
+      bounded_iter->Seek("c");
+      CheckIterValue(bounded_iter.get(), true, (l == 0) ? "c" : "f");
+
+      bounded_iter->Seek("n");
+      CheckIterValue(bounded_iter.get(), (u == 0), "n");
+
+      bounded_iter->SeekForPrev("k");
+      CheckIterValue(bounded_iter.get(), true, (u == 0) ? "k" : "i");
+
+      bounded_iter->SeekForPrev("n");
+      CheckIterValue(bounded_iter.get(), true, (u == 0) ? "n" : "i");
+
+      bounded_iter->SeekForPrev("c");
+      CheckIterValue(bounded_iter.get(), (l == 0), "c");
+    }
   }
 }
 

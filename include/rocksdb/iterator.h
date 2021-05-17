@@ -115,6 +115,26 @@ class Iterator : public Cleanable {
     assert(false);
     return Slice();
   }
+
+  /**
+   * Returns the lower bound if this iterator has a
+   * ReadOptions::iterate_lower_bound set, else
+   * returns nullptr.
+   *
+   * If a lower bound is present, it should be assumed
+   * that the iterator adheres to it.
+   */
+  virtual const Slice* lower_bound() const = 0;
+
+  /**
+   * Returns the upper bound if this iterator has a
+   * ReadOptions::iterate_upper_bound set, else
+   * returns nullptr.
+   *
+   * If an upper bound is present, it should be assumed
+   * that the iterator adheres to it.
+   */
+  virtual const Slice* upper_bound() const = 0;
 };
 
 // Return an empty iterator (yields nothing).

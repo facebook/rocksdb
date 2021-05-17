@@ -69,6 +69,8 @@ class ArenaWrappedDBIter : public Iterator {
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
+  const Slice* lower_bound() const override { return db_iter_->lower_bound(); }
+  const Slice* upper_bound() const override { return db_iter_->upper_bound(); }
   Status Refresh() override;
 
   void Init(Env* env, const ReadOptions& read_options,
