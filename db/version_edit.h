@@ -81,14 +81,14 @@ enum NewFileCustomTag : uint32_t {
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
+  kTemperature = 9,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
   kCustomTagNonSafeIgnoreMask = 1 << 6,
 
   // Forward incompatible (aka unignorable) fields
-  kPathId = (1 << 6) | 1,
-  kTemperature = (1 << 6) | 2,
+  kPathId,
 };
 
 class VersionSet;
