@@ -459,6 +459,12 @@ class InternalStats {
     return comp_stats_;
   }
 
+  const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats() {
+    bool success = CollectCacheEntryStats();
+    assert(success);
+    return cache_entry_stats;
+  }
+
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
   static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
