@@ -137,12 +137,20 @@ TEST(CRC, Mask) {
   ASSERT_EQ(crc, Unmask(Unmask(Mask(Mask(crc)))));
 }
 
-TEST(CRC, Crc32cCombineTest) {
+TEST(CRC, Crc32cCombineTest1) {
   uint32_t crc1 = Value("hello ", 6);
   uint32_t crc2 = Value("world", 5);
   uint32_t crc3 = Value("hello world", 11);
   uint32_t crc1_2_combine = Crc32cCombine(crc1, crc2, 5);
   ASSERT_EQ(crc3, crc1_2_combine);
+}
+
+TEST(CRC, Crc32cCombineTest2) {
+  uint32_t crc1 = Value("hello ", 6);
+  uint32_t crc2 = Value("world", 5);
+  uint32_t crc3 = Value("hello world", 11);
+  uint32_t crc1_2_combine = Crc32cCombine(crc2, crc1, 6);
+  ASSERT_NE(crc3, crc1_2_combine);
 }
 
 }  // namespace crc32c
