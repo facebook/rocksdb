@@ -289,10 +289,10 @@ jobs:
   build-linux-cmake-no_test_run:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: large
+    resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j8) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=0 -DWITH_TESTS=1 .. && make V=1 -j32 && ctest -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity:
