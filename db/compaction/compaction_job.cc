@@ -1689,8 +1689,9 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   // Pass temperature of botommost files to FileSystem.
   FileOptions fo_copy = file_options_;
+  Temperature temperature = Temperature::kUnknown;
   if (bottommost_level_) {
-    fo_copy.temperature =
+    fo_copy.temperature = temperature =
         sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
   }
 
@@ -1742,6 +1743,7 @@ Status CompactionJob::OpenCompactionOutputFile(
                              sub_compact->compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
+    meta.temperature = temperature;
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),
         /*enable_order_check=*/
