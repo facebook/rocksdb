@@ -428,13 +428,11 @@ class Env {
   // Start a new thread, invoking "function(args...)" within the new thread.
   // When "function(args...)" returns, the thread will be destroyed.
   template <typename FunctionT, typename... Args>
-  auto WrapStartThread(FunctionT function, Args&&... args) ->
-      typename std::enable_if<
-          is_invocable<void, FunctionT, Args...>::value>::type {
+  void StartThreadTyped(FunctionT function, Args&&... args) {
     using FWType = FunctorWrapper<Args...>;
     StartThread(
         [](void* arg) {
-          auto* functor = reinterpret_cast<FWType*>(arg);
+          auto* functor = static_cast<FWType*>(arg);
           functor->invoke();
           delete functor;
         },

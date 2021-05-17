@@ -144,7 +144,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   for (int iter = 0; iter < 1024; ++iter) {
     ASSERT_EQ(IDChecker::PeekId(), base_id);
     // Another new thread, read/write should not see value from previous thread
-    env_->WrapStartThread(func, &p);
+    env_->StartThreadTyped(func, &p);
 
     mu.Lock();
     while (p.completed != iter + 1) {
@@ -220,10 +220,10 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
   // Each thread local copy of the value are also different from each
   // other.
   for (int th = 0; th < p1.total; ++th) {
-    env_->WrapStartThread(func, &p1);
+    env_->StartThreadTyped(func, &p1);
   }
   for (int th = 0; th < p2.total; ++th) {
-    env_->WrapStartThread(func, &p2);
+    env_->StartThreadTyped(func, &p2);
   }
 
   mu1.Lock();
@@ -251,7 +251,7 @@ TEST_F(ThreadLocalTest, Unref) {
 
   // Case 0: no unref triggered if ThreadLocalPtr is never accessed
   auto func0 = [](Params* ptr) {
-    auto &p = *ptr;
+    auto& p = *ptr;
     p.mu->Lock();
     ++(p.started);
     p.cv->SignalAll();
@@ -268,7 +268,7 @@ TEST_F(ThreadLocalTest, Unref) {
     Params p(&mu, &cv, &unref_count, th, unref);
 
     for (int i = 0; i < p.total; ++i) {
-      env_->WrapStartThread(func0, &p);
+      env_->StartThreadTyped(func0, &p);
     }
     env_->WaitForJoin();
     ASSERT_EQ(unref_count, 0);
@@ -305,7 +305,7 @@ TEST_F(ThreadLocalTest, Unref) {
     p.tls2 = &tls2;
 
     for (int i = 0; i < p.total; ++i) {
-      env_->WrapStartThread(func1, &p);
+      env_->StartThreadTyped(func1, &p);
     }
 
     env_->WaitForJoin();
@@ -354,7 +354,7 @@ TEST_F(ThreadLocalTest, Unref) {
     p.tls2 = new ThreadLocalPtr(unref);
 
     for (int i = 0; i < p.total; ++i) {
-      env_->WrapStartThread(func2, &p);
+      env_->StartThreadTyped(func2, &p);
     }
 
     // Wait for all threads to finish using Params
@@ -429,7 +429,7 @@ TEST_F(ThreadLocalTest, Scrape) {
     p.tls2 = new ThreadLocalPtr(unref);
 
     for (int i = 0; i < p.total; ++i) {
-      env_->WrapStartThread(func, &p);
+      env_->StartThreadTyped(func, &p);
     }
 
     // Wait for all threads to finish using Params

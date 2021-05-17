@@ -38,16 +38,7 @@ void call(Function f, Tuple t) {
   static constexpr auto size = std::tuple_size<Tuple>::value;
   call(f, t, make_index_sequence<size>{});
 }
-
-template <typename R, typename F, typename... Args>
-struct is_invocable_r
-    : std::is_constructible<
-          std::function<R(Args...)>,
-          std::reference_wrapper<typename std::remove_reference<F>::type>> {};
 }  // namespace detail
-
-template <typename R, typename F, typename... Args>
-using is_invocable = typename detail::is_invocable_r<R, F, Args...>::is_constructible;
 
 template <typename... Args>
 class FunctorWrapper {
