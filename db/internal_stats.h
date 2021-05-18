@@ -10,8 +10,6 @@
 
 #pragma once
 
-#include <bits/stdint-uintn.h>
-
 #include <map>
 #include <memory>
 #include <string>
