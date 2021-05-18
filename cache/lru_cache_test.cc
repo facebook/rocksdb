@@ -8,8 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "db/db_test_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/io_status.h"
+#include "rocksdb/sst_file_manager.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -289,6 +294,12 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_lookups_;
 };
 
+class DBSecondaryCacheTest : public DBTestBase {
+ public:
+  DBSecondaryCacheTest()
+      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {}
+};
+
 class LRUSecondaryCacheTest : public LRUCacheTest {
  public:
   LRUSecondaryCacheTest() : fail_create_(false) {}
@@ -547,6 +558,61 @@ TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
   cache.reset();
   secondary_cache.reset();
 }
+
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+  // After compaction, a iterator is created to test if the file is correct, so
+  // one block read is triggered. Since there is no data in the block cache,
+  // block cache Lookup will also check the tiered cache and trigger one read.
+  // No insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // The first data block is not in the cache, similarly, trigger the block
+  // cache Lookup and tiered cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1000, v.size());
+  // The second data block is not in the cache, similarly, trigger the block
+  // cache Lookup and tiered cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the tiered
+  // cache. At the same time, second data block is evicted and triggers the
+  // tiered cache insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  Destroy(options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

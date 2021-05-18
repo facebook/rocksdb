@@ -354,8 +354,11 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
 
 Cache::Handle* BlockBasedTable::GetEntryFromCache(
     Cache* block_cache, const Slice& key, BlockType block_type,
-    GetContext* get_context) const {
-  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.stats);
+    GetContext* get_context, const Cache::CacheItemHelper* cache_helper,
+    const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
+  auto cache_handle =
+      block_cache->Lookup(key, cache_helper, create_cb, priority, true,
+                          rep_->ioptions.statistics.get());
 
   if (cache_handle != nullptr) {
     UpdateCacheHitMetrics(block_type, get_context,
@@ -1107,15 +1110,29 @@ Status BlockBasedTable::GetDataBlockFromCache(
           : 0;
   assert(block);
   assert(block->IsEmpty());
+  const Cache::Priority priority =
+      rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
+              (block_type == BlockType::kFilter ||
+               block_type == BlockType::kCompressionDictionary ||
+               block_type == BlockType::kIndex)
+          ? Cache::Priority::HIGH
+          : Cache::Priority::LOW;
 
   Status s;
   BlockContents* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
+  Statistics* statistics = rep_->ioptions.statistics.get();
+  bool using_zstd = rep_->blocks_definitely_zstd_compressed;
+  const FilterPolicy* filter_policy = rep_->filter_policy;
+  Cache::CreateCallback create_cb =
+      GetCreateCallback(read_amp_bytes_per_bit, statistics, using_zstd,
+                        filter_policy, *block->GetValue());
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
-    auto cache_handle = GetEntryFromCache(block_cache, block_cache_key,
-                                          block_type, get_context);
+    auto cache_handle = GetEntryFromCache(
+        block_cache, block_cache_key, block_type, get_context,
+        &BlocklikeTraits<TBlocklike>::cache_helper_, create_cb, priority);
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
@@ -1132,10 +1149,13 @@ Status BlockBasedTable::GetDataBlockFromCache(
   }
 
   assert(!compressed_block_cache_key.empty());
-  block_cache_compressed_handle =
-      block_cache_compressed->Lookup(compressed_block_cache_key);
-
-  Statistics* statistics = rep_->ioptions.stats;
+  BlockContents contents;
+  Cache::CreateCallback create_cb_special = GetCreateCallback(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy, contents);
+  block_cache_compressed_handle = block_cache_compressed->Lookup(
+      compressed_block_cache_key,
+      &BlocklikeTraits<BlockContents>::cache_helper_, create_cb_special,
+      priority, true);
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1152,7 +1172,6 @@ Status BlockBasedTable::GetDataBlockFromCache(
   assert(compression_type != kNoCompression);
 
   // Retrieve the uncompressed contents into a new buffer
-  BlockContents contents;
   UncompressionContext context(compression_type);
   UncompressionInfo info(context, uncompression_dict, compression_type);
   s = UncompressBlockContents(
@@ -1160,7 +1179,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
       &contents, rep_->table_options.format_version, rep_->ioptions,
       GetMemoryAllocator(rep_->table_options));
 
-  // Insert uncompressed block into block cache
+  // Insert uncompressed block into block cache, the priority is based on the
+  // data block type.
   if (s.ok()) {
     std::unique_ptr<TBlocklike> block_holder(
         BlocklikeTraits<TBlocklike>::Create(
