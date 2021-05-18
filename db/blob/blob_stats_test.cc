@@ -72,7 +72,7 @@ class BlobStatsTest : public testing::Test {
 };
 
 TEST_F(BlobStatsTest, EmptyRecord) {
-  const BlobStatsRecord record;
+  BlobStatsRecord record;
 
   ASSERT_EQ(record.GetBlobFileNumber(), kInvalidBlobFileNumber);
   ASSERT_EQ(record.GetCount(), 0);
