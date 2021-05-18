@@ -270,7 +270,7 @@ class Compaction {
   // this compaction.
   //
   // PRE: input version has been set.
-  bool ShouldCollectBlobProperties() const;
+  bool DoesInputReferenceBlobFiles() const;
 
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost

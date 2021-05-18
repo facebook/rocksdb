@@ -573,12 +573,8 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 }
 
-bool Compaction::ShouldCollectBlobProperties() const {
+bool Compaction::DoesInputReferenceBlobFiles() const {
   assert(input_version_);
-
-  if (mutable_cf_options_.enable_blob_files) {
-    return true;
-  }
 
   const VersionStorageInfo* storage_info = input_version_->storage_info();
   assert(storage_info);

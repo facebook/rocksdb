@@ -351,7 +351,7 @@ CompactionJob::CompactionJob(
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
-      collect_blob_properties_(compaction->ShouldCollectBlobProperties()),
+      input_references_blob_files_(compaction->DoesInputReferenceBlobFiles()),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback) {
@@ -1834,9 +1834,19 @@ Status CompactionJob::OpenCompactionOutputFile(
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
   std::string fname = GetTableFileName(file_number);
-  // Fire events.
-  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+
+  const Compaction* const compaction = sub_compact->compaction;
+  assert(compaction);
+
+  const MutableCFOptions* const mutable_cf_options =
+      compaction->mutable_cf_options();
+  assert(mutable_cf_options);
+
+  const ColumnFamilyData* const cfd = compaction->column_family_data();
+  assert(cfd);
+
 #ifndef ROCKSDB_LITE
+  // Fire events.
   EventHelpers::NotifyTableFileCreationStarted(
       cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
       TableFileCreationReason::kCompaction);
@@ -1853,8 +1863,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   FileOptions fo_copy = file_options_;
   Temperature temperature = Temperature::kUnknown;
   if (bottommost_level_) {
-    fo_copy.temperature = temperature =
-        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+    fo_copy.temperature = mutable_cf_options->bottommost_temperature;
   }
 
   Status s;
@@ -1871,8 +1880,7 @@ Status CompactionJob::OpenCompactionOutputFile(
         db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64
         " fails at NewWritableFile with status %s",
-        sub_compact->compaction->column_family_data()->GetName().c_str(),
-        job_id_, file_number, s.ToString().c_str());
+        cfd->GetName().c_str(), job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
@@ -1892,8 +1900,7 @@ Status CompactionJob::OpenCompactionOutputFile(
                    get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
-  uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime();
+  uint64_t oldest_ancester_time = compaction->MinInputFileOldestAncesterTime();
   if (oldest_ancester_time == port::kMaxUint64) {
     oldest_ancester_time = current_time;
   }
@@ -1901,26 +1908,23 @@ Status CompactionJob::OpenCompactionOutputFile(
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
   {
     FileMetaData meta;
-    meta.fd = FileDescriptor(file_number,
-                             sub_compact->compaction->output_path_id(), 0);
+    meta.fd = FileDescriptor(file_number, compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
     meta.temperature = temperature;
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),
         /*enable_order_check=*/
-        sub_compact->compaction->mutable_cf_options()
-            ->check_flush_compaction_key_order,
+        mutable_cf_options->check_flush_compaction_key_order,
         /*enable_hash=*/paranoid_file_checks_);
   }
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
-  writable_file->SetPreallocationBlockSize(static_cast<size_t>(
-      sub_compact->compaction->OutputFilePreallocationSize()));
-  const auto& listeners =
-      sub_compact->compaction->immutable_cf_options()->listeners;
+  writable_file->SetPreallocationBlockSize(
+      static_cast<size_t>(compaction->OutputFilePreallocationSize()));
+  const auto& listeners = compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, db_options_.clock,
       io_tracer_, db_options_.stats, listeners,
@@ -1928,17 +1932,18 @@ Status CompactionJob::OpenCompactionOutputFile(
       tmp_set.Contains(FileType::kTableFile)));
 
   const auto prop_collector_factory_range =
-      cfd->int_tbl_prop_collector_factories(collect_blob_properties_);
+      cfd->int_tbl_prop_collector_factories(
+          input_references_blob_files_ ||
+          mutable_cf_options->enable_blob_files);
 
   TableBuilderOptions tboptions(
-      *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
-      cfd->internal_comparator(), prop_collector_factory_range,
-      sub_compact->compaction->output_compression(),
-      sub_compact->compaction->output_compression_opts(), cfd->GetID(),
-      cfd->GetName(), sub_compact->compaction->output_level(),
-      bottommost_level_, TableFileCreationReason::kCompaction,
-      oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
-      db_session_id_, sub_compact->compaction->max_output_file_size());
+      *cfd->ioptions(), *mutable_cf_options, cfd->internal_comparator(),
+      prop_collector_factory_range, compaction->output_compression(),
+      compaction->output_compression_opts(), cfd->GetID(), cfd->GetName(),
+      compaction->output_level(), bottommost_level_,
+      TableFileCreationReason::kCompaction, oldest_ancester_time,
+      0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
+      compaction->max_output_file_size());
   sub_compact->builder.reset(
       NewTableBuilder(tboptions, sub_compact->outfile.get()));
   LogFlush(db_options_.info_log);
