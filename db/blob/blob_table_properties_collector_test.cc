@@ -156,6 +156,59 @@ TEST_F(BlobTablePropertiesCollectorTest, InternalAddPlainValueAndFinish) {
   ASSERT_EQ(it, user_props.end());
 }
 
+TEST_F(BlobTablePropertiesCollectorTest, CorruptInternalKey) {
+  constexpr char corrupt_key[] = "i_am_corrupt";
+  const Slice key_slice(corrupt_key);
+
+  constexpr char value[] = "value";
+  const Slice value_slice(value);
+
+  constexpr uint64_t file_size = 1000000;
+
+  BlobTablePropertiesCollector collector;
+
+  ASSERT_NOK(collector.InternalAdd(key_slice, value_slice, file_size));
+}
+
+TEST_F(BlobTablePropertiesCollectorTest, CorruptBlobIndex) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  InternalKey key(user_key, seq, kTypeBlobIndex);
+  const Slice key_slice = key.Encode();
+
+  constexpr char value[] = "i_am_not_a_blob_index";
+  const Slice value_slice(value);
+
+  constexpr uint64_t file_size = 1000000;
+
+  BlobTablePropertiesCollector collector;
+
+  ASSERT_NOK(collector.InternalAdd(key_slice, value_slice, file_size));
+}
+
+TEST_F(BlobTablePropertiesCollectorTest, InlinedTTLBlobIndex) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  InternalKey key(user_key, seq, kTypeBlobIndex);
+  const Slice key_slice = key.Encode();
+
+  constexpr uint64_t expiration = 1234567890;
+  constexpr char inlined_value[] = "inlined";
+
+  std::string value;
+  BlobIndex::EncodeInlinedTTL(&value, expiration, inlined_value);
+
+  const Slice value_slice(value);
+
+  constexpr uint64_t file_size = 1000000;
+
+  BlobTablePropertiesCollector collector;
+
+  ASSERT_NOK(collector.InternalAdd(key_slice, value_slice, file_size));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
