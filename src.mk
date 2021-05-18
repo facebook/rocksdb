@@ -385,6 +385,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/blob_file_reader_test.cc                                      \
   db/blob/blob_stats_test.cc                                            \
+  db/blob/blob_table_properties_collector_test.cc                       \
   db/blob/db_blob_basic_test.cc                                         \
   db/blob/db_blob_compaction_test.cc                                    \
   db/blob/db_blob_corruption_test.cc                                    \

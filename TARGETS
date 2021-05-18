@@ -958,6 +958,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "blob_table_properties_collector_test",
+        "db/blob/blob_table_properties_collector_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "block_based_filter_block_test",
         "table/block_based/block_based_filter_block_test.cc",
         "parallel",
