@@ -266,6 +266,12 @@ class Compaction {
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
 
+  // Returns true iff we should collect blob related table properties during
+  // this compaction.
+  //
+  // PRE: input version has been set.
+  bool ShouldCollectBlobProperties() const;
+
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
   static bool TEST_IsBottommostLevel(

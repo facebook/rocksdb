@@ -209,6 +209,7 @@ class CompactionJob {
 
   bool paranoid_file_checks_;
   bool measure_io_stats_;
+  bool collect_blob_properties_;
   // Stores the Slices that designate the boundaries for each subcompaction
   std::vector<Slice> boundaries_;
   // Stores the approx size of keys covered in the range of each subcompaction

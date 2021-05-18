@@ -351,6 +351,7 @@ CompactionJob::CompactionJob(
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
+      collect_blob_properties_(compaction->ShouldCollectBlobProperties()),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback) {
@@ -1927,8 +1928,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       tmp_set.Contains(FileType::kTableFile)));
 
   const auto prop_collector_factory_range =
-      cfd->int_tbl_prop_collector_factories(
-          sub_compact->compaction->mutable_cf_options()->enable_blob_files);
+      cfd->int_tbl_prop_collector_factories(collect_blob_properties_);
 
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
