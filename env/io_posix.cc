@@ -700,7 +700,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       ret = io_uring_wait_cqe(iu, &cqe);
       if (ret) {
         assert(false);
-        ios = IOStatus::IOError("io_uring_wait_cqe() returns 0");
+        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
         // It's not safe to use cqe anymore, so we don't konw which reqeuest
         // it is.
         continue;
