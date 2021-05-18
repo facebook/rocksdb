@@ -203,8 +203,16 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& cloud_options,
   // These lines of code are likely temporary until the new configuration stuff
   // comes into play.
   CloudEnvOptions options = cloud_options;  // Make a copy
-  status =
+
+  // If the user has not specified a storage provider, then use the default
+  // provider for this CloudType
+  if (!options.storage_provider) {
+    status =
       CloudStorageProviderImpl::CreateS3Provider(&options.storage_provider);
+    Log(InfoLogLevel::ERROR_LEVEL, info_log,
+        "[aws] NewAwsEnv Created default S3 storage provider for cloud type %d. %s",
+	cloud_options.cloud_type, status.ToString().c_str());
+  }
   if (status.ok() && !cloud_options.keep_local_log_files) {
     if (cloud_options.log_type == kLogKinesis) {
       status = CloudLogControllerImpl::CreateKinesisController(

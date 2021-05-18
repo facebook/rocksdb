@@ -99,8 +99,6 @@ class CloudStorageWritableFileImpl : public CloudStorageWritableFile {
 //
 class CloudStorageProviderImpl : public CloudStorageProvider {
  public:
-  static Status CreateS3Provider(std::shared_ptr<CloudStorageProvider>* result);
-
   CloudStorageProviderImpl();
   virtual ~CloudStorageProviderImpl();
   Status GetCloudObject(const std::string& bucket_name,

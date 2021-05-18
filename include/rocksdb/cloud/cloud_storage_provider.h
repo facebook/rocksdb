@@ -46,6 +46,9 @@ struct CloudObjectInformation {
 
 class CloudStorageProvider {
  public:
+  // Create a storage provider for S3
+  static Status CreateS3Provider(std::shared_ptr<CloudStorageProvider>* result);
+
   virtual ~CloudStorageProvider();
   static const char* Type() { return "CloudStorageProvider"; }
   virtual const char* Name() const { return "cloud"; }

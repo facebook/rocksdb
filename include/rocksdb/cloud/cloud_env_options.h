@@ -179,7 +179,11 @@ class CloudEnvOptions {
   LogType log_type;
   std::shared_ptr<CloudLogController> cloud_log_controller;
 
-  // Specifies the class responsible for writing objects to the cloud
+  // Specifies the class responsible for accessing objects in the cloud.
+  // A null value indicates that the default storage provider based on
+  // the cloud type be used. For example, if cloud_type is kCloudAws, then
+  // the S3 storage provider would be used by default.
+  // Default:  null
   std::shared_ptr<CloudStorageProvider> storage_provider;
 
   // Access credentials

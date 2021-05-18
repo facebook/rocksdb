@@ -905,7 +905,7 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
 
 #endif /* USE_AWS */
   
-Status CloudStorageProviderImpl::CreateS3Provider(
+Status CloudStorageProvider::CreateS3Provider(
     std::shared_ptr<CloudStorageProvider>* provider) {
 #ifndef USE_AWS
   provider->reset();
