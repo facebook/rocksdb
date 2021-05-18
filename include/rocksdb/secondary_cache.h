@@ -48,6 +48,8 @@ class SecondaryCache {
 
   virtual std::string Name() = 0;
 
+  static const std::string Type() { return "SecondaryCache"; }
+
   // Insert the given value into this cache. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be
   // used to extract the persistable data in value, which will be written
