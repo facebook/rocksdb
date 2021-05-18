@@ -19,20 +19,12 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-
-#ifndef GFLAGS
-int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
-  return 1;
-}
-#else
-
-#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -72,9 +64,11 @@ DEFINE_uint32(
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
+#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
+#endif  // ROCKSDB_LITE
 
 DEFINE_bool(use_clock_cache, false, "");
 
@@ -221,9 +215,9 @@ class CacheBench {
       exit(1);
     }
 
+    max_log_ = 0;
     if (skewed_) {
       uint64_t max_key = max_key_;
-      max_log_ = 0;
       while (max_key >>= 1) max_log_++;
       if (max_key > (1u << max_log_)) max_log_++;
     }
@@ -236,6 +230,7 @@ class CacheBench {
       }
     } else {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
+#ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s =
             ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
@@ -249,6 +244,7 @@ class CacheBench {
         }
         opts.secondary_cache = secondary_cache;
       }
+#endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
     }
@@ -573,4 +569,3 @@ int cache_bench_tool(int argc, char** argv) {
 }  // namespace ROCKSDB_NAMESPACE
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // GFLAGS
