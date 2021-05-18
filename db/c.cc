@@ -2864,9 +2864,29 @@ void rocksdb_options_set_compression_options_zstd_max_train_bytes(
   opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
+int rocksdb_options_get_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.zstd_max_train_bytes;
+}
+
+void rocksdb_options_set_compression_options_parallel_threads(
+    rocksdb_options_t* opt, int value) {
+  opt->rep.compression_opts.parallel_threads = value;
+}
+
+int rocksdb_options_get_compression_options_parallel_threads(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.parallel_threads;
+}
+
 void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes) {
   opt->rep.compression_opts.max_dict_buffer_bytes = max_dict_buffer_bytes;
+}
+
+uint64_t rocksdb_options_get_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.max_dict_buffer_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(

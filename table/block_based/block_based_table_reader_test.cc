@@ -63,7 +63,7 @@ class BlockBasedTableReaderTest
     InternalKeyComparator comparator(options.comparator);
     ColumnFamilyOptions cf_options;
     MutableCFOptions moptions(cf_options);
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+    IntTblPropCollectorFactories factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, CompressionOptions(),

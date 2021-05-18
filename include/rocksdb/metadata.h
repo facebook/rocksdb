@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -62,6 +63,7 @@ struct SstFileMetaData {
         being_compacted(false),
         num_entries(0),
         num_deletions(0),
+        temperature(Temperature::kUnknown),
         oldest_blob_file_number(0),
         oldest_ancester_time(0),
         file_creation_time(0) {}
@@ -71,7 +73,8 @@ struct SstFileMetaData {
                   SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno,
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
-                  bool _being_compacted, uint64_t _oldest_blob_file_number,
+                  bool _being_compacted, Temperature _temperature,
+                  uint64_t _oldest_blob_file_number,
                   uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                   std::string& _file_checksum,
                   std::string& _file_checksum_func_name)
@@ -87,6 +90,7 @@ struct SstFileMetaData {
         being_compacted(_being_compacted),
         num_entries(0),
         num_deletions(0),
+        temperature(_temperature),
         oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
@@ -111,6 +115,9 @@ struct SstFileMetaData {
 
   uint64_t num_entries;
   uint64_t num_deletions;
+
+  // This feature is experimental and subject to change.
+  Temperature temperature;
 
   uint64_t oldest_blob_file_number;  // The id of the oldest blob file
                                      // referenced by the file.

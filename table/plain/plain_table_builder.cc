@@ -58,8 +58,7 @@ extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
     const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
-    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories,
+    const IntTblPropCollectorFactoryRange& int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
@@ -113,9 +112,12 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.user_collected_properties
       [PlainTablePropertyNames::kEncodingType] = val;
 
-  for (auto& collector_factories : *int_tbl_prop_collector_factories) {
+  for (auto it = int_tbl_prop_collector_factories.first;
+       it != int_tbl_prop_collector_factories.second; ++it) {
+    assert(*it);
+
     table_properties_collectors_.emplace_back(
-        collector_factories->CreateIntTblPropCollector(column_family_id));
+        (*it)->CreateIntTblPropCollector(column_family_id));
   }
 }
 
