@@ -633,6 +633,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
+  IOStatus ios = IOStatus::OK();
+
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
@@ -681,8 +683,13 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
         io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
+      assert(false);
+      // It should not happen. In case it happens, we simply return to prevent
+      // following io_uring callse to hang.
+      return IOStatus::IOError("io_uring_submit_and_wait() requested " +
+                               ToString(this_reqs) + " but returned " +
+                               ToString(ret));
     }
-    assert(static_cast<size_t>(ret) == this_reqs);
 
     for (size_t i = 0; i < this_reqs; i++) {
       struct io_uring_cqe* cqe;
@@ -691,7 +698,13 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
-      assert(!ret);
+      if (!ret) {
+        assert(false);
+        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+        // It's not safe to use cqe anymore, so we don't konw which reqeuest
+        // it is.
+        continue;
+      }
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       FSReadRequest* req = req_wrap->req;
@@ -740,7 +753,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       io_uring_cqe_seen(iu, cqe);
     }
   }
-  return IOStatus::OK();
+  return ios;
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif
