@@ -266,8 +266,8 @@ class Compaction {
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
 
-  // Returns true iff we should collect blob related table properties during
-  // this compaction.
+  // Returns true iff the input version has blob files and at least one input
+  // table has blob references.
   //
   // PRE: input version has been set.
   bool DoesInputReferenceBlobFiles() const;
