@@ -1846,10 +1846,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   const ColumnFamilyData* const cfd = compaction->column_family_data();
   assert(cfd);
 
+  const auto& listeners = compaction->immutable_cf_options()->listeners;
+
 #ifndef ROCKSDB_LITE
   // Fire events.
   EventHelpers::NotifyTableFileCreationStarted(
-      cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
+      listeners, dbname_, cfd->GetName(), fname, job_id_,
       TableFileCreationReason::kCompaction);
 #endif  // !ROCKSDB_LITE
   // Make the output file
@@ -1885,10 +1887,10 @@ Status CompactionJob::OpenCompactionOutputFile(
         cfd->GetName().c_str(), job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
-        event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
-        fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
-        TableProperties(), TableFileCreationReason::kCompaction, s,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+        event_logger_, listeners, dbname_, cfd->GetName(), fname, job_id_,
+        FileDescriptor(), kInvalidBlobFileNumber, TableProperties(),
+        TableFileCreationReason::kCompaction, s, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName);
     return s;
   }
 
@@ -1926,7 +1928,6 @@ Status CompactionJob::OpenCompactionOutputFile(
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(
       static_cast<size_t>(compaction->OutputFilePreallocationSize()));
-  const auto& listeners = compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, db_options_.clock,
       io_tracer_, db_options_.stats, listeners,
