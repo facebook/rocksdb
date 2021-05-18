@@ -1863,7 +1863,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   FileOptions fo_copy = file_options_;
   Temperature temperature = Temperature::kUnknown;
   if (bottommost_level_) {
-    fo_copy.temperature = mutable_cf_options->bottommost_temperature;
+    fo_copy.temperature = temperature =
+        mutable_cf_options->bottommost_temperature;
   }
 
   Status s;
