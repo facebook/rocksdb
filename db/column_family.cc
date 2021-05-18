@@ -109,8 +109,9 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
 
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories) {
+    IntTblPropCollectorFactories* int_tbl_prop_collector_factories) {
+  assert(int_tbl_prop_collector_factories);
+
   auto& collector_factories = ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {

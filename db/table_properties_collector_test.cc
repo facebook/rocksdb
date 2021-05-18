@@ -41,13 +41,13 @@ namespace {
 static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
 
-void MakeBuilder(const Options& options, const ImmutableOptions& ioptions,
-                 const MutableCFOptions& moptions,
-                 const InternalKeyComparator& internal_comparator,
-                 const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-                     int_tbl_prop_collector_factories,
-                 std::unique_ptr<WritableFileWriter>* writable,
-                 std::unique_ptr<TableBuilder>* builder) {
+void MakeBuilder(
+    const Options& options, const ImmutableOptions& ioptions,
+    const MutableCFOptions& moptions,
+    const InternalKeyComparator& internal_comparator,
+    const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
+    std::unique_ptr<WritableFileWriter>* writable,
+    std::unique_ptr<TableBuilder>* builder) {
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
@@ -264,8 +264,7 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<WritableFileWriter> writer;
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
   if (test_int_tbl_prop_collector) {
     int_tbl_prop_collector_factories.emplace_back(
         new RegularKeysStartWithAFactory(backward_mode));
@@ -395,8 +394,7 @@ void TestInternalKeyPropertiesCollector(
   Options options;
   test::PlainInternalKeyComparator pikc(options.comparator);
 
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
   options.table_factory = table_factory;
   if (sanitized) {
     options.table_properties_collector_factories.emplace_back(
