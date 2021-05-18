@@ -34,33 +34,32 @@ Iterator* BoundedIterator::Create(Iterator* base, const Comparator* comp,
 }
 
 Iterator* BoundedIterator::Create(Iterator* base, const Comparator* comp,
-                                  const Slice* lower_bound,
-                                  const Slice* upper_bound) {
-  bool use_lower = (lower_bound != nullptr);
+                                  const Slice* lower, const Slice* upper) {
+  bool use_lower = (lower != nullptr);
   if (use_lower) {
     const Slice* lower_base = base->lower_bound();
     if (lower_base != nullptr) {
       if (comp != nullptr) {
-        use_lower = comp->Compare(*lower_bound, *lower_base) > 0;
+        use_lower = comp->Compare(*lower, *lower_base) > 0;
       } else {
-        use_lower = lower_bound->compare(*lower_base) > 0;
+        use_lower = lower->compare(*lower_base) > 0;
       }
     }
   }
-  bool use_upper = (upper_bound != nullptr);
+  bool use_upper = (upper != nullptr);
   if (use_upper) {
     const Slice* upper_base = base->upper_bound();
     if (upper_base != nullptr) {
       if (comp != nullptr) {
-        use_upper = comp->Compare(*upper_bound, *upper_base) < 0;
+        use_upper = comp->Compare(*upper, *upper_base) < 0;
       } else {
-        use_upper = upper_bound->compare(*upper_base) < 0;
+        use_upper = upper->compare(*upper_base) < 0;
       }
     }
   }
   if (use_lower || use_upper) {
-    return new BoundedIterator(base, comp, (use_lower) ? lower_bound : nullptr,
-                               (use_upper) ? upper_bound : nullptr);
+    return new BoundedIterator(base, comp, (use_lower) ? lower : nullptr,
+                               (use_upper) ? upper : nullptr);
   } else {
     return base;
   }
