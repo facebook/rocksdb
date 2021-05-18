@@ -694,8 +694,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       // exception case and we don't retry here. We should still consume
       // what is is submitted in the ring.
       for (ssize_t i = 0; i < ret; i++) {
-        struct io_uring_cqe* cqe;
-        if (io_uring_wait_cqe(iu, &cqe) == 0) {  // Success
+        struct io_uring_cqe* cqe = nullptr;
+        io_uring_wait_cqe(iu, &cqe);
+        if (cqe != nullptr) {
           io_uring_cqe_seen(iu, cqe);
         }
       }
