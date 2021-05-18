@@ -811,6 +811,8 @@ TEST_F(DBIteratorTest, BoundedIterator) {
 
       bounded_iter->SeekForPrev("c");
       CheckIterValue(bounded_iter.get(), (l == 0), "c");
+
+      ASSERT_OK(bounded_iter->status());
     }
   }
 }
