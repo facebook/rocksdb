@@ -41,7 +41,7 @@ TEST_F(BlobTablePropertiesCollectorTest, InternalAddOneAndFinish) {
   constexpr char user_key[] = "user_key";
   constexpr SequenceNumber seq = 123;
 
-  InternalKey key(user_key, seq, kTypeBlobIndex);
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
   const Slice key_slice = key.Encode();
 
   constexpr uint64_t blob_file_number = 4;
@@ -92,7 +92,7 @@ TEST_F(BlobTablePropertiesCollectorTest, InternalAddMultipleAndFinish) {
   for (uint64_t i = 0; i < 4; ++i) {
     const SequenceNumber seq = 100 + i;
 
-    InternalKey key(user_key, seq, kTypeBlobIndex);
+    const InternalKey key(user_key, seq, kTypeBlobIndex);
     const Slice key_slice = key.Encode();
 
     const uint64_t blob_file_number = 10 + i / 2;
@@ -136,7 +136,7 @@ TEST_F(BlobTablePropertiesCollectorTest, InternalAddPlainValueAndFinish) {
   constexpr char user_key[] = "user_key";
   constexpr SequenceNumber seq = 123;
 
-  InternalKey key(user_key, seq, kTypeValue);
+  const InternalKey key(user_key, seq, kTypeValue);
   const Slice key_slice = key.Encode();
 
   constexpr char value[] = "value";
@@ -174,7 +174,7 @@ TEST_F(BlobTablePropertiesCollectorTest, CorruptBlobIndex) {
   constexpr char user_key[] = "user_key";
   constexpr SequenceNumber seq = 123;
 
-  InternalKey key(user_key, seq, kTypeBlobIndex);
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
   const Slice key_slice = key.Encode();
 
   constexpr char value[] = "i_am_not_a_blob_index";
@@ -191,7 +191,7 @@ TEST_F(BlobTablePropertiesCollectorTest, InlinedTTLBlobIndex) {
   constexpr char user_key[] = "user_key";
   constexpr SequenceNumber seq = 123;
 
-  InternalKey key(user_key, seq, kTypeBlobIndex);
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
   const Slice key_slice = key.Encode();
 
   constexpr uint64_t expiration = 1234567890;

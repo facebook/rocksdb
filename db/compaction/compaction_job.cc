@@ -177,7 +177,8 @@ struct CompactionJob::SubcompactionState {
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size)
+  SubcompactionState(const Compaction* c, Slice* _start, Slice* _end,
+                     uint64_t size)
       : compaction(c), start(_start), end(_end), approx_size(size) {
     assert(compaction != nullptr);
   }
@@ -417,7 +418,7 @@ void CompactionJob::Prepare() {
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
   // Generate file_levels_ for compaction before making Iterator
-  Compaction* const c = compact_->compaction;
+  const Compaction* const c = compact_->compaction;
   assert(c);
 
   ColumnFamilyData* const cfd = c->column_family_data();

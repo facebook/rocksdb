@@ -72,7 +72,7 @@ class BlobStatsTest : public testing::Test {
 };
 
 TEST_F(BlobStatsTest, EmptyRecord) {
-  BlobStatsRecord record;
+  const BlobStatsRecord record;
 
   ASSERT_EQ(record.GetBlobFileNumber(), kInvalidBlobFileNumber);
   ASSERT_EQ(record.GetCount(), 0);
@@ -86,7 +86,7 @@ TEST_F(BlobStatsTest, NonEmptyRecord) {
   constexpr uint64_t count = 54;
   constexpr uint64_t bytes = 9876;
 
-  BlobStatsRecord record(blob_file_number, count, bytes);
+  const BlobStatsRecord record(blob_file_number, count, bytes);
 
   ASSERT_EQ(record.GetBlobFileNumber(), blob_file_number);
   ASSERT_EQ(record.GetCount(), count);
@@ -129,15 +129,15 @@ TEST_F(BlobStatsTest, RecordDecodingErrors) {
 }
 
 TEST_F(BlobStatsTest, EmptyCollection) {
-  BlobStatsVec blob_stats_vec;
+  const BlobStatsVec blob_stats_vec;
 
   TestEncodeDecode(blob_stats_vec);
 }
 
 TEST_F(BlobStatsTest, NonEmptyCollection) {
-  BlobStatsVec blob_stats_vec{{1, BlobStats(1111, 2222)},
-                              {23, BlobStats(4545, 676767)},
-                              {456, BlobStats(888888, 98765432)}};
+  const BlobStatsVec blob_stats_vec{{1, BlobStats(1111, 2222)},
+                                    {23, BlobStats(4545, 676767)},
+                                    {456, BlobStats(888888, 98765432)}};
 
   TestEncodeDecode(blob_stats_vec);
 }
