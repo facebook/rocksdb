@@ -734,9 +734,11 @@ TEST_F(DBIteratorTest, BoundedIterator) {
         case 4:
           lower_bound = &fk;
           ro.iterate_lower_bound = &ek;
+          break;
         case 5:
           lower_bound = &ek;
           ro.iterate_lower_bound = &fk;
+          break;
       }
       switch (u) {
         case 0:  // No upper bound
@@ -754,9 +756,11 @@ TEST_F(DBIteratorTest, BoundedIterator) {
         case 4:
           upper_bound = &lk;
           ro.iterate_upper_bound = &kk;
+          break;
         case 5:
           upper_bound = &kk;
-          ro.iterate_upper_bound = &kk;
+          ro.iterate_upper_bound = &lk;
+          break;
       }
 
       std::unique_ptr<Iterator> bounded_iter(BoundedIterator::Create(
