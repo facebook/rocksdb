@@ -1386,7 +1386,7 @@ IOStatus BlockBasedTableBuilder::io_status() const {
 namespace {
 // Delete the entry resided in the cache.
 template <class Entry>
-void DeleteCachedEntry(const Slice& /*key*/, void* value) {
+void DeleteEntryCached(const Slice& /*key*/, void* value) {
   auto entry = reinterpret_cast<Entry*>(value);
   delete entry;
 }
@@ -1417,7 +1417,6 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     const Slice& block_contents, const CompressionType type,
     const BlockHandle* handle) {
   Rep* r = rep_;
-  Status s;
   Cache* block_cache_compressed = r->table_options.block_cache_compressed.get();
   Status s;
   if (type != kNoCompression && block_cache_compressed != nullptr) {
@@ -1444,7 +1443,7 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     s = block_cache_compressed->Insert(
         key, block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        &DeleteEntryCached<BlockContents>);
     if (s.ok()) {
       RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
@@ -1479,7 +1478,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
         rep_->table_options.read_amp_bytes_per_bit;
     Block* block = new Block(std::move(results), read_amp_bytes_per_bit);
     size_t charge = block->ApproximateMemoryUsage();
-    s = block_cache->Insert(key, block, charge, &DeleteCachedEntry<Block>);
+    s = block_cache->Insert(key, block, charge, &DeleteEntryCached<Block>);
     if (s.ok()) {
       BlockBasedTable::UpdateCacheInsertionMetrics(
           BlockType::kData, nullptr /*get_context*/, charge,
