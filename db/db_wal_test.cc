@@ -462,6 +462,18 @@ TEST_F(DBWALTest, RecoverWithBlob) {
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
 #endif  // ROCKSDB_LITE
+
+  TablePropertiesCollection all_table_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
+
+  ASSERT_EQ(all_table_props.size(), 1);
+
+  const auto& table_props = all_table_props.begin()->second;
+  ASSERT_NE(table_props, nullptr);
+
+  const auto& user_props = table_props->user_collected_properties;
+  ASSERT_NE(user_props.find(TablePropertiesNames::kBlobFileMapping),
+            user_props.end());
 }
 
 TEST_F(DBWALTest, RecoverWithBlobMultiSST) {

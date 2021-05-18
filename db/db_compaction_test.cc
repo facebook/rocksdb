@@ -5974,6 +5974,18 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
             blob_file->GetTotalBlobBytes());
   ASSERT_EQ(compaction_stats[1].num_output_files, 1);
   ASSERT_EQ(compaction_stats[1].num_output_files_blob, 1);
+
+  TablePropertiesCollection all_table_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&all_table_props));
+
+  ASSERT_EQ(all_table_props.size(), 1);
+
+  const auto& table_props = all_table_props.begin()->second;
+  ASSERT_NE(table_props, nullptr);
+
+  const auto& user_props = table_props->user_collected_properties;
+  ASSERT_NE(user_props.find(TablePropertiesNames::kBlobFileMapping),
+            user_props.end());
 }
 
 class DBCompactionTestBlobError
