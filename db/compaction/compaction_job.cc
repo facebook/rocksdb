@@ -423,11 +423,9 @@ void CompactionJob::Prepare() {
 
   ColumnFamilyData* const cfd = c->column_family_data();
   assert(cfd);
-
-  Version* const current = cfd->current();
-  assert(current);
-
-  assert(current->storage_info()->NumLevelFiles(c->level()) > 0);
+  assert(cfd->current());
+  assert(cfd->current()->storage_info());
+  assert(cfd->current()->storage_info()->NumLevelFiles(c->level()) > 0);
 
   write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
