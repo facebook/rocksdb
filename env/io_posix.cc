@@ -690,9 +690,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
-      // It should not happen. In case it happens, we simply return to prevent
-      // following io_uring callse to hang. However, we still need to consume
-      // results.
+      // If error happens and we submitted fewer than expected, it is an
+      // exception case and we don't retry here. We should still consume
+      // what is is submitted in the ring.
       for (ssize_t i = 0; i < ret; i++) {
         struct io_uring_cqe* cqe;
         if (io_uring_wait_cqe(iu, &cqe) == 0) {  // Success
