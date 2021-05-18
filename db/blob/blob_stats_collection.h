@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "db/blob/blob_stats.h"
 #include "db/blob/blob_stats_record.h"
