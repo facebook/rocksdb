@@ -11,6 +11,11 @@
 #include <sys/ioctl.h>
 #endif
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#include <sys/uio.h>
+#endif
+
 #include <sys/types.h>
 
 #include <iostream>
@@ -1358,6 +1363,117 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+void GenerateFilesAndRequest(Env* env, const std::string& fname,
+                             std::vector<ReadRequest>* ret_reqs,
+                             std::vector<std::string>* scratches) {
+  const size_t kTotalSize = 81920;
+  Random rnd(301);
+  std::string expected_data = rnd.RandomString(kTotalSize);
+
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env->NewWritableFile(fname, &wfile, EnvOptions()));
+    ASSERT_OK(wfile->Append(expected_data));
+    ASSERT_OK(wfile->Close());
+  }
+
+  // Right now kIoUringDepth is hard coded as 256, so we need very large
+  // number of keys to cover the case of multiple rounds of submissions.
+  // Right now the test latency is still acceptable. If it ends up with
+  // too long, we can modify the io uring depth with SyncPoint here.
+  const int num_reads = 3;
+  std::vector<size_t> offsets = {10000, 20000, 30000};
+  std::vector<size_t> lens = {3000, 200, 100};
+
+  // Create requests
+  scratches->reserve(num_reads);
+  std::vector<ReadRequest>& reqs = *ret_reqs;
+  reqs.resize(num_reads);
+  for (int i = 0; i < num_reads; ++i) {
+    reqs[i].offset = offsets[i];
+    reqs[i].len = lens[i];
+    scratches->emplace_back(reqs[i].len, ' ');
+    reqs[i].scratch = const_cast<char*>(scratches->back().data());
+  }
+}
+
+TEST_F(EnvPosixTest, MultiReadIOUringError) {
+  // In this test we don't do aligned read, wo it doesn't work for
+  // direct I/O case.
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  std::vector<std::string> scratches;
+  std::vector<ReadRequest> reqs;
+  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  // Query the data
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+
+  bool io_uring_wait_cqe_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return",
+      [&](void* arg) {
+        if (!io_uring_wait_cqe_called) {
+          io_uring_wait_cqe_called = true;
+          ssize_t& ret = *(static_cast<ssize_t*>(arg));
+          ret = 1;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = file->MultiRead(reqs.data(), reqs.size());
+  if (io_uring_wait_cqe_called) {
+    ASSERT_NOK(s);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(EnvPosixTest, MultiReadIOUringError2) {
+  // In this test we don't do aligned read, wo it doesn't work for
+  // direct I/O case.
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  std::vector<std::string> scratches;
+  std::vector<ReadRequest> reqs;
+  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  // Query the data
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+
+  bool io_uring_submit_and_wait_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+      [&](void* arg) {
+        io_uring_submit_and_wait_called = true;
+        ssize_t* ret = static_cast<ssize_t*>(arg);
+        (*ret)--;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+      [&](void* arg) {
+        struct io_uring* iu = static_cast<struct io_uring*>(arg);
+        struct io_uring_cqe* cqe;
+        assert(io_uring_wait_cqe(iu, &cqe) == 0);
+        io_uring_cqe_seen(iu, cqe);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = file->MultiRead(reqs.data(), reqs.size());
+  if (io_uring_submit_and_wait_called) {
+    ASSERT_NOK(s);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
 #ifdef OS_WIN
