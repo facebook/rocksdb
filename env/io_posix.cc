@@ -681,28 +681,44 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
     ssize_t ret =
         io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+        &ret);
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+        iu);
+
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
-      assert(false);
       // It should not happen. In case it happens, we simply return to prevent
-      // following io_uring callse to hang.
+      // following io_uring callse to hang. However, we still need to consume
+      // results.
+      for (ssize_t i = 0; i < ret; i++) {
+        struct io_uring_cqe* cqe;
+        if (io_uring_wait_cqe(iu, &cqe) == 0) {  // Success
+          io_uring_cqe_seen(iu, cqe);
+        }
+      }
       return IOStatus::IOError("io_uring_submit_and_wait() requested " +
                                ToString(this_reqs) + " but returned " +
                                ToString(ret));
     }
 
     for (size_t i = 0; i < this_reqs; i++) {
-      struct io_uring_cqe* cqe;
+      struct io_uring_cqe* cqe = nullptr;
       WrappedReadRequest* req_wrap;
 
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
       if (ret) {
-        assert(false);
         ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
-        // It's not safe to use cqe anymore, so we don't konw which reqeuest
-        // it is.
+
+        if (cqe != nullptr) {
+          io_uring_cqe_seen(iu, cqe);
+        }
         continue;
       }
 
