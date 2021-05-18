@@ -132,6 +132,30 @@ TEST_F(BlobTablePropertiesCollectorTest, InternalAddMultipleAndFinish) {
   ASSERT_EQ(stats[1].second.GetBytes(), 700 + 2 * format_overhead);
 }
 
+TEST_F(BlobTablePropertiesCollectorTest, InternalAddPlainValueAndFinish) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  InternalKey key(user_key, seq, kTypeValue);
+  const Slice key_slice = key.Encode();
+
+  constexpr char value[] = "value";
+  const Slice value_slice(value);
+
+  constexpr uint64_t file_size = 1000000;
+
+  BlobTablePropertiesCollector collector;
+
+  ASSERT_OK(collector.InternalAdd(key_slice, value_slice, file_size));
+
+  UserCollectedProperties user_props;
+
+  ASSERT_OK(collector.Finish(&user_props));
+
+  auto it = user_props.find(TablePropertiesNames::kBlobFileMapping);
+  ASSERT_EQ(it, user_props.end());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
