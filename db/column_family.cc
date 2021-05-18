@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "db/blob/blob_file_cache.h"
-#include "db/blob/blob_table_properties_collector.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"

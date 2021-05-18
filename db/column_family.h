@@ -9,11 +9,12 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <string>
-#include <vector>
 #include <atomic>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "db/blob/blob_table_properties_collector.h"
 #include "db/memtable_list.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -430,6 +431,8 @@ class ColumnFamilyData {
   IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories(
       bool enable_blob_property_collector) const {
     assert(!int_tbl_prop_collector_factories_.empty());
+    assert(dynamic_cast<const BlobTablePropertiesCollectorFactory*>(
+        int_tbl_prop_collector_factories_.front().get()));
 
     auto it = int_tbl_prop_collector_factories_.begin();
     if (!enable_blob_property_collector) {
