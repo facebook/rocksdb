@@ -1364,6 +1364,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   }
 }
 
+#if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
                              std::vector<ReadRequest>* ret_reqs,
                              std::vector<std::string>* scratches) {
@@ -1472,6 +1473,7 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
 #ifdef OS_WIN
