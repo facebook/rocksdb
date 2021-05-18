@@ -2539,6 +2539,28 @@ int main(int argc, char** argv) {
     rocksdb_backupable_db_options_destroy(bdo);
   }
 
+  StartPhase("compression_options");
+  {
+    rocksdb_options_t* co;
+    co = rocksdb_options_create();
+
+    rocksdb_options_set_compression_options_zstd_max_train_bytes(co, 100);
+    CheckCondition(
+        100 ==
+        rocksdb_options_get_compression_options_zstd_max_train_bytes(co));
+
+    rocksdb_options_set_compression_options_parallel_threads(co, 2);
+    CheckCondition(
+        2 == rocksdb_options_get_compression_options_parallel_threads(co));
+
+    rocksdb_options_set_compression_options_max_dict_buffer_bytes(co, 200);
+    CheckCondition(
+        200 ==
+        rocksdb_options_get_compression_options_max_dict_buffer_bytes(co));
+
+    rocksdb_options_destroy(co);
+  }
+
   StartPhase("iterate_upper_bound");
   {
     // Create new empty database
