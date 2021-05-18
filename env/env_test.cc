@@ -1273,7 +1273,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
 }
 
 TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
-  // In this test we don't do aligned read, wo it doesn't work for
+  // In this test we don't do aligned read, so it doesn't work for
   // direct I/O case.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
@@ -1401,8 +1401,7 @@ void GenerateFilesAndRequest(Env* env, const std::string& fname,
 }
 
 TEST_F(EnvPosixTest, MultiReadIOUringError) {
-  // In this test we don't do aligned read, wo it doesn't work for
-  // direct I/O case.
+  // In this test we don't do aligned read, so we can't do direct I/O.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
@@ -1429,14 +1428,15 @@ TEST_F(EnvPosixTest, MultiReadIOUringError) {
   Status s = file->MultiRead(reqs.data(), reqs.size());
   if (io_uring_wait_cqe_called) {
     ASSERT_NOK(s);
+  } else {
+    s.PermitUncheckedError();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(EnvPosixTest, MultiReadIOUringError2) {
-  // In this test we don't do aligned read, wo it doesn't work for
-  // direct I/O case.
+  // In this test we don't do aligned read, so we can't do direct I/O.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
@@ -1469,6 +1469,8 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   Status s = file->MultiRead(reqs.data(), reqs.size());
   if (io_uring_submit_and_wait_called) {
     ASSERT_NOK(s);
+  } else {
+    s.PermitUncheckedError();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
