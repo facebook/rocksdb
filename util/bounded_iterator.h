@@ -46,12 +46,12 @@ class BoundedIterator : public Iterator {
   // Otherwise Slice comparison is invoked.
   int Compare(const Slice& a, const Slice& b) const;
 
-  BoundedIterator(Iterator* base, const Comparator* comp,
-                  const Slice* lower_bound, const Slice* upper_bound)
+  BoundedIterator(Iterator* base, const Comparator* comp, const Slice* lower,
+                  const Slice* upper)
       : base_(base),
         comparator_(comp),
-        lower_bound_(lower_bound),
-        upper_bound_(upper_bound),
+        lower_bound_(lower),
+        upper_bound_(upper),
         in_bounds_(false) {}
 
  public:
@@ -71,7 +71,7 @@ class BoundedIterator : public Iterator {
   // If the input iterator already has a bound, the more restrictive of the
   // input bounds or the iterator bounds are used.
   static Iterator* Create(Iterator* base, const Comparator* comp,
-                          const Slice* lower_bound, const Slice* upper_bound);
+                          const Slice* lower, const Slice* upper);
 
   ~BoundedIterator() { delete base_; }
 
