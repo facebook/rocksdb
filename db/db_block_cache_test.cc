@@ -997,6 +997,23 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      // Also check the GetProperty interface
+      std::map<std::string, std::string> values;
+      ASSERT_TRUE(
+          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]),
+          values["count.index-block"]);
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]),
+          values["count.data-block"]);
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)]),
+          values["count.filter-block"]);
+      EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
+                values["count.misc"]);
     }
     EXPECT_GE(iterations_tested, 1);
   }

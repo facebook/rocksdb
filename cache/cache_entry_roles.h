@@ -36,7 +36,10 @@ enum class CacheEntryRole {
 constexpr uint32_t kNumCacheEntryRoles =
     static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
 
-extern std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToString;
+extern std::array<const char*, kNumCacheEntryRoles>
+    kCacheEntryRoleToCamelString;
+extern std::array<const char*, kNumCacheEntryRoles>
+    kCacheEntryRoleToHyphenString;
 
 // To associate cache entries with their role, we use a hack on the
 // existing Cache interface. Because the deleter of an entry can authenticate

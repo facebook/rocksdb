@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <bits/stdint-uintn.h>
+
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -38,12 +40,12 @@ namespace ROCKSDB_NAMESPACE {
 // as well as...
 // concept Stats {
 //   // Notification before applying callback to all entries
-//   void BeginCollection(Cache*);
+//   void BeginCollection(Cache*, SystemClock*, uint64_t start_time_micros);
 //   // Get the callback to apply to all entries. `callback`
 //   // type must be compatible with Cache::ApplyToAllEntries
 //   callback GetEntryCallback();
 //   // Notification after applying callback to all entries
-//   void EndCollection(Cache*, uint64_t duration_micros);
+//   void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);
 //   // Notification that a collection was skipped because of
 //   // sufficiently recent saved results.
 //   void SkippedCollection();
@@ -61,17 +63,21 @@ class CacheEntryStatsCollector {
         static_cast<uint64_t>(std::min(maximum_age_in_seconds, 0)) * 1000000U;
     // But we will re-scan more frequently if it means scanning < 1%
     // of the time and no more than once per second.
-    max_age_micros =
-        std::min(max_age_micros,
-                 std::max(uint64_t{1000000}, 100U * last_duration_micros_));
+    max_age_micros = std::min(
+        max_age_micros,
+        std::max(uint64_t{1000000},
+                 100U * (last_end_time_micros_ - last_start_time_micros_)));
 
-    uint64_t now = clock_->NowMicros();
-    if ((now - saved_timestamp_) > max_age_micros) {
-      saved_timestamp_ = now;
-      saved_stats_.BeginCollection(cache_);
+    uint64_t start_time_micros = clock_->NowMicros();
+    if ((start_time_micros - last_end_time_micros_) > max_age_micros) {
+      last_start_time_micros_ = start_time_micros;
+      saved_stats_.BeginCollection(cache_, clock_, start_time_micros);
+
       cache_->ApplyToAllEntries(saved_stats_.GetEntryCallback(), {});
-      last_duration_micros_ = clock_->NowMicros() - now;
-      saved_stats_.EndCollection(cache_, last_duration_micros_);
+
+      uint64_t end_time_micros = clock_->NowMicros();
+      last_end_time_micros_ = end_time_micros;
+      saved_stats_.EndCollection(cache_, clock_, end_time_micros);
     } else {
       saved_stats_.SkippedCollection();
     }
@@ -128,8 +134,8 @@ class CacheEntryStatsCollector {
  private:
   explicit CacheEntryStatsCollector(Cache *cache, SystemClock *clock)
       : saved_stats_(),
-        saved_timestamp_(0),
-        last_duration_micros_(/*pessimistic*/ 10000000),
+        last_start_time_micros_(0),
+        last_end_time_micros_(/*pessimistic*/ 10000000),
         cache_(cache),
         clock_(clock) {}
 
@@ -139,8 +145,8 @@ class CacheEntryStatsCollector {
 
   std::mutex mutex_;
   Stats saved_stats_;
-  uint64_t saved_timestamp_;
-  uint64_t last_duration_micros_;
+  uint64_t last_start_time_micros_;
+  uint64_t last_end_time_micros_;
   Cache *const cache_;
   SystemClock *const clock_;
 };

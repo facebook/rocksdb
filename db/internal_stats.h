@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <bits/stdint-uintn.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -357,7 +359,8 @@ class InternalStats {
     std::array<size_t, kNumCacheEntryRoles> entry_counts;
     uint32_t collection_count = 0;
     uint32_t copies_of_last_collection = 0;
-    uint64_t last_duration_micros = 0;
+    uint64_t last_start_time_micros_ = 0;
+    uint64_t last_end_time_micros_ = 0;
 
     void Clear() {
       // Wipe everything except collection_count
@@ -366,16 +369,19 @@ class InternalStats {
       collection_count = saved_collection_count;
     }
 
-    void BeginCollection(Cache* cache);
+    void BeginCollection(Cache*, SystemClock*, uint64_t start_time_micros);
     std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
     GetEntryCallback();
-    void EndCollection(Cache*, uint64_t duration_micros);
+    void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);
     void SkippedCollection();
 
-    std::string ToString() const;
+    std::string ToString(SystemClock* clock) const;
+    void ToMap(std::map<std::string, std::string>* values,
+               SystemClock* clock) const;
 
    private:
     std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map_;
+    uint64_t GetLastDurationMicros() const;
   };
 
   void Clear() {
@@ -460,8 +466,8 @@ class InternalStats {
   }
 
   const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats() {
-    bool success = CollectCacheEntryStats();
-    if (!success) {
+    Status s = CollectCacheEntryStats();
+    if (!s.ok()) {
       assert(false);
       cache_entry_stats.Clear();
     }
@@ -488,7 +494,7 @@ class InternalStats {
 
   bool HandleBlockCacheStat(Cache** block_cache);
 
-  bool CollectCacheEntryStats();
+  Status CollectCacheEntryStats();
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
@@ -663,6 +669,9 @@ class InternalStats {
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleBlockCacheEntryStats(std::string* value, Slice suffix);
+  bool HandleBlockCacheEntryStatsMap(std::map<std::string, std::string>* values,
+                                     Slice suffix);
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
   // be caused by any possible reason, including file system errors, out of
