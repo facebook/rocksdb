@@ -96,6 +96,11 @@ class EnvPosixTest : public testing::Test {
   Env* env_;
   bool direct_io_;
   EnvPosixTest() : env_(Env::Default()), direct_io_(false) {}
+  ~EnvPosixTest() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
 };
 
 class EnvPosixTestWithParam
@@ -1414,7 +1419,7 @@ TEST_F(EnvPosixTest, MultiReadIOUringError) {
   ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
 
   bool io_uring_wait_cqe_called = false;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return",
       [&](void* arg) {
         if (!io_uring_wait_cqe_called) {
@@ -1423,7 +1428,7 @@ TEST_F(EnvPosixTest, MultiReadIOUringError) {
           ret = 1;
         }
       });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   Status s = file->MultiRead(reqs.data(), reqs.size());
   if (io_uring_wait_cqe_called) {
@@ -1432,7 +1437,8 @@ TEST_F(EnvPosixTest, MultiReadIOUringError) {
     s.PermitUncheckedError();
   }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(EnvPosixTest, MultiReadIOUringError2) {
@@ -1449,14 +1455,14 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
 
   bool io_uring_submit_and_wait_called = false;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
       [&](void* arg) {
         io_uring_submit_and_wait_called = true;
         ssize_t* ret = static_cast<ssize_t*>(arg);
         (*ret)--;
       });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
       [&](void* arg) {
         struct io_uring* iu = static_cast<struct io_uring*>(arg);
@@ -1464,7 +1470,7 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
         assert(io_uring_wait_cqe(iu, &cqe) == 0);
         io_uring_cqe_seen(iu, cqe);
       });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   Status s = file->MultiRead(reqs.data(), reqs.size());
   if (io_uring_submit_and_wait_called) {
@@ -1473,7 +1479,8 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
     s.PermitUncheckedError();
   }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // ROCKSDB_IOURING_PRESENT
 
