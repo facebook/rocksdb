@@ -204,7 +204,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 class TestSecondaryCache : public SecondaryCache {
  public:
   explicit TestSecondaryCache(size_t capacity)
-      : num_inserts_(0), num_lookups_(0) {
+      : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
@@ -212,8 +212,15 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::string Name() override { return "TestSecondaryCache"; }
 
+  void InjectFailure() { inject_failure_ = true; }
+
+  void ResetInjectFailure() { inject_failure_ = false; }
+
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
+    if (inject_failure_) {
+      return Status::Corruption("Insertion Data Corrupted");
+    }
     size_t size;
     char* buf;
     Status s;
@@ -292,6 +299,7 @@ class TestSecondaryCache : public SecondaryCache {
   std::shared_ptr<Cache> cache_;
   uint32_t num_inserts_;
   uint32_t num_lookups_;
+  bool inject_failure_;
 };
 
 class DBSecondaryCacheTest : public DBTestBase {
@@ -609,6 +617,140 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness) {
   // tiered cache insertion.
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
+  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+  // After compaction, a iterator is created to test if the file is correct, so
+  // one block read is triggered. Since there is no data in the block cache,
+  // block cache Lookup will also check the tiered cache and trigger one read.
+  // No insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // Since the cache is large enough, when iterator is created, it is in the
+  // block. No secondary cache insertion and lookup will be triggered
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
+  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+
+  Random r_index(47);
+  std::string v;
+  for (int i = 0; i < 1000; i++) {
+    uint32_t key_i = r_index.Next() % N;
+    v = Get(Key(key_i));
+  }
+  // Since the cache is large enough, when iterator is created, it is in the
+  // block. No secondary cache insertion and lookup will be triggered
+  ASSERT_GE(secondary_cache->num_inserts(), 1u);
+  ASSERT_GE(secondary_cache->num_lookups(), 1u);
+
+  Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 24;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+  // After compaction, a iterator is created to test if the file is correct, so
+  // one block read is triggered. Since there is no data in the block cache,
+  // block cache Lookup will also check the tiered cache and trigger one read.
+  // No insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // The first data block is not in the cache, similarly, trigger the block
+  // cache Lookup and tiered cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1000, v.size());
+  // The second data block is not in the cache, similarly, trigger the block
+  // cache Lookup and tiered cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  // Fail the insertion, in LRU cache, the secondary insertion returned status
+  // is not checked, therefore, the DB will not be influenced.
+  secondary_cache->InjectFailure();
+  v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the tiered
+  // cache. At the same time, second data block is evicted and triggers the
+  // tiered cache insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+  secondary_cache->ResetInjectFailure();
 
   Destroy(options);
 }
