@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/sharded_cache.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -40,7 +41,9 @@
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_iterator.h"
+#include "table/block_based/block_like_traits.h"
 #include "table/block_based/block_prefix_index.h"
+#include "table/block_based/block_type.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/hash_index_reader.h"
@@ -72,72 +75,6 @@ BlockBasedTable::~BlockBasedTable() {
 }
 
 std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
-
-template <typename TBlocklike>
-class BlocklikeTraits;
-
-template <>
-class BlocklikeTraits<BlockContents> {
- public:
-  static BlockContents* Create(BlockContents&& contents,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */,
-                               bool /* using_zstd */,
-                               const FilterPolicy* /* filter_policy */) {
-    return new BlockContents(std::move(contents));
-  }
-
-  static uint32_t GetNumRestarts(const BlockContents& /* contents */) {
-    return 0;
-  }
-};
-
-template <>
-class BlocklikeTraits<ParsedFullFilterBlock> {
- public:
-  static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       size_t /* read_amp_bytes_per_bit */,
-                                       Statistics* /* statistics */,
-                                       bool /* using_zstd */,
-                                       const FilterPolicy* filter_policy) {
-    return new ParsedFullFilterBlock(filter_policy, std::move(contents));
-  }
-
-  static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {
-    return 0;
-  }
-};
-
-template <>
-class BlocklikeTraits<Block> {
- public:
-  static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
-                       Statistics* statistics, bool /* using_zstd */,
-                       const FilterPolicy* /* filter_policy */) {
-    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
-  }
-
-  static uint32_t GetNumRestarts(const Block& block) {
-    return block.NumRestarts();
-  }
-};
-
-template <>
-class BlocklikeTraits<UncompressionDict> {
- public:
-  static UncompressionDict* Create(BlockContents&& contents,
-                                   size_t /* read_amp_bytes_per_bit */,
-                                   Statistics* /* statistics */,
-                                   bool using_zstd,
-                                   const FilterPolicy* /* filter_policy */) {
-    return new UncompressionDict(contents.data, std::move(contents.allocation),
-                                 using_zstd);
-  }
-
-  static uint32_t GetNumRestarts(const UncompressionDict& /* dict */) {
-    return 0;
-  }
-};
 
 namespace {
 // Read the block identified by "handle" from "file".
@@ -171,13 +108,6 @@ Status ReadBlockFromFile(
   }
 
   return s;
-}
-
-// Delete the entry resided in the cache.
-template <class Entry>
-void DeleteCachedEntry(const Slice& /*key*/, void* value) {
-  auto entry = reinterpret_cast<Entry*>(value);
-  delete entry;
 }
 
 // Release the cached entry and decrement its ref count.
@@ -1242,8 +1172,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
+      auto deleter = BlocklikeTraits<TBlocklike>::GetDeleter(block_type);
       s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<TBlocklike>, &cache_handle);
+                              deleter, &cache_handle);
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1330,10 +1261,10 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
+    auto deleter = BlocklikeTraits<BlockContents>::GetDeleter(block_type);
     s = block_cache_compressed->Insert(
         compressed_block_cache_key, block_cont_for_comp_cache,
-        block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        block_cont_for_comp_cache->ApproximateMemoryUsage(), deleter);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1347,9 +1278,9 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block_holder->own_bytes()) {
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
+    auto deleter = BlocklikeTraits<TBlocklike>::GetDeleter(block_type);
     s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                            &DeleteCachedEntry<TBlocklike>, &cache_handle,
-                            priority);
+                            deleter, &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,

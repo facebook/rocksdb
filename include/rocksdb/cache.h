@@ -336,6 +336,12 @@ class Cache {
   // returns the charge for the specific entry in the cache.
   virtual size_t GetCharge(Handle* handle) const = 0;
 
+  // Returns the deleter for the specified entry. This might seem useless
+  // as the Cache itself is responsible for calling the deleter, but
+  // the deleter can essentially verify that a cache entry is of an
+  // expected type from an expected code source.
+  virtual DeleterFn GetDeleter(Handle* handle) const = 0;
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.

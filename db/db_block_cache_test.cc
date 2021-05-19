@@ -7,10 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cstdlib>
+#include <memory>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/table.h"
 #include "util/compression.h"
 #include "util/random.h"
 
@@ -147,6 +150,16 @@ class DBBlockCacheTest : public DBTestBase {
     compressed_insert_count_ = new_insert_count;
     compressed_failure_count_ = new_failure_count;
   }
+
+#ifndef ROCKSDB_LITE
+  const std::array<size_t, kNumCacheEntryRoles>& GetCacheEntryRoleCounts() {
+    // Verify in cache entry role stats
+    ColumnFamilyHandleImpl* cfh =
+        static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+    InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
+    return internal_stats_ptr->TEST_GetCacheEntryRoleStats().entry_counts;
+  }
+#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
@@ -886,6 +899,123 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
         options, 0 /* expected_compression_dict_misses */,
         1 /* expected_compression_dict_hits */,
         0 /* expected_compression_dict_inserts */);
+  }
+}
+
+static void ClearCache(Cache* cache) {
+  std::deque<std::string> keys;
+  Cache::ApplyToAllEntriesOptions opts;
+  auto callback = [&](const Slice& key, void* /*value*/, size_t /*charge*/,
+                      Cache::DeleterFn /*deleter*/) {
+    keys.push_back(key.ToString());
+  };
+  cache->ApplyToAllEntries(callback, opts);
+  for (auto& k : keys) {
+    cache->Erase(k);
+  }
+}
+
+TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
+  const size_t capacity = size_t{1} << 25;
+  int iterations_tested = 0;
+  for (bool partition : {false, true}) {
+    for (std::shared_ptr<Cache> cache :
+         {NewLRUCache(capacity), NewClockCache(capacity)}) {
+      if (!cache) {
+        // Skip clock cache when not supported
+        continue;
+      }
+      ++iterations_tested;
+
+      Options options = CurrentOptions();
+      options.create_if_missing = true;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.stats_dump_period_sec = 0;
+      options.max_open_files = 13;
+      options.table_cache_numshardbits = 0;
+
+      BlockBasedTableOptions table_options;
+      table_options.block_cache = cache;
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.filter_policy.reset(NewBloomFilterPolicy(50));
+      if (partition) {
+        table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+        table_options.partition_filters = true;
+      }
+      table_options.metadata_cache_options.top_level_index_pinning =
+          PinningTier::kNone;
+      table_options.metadata_cache_options.partition_pinning =
+          PinningTier::kNone;
+      table_options.metadata_cache_options.unpartitioned_pinning =
+          PinningTier::kNone;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      DestroyAndReopen(options);
+
+      // Create a new table.
+      ASSERT_OK(Put("foo", "value"));
+      ASSERT_OK(Put("bar", "value"));
+      ASSERT_OK(Flush());
+
+      ASSERT_OK(Put("zfoo", "value"));
+      ASSERT_OK(Put("zbar", "value"));
+      ASSERT_OK(Flush());
+
+      ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+      // Fresh cache
+      ClearCache(cache.get());
+
+      std::array<size_t, kNumCacheEntryRoles> expected{};
+      // For CacheEntryStatsCollector
+      expected[static_cast<size_t>(CacheEntryRole::kMisc)] = 1;
+      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      // First access only filters
+      ASSERT_EQ("NOT_FOUND", Get("different from any key added"));
+      expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)] += 2;
+      if (partition) {
+        expected[static_cast<size_t>(CacheEntryRole::kFilterMetaBlock)] += 2;
+      }
+      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      // Now access index and data block
+      ASSERT_EQ("value", Get("foo"));
+      expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
+      if (partition) {
+        // top-level
+        expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
+      }
+      expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      // The same for other file
+      ASSERT_EQ("value", Get("zfoo"));
+      expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
+      if (partition) {
+        // top-level
+        expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
+      }
+      expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      // Also check the GetProperty interface
+      std::map<std::string, std::string> values;
+      ASSERT_TRUE(
+          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]),
+          values["count.index-block"]);
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]),
+          values["count.data-block"]);
+      EXPECT_EQ(
+          ToString(expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)]),
+          values["count.filter-block"]);
+      EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
+                values["count.misc"]);
+    }
+    EXPECT_GE(iterations_tested, 1);
   }
 }
 

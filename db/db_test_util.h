@@ -875,6 +875,10 @@ class CacheWrapper : public Cache {
     return target_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return target_->GetDeleter(handle);
+  }
+
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override {
     target_->ApplyToAllCacheEntries(callback, thread_safe);

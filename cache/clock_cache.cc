@@ -178,7 +178,7 @@ struct CacheHandle {
   Slice key;
   void* value;
   size_t charge;
-  void (*deleter)(const Slice&, void* value);
+  Cache::DeleterFn deleter;
   uint32_t hash;
 
   // Addition to "charge" to get "total charge" under metadata policy.
@@ -803,16 +803,14 @@ class ClockCache final : public ShardedCache {
     return reinterpret_cast<const CacheHandle*>(handle)->hash;
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return reinterpret_cast<const CacheHandle*>(handle)->deleter;
+  }
+
   void DisownData() override {
-#if defined(__clang__)
-#if !defined(__has_feature) || !__has_feature(address_sanitizer)
+#ifndef MUST_FREE_HEAP_ALLOCATIONS
     shards_ = nullptr;
 #endif
-#else  // __clang__
-#ifndef __SANITIZE_ADDRESS__
-    shards_ = nullptr;
-#endif  // !__SANITIZE_ADDRESS__
-#endif  // __clang__
   }
 
   void WaitAll(std::vector<Handle*>& /*handles*/) override {}

@@ -763,6 +763,10 @@ class DB {
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
 
+    //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
+    //      map with statistics on block cache usage.
+    static const std::string kBlockCacheEntryStats;
+
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
     static const std::string kNumImmutableMemTable;

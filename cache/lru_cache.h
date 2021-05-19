@@ -53,7 +53,7 @@ struct LRUHandle {
   union Info {
     Info() {}
     ~Info() {}
-    void (*deleter)(const Slice&, void* value);
+    Cache::DeleterFn deleter;
     const ShardedCache::CacheItemHelper* helper;
   } info_;
   LRUHandle* next_hash;
@@ -267,8 +267,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
-                        size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
+                        size_t charge, Cache::DeleterFn deleter,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
     return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
@@ -329,9 +328,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  private:
   Status InsertItem(LRUHandle* item, Cache::Handle** handle);
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                const Cache::CacheItemHelper* helper, Cache::Handle** handle,
-                Cache::Priority priority);
+                DeleterFn deleter, const Cache::CacheItemHelper* helper,
+                Cache::Handle** handle, Cache::Priority priority);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -416,6 +414,7 @@ class LRUCache
   virtual void* Value(Handle* handle) override;
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
+  virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) override {}
 
