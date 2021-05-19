@@ -1136,6 +1136,41 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
   }
 }
 
+TEST_F(ExternalSSTFileBasicTest, ReopenNotSupported) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* arg) {
+        Status* s = static_cast<Status*>(arg);
+        *s = Status::NotSupported();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  Options sst_file_writer_options;
+  sst_file_writer_options.env = env_;
+  std::unique_ptr<SstFileWriter> sst_file_writer(
+      new SstFileWriter(EnvOptions(), sst_file_writer_options));
+  std::string file_name =
+      sst_files_dir_ + "reopen_not_supported_test_" + ".sst";
+  ASSERT_OK(sst_file_writer->Open(file_name));
+  ASSERT_OK(sst_file_writer->Put("bar", "v2"));
+  ASSERT_OK(sst_file_writer->Finish());
+
+  IngestExternalFileOptions ingest_opt;
+  ingest_opt.move_files = true;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+  db_->ReleaseSnapshot(snapshot);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Destroy(options);
+}
+
 TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   Options options;
   options.create_if_missing = true;
