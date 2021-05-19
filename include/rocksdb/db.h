@@ -1393,11 +1393,6 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Returns a list of all blob files with their metadata
-  // and end key
-  virtual void GetLiveBlobMetaData(
-      std::vector<LiveBlobMetaData>* /*metadata*/) {}
-
   // Return a list of all table and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with GetLiveFiles.

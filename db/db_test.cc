@@ -25,6 +25,7 @@
 
 #include "cache/lru_cache.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -1166,14 +1167,6 @@ TEST_F(DBTest, MetaDataTest) {
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
   CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
-  printf("MJR Blobs: %d\n", (int)cf_meta.blobs.size());
-  for (const auto& blob : cf_meta.blobs) {
-    printf("Blob: %d total=%d/%d garbage=%d/%d checksum=%s(%s)\n",
-           (int)blob.blob_file_number, (int)blob.total_blob_count,
-           (int)blob.total_blob_bytes, (int)blob.garbage_blob_count,
-           (int)blob.garbage_blob_bytes, blob.checksum_method.c_str(),
-           blob.checksum_value.c_str());
-  }
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
   CheckLiveFilesMeta(live_file_meta, files_by_level);
@@ -2394,6 +2387,23 @@ TEST_F(DBTest, GetLiveBlobFiles) {
 
   ASSERT_FALSE(files.empty());
   ASSERT_EQ(files[0], BlobFileName("", blob_file_number));
+
+  ColumnFamilyMetaData cfmd;
+
+  db_->GetColumnFamilyMetaData(&cfmd);
+  ASSERT_EQ(cfmd.blob_files.size(), 1);
+  const BlobMetaData& bmd = cfmd.blob_files[0];
+  ASSERT_EQ(bmd.blob_file_number, blob_file_number);
+  ASSERT_EQ(bmd.blob_file_name, BlobFileName("", blob_file_number));
+  ASSERT_EQ(bmd.blob_file_size,
+            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
+
+  ASSERT_EQ(bmd.total_blob_count, total_blob_count);
+  ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
+  ASSERT_EQ(bmd.garbage_blob_count, 0);
+  ASSERT_EQ(bmd.garbage_blob_bytes, 0);
+  ASSERT_EQ(bmd.checksum_method, "CRC32");
+  ASSERT_EQ(bmd.checksum_value, "3d87ff57");
 }
 #endif
 

@@ -1505,10 +1505,13 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
     cf_meta->size += level_size;
   }
   for (const auto& iter : vstorage->GetBlobFiles()) {
-    const auto& meta = iter.second;
-    BlobMetaData bmd;
-    meta->AsBlobMetaData(&bmd);
-    cf_meta->blobs.emplace_back(bmd);
+    const auto meta = iter.second.get();
+    cf_meta->blob_files.emplace_back(
+        meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
+        ioptions->cf_paths.front().path, meta->GetBlobFileSize(),
+        meta->GetTotalBlobCount(), meta->GetTotalBlobBytes(),
+        meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes(),
+        meta->GetChecksumMethod(), meta->GetChecksumValue());
   }
 }
 
@@ -5597,22 +5600,6 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         metadata->push_back(filemetadata);
       }
-    }
-  }
-}
-
-void VersionSet::GetLiveBlobMetaData(
-    std::vector<LiveBlobMetaData>* metadata) const {
-  for (auto cfd : *column_family_set_) {
-    if (cfd->IsDropped() || !cfd->initialized()) {
-      continue;
-    }
-    for (const auto& iter : cfd->current()->storage_info()->GetBlobFiles()) {
-      const auto& meta = iter.second;
-      LiveBlobMetaData bmd;
-      bmd.column_family_name = cfd->GetName();
-      meta->AsBlobMetaData(&bmd);
-      metadata->emplace_back(bmd);
     }
   }
 }

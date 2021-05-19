@@ -396,9 +396,6 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* metadata) override;
 
-  virtual void GetLiveBlobMetaData(
-      std::vector<LiveBlobMetaData>* metadata) override;
-
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override;
 

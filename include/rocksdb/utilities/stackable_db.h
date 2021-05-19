@@ -352,13 +352,6 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
-  // Returns a list of all blob files with their metadata
-  // and end key
-  virtual void GetLiveBlobMetaData(
-      std::vector<LiveBlobMetaData>* metadata) override {
-    db_->GetLiveBlobMetaData(metadata);
-  }
-
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override {
     return db_->GetLiveFilesChecksumInfo(checksum_list);

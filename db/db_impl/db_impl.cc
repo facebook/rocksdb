@@ -3716,11 +3716,6 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   versions_->GetLiveFilesMetaData(metadata);
 }
 
-void DBImpl::GetLiveBlobMetaData(std::vector<LiveBlobMetaData>* metadata) {
-  InstrumentedMutexLock l(&mutex_);
-  versions_->GetLiveBlobMetaData(metadata);
-}
-
 Status DBImpl::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   InstrumentedMutexLock l(&mutex_);
   return versions_->GetLiveFilesChecksumInfo(checksum_list);

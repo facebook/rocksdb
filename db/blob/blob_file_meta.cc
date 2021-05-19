@@ -8,10 +8,14 @@
 #include <ostream>
 #include <sstream>
 
+#include "db/blob/blob_log_format.h"
 #include "file/filename.h"
 #include "rocksdb/metadata.h"
 
 namespace ROCKSDB_NAMESPACE {
+uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
+  return BlobLogHeader::kSize + total_blob_bytes_ + BlobLogFooter::kSize;
+}
 
 std::string SharedBlobFileMetaData::DebugString() const {
   std::ostringstream oss;
@@ -36,17 +40,6 @@ std::string BlobFileMetaData::DebugString() const {
   oss << (*this);
 
   return oss.str();
-}
-
-void BlobFileMetaData::AsBlobMetaData(BlobMetaData* bmd) const {
-  bmd->blob_file_number = GetBlobFileNumber();
-  bmd->blob_file_name = BlobFileName(bmd->blob_file_number);
-  bmd->total_blob_count = GetTotalBlobCount();
-  bmd->total_blob_bytes = GetTotalBlobBytes();
-  bmd->garbage_blob_count = GetGarbageBlobCount();
-  bmd->garbage_blob_bytes = GetGarbageBlobBytes();
-  bmd->checksum_method = GetChecksumMethod();
-  bmd->checksum_value = GetChecksumValue();
 }
 
 std::ostream& operator<<(std::ostream& os, const BlobFileMetaData& meta) {
