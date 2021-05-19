@@ -1419,9 +1419,11 @@ DEFINE_bool(read_with_latest_user_timestamp, true,
             "If true, always use the current latest timestamp for read. If "
             "false, choose a random timestamp from the past.");
 
+#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
+#endif  // ROCKSDB_LITE
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -2801,6 +2803,7 @@ class Benchmark {
         exit(1);
 #endif
       }
+#ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s =
             ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
@@ -2814,6 +2817,7 @@ class Benchmark {
         }
         opts.secondary_cache = secondary_cache;
       }
+#endif  // ROCKSDB_LITE
       return NewLRUCache(opts);
     }
   }

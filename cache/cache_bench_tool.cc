@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifdef GFLAGS
 #include <cinttypes>
 #include <cstdio>
 #include <limits>
@@ -569,3 +570,4 @@ int cache_bench_tool(int argc, char** argv) {
 }  // namespace ROCKSDB_NAMESPACE
 }  // namespace ROCKSDB_NAMESPACE
 
+#endif  // GFLAGS
