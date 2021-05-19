@@ -1349,7 +1349,8 @@ if(WITH_BENCHMARK_TOOLS)
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench${ARTIFACT_SUFFIX}
-    cache/cache_bench.cc)
+    cache/cache_bench.cc
+    cache/cache_bench_tool.cc)
   target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 

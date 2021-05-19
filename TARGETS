@@ -796,6 +796,21 @@ cpp_library(
 )
 
 cpp_library(
+    name = "rocksdb_cache_bench_tools_lib",
+    srcs = ["cache/cache_bench_tool.cc"],
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    deps = [":rocksdb_lib"],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    link_whole = False,
+)
+
+cpp_library(
     name = "rocksdb_stress_lib",
     srcs = [
         "db_stress_tool/batched_ops_stress.cc",
