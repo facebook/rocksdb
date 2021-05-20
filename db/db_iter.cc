@@ -204,7 +204,6 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   }
 
   is_blob_ = true;
-  valid_ = true;
   return true;
 }
 
@@ -606,6 +605,7 @@ bool DBIter::MergeValuesNewToOld() {
       if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
         return false;
       }
+      valid_ = true;
       const Slice blob_value = value();
       Status s = Merge(&blob_value, ikey.user_key);
       if (!s.ok()) {
@@ -958,6 +958,7 @@ bool DBIter::FindValueForCurrentKey() {
         if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
           return false;
         }
+        valid_ = true;
         const Slice blob_value = value();
         s = Merge(&blob_value, saved_key_.GetUserKey());
         if (!s.ok()) {
@@ -1139,8 +1140,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
         return false;
       }
+      valid_ = true;
       const Slice blob_value = value();
-      Status s = Merge(&blob_value, ikey.user_key);
+      Status s = Merge(&blob_value, saved_key_.GetUserKey());
       if (!s.ok()) {
         return false;
       }

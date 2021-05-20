@@ -464,21 +464,22 @@ TEST_F(DBBlobIndexTest, Iterate) {
 }
 
 TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
-  const std::vector<std::vector<ValueType>> data = {
-      /*00*/ {kTypeValue},
-      /*01*/ {kTypeBlobIndex, kTypeMerge, kTypeMerge, kTypeMerge},
-      /*02*/ {kTypeValue}};
+  const std::vector<std::vector<std::string>> data = {
+      /*00*/ {"Put"},
+      /*01*/ {"Put", "Merge", "Merge", "Merge"},
+      /*02*/ {"Put"}};
 
-  auto get_key = [](size_t index) { return ("key" + std::to_string(index)); };
+  auto get_key = [](int index) { return ("key" + std::to_string(index)); };
 
-  auto get_value = [&](size_t index, size_t version) {
+  auto get_value = [&](int index, size_t version) {
     return get_key(index) + "_value" + ToString(version);
   };
 
-  auto check_iterator = [&](Iterator* iterator, Status::Code expected_status,
+  auto check_iterator = [&](std::unique_ptr<Iterator>&& iterator,
+                            Status expected_status,
                             const Slice& expected_value) {
-    ASSERT_EQ(expected_status, iterator->status().code());
-    if (expected_status == Status::kOk) {
+    ASSERT_EQ(expected_status, iterator->status());
+    if (expected_status.ok()) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ(expected_value, iterator->value());
     } else {
@@ -486,51 +487,50 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
     }
   };
 
-  auto create_normal_iterator = [&]() -> Iterator* {
-    return dbfull()->NewIterator(ReadOptions());
-  };
-
-  auto verify = [&](int index, Status::Code expected_status,
-                    const Slice& forward_value, const Slice& backward_value,
-                    std::function<Iterator*()> create_iterator) {
+  auto verify = [&](int index, Status expected_status,
+                    const Slice& expected_value) {
     // Seek
     {
-      auto iterator = create_iterator();
-      ASSERT_OK(iterator->status());
-      ASSERT_OK(iterator->Refresh());
-      iterator->Seek(get_key(index));
-      check_iterator(iterator, expected_status, forward_value);
-      delete iterator;
+      Iterator* iterator = db_->NewIterator(ReadOptions());
+      std::unique_ptr<Iterator> iterator_guard(iterator);
+      ASSERT_OK(iterator_guard->status());
+      ASSERT_OK(iterator_guard->Refresh());
+      iterator_guard->Seek(get_key(index));
+      check_iterator(std::move(iterator_guard), expected_status,
+                     expected_value);
     }
     // Next
     {
-      auto iterator = create_iterator();
-      ASSERT_OK(iterator->Refresh());
-      iterator->Seek(get_key(index - 1));
-      ASSERT_TRUE(iterator->Valid());
-      ASSERT_OK(iterator->status());
-      iterator->Next();
-      check_iterator(iterator, expected_status, forward_value);
-      delete iterator;
+      Iterator* iterator = db_->NewIterator(ReadOptions());
+      std::unique_ptr<Iterator> iterator_guard(iterator);
+      ASSERT_OK(iterator_guard->Refresh());
+      iterator_guard->Seek(get_key(index - 1));
+      ASSERT_TRUE(iterator_guard->Valid());
+      ASSERT_OK(iterator_guard->status());
+      iterator_guard->Next();
+      check_iterator(std::move(iterator_guard), expected_status,
+                     expected_value);
     }
     // SeekForPrev
     {
-      auto iterator = create_iterator();
-      ASSERT_OK(iterator->status());
-      ASSERT_OK(iterator->Refresh());
-      iterator->SeekForPrev(get_key(index));
-      check_iterator(iterator, expected_status, backward_value);
-      delete iterator;
+      Iterator* iterator = db_->NewIterator(ReadOptions());
+      std::unique_ptr<Iterator> iterator_guard(iterator);
+      ASSERT_OK(iterator_guard->status());
+      ASSERT_OK(iterator_guard->Refresh());
+      iterator_guard->SeekForPrev(get_key(index));
+      check_iterator(std::move(iterator_guard), expected_status,
+                     expected_value);
     }
     // Prev
     {
-      auto iterator = create_iterator();
-      iterator->Seek(get_key(index + 1));
-      ASSERT_TRUE(iterator->Valid());
-      ASSERT_OK(iterator->status());
-      iterator->Prev();
-      check_iterator(iterator, expected_status, backward_value);
-      delete iterator;
+      Iterator* iterator = db_->NewIterator(ReadOptions());
+      std::unique_ptr<Iterator> iterator_guard(iterator);
+      iterator_guard->Seek(get_key(index + 1));
+      ASSERT_TRUE(iterator_guard->Valid());
+      ASSERT_OK(iterator_guard->status());
+      iterator_guard->Prev();
+      check_iterator(std::move(iterator_guard), expected_status,
+                     expected_value);
     }
   };
 
@@ -538,8 +538,6 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
-  // Avoid values from being purged.
-  std::vector<const Snapshot*> snapshots;
   DestroyAndReopen(options);
 
   // fill data
@@ -547,38 +545,25 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
     for (size_t j = 0; j < data[i].size(); j++) {
       std::string key = get_key(i);
       std::string value = get_value(i, j);
-      switch (data[i][j]) {
-        case kTypeValue:
-          ASSERT_OK(Put(key, value));
-          ASSERT_OK(Flush());
-          break;
-        case kTypeBlobIndex:
-          ASSERT_OK(Put(key, value));
-          ASSERT_OK(Flush());
-          break;
-        case kTypeMerge:
-          ASSERT_OK(Merge(key, value));
-          ASSERT_OK(Flush());
-          break;
-        default:
-          FAIL();
-      };
+      if (data[i][j] == "Put") {
+        ASSERT_OK(Put(key, value));
+        ASSERT_OK(Flush());
+      } else if (data[i][j] == "Merge") {
+        ASSERT_OK(Merge(key, value));
+        ASSERT_OK(Flush());
+      }
     }
-    snapshots.push_back(dbfull()->GetSnapshot());
   }
-  snapshots.push_back(dbfull()->GetSnapshot());
 
-  // Iterator
-  verify(1, Status::kOk,
-         get_value(1, 0) + "," + get_value(1, 1) + "," + get_value(1, 2) + "," +
-             get_value(1, 3),
-         get_value(1, 0) + "," + get_value(1, 1) + "," + get_value(1, 2) + "," +
-             get_value(1, 3),
-         create_normal_iterator);
+  std::string expected_value = get_value(1, 0) + "," + get_value(1, 1) + "," +
+                               get_value(1, 2) + "," + get_value(1, 3);
+  Status expected_status;
+  verify(1, expected_status, expected_value);
 
-  for (auto* snapshot : snapshots) {
-    dbfull()->ReleaseSnapshot(snapshot);
-  }
+  // Test DBIter::FindValueForCurrentKeyUsingSeek flow.
+  ASSERT_OK(dbfull()->SetOptions(cfh(),
+                                 {{"max_sequential_skip_in_iterations", "0"}}));
+  verify(1, expected_status, expected_value);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
