@@ -9,6 +9,7 @@
 #include "db/db_impl/db_impl.h"
 
 #include <stdint.h>
+
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -53,6 +54,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "env/random_seed.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -101,6 +103,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/uuid_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -3834,7 +3837,8 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
     return s;
   }
 
-  // If last character is '\n' remove it from identity
+  // If last character is '\n' remove it from identity. (Old implementations
+  // of Env::GenerateUniqueId() would include a trailing '\n'.)
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();
   }
@@ -3847,28 +3851,15 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
 }
 
 void DBImpl::SetDbSessionId() {
-  // GenerateUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated, ~128 bits of entropy
-  std::string uuid = env_->GenerateUniqueId();
-
-  // Hash and reformat that down to a more compact format, 20 characters
+  // Use a more compact format than RFC 4122 UUID. RocksMuid uses 20 digits
   // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
   // to expect no collisions across a billion servers each opening DBs
   // a million times (~2^50). Benefits vs. raw unique id:
   // * Save ~ dozen bytes per SST file
   // * Shorter shared backup file names (some platforms have low limits)
   // * Visually distinct from DB id format
-  uint64_t a = NPHash64(uuid.data(), uuid.size(), 1234U);
-  uint64_t b = NPHash64(uuid.data(), uuid.size(), 5678U);
-  db_session_id_.resize(20);
-  static const char* const base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  size_t i = 0;
-  for (; i < 10U; ++i, a /= 36U) {
-    db_session_id_[i] = base36[a % 36];
-  }
-  for (; i < 20U; ++i, b /= 36U) {
-    db_session_id_[i] = base36[b % 36];
-  }
+  db_session_id_ = GenerateMuid(env_).ToString();
+
   TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
 }
 

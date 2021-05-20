@@ -18,10 +18,11 @@
 
 #include <sys/types.h>
 
-#include <iostream>
-#include <unordered_set>
 #include <atomic>
+#include <iostream>
 #include <list>
+#include <mutex>
+#include <unordered_set>
 
 #ifdef OS_LINUX
 #include <fcntl.h>
@@ -2385,6 +2386,127 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   v_info.checksum = Slice(checksum);
   s = file->Append(Slice(test_data), v_info);
   ASSERT_OK(s);
+}
+
+namespace {
+
+constexpr size_t kThreads = 8;
+constexpr size_t kIdsPerThread = 1000;
+
+// This is a mini-stress test to check for duplicates in functions like
+// GenerateUniqueId()
+template <typename IdType>
+struct NoDuplicateMiniStressTest {
+  std::unordered_set<IdType> ids;
+  std::mutex mutex;
+  Env* env;
+
+  NoDuplicateMiniStressTest() { env = Env::Default(); }
+
+  virtual ~NoDuplicateMiniStressTest() {}
+
+  void Run() {
+    std::array<std::thread, kThreads> threads;
+    for (size_t i = 0; i < kThreads; ++i) {
+      threads[i] = std::thread([&]() { ThreadFn(); });
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    // All must be unique
+    ASSERT_EQ(ids.size(), kThreads * kIdsPerThread);
+  }
+
+  void ThreadFn() {
+    std::array<IdType, kIdsPerThread> my_ids;
+    for (size_t i = 0; i < kIdsPerThread; ++i) {
+      my_ids[i] = Generate();
+    }
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& id : my_ids) {
+      ids.insert(id);
+    }
+  }
+
+  virtual IdType Generate() = 0;
+};
+
+void VerifyRfcUuids(const std::unordered_set<RfcUuid>& uuids) {
+  if (uuids.empty()) {
+    return;
+  }
+  // If these came from the same source, then they should all have the
+  // same version and variant.
+  int version = uuids.begin()->GetVersion();
+  int variant = uuids.begin()->GetVariant();
+  for (auto& uuid : uuids) {
+    ASSERT_EQ(version, uuid.GetVersion());
+    ASSERT_EQ(variant, uuid.GetVariant());
+  }
+}
+
+}  // namespace
+
+TEST_F(EnvTest, GenerateUniqueId) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
+    std::string Generate() { return env->GenerateUniqueId(); }
+  };
+
+  MyStressTest t;
+  t.Run();
+
+  // Extra verification that these are (currently) RFC 4122 UUIDs.
+  // This also verifies that we can use RfcUuid with std::set and
+  // std::unordered_set
+  std::unordered_set<RfcUuid> uuids;
+  std::set<std::string> sorted_by_string;
+  std::set<RfcUuid> sorted_by_data;
+  for (std::string id : t.ids) {
+    RfcUuid uuid;
+    ASSERT_OK(RfcUuid::Parse(id, &uuid));
+    ASSERT_EQ(id, uuid.ToString());
+    uuids.insert(uuid);
+    sorted_by_string.insert(id);
+    sorted_by_data.insert(uuid);
+  }
+  ASSERT_EQ(uuids.size(), t.ids.size());
+  VerifyRfcUuids(uuids);
+
+  ASSERT_EQ(sorted_by_string.size(), t.ids.size());
+  ASSERT_EQ(sorted_by_data.size(), t.ids.size());
+
+  // Both should be numerical sort
+  auto cur_str = sorted_by_string.begin();
+  auto cur_data = sorted_by_data.begin();
+  while (cur_str != sorted_by_string.end()) {
+    ASSERT_EQ(*cur_str, cur_data->ToString());
+    ++cur_str;
+    ++cur_data;
+  }
+}
+
+TEST_F(EnvTest, GenerateRfcUuid) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<RfcUuid> {
+    RfcUuid Generate() { return env->GenerateRfcUuid(); }
+  };
+
+  MyStressTest t;
+  t.Run();
+
+  // Extra verification on versions and variants
+  VerifyRfcUuids(t.ids);
+}
+
+TEST_F(EnvTest, GenerateRawUuid) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<RawUuid> {
+    RawUuid Generate() { return env->GenerateRawUuid(); }
+  };
+
+  // TODO: test that each "track" (entropy source) in RawUuidHelper is
+  // sufficient on its own for this test.
+
+  MyStressTest t;
+  t.Run();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

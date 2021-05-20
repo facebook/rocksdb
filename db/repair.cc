@@ -71,6 +71,7 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
+#include "env/random_seed.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -95,6 +96,7 @@ class Repairer {
       : dbname_(dbname),
         env_(db_options.env),
         env_options_(),
+        db_session_id_(GenerateMuid(env_).ToString()),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
@@ -110,19 +112,15 @@ class Repairer {
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
         table_cache_(
-            // TODO: db_session_id for TableCache should be initialized after
-            // db_session_id_ is set.
             new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
                            /*block_cache_tracer=*/nullptr,
-                           /*io_tracer=*/nullptr, /*db_session_id*/ "")),
+                           /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        // TODO: db_session_id for VersionSet should be initialized after
-        // db_session_id_ is set and use it for initialization.
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-              /*db_session_id*/ ""),
+              db_session_id_),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -189,21 +187,15 @@ class Repairer {
       return status;
     }
     status = FindFiles();
-    DBImpl* db_impl = nullptr;
     if (status.ok()) {
       // Discard older manifests and start a fresh one
       for (size_t i = 0; i < manifests_.size(); i++) {
         ArchiveFile(dbname_ + "/" + manifests_[i]);
       }
       // Just create a DBImpl temporarily so we can reuse NewDB()
-      db_impl = new DBImpl(db_options_, dbname_);
-      // Also use this temp DBImpl to get a session id
-      status = db_impl->GetDbSessionId(db_session_id_);
-    }
-    if (status.ok()) {
+      std::unique_ptr<DBImpl> db_impl{new DBImpl(db_options_, dbname_)};
       status = db_impl->NewDB(/*new_filenames=*/nullptr);
     }
-    delete db_impl;
 
     if (status.ok()) {
       // Recover using the fresh manifest created by NewDB()
@@ -247,9 +239,9 @@ class Repairer {
   };
 
   std::string const dbname_;
-  std::string db_session_id_;
   Env* const env_;
   const EnvOptions env_options_;
+  std::string db_session_id_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;

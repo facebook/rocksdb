@@ -28,6 +28,7 @@
 #include "rocksdb/functor_wrapper.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/uuid.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -526,7 +527,11 @@ class Env {
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
-  // Generates a unique id that can be used to identify a db
+  // Generates a unique id that can be used to identify a DB. The current
+  // standard is an RFC 4122 UUID string, which includes 32
+  // hexadecimal digits and four hyphens, for a total of 36 characters.
+  //
+  // May not be strong against an adversary (e.g. for cryptography).
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of

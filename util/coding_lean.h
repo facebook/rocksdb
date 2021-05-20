@@ -59,33 +59,39 @@ inline void EncodeFixed64(char* buf, uint64_t value) {
 // Lower-level versions of Get... that read directly from a character buffer
 // without any bounds checking.
 
-inline uint16_t DecodeFixed16(const char* ptr) {
+template <typename ByteLike>
+inline uint16_t DecodeFixed16(const ByteLike* ptr) {
+  static_assert(sizeof(ByteLike) == 1, "Must be single byte type");
   if (port::kLittleEndian) {
     // Load the raw bytes
     uint16_t result;
     memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
     return result;
   } else {
-    return ((static_cast<uint16_t>(static_cast<unsigned char>(ptr[0]))) |
-            (static_cast<uint16_t>(static_cast<unsigned char>(ptr[1])) << 8));
+    return ((uint16_t{static_cast<uint8_t>(ptr[0])}) |
+            (uint16_t{static_cast<uint8_t>(ptr[1])} << 8));
   }
 }
 
-inline uint32_t DecodeFixed32(const char* ptr) {
+template <typename ByteLike>
+inline uint32_t DecodeFixed32(const ByteLike* ptr) {
+  static_assert(sizeof(ByteLike) == 1, "Must be single byte type");
   if (port::kLittleEndian) {
     // Load the raw bytes
     uint32_t result;
     memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
     return result;
   } else {
-    return ((static_cast<uint32_t>(static_cast<unsigned char>(ptr[0]))) |
-            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[1])) << 8) |
-            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[2])) << 16) |
-            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[3])) << 24));
+    return ((uint32_t{static_cast<uint8_t>(ptr[0])}) |
+            (uint32_t{static_cast<uint8_t>(ptr[1])} << 8) |
+            (uint32_t{static_cast<uint8_t>(ptr[2])} << 16) |
+            (uint32_t{static_cast<uint8_t>(ptr[3])} << 24));
   }
 }
 
-inline uint64_t DecodeFixed64(const char* ptr) {
+template <typename ByteLike>
+inline uint64_t DecodeFixed64(const ByteLike* ptr) {
+  static_assert(sizeof(ByteLike) == 1, "Must be single byte type");
   if (port::kLittleEndian) {
     // Load the raw bytes
     uint64_t result;
