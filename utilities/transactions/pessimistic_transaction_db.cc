@@ -228,6 +228,8 @@ Status TransactionDB::Open(
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
   DBOptions db_options_2pc = db_options;
+  // Disable automatic error recovery
+  db_options_2pc.max_bgerror_resume_count = 0;
   PrepareWrap(&db_options_2pc, &column_families_copy,
               &compaction_enabled_cf_indices);
   const bool use_seq_per_batch =

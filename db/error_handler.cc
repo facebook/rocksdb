@@ -251,6 +251,14 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
+void ErrorHandler::StopDB() {
+  // Ensure all subsequent writes are failed back to the user
+  if (bg_error_.severity() < Status::Severity::kHardError) {
+    bg_error_ = Status(bg_error_, Status::Severity::kHardError);
+  }
+  CancelErrorRecovery();
+}
+
 // This is the main function for looking at an error during a background
 // operation and deciding the severity, and error recovery strategy. The high
 // level algorithm is as follows -
@@ -328,7 +336,14 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
 
   // Allow some error specific overrides
   if (new_bg_err == Status::NoSpace()) {
-    new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
+    new_bg_err = OverrideNoSpaceError(new_bg_err, reason, &auto_recovery);
+  }
+
+  if ((!db_options_.max_bgerror_resume_count || !auto_recovery) &&
+      new_bg_err.severity() < Status::Severity::kHardError) {
+    // If auto recovery is disabled, make it a hard error, i.e all writes are
+    // stopped and requires user to explicitly call DB::Resume()
+    new_bg_err = Status(new_bg_err, Status::Severity::kHardError);
   }
 
   if (!new_bg_err.ok()) {
@@ -418,9 +433,10 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                           &bg_err, db_mutex_, &auto_recovery);
     recover_context_ = context;
     return bg_error_;
-  } else if (bg_io_err.GetScope() ==
-                 IOStatus::IOErrorScope::kIOErrorScopeFile ||
-             bg_io_err.GetRetryable()) {
+  } else if ((bg_io_err.GetScope() ==
+                  IOStatus::IOErrorScope::kIOErrorScopeFile ||
+              bg_io_err.GetRetryable()) &&
+             db_options_.max_bgerror_resume_count > 0) {
     // Second, check if the error is a retryable IO error (file scope IO error
     // is also treated as retryable IO error in RocksDB write path). if it is
     // retryable error and its severity is higher than bg_error_, overwrite the
@@ -492,13 +508,15 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
 }
 
 Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
+                                          const BackgroundErrorReason reason,
                                           bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
   if (bg_error.severity() >= Status::Severity::kFatalError) {
     return bg_error;
   }
 
-  if (db_options_.sst_file_manager.get() == nullptr) {
+  if (db_options_.sst_file_manager.get() == nullptr ||
+      reason == BackgroundErrorReason::kWriteCallback) {
     // We rely on SFM to poll for enough disk space and recover
     *auto_recovery = false;
     return bg_error;

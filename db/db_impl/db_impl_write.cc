@@ -1541,8 +1541,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   Status s;
   if (write_controller_.IsStopped()) {
     // If writes are still stopped, it means we bailed due to a background
-    // error
-    s = Status::Incomplete(error_handler_.GetBGError().ToString());
+    // error. Since the background error is now user visible and caused a
+    // write to fail, stop the DB and fail subsequent writes as well. There
+    // may be other writes in the queue and might cause inconsistency if the
+    // recovery succeeds and the queued writes are allowed to go through.
+    error_handler_.StopDB();
   }
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();

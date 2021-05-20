@@ -79,6 +79,7 @@ class ErrorHandler {
 
     Status RecoverFromBGError(bool is_manual = false);
     void CancelErrorRecovery();
+    void StopDB();
 
     void EndAutoRecovery();
 
@@ -112,7 +113,9 @@ class ErrorHandler {
     // The pointer of DB statistics.
     std::shared_ptr<Statistics> bg_error_stats_;
 
-    Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
+    Status OverrideNoSpaceError(const Status& bg_error,
+                                const BackgroundErrorReason reason,
+                                bool* auto_recovery);
     void RecoverFromNoSpace();
     const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
     void RecoverFromRetryableBGIOError();
