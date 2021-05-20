@@ -319,7 +319,7 @@ CompactionJob::CompactionJob(
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
-      mutable_db_options_(mutable_db_options),
+      mutable_db_options_copy_(mutable_db_options),
       log_buffer_(log_buffer),
       output_directory_(output_directory),
       stats_(stats),
@@ -928,11 +928,14 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.column_family.options =
       compaction->column_family_data()->GetLatestCFOptions();
   compaction_input.db_options =
-      BuildDBOptions(db_options_, mutable_db_options_);
+      BuildDBOptions(db_options_, mutable_db_options_copy_);
   compaction_input.snapshots = existing_snapshots_;
+  compaction_input.has_begin = sub_compact->start;
   compaction_input.begin =
-      sub_compact->start ? sub_compact->start->ToString() : "";
-  compaction_input.end = sub_compact->end ? sub_compact->end->ToString() : "";
+      compaction_input.has_begin ? sub_compact->start->ToString() : "";
+  compaction_input.has_end = sub_compact->end;
+  compaction_input.end =
+      compaction_input.has_end ? sub_compact->end->ToString() : "";
   compaction_input.approx_size = sub_compact->approx_size;
 
   std::string compaction_input_binary;
@@ -942,10 +945,10 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     return;
   }
 
-  std::ostringstream oss_buff;
+  std::ostringstream input_files_oss;
   bool is_first_one = true;
   for (const auto& file : compaction_input.input_files) {
-    oss_buff << (is_first_one ? "" : ", ") << file;
+    input_files_oss << (is_first_one ? "" : ", ") << file;
     is_first_one = false;
   }
 
@@ -953,7 +956,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       db_options_.info_log,
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
       compaction_input.column_family.name.c_str(), job_id_,
-      compaction_input.output_level, oss_buff.str().c_str());
+      compaction_input.output_level, input_files_oss.str().c_str());
   CompactionServiceJobStatus compaction_status =
       db_options_.compaction_service->Start(compaction_input_binary, job_id_);
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
@@ -989,10 +992,10 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   }
   sub_compact->status = compaction_result.status;
 
-  oss_buff.clear();
+  std::ostringstream output_files_oss;
   is_first_one = true;
   for (const auto& file : compaction_result.output_files) {
-    oss_buff << (is_first_one ? "" : ", ") << file.file_name;
+    output_files_oss << (is_first_one ? "" : ", ") << file.file_name;
     is_first_one = false;
   }
 
@@ -1000,7 +1003,8 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                  "[%s] [JOB %d] Receive remote compaction result, output path: "
                  "%s, files: %s",
                  compaction_input.column_family.name.c_str(), job_id_,
-                 compaction_result.output_path.c_str(), oss_buff.str().c_str());
+                 compaction_result.output_path.c_str(),
+                 output_files_oss.str().c_str());
 
   if (!s.ok()) {
     sub_compact->status = s;
@@ -2509,6 +2513,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 };
 
+namespace {
+// this is a helper struct to serialize and deserialize class Status, because
+// Status's members are not public.
 struct StatusSerializationAdapter {
   uint8_t code;
   uint8_t subcode;
@@ -2530,6 +2537,7 @@ struct StatusSerializationAdapter {
                   static_cast<Status::Severity>(severity), message);
   }
 };
+}  // namespace
 
 static std::unordered_map<std::string, OptionTypeInfo>
     status_adapter_type_info = {

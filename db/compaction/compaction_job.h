@@ -126,7 +126,7 @@ class CompactionJob {
   CompactionState* compact_;
   InternalStats::CompactionStats compaction_stats_;
   const ImmutableDBOptions& db_options_;
-  const MutableDBOptions& mutable_db_options_;
+  const MutableDBOptions mutable_db_options_copy_;
   LogBuffer* log_buffer_;
   FSDirectory* output_directory_;
   Statistics* stats_;

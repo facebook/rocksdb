@@ -803,6 +803,7 @@ Status DB::OpenAndCompact(
 
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
+  assert(handles.size() > 0);
   s = db_secondary->CompactWithoutInstallation(handles[0], compaction_input,
                                                &compaction_result);
 

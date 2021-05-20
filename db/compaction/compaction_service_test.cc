@@ -17,7 +17,7 @@ class MyTestCompactionService : public CompactionService {
       : db_path_(db_path), fs_(fs), options_(options) {}
 
   CompactionServiceJobStatus Start(const std::string& compaction_service_input,
-                                   int job_id) {
+                                   int job_id) override {
     InstrumentedMutexLock l(&mutex_);
     jobs_.emplace(job_id, compaction_service_input);
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
@@ -26,7 +26,7 @@ class MyTestCompactionService : public CompactionService {
   }
 
   CompactionServiceJobStatus WaitForComplete(
-      int job_id, std::string* compaction_service_result) {
+      int job_id, std::string* compaction_service_result) override {
     std::string compaction_input;
     {
       InstrumentedMutexLock l(&mutex_);

@@ -134,7 +134,7 @@ class Status {
   Status(const Status& s, Severity sev);
 
   Status(Code _code, SubCode _subcode, Severity _sev, const Slice& msg)
-      : Status(_code, _subcode, msg, "", _sev){};
+      : Status(_code, _subcode, msg, "", _sev) {}
 
   Severity severity() const {
     MarkChecked();
