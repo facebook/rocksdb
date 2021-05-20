@@ -430,6 +430,13 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
+  // If true, during memtable flush, RocksDB will validate total entries
+  // read in flush, and compare with counter inserted into it.
+  // The option is here to turn the feature off in case this new validation
+  // feature has a bug.
+  // Default: true
+  bool flush_verify_memtable_count = true;
+
   // If true, the log numbers and sizes of the synced WALs are tracked
   // in MANIFEST, then during DB recovery, if a synced WAL is missing
   // from disk, or the WAL's size does not match the recorded size in
