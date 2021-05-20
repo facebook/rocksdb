@@ -1108,6 +1108,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "compaction_service_test",
+        "db/compaction/compaction_service_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "comparator_db_test",
         "db/comparator_db_test.cc",
         "parallel",

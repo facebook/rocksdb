@@ -578,7 +578,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
-      checksum_handoff_file_types(options.checksum_handoff_file_types) {
+      checksum_handoff_file_types(options.checksum_handoff_file_types),
+      compaction_service(options.compaction_service) {
   stats = statistics.get();
   fs = env->GetFileSystem();
   if (env != nullptr) {

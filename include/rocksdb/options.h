@@ -364,6 +364,30 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
+enum class CompactionServiceJobStatus : char {
+  kSuccess,
+  kFailure,
+  kUseLocal,  // TODO: Add support for use local compaction
+};
+
+class CompactionService {
+ public:
+  // Start the compaction with input information, which can be passed to
+  // `DB::OpenAndCompact()`.
+  // job_id is pre-assigned, it will be reset after DB re-open.
+  // TODO: sub-compaction is not supported, as they will have the same job_id, a
+  // sub-compaction id might be added
+  virtual CompactionServiceJobStatus Start(
+      const std::string& compaction_service_input, int job_id) = 0;
+
+  // Wait compaction to be finish.
+  // TODO: Add output path override
+  virtual CompactionServiceJobStatus WaitForComplete(
+      int job_id, std::string* compaction_service_result) = 0;
+
+  virtual ~CompactionService() {}
+};
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
@@ -1215,6 +1239,15 @@ struct DBOptions {
   // should enble this set as empty. Otherwise,it may cause unexpected
   // write failures.
   FileTypeSet checksum_handoff_file_types;
+
+  // EXPERIMENTAL
+  // CompactionService is a feature allows the user to run compactions on a
+  // different host or process, which offloads the background load from the
+  // primary host.
+  // It's an experimental feature, the interface will be changed without
+  // backward/forward compatibility support for now. Some known issues are still
+  // under development.
+  std::shared_ptr<CompactionService> compaction_service = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1723,6 +1756,22 @@ struct SizeApproximationOptions {
   // If the value is non-positive - a more precise yet more CPU intensive
   // estimation is performed.
   double files_size_error_margin = -1.0;
+};
+
+struct CompactionServiceOptionsOverride {
+  // Currently pointer configurations are not passed to compaction service
+  // compaction so the user needs to set it. It will be removed once pointer
+  // configuration passing is supported.
+  Env* env = Env::Default();
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
+
+  const Comparator* comparator = BytewiseComparator();
+  std::shared_ptr<MergeOperator> merge_operator = nullptr;
+  const CompactionFilter* compaction_filter = nullptr;
+  std::shared_ptr<CompactionFilterFactory> compaction_filter_factory = nullptr;
+  std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
+  std::shared_ptr<TableFactory> table_factory;
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
