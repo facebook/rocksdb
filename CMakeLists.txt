@@ -62,6 +62,7 @@ if(CCACHE_FOUND)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_LIBURING "build with liburing" ON)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
@@ -336,6 +337,22 @@ if (NOT BUILTIN_ATOMIC)
   #TODO: Check if -latomic exists
   list(APPEND THIRDPARTY_LIBS atomic)
 endif()
+endif()
+
+if (WITH_LIBURING)
+  set(CMAKE_REQUIRED_FLAGS "-luring")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <liburing.h>
+int main() {
+  struct io_uring ring;
+  io_uring_queue_init(1, &ring, 0);
+  return 0;
+}
+" HAS_LIBURING)
+  if (HAS_LIBURING)
+    add_definitions(-DROCKSDB_IOURING_PRESENT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+  endif()
 endif()
 
 # Reset the required flags
