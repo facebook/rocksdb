@@ -1295,8 +1295,8 @@ static constexpr uint32_t gf_multiply_sw_1(
   // clang-format off
   return i == 32 ? p : gf_multiply_sw_1(
       /* i = */ i + 1,
-      /* p = */ p ^ (-((b >> 31) & 1) & a),
-      /* a = */ (a >> 1) ^ (-(a & 1) & m),
+      /* p = */ p ^ ((0u-((b >> 31) & 1)) & a),
+      /* a = */ (a >> 1) ^ ((0u-(a & 1)) & m),
       /* b = */ b << 1,
       /* m = */ m);
   // clang-format on
