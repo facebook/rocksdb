@@ -121,6 +121,7 @@ jobs:
   build-macos:
     macos:
       xcode: 11.3.0
+    resource_class: large
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -132,6 +133,7 @@ jobs:
   build-macos-cmake:
     macos:
       xcode: 11.3.0
+    resource_class: large
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
