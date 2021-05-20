@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
@@ -186,19 +187,33 @@ class CloudEnvOptions {
   // Default:  null
   std::shared_ptr<CloudStorageProvider> storage_provider;
 
+  // Specifies the amount of sst files to be cached in local storage.
+  // If non-null, then the local storage would be used as a file cache.
+  // The Get or a Scan request on the database generates a random read
+  // request on the sst file and such a request causes the sst file to
+  // be inserted into the local file cache.
+  // A compaction request generates a sequential read request on the sst
+  // file and it does not cause the sst file to be inserted into the
+  // local file cache.
+  // A memtable flush generates a write requst to a new sst file and this
+  // sst file is not inserted into the local file cache.
+  // Cannot be set if keep_local_log_files is true.
+  // Default: null (disabled)
+  std::shared_ptr<Cache>* sst_file_cache;
+
   // Access credentials
   AwsCloudAccessCredentials credentials;
 
   // Only used if keep_local_log_files is true and log_type is kKafka.
   KafkaLogOptions kafka_log_options;
 
-  //
   // If true,  then sst files are stored locally and uploaded to the cloud in
   // the background. On restart, all files from the cloud that are not present
   // locally are downloaded.
   // If false, then local sst files are created, uploaded to cloud immediately,
   //           and local file is deleted. All reads are satisfied by fetching
   //           data from the cloud.
+  // Cannot be set if sst_file_cache is enabled.
   // Default:  false
   bool keep_local_sst_files;
 

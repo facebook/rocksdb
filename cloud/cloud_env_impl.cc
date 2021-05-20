@@ -181,6 +181,8 @@ Status CloudEnvImpl::NewSequentialFile(const std::string& logical_fname,
           result->reset(file.release());
         }
       }
+      // Do not update the sst_file_cache for sequential read patterns.
+      // These are mostly used by compaction.
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[%s] NewSequentialFile file %s %s", Name(), fname.c_str(),
@@ -234,18 +236,39 @@ Status CloudEnvImpl::NewRandomAccessFile(
     // Read from local storage and then from cloud storage.
     st = base_env_->NewRandomAccessFile(fname, result, options);
 
+    // Found in local storage. Update LRU cache.
+    // There is a loose coupling between the sst_file_cache and the files on
+    // local storage. The sst_file_cache is only used for accounting of sst files.
+    // We do not keep a reference to the LRU cache handle when
+    // the sst file remains open by the db. If the LRU policy causes the file to be
+    // evicted, it will be deleted from local storage, but because the db
+    // already has an open file handle to it, it can continue to occupy local
+    // storage space until the time the db decides to close the sst file.
+    if (sstfile && st.ok()) {
+      FileCacheAccess(fname);
+    }
+
     if (!st.ok() && !base_env_->FileExists(fname).IsNotFound()) {
       // if status is not OK, but file does exist locally, something is wrong
       return st;
     }
 
-    if (cloud_env_options.keep_local_sst_files || !sstfile) {
+    if (cloud_env_options.keep_local_sst_files ||
+        cloud_env_options.sst_file_cache || !sstfile) {
       if (!st.ok()) {
-        // copy the file to the local storage if keep_local_sst_files is true
+        // copy the file to the local storage
         st = GetCloudObject(fname);
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
           st = base_env_->NewRandomAccessFile(fname, result, options);
+        }
+        // Update the size of our local sst file cache
+        if (st.ok() && sstfile && cloud_env_options.sst_file_cache) {
+          uint64_t local_size;
+          Status statx = base_env_->GetFileSize(fname, &local_size);
+          if (statx.ok()) {
+            FileCacheInsert(fname, local_size);
+          }
         }
       }
       // If we are being paranoic, then we validate that our file size is
@@ -274,9 +297,7 @@ Status CloudEnvImpl::NewRandomAccessFile(
         }
       }
     } else if (!st.ok()) {
-      // Only execute this code path if keep_local_sst_files == false. If it's
-      // true, we will never use CloudReadableFile to read; we copy the file
-      // locally and read using base_env.
+      // Only execute this code path if files are not cached locally
       std::unique_ptr<CloudStorageReadableFile> file;
       st = NewCloudReadableFile(fname, &file, options);
       if (st.ok()) {
@@ -701,6 +722,11 @@ Status CloudEnvImpl::DeleteFile(const std::string& logical_fname) {
     // delete from local, too. Ignore the result, though. The file might not be
     // there locally.
     base_env_->DeleteFile(fname);
+
+    // remove from sst_file_cache
+    if (sstfile) {
+      FileCacheErase(fname);
+    }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Log Controller
     st = cloud_env_options.cloud_log_controller->status();
@@ -1010,6 +1036,12 @@ Status CloudEnvImpl::CheckOption(const EnvOptions& options) {
   // local
   if (options.use_mmap_reads && !cloud_env_options.keep_local_sst_files) {
     std::string msg = "Mmap only if keep_local_sst_files is set";
+    return Status::InvalidArgument(msg);
+  }
+  if (cloud_env_options.sst_file_cache &&
+      cloud_env_options.keep_local_sst_files) {
+    std::string msg =
+        "Only one of sst_file_cache or keep_local_sst_files can be set";
     return Status::InvalidArgument(msg);
   }
   return Status::OK();
@@ -1494,6 +1526,13 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   Env* env = GetBaseEnv();
   if (!read_only) {
     env->CreateDirIfMissing(local_name);
+  }
+
+  if (GetCloudEnvOptions().sst_file_cache &&
+      GetCloudEnvOptions().keep_local_sst_files) {
+    std::string msg =
+        "Only one of sst_file_cache or keep_local_sst_files can be set";
+    return Status::InvalidArgument(msg);
   }
 
   if (GetCloudType() == CloudType::kCloudNone) {

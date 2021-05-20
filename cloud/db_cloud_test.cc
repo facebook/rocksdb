@@ -88,6 +88,22 @@ class CloudTest : public testing::Test {
     return sst_files;
   }
 
+  // Return total size of all sst files available locally
+  void GetSSTFilesTotalSize(std::string name, uint64_t* total_size) {
+    std::vector<std::string> files;
+    aenv_->GetBaseEnv()->GetChildren(name, &files);
+    std::set<std::string> sst_files;
+    uint64_t local_size = 0;
+    for (auto& f : files) {
+      if (IsSstFile(RemoveEpoch(f))) {
+        sst_files.insert(f);
+        std::string lpath = dbname_ + "/" + f;
+        ASSERT_OK(aenv_->GetBaseEnv()->GetFileSize(lpath, &local_size));
+        (*total_size) += local_size;
+      }
+    }
+  }
+
   std::set<std::string> GetSSTFilesClone(std::string name) {
     std::string cname = clone_dir_ + "/" + name;
     return GetSSTFiles(cname);
@@ -162,6 +178,18 @@ class CloudTest : public testing::Test {
                             persistent_cache_path_, persistent_cache_size_gb_,
                             handles, &db_));
     ASSERT_OK(db_->GetDbIdentity(dbid_));
+  }
+
+  // Try to open and return status
+  Status checkOpen() {
+    // Create new AWS env
+    CreateCloudEnv();
+    options_.env = aenv_.get();
+    // Sleep for a second because S3 is eventual consistency.
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    return DBCloud::Open(options_, dbname_, persistent_cache_path_,
+                         persistent_cache_size_gb_, &db_);
   }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
@@ -1606,6 +1634,109 @@ TEST_F(CloudTest, SharedBlockCache) {
       cloud_env_options_.src_bucket.GetObjectPath() + "-clone");
 }
 
+// Verify that sst_file_cache and file_cache cannot be set together
+TEST_F(CloudTest, KeepLocalFilesAndFileCache) {
+  std::shared_ptr<Cache> cache = NewLRUCache(1024);  // 1 KB cache
+  cloud_env_options_.sst_file_cache = &cache;
+  cloud_env_options_.keep_local_sst_files = true;
+  ASSERT_TRUE(checkOpen().IsInvalidArgument());
+}
+
+// Verify that sst_file_cache is very small, so no files are local.
+TEST_F(CloudTest, FileCacheSmall) {
+  std::shared_ptr<Cache> cache = NewLRUCache(10);  // Practically zero size
+  cloud_env_options_.sst_file_cache = &cache;
+  OpenDB();
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  auto local_files = GetSSTFiles(dbname_);
+  EXPECT_EQ(local_files.size(), 0);
+  EXPECT_EQ(cimpl->FileCacheGetCharge(), 0);
+  CloseDB();
+  // cache->ApplyToAllCacheEntries();
+}
+
+// Relatively large sst_file cache, so all files are local.
+TEST_F(CloudTest, FileCacheLarge) {
+  size_t capacity = 10240L;
+  std::shared_ptr<Cache> cache = NewLRUCache(capacity);
+  cloud_env_options_.sst_file_cache = &cache;
+
+  // generate two sst files.
+  OpenDB();
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // check that local sst files exist
+  auto local_files = GetSSTFiles(dbname_);
+  EXPECT_EQ(local_files.size(), 2);
+
+  // check that local sst files have non zero size
+  uint64_t totalFileSize = 0;
+  GetSSTFilesTotalSize(dbname_, &totalFileSize);
+  EXPECT_GT(totalFileSize, 0);
+  EXPECT_GE(capacity, totalFileSize);
+
+  // check that cache has two entries
+  EXPECT_EQ(cimpl->FileCacheGetNumItems(), 2);
+
+  // check that cache charge matches total local sst file size
+  EXPECT_EQ(cimpl->FileCacheGetNumItems(), 2);
+  EXPECT_EQ(cimpl->FileCacheGetCharge(), totalFileSize);
+  CloseDB();
+}
+
+// Cache will have a few files only.
+TEST_F(CloudTest, FileCacheOnDemand) {
+  size_t capacity = 3000;
+  int num_shard_bits = 1;
+  bool strict_capacity_limit = false;
+  double high_pri_pool_ratio = 0;
+
+  uint64_t onesize = 884;  // size of an sst file with one key-value
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                  high_pri_pool_ratio, nullptr, kDefaultToAdaptiveMutex,
+                  CacheMetadataChargePolicy::kDontChargeCacheMetadata);
+  cloud_env_options_.sst_file_cache = &cache;
+  options_.level0_file_num_compaction_trigger = 100;  // never compact
+
+  OpenDB();
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
+
+  // generate four sst files, each of size about 884 bytes
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "e", "f"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "g", "h"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // The db should have 4 sst files in the manifest.
+  std::vector<LiveFileMetaData> flist;
+  db_->GetLiveFilesMetaData(&flist);
+  EXPECT_EQ(flist.size(), 4);
+
+  // verify that there are only twp entries in the cache
+  EXPECT_EQ(cimpl->FileCacheGetNumItems(), 2);
+  EXPECT_EQ(cimpl->FileCacheGetCharge(), 2 * onesize);
+  EXPECT_EQ(cimpl->FileCacheGetCharge(), cache->GetUsage());
+
+  // Theere should be only two local sst files.
+  auto local_files = GetSSTFiles(dbname_);
+  EXPECT_EQ(local_files.size(), 2);
+
+  CloseDB();
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb
@@ -1629,7 +1760,7 @@ int main(int, char**) {
 
 #include <stdio.h>
 
-int main(int, char** ) {
+int main(int, char**) {
   fprintf(stderr, "SKIPPED as DBCloud is not supported in ROCKSDB_LITE\n");
   return 0;
 }
