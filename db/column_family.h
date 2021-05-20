@@ -431,6 +431,12 @@ class ColumnFamilyData {
   IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories(
       bool enable_blob_property_collector) const {
     assert(!int_tbl_prop_collector_factories_.empty());
+
+    // Note: BlobTablePropertiesCollectorFactory gets added before the
+    // factories specified by the user, so it is guaranteed to be at
+    // the front of the vector. Thus, we can exclude it if
+    // enable_blob_property_collector is false simply by skipping the
+    // first element.
     assert(dynamic_cast<const BlobTablePropertiesCollectorFactory*>(
         int_tbl_prop_collector_factories_.front().get()));
 
