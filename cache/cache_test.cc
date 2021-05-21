@@ -822,11 +822,12 @@ TEST_P(CacheTest, DefaultShardBits) {
   ASSERT_EQ(6, sc->GetNumShardBits());
 }
 
-TEST_P(CacheTest, GetCharge) {
+TEST_P(CacheTest, GetChargeAndDeleter) {
   Insert(1, 2);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
   ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
   ASSERT_EQ(1, cache_->GetCharge(h1));
+  ASSERT_EQ(&CacheTest::Deleter, cache_->GetDeleter(h1));
   cache_->Release(h1);
 }
 

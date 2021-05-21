@@ -7,6 +7,7 @@
 
 #include "tools/simulated_hybrid_file_system.h"
 
+#include <algorithm>
 #include <sstream>
 #include <string>
 
@@ -110,8 +111,7 @@ IOStatus SimulatedHybridRaf::Read(uint64_t offset, size_t n,
                                   char* scratch, IODebugContext* dbg) const {
   if (temperature_ == Temperature::kWarm) {
     Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs);
-    rate_limiter_->Request(kDummyBytesPerRequest, Env::IOPriority::IO_LOW,
-                           nullptr);
+    RequestRateLimit(1);
   }
   return target()->Read(offset, n, options, result, scratch, dbg);
 }
@@ -120,11 +120,9 @@ IOStatus SimulatedHybridRaf::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                        const IOOptions& options,
                                        IODebugContext* dbg) {
   if (temperature_ == Temperature::kWarm) {
+    RequestRateLimit(static_cast<int64_t>(num_reqs));
     Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs *
                                          static_cast<int>(num_reqs));
-    rate_limiter_->Request(
-        static_cast<int64_t>(num_reqs) * kDummyBytesPerRequest,
-        Env::IOPriority::IO_LOW, nullptr);
   }
   return target()->MultiRead(reqs, num_reqs, options, dbg);
 }
@@ -133,11 +131,20 @@ IOStatus SimulatedHybridRaf::Prefetch(uint64_t offset, size_t n,
                                       const IOOptions& options,
                                       IODebugContext* dbg) {
   if (temperature_ == Temperature::kWarm) {
-    rate_limiter_->Request(kDummyBytesPerRequest, Env::IOPriority::IO_LOW,
-                           nullptr);
+    RequestRateLimit(1);
     Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs);
   }
   return target()->Prefetch(offset, n, options, dbg);
+}
+
+void SimulatedHybridRaf::RequestRateLimit(int64_t num_requests) const {
+  int64_t left = num_requests * kDummyBytesPerRequest;
+  const int64_t kMaxToRequest = kDummyBytesPerRequest / 100;
+  while (left > 0) {
+    int64_t to_request = std::min(kMaxToRequest, left);
+    rate_limiter_->Request(to_request, Env::IOPriority::IO_LOW, nullptr);
+    left -= to_request;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

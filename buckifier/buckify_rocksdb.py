@@ -173,6 +173,11 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", []) +
         ["test_util/testutil.cc"],
         [":rocksdb_lib"])
+    # rocksdb_cache_bench_tools_lib
+    TARGETS.add_library(
+        "rocksdb_cache_bench_tools_lib",
+        src_mk.get("CACHE_BENCH_LIB_SOURCES", []),
+        [":rocksdb_lib"])
     # rocksdb_stress_lib
     TARGETS.add_rocksdb_library(
         "rocksdb_stress_lib",

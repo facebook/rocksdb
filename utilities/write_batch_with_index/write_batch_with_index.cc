@@ -539,13 +539,15 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   // after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
     MergeContext merge_context;
-    PinnableSlice* pinnable_val = &values[i];
-    std::string& batch_value = *pinnable_val->GetSelf();
+    std::string batch_value;
     Status* s = &statuses[i];
+    PinnableSlice* pinnable_val = &values[i];
+    pinnable_val->Reset();
     auto result =
         wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
+      *pinnable_val->GetSelf() = std::move(batch_value);
       pinnable_val->PinSelf();
       continue;
     }
@@ -581,15 +583,20 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
       std::pair<WBWIIteratorImpl::Result, MergeContext>& merge_result =
           merges[index];
       if (merge_result.first == WBWIIteratorImpl::kMergeInProgress) {
+        std::string merged_value;
         // Merge result from DB with merges in Batch
         if (key.s->ok()) {
           *key.s = wbwii.MergeKey(*key.key, iter->value, merge_result.second,
-                                  key.value->GetSelf());
+                                  &merged_value);
         } else {  // Key not present in db (s.IsNotFound())
           *key.s = wbwii.MergeKey(*key.key, nullptr, merge_result.second,
-                                  key.value->GetSelf());
+                                  &merged_value);
         }
-        key.value->PinSelf();
+        if (key.s->ok()) {
+          key.value->Reset();
+          *key.value->GetSelf() = std::move(merged_value);
+          key.value->PinSelf();
+        }
       }
     }
   }
