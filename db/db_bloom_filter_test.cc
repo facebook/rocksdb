@@ -507,6 +507,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       ASSERT_LE(reads, 3 * N / 100);
     }
 
+#ifndef ROCKSDB_LITE
     // Sanity check some table properties
     std::map<std::string, std::string> props;
     ASSERT_TRUE(db_->GetMapProperty(
@@ -519,6 +520,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 
     uint64_t num_filter_entries = ParseUint64(props["num_filter_entries"]);
     EXPECT_EQ(num_filter_entries, nkeys);
+#endif  // ROCKSDB_LITE
 
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
