@@ -63,6 +63,8 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
+  virtual size_t GetNumEntriesAdded() override { return hash_entries_.size(); }
+
  protected:
   static constexpr uint32_t kMetadataLen = 5;
 
@@ -762,6 +764,8 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   ~LegacyBloomBitsBuilder() override;
 
   void AddKey(const Slice& key) override;
+
+  virtual size_t GetNumEntriesAdded() override { return hash_entries_.size(); }
 
   Slice Finish(std::unique_ptr<const char[]>* buf) override;
 
