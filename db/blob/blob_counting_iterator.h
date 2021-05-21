@@ -7,14 +7,18 @@
 
 #include <cassert>
 
+#include "db/blob/blob_garbage_meter.h"
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class BlobCountingIterator : public InternalIterator {
  public:
-  explicit BlobCountingIterator(InternalIterator* iter) : iter_(iter) {
+  BlobCountingIterator(InternalIterator* iter,
+                       BlobGarbageMeter* blob_garbage_meter)
+      : iter_(iter), blob_garbage_meter_(blob_garbage_meter) {
     assert(iter_);
+    assert(blob_garbage_meter_);
   }
 
   bool Valid() const override {
@@ -121,9 +125,17 @@ class BlobCountingIterator : public InternalIterator {
   }
 
  private:
-  void CountBlobIfNeeded() {}
+  void CountBlobIfNeeded() {
+    if (!Valid()) {
+      return;
+    }
+
+    assert(blob_garbage_meter_);
+    blob_garbage_meter_->ProcessInFlow(key(), value());
+  }
 
   InternalIterator* iter_;
+  BlobGarbageMeter* blob_garbage_meter_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
