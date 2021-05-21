@@ -177,9 +177,12 @@ TEST_F(DBBasicTest, ReadOnlyReopenMtimeUnchanged) {
 
   for (auto& f : files) {
     uint64_t file_mtime_after_readonly_reopen;
-    ASSERT_OK(env_->GetFileModificationTime(dbname_ + "/" + f, &file_mtime_after_readonly_reopen));
+    ASSERT_OK(env_->GetFileModificationTime(dbname_ + "/" + f,
+                                            &file_mtime_after_readonly_reopen));
     const uint64_t file_mtime_before_readonly_reopen = files_to_mtime[f];
-    ASSERT_EQ(file_mtime_after_readonly_reopen, file_mtime_before_readonly_reopen) << "  file is: " << f;
+    ASSERT_EQ(file_mtime_after_readonly_reopen,
+              file_mtime_before_readonly_reopen)
+        << "  file is: " << f;
   }
 }
  
