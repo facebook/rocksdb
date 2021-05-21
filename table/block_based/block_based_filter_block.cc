@@ -80,6 +80,10 @@ void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
+size_t BlockBasedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + start_.size();
+}
+
 void BlockBasedFilterBlockBuilder::Add(const Slice& key_without_ts) {
   if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
     AddPrefix(key_without_ts);
@@ -114,17 +118,13 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
 }
 
 Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                           Status* status,
-                                           uint64_t* num_entries_added) {
+                                           Status* status) {
   // In this impl we ignore BlockHandle
   *status = Status::OK();
 
   if (!start_.empty()) {
     GenerateFilter();
   }
-
-  *num_entries_added += total_added_in_built_;
-  total_added_in_built_ = 0;
 
   // Append array of per-filter offsets
   const uint32_t array_offset = static_cast<uint32_t>(result_.size());

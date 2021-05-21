@@ -28,6 +28,10 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
   filter_bits_builder_.reset(filter_bits_builder);
 }
 
+size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
+  return filter_bits_builder_->EstimateEntriesAdded();
+}
+
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
   const bool add_prefix =
       prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
@@ -97,14 +101,13 @@ void FullFilterBlockBuilder::Reset() {
   last_prefix_recorded_ = false;
 }
 
-Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/, Status* status,
-                                     uint64_t* num_entries_added) {
+Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
+                                     Status* status) {
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
   if (any_added_) {
     any_added_ = false;
-    *num_entries_added += filter_bits_builder_->GetNumEntriesAdded();
     return filter_bits_builder_->Finish(&filter_data_);
   }
   return Slice();

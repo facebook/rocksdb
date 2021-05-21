@@ -54,7 +54,7 @@ class FilterBitsBuilder {
   // TableProperties::num_filter_entries, so should represent the
   // number of unique keys (and/or prefixes) added, but does not have
   // to be exact.
-  virtual size_t GetNumEntriesAdded() {
+  virtual size_t EstimateEntriesAdded() {
     // Default implementation for backward compatibility.
     // 0 conspicuously stands for "unknown".
     return 0;

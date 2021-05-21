@@ -86,7 +86,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     }
   }
 
-  total_added_in_built_ += filter_bits_builder_->GetNumEntriesAdded();
+  total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
@@ -104,9 +104,12 @@ void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   keys_added_to_partition_++;
 }
 
+size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
+}
+
 Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status,
-    uint64_t* num_entries_added) {
+    const BlockHandle& last_partition_block_handle, Status* status) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
     FilterEntry& last_entry = filters.front();
@@ -135,7 +138,6 @@ Slice PartitionedFilterBlockBuilder::Finish(
     *status = Status::OK();
     if (finishing_filters) {
       // Simplest to just add them all at the end
-      *num_entries_added += total_added_in_built_;
       total_added_in_built_ = 0;
       if (p_index_builder_->seperator_is_key_plus_seq()) {
         return index_on_filter_block_builder_.Finish();

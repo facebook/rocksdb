@@ -62,17 +62,17 @@ class FilterBlockBuilder {
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(
       const Slice& key_without_ts) = 0;        // Add a key to current filter
-  virtual bool IsEmpty() const = 0;
+  virtual bool IsEmpty() const = 0;            // Empty == none added
+  // For reporting stats on how many entries the builder considered unique
+  virtual size_t EstimateEntriesAdded() = 0;
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
-    uint64_t num_entries_added = 0;
-    auto ret = Finish(empty_handle, &dont_care_status, &num_entries_added);
+    auto ret = Finish(empty_handle, &dont_care_status);
     assert(dont_care_status.ok());
     return ret;
   }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status,
-                       uint64_t* num_entries_added) = 0;
+  virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

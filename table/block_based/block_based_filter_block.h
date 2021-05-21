@@ -48,8 +48,8 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   virtual bool IsEmpty() const override {
     return start_.empty() && filter_offsets_.empty();
   }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status,
-                       uint64_t* num_entries_added) override;
+  virtual size_t EstimateEntriesAdded() override;
+  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 
  private:

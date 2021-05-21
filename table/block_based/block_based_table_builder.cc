@@ -1422,21 +1422,22 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
   BlockHandle filter_block_handle;
-  bool empty_filter_block =
-      (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty());
-  if (ok() && !empty_filter_block) {
-    uint64_t num_entries_added = 0;
+  uint64_t num_filter_entries = 0;
+  if (rep_->filter_builder) {
+    num_filter_entries = rep_->filter_builder->GetUniqueNumAdded();
+  }
+  if (ok() && num_filter_entries > 0) {
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
-      Slice filter_content = rep_->filter_builder->Finish(
-          filter_block_handle, &s, &num_entries_added);
+      Slice filter_content =
+          rep_->filter_builder->Finish(filter_block_handle, &s);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
     }
-    rep_->props.num_filter_entries += num_entries_added;
+    rep_->props.num_filter_entries += num_filter_entries;
   }
-  if (ok() && !empty_filter_block) {
+  if (ok() && num_filter_entries > 0) {
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;

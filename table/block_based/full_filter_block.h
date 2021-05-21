@@ -52,8 +52,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void StartBlock(uint64_t /*block_offset*/) override {}
   virtual void Add(const Slice& key_without_ts) override;
   virtual bool IsEmpty() const override { return !any_added_; }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status,
-                       uint64_t* num_entries_added) override;
+  virtual size_t EstimateEntriesAdded() override;
+  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 
  protected:
@@ -79,8 +79,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // filter partition will be added to the current partition if
   // last_key_in_domain_ is true, regardless of the current key.
   bool last_key_in_domain_;
-
-  uint32_t any_added_;
+  bool any_added_;
   std::unique_ptr<const char[]> filter_data_;
 };
 
