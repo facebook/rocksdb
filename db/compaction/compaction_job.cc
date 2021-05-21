@@ -1269,6 +1269,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       break;
     }
 
+    if (blob_garbage_meter.get()) {
+      blob_garbage_meter->ProcessOutFlow(key, value);
+    }
+
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
     const ParsedInternalKey& ikey = c_iter->ikey();
