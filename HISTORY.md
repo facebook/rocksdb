@@ -36,6 +36,9 @@
 ### Default Option Change
 * When options.arena_block_size <= 0 (default value 0), still use writer_buffer_size / 8 but cap to 1MB. Too large alloation size might not be friendly to allocator and might cause performance issues in extreme cases.
 
+### Build
+* By default, try to build with liburing. For make, if ROCKSDB_USE_IO_URING is not set, treat as enable, which means RocksDB will try to build with liburing. Users can disable it with ROCKSDB_USE_IO_URING=0. For cmake, add WITH_LIBURING to control it, with default on.
+
 ## 6.20.0 (2021-04-16)
 ### Behavior Changes
 * `ColumnFamilyOptions::sample_for_compression` now takes effect for creation of all block-based tables. Previously it only took effect for block-based tables created by flush.
