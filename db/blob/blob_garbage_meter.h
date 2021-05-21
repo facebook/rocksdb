@@ -21,10 +21,15 @@ namespace ROCKSDB_NAMESPACE {
 class BlobFileGarbage;
 
 class BlobGarbageMeter {
+ public:
   class BlobStats {
    public:
     void Add(uint64_t bytes) {
       ++count_;
+      bytes_ += bytes;
+    }
+    void Add(uint64_t count, uint64_t bytes) {
+      count_ += count;
       bytes_ += bytes;
     }
 
@@ -55,12 +60,12 @@ class BlobGarbageMeter {
       assert(IsValid());
       return in_flow_.GetCount() > out_flow_.GetCount();
     }
-    uint64_t GarbageCount() const {
+    uint64_t GetGarbageCount() const {
       assert(IsValid());
       assert(HasGarbage());
       return in_flow_.GetCount() - out_flow_.GetCount();
     }
-    uint64_t GarbageBytes() const {
+    uint64_t GetGarbageBytes() const {
       assert(IsValid());
       assert(HasGarbage());
       return in_flow_.GetBytes() - out_flow_.GetBytes();
@@ -71,7 +76,6 @@ class BlobGarbageMeter {
     BlobStats out_flow_;
   };
 
- public:
   Status ProcessInFlow(const Slice& key, const Slice& value) {
     uint64_t blob_file_number = kInvalidBlobFileNumber;
     uint64_t bytes = 0;
@@ -109,6 +113,10 @@ class BlobGarbageMeter {
     it->second.AddOutFlow(bytes);
 
     return Status::OK();
+  }
+
+  const std::unordered_map<uint64_t, BlobInOutFlow>& flows() const {
+    return flows_;
   }
 
  private:
