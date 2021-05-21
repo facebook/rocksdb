@@ -57,19 +57,18 @@ class BlocklikeTraits<BlockContents> {
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    BlockContents* ptr = reinterpret_cast<BlockContents*>(obj);
+    BlockContents* ptr = static_cast<BlockContents*>(obj);
     return ptr->data.size();
   }
 
-  static Status SaveToCallback(void* obj, size_t offset, size_t size,
-                               void* out) {
-    assert(obj != nullptr);
-    BlockContents* ptr = reinterpret_cast<BlockContents*>(obj);
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    BlockContents* ptr = static_cast<BlockContents*>(from_obj);
     const char* buf = ptr->data.data();
-    assert(size == ptr->data.size());
-    assert(offset == 0);
-    (void)offset;
-    memcpy(out, buf, size);
+    assert(length == ptr->data.size());
+    (void)from_offset;
+    memcpy(out, buf, length);
     return Status::OK();
   }
 
@@ -102,19 +101,18 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    ParsedFullFilterBlock* ptr = reinterpret_cast<ParsedFullFilterBlock*>(obj);
+    ParsedFullFilterBlock* ptr = static_cast<ParsedFullFilterBlock*>(obj);
     return ptr->GetBlockContentsData().size();
   }
 
-  static Status SaveToCallback(void* obj, size_t offset, size_t size,
-                               void* out) {
-    assert(obj != nullptr);
-    ParsedFullFilterBlock* ptr = reinterpret_cast<ParsedFullFilterBlock*>(obj);
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    ParsedFullFilterBlock* ptr = static_cast<ParsedFullFilterBlock*>(from_obj);
     const char* buf = ptr->GetBlockContentsData().data();
-    assert(size == ptr->GetBlockContentsData().size());
-    assert(offset == 0);
-    (void)offset;
-    memcpy(out, buf, size);
+    assert(length == ptr->GetBlockContentsData().size());
+    (void)from_offset;
+    memcpy(out, buf, length);
     return Status::OK();
   }
 
@@ -141,19 +139,18 @@ class BlocklikeTraits<Block> {
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    Block* ptr = reinterpret_cast<Block*>(obj);
+    Block* ptr = static_cast<Block*>(obj);
     return ptr->size();
   }
 
-  static Status SaveToCallback(void* obj, size_t offset, size_t size,
-                               void* out) {
-    assert(obj != nullptr);
-    Block* ptr = reinterpret_cast<Block*>(obj);
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    Block* ptr = static_cast<Block*>(from_obj);
     const char* buf = ptr->data();
-    assert(size == ptr->size());
-    assert(offset == 0);
-    (void)offset;
-    memcpy(out, buf, size);
+    assert(length == ptr->size());
+    (void)from_offset;
+    memcpy(out, buf, length);
     return Status::OK();
   }
 
@@ -194,19 +191,18 @@ class BlocklikeTraits<UncompressionDict> {
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    UncompressionDict* ptr = reinterpret_cast<UncompressionDict*>(obj);
+    UncompressionDict* ptr = static_cast<UncompressionDict*>(obj);
     return ptr->slice_.size();
   }
 
-  static Status SaveToCallback(void* obj, size_t offset, size_t size,
-                               void* out) {
-    assert(obj != nullptr);
-    UncompressionDict* ptr = reinterpret_cast<UncompressionDict*>(obj);
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    UncompressionDict* ptr = static_cast<UncompressionDict*>(from_obj);
     const char* buf = ptr->slice_.data();
-    assert(size == ptr->slice_.size());
-    assert(offset == 0);
-    (void)offset;
-    memcpy(out, buf, size);
+    assert(length == ptr->slice_.size());
+    (void)from_offset;
+    memcpy(out, buf, length);
     return Status::OK();
   }
 
