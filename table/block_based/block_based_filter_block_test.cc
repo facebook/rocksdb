@@ -76,17 +76,27 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
 
 TEST_F(FilterBlockTest, SingleChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
-  ASSERT_EQ(0, builder.NumAdded());
+  ASSERT_TRUE(builder.IsEmpty());
   builder.StartBlock(100);
   builder.Add("foo");
+  ASSERT_FALSE(builder.IsEmpty());
+  builder.Add("bar");
   builder.Add("bar");
   builder.Add("box");
   builder.StartBlock(200);
   builder.Add("box");
   builder.StartBlock(300);
   builder.Add("hello");
-  ASSERT_EQ(5, builder.NumAdded());
-  Slice slice(builder.Finish());
+  Status s;
+  uint64_t num_entries_added = 0;
+  ASSERT_FALSE(builder.IsEmpty());
+  Slice slice = builder.Finish(BlockHandle(), &s, &num_entries_added);
+  ASSERT_OK(s);
+  // XXX: "bar" should only count once but is counted twice. This actually
+  // indicates a serious space usage bug in old block-based filter. Good
+  // that it is deprecated.
+  // "box" counts twice, because it's in distinct blocks.
+  ASSERT_EQ(6, num_entries_added);
 
   CachableEntry<BlockContents> block(
       new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
