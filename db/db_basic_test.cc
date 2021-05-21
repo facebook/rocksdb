@@ -185,7 +185,7 @@ TEST_F(DBBasicTest, ReadOnlyReopenMtimeUnchanged) {
         << "  file is: " << f;
   }
 }
- 
+
 TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
