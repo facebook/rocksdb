@@ -23,6 +23,7 @@
 #include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_garbage_meter.h"
 #include "db/builder.h"
 #include "db/compaction/clipping_iterator.h"
 #include "db/db_impl/db_impl.h"
@@ -1147,9 +1148,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   const auto& blob_files = storage_info->GetBlobFiles();
 
+  std::unique_ptr<BlobGarbageMeter> blob_garbage_meter(
+      !blob_files.empty() ? new BlobGarbageMeter : nullptr);
+
   std::unique_ptr<InternalIterator> blob_counter(
-      !blob_files.empty() ? new BlobCountingIterator(raw_input.get())
-                          : nullptr);
+      !blob_files.empty()
+          ? new BlobCountingIterator(raw_input.get(), blob_garbage_meter.get())
+          : nullptr);
 
   InternalIterator* const input =
       blob_counter ? blob_counter.get() : raw_input.get();
