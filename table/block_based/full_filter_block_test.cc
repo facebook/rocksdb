@@ -282,13 +282,12 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
-  Status s;
-  uint64_t num_entries_added = 0;
-  ASSERT_FALSE(builder.IsEmpty());
-  Slice slice = builder.Finish(BlockHandle(), &s, &num_entries_added);
-  ASSERT_OK(s);
   // "box" only counts once
-  ASSERT_EQ(4, num_entries_added);
+  ASSERT_EQ(4, builder.EstimateEntriesAdded());
+  ASSERT_FALSE(builder.IsEmpty());
+  Status s;
+  Slice slice = builder.Finish(BlockHandle(), &s);
+  ASSERT_OK(s);
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),

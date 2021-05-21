@@ -1422,11 +1422,11 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
   BlockHandle filter_block_handle;
-  uint64_t num_filter_entries = 0;
-  if (rep_->filter_builder) {
-    num_filter_entries = rep_->filter_builder->GetUniqueNumAdded();
-  }
-  if (ok() && num_filter_entries > 0) {
+  bool empty_filter_block =
+      (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty());
+  if (ok() && !empty_filter_block) {
+    rep_->props.num_filter_entries +=
+        rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =
@@ -1435,9 +1435,8 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
     }
-    rep_->props.num_filter_entries += num_filter_entries;
   }
-  if (ok() && num_filter_entries > 0) {
+  if (ok() && !empty_filter_block) {
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;

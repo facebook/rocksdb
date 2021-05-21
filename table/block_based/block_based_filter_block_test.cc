@@ -87,16 +87,15 @@ TEST_F(FilterBlockTest, SingleChunk) {
   builder.Add("box");
   builder.StartBlock(300);
   builder.Add("hello");
-  Status s;
-  uint64_t num_entries_added = 0;
-  ASSERT_FALSE(builder.IsEmpty());
-  Slice slice = builder.Finish(BlockHandle(), &s, &num_entries_added);
-  ASSERT_OK(s);
   // XXX: "bar" should only count once but is counted twice. This actually
   // indicates a serious space usage bug in old block-based filter. Good
   // that it is deprecated.
   // "box" counts twice, because it's in distinct blocks.
-  ASSERT_EQ(6, num_entries_added);
+  ASSERT_EQ(6, builder.EstimateEntriesAdded());
+  ASSERT_FALSE(builder.IsEmpty());
+  Status s;
+  Slice slice = builder.Finish(BlockHandle(), &s);
+  ASSERT_OK(s);
 
   CachableEntry<BlockContents> block(
       new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,

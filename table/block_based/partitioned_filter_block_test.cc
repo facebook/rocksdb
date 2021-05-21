@@ -137,8 +137,7 @@ class PartitionedFilterBlockTest
     Status status;
     Slice slice;
     do {
-      uint64_t num_entrties_added = 0;
-      slice = builder->Finish(bh, &status, &num_entrties_added);
+      slice = builder->Finish(bh, &status);
       bh = Write(slice);
     } while (status.IsIncomplete());
 
