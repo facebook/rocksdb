@@ -75,10 +75,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
-    : input_(
-          input, cmp,
-          compaction ==
-              nullptr),  // Now only need to count number of entries in flush.
+    : input_(input, cmp,
+             !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),

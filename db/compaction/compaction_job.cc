@@ -357,7 +357,6 @@ CompactionJob::CompactionJob(
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
-      collect_blob_properties_(compaction->ShouldCollectBlobProperties()),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback) {
