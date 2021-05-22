@@ -17,6 +17,29 @@ namespace ROCKSDB_NAMESPACE {
 template <typename TBlocklike>
 class BlocklikeTraits;
 
+template <typename T, CacheEntryRole R>
+Cache::CacheItemHelper* GetCacheItemHelperForRole();
+
+template <typename TBlocklike>
+Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
+                                        Statistics* statistics, bool using_zstd,
+                                        const FilterPolicy* filter_policy,
+                                        const TBlocklike& /*block*/) {
+  return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
+             void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+    assert(buf != nullptr);
+    std::unique_ptr<char[]> buf_data(new char[size]());
+    memcpy(buf_data.get(), buf, size);
+    BlockContents bc = BlockContents(std::move(buf_data), size);
+    TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
+        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
+        filter_policy);
+    *out_obj = reinterpret_cast<void*>(ucd_ptr);
+    *charge = size;
+    return Status::OK();
+  };
+}
+
 template <>
 class BlocklikeTraits<BlockContents> {
  public:
@@ -32,14 +55,31 @@ class BlocklikeTraits<BlockContents> {
     return 0;
   }
 
-  static Cache::DeleterFn GetDeleter(BlockType block_type) {
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    BlockContents* ptr = static_cast<BlockContents*>(obj);
+    return ptr->data.size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    BlockContents* ptr = static_cast<BlockContents*>(from_obj);
+    const char* buf = ptr->data.data();
+    assert(length == ptr->data.size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
     if (block_type == BlockType::kFilter) {
-      return GetCacheEntryDeleterForRole<
+      return GetCacheItemHelperForRole<
           BlockContents, CacheEntryRole::kDeprecatedFilterBlock>();
     } else {
       // E.g. compressed cache
-      return GetCacheEntryDeleterForRole<BlockContents,
-                                         CacheEntryRole::kOtherBlock>();
+      return GetCacheItemHelperForRole<BlockContents,
+                                       CacheEntryRole::kOtherBlock>();
     }
   }
 };
@@ -59,11 +99,28 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
     return 0;
   }
 
-  static Cache::DeleterFn GetDeleter(BlockType block_type) {
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    ParsedFullFilterBlock* ptr = static_cast<ParsedFullFilterBlock*>(obj);
+    return ptr->GetBlockContentsData().size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    ParsedFullFilterBlock* ptr = static_cast<ParsedFullFilterBlock*>(from_obj);
+    const char* buf = ptr->GetBlockContentsData().data();
+    assert(length == ptr->GetBlockContentsData().size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
     (void)block_type;
     assert(block_type == BlockType::kFilter);
-    return GetCacheEntryDeleterForRole<ParsedFullFilterBlock,
-                                       CacheEntryRole::kFilterBlock>();
+    return GetCacheItemHelperForRole<ParsedFullFilterBlock,
+                                     CacheEntryRole::kFilterBlock>();
   }
 };
 
@@ -80,23 +137,38 @@ class BlocklikeTraits<Block> {
     return block.NumRestarts();
   }
 
-  static Cache::DeleterFn GetDeleter(BlockType block_type) {
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    Block* ptr = static_cast<Block*>(obj);
+    return ptr->size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    Block* ptr = static_cast<Block*>(from_obj);
+    const char* buf = ptr->data();
+    assert(length == ptr->size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
     switch (block_type) {
       case BlockType::kData:
-        return GetCacheEntryDeleterForRole<Block, CacheEntryRole::kDataBlock>();
+        return GetCacheItemHelperForRole<Block, CacheEntryRole::kDataBlock>();
       case BlockType::kIndex:
-        return GetCacheEntryDeleterForRole<Block,
-                                           CacheEntryRole::kIndexBlock>();
+        return GetCacheItemHelperForRole<Block, CacheEntryRole::kIndexBlock>();
       case BlockType::kFilter:
-        return GetCacheEntryDeleterForRole<Block,
-                                           CacheEntryRole::kFilterMetaBlock>();
+        return GetCacheItemHelperForRole<Block,
+                                         CacheEntryRole::kFilterMetaBlock>();
       default:
         // Not a recognized combination
         assert(false);
         FALLTHROUGH_INTENDED;
       case BlockType::kRangeDeletion:
-        return GetCacheEntryDeleterForRole<Block,
-                                           CacheEntryRole::kOtherBlock>();
+        return GetCacheItemHelperForRole<Block, CacheEntryRole::kOtherBlock>();
     }
   }
 };
@@ -117,12 +189,38 @@ class BlocklikeTraits<UncompressionDict> {
     return 0;
   }
 
-  static Cache::DeleterFn GetDeleter(BlockType block_type) {
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    UncompressionDict* ptr = static_cast<UncompressionDict*>(obj);
+    return ptr->slice_.size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    UncompressionDict* ptr = static_cast<UncompressionDict*>(from_obj);
+    const char* buf = ptr->slice_.data();
+    assert(length == ptr->slice_.size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
     (void)block_type;
     assert(block_type == BlockType::kCompressionDictionary);
-    return GetCacheEntryDeleterForRole<UncompressionDict,
-                                       CacheEntryRole::kOtherBlock>();
+    return GetCacheItemHelperForRole<UncompressionDict,
+                                     CacheEntryRole::kOtherBlock>();
   }
 };
+
+// Get an CacheItemHelper pointer for value type T and role R.
+template <typename T, CacheEntryRole R>
+Cache::CacheItemHelper* GetCacheItemHelperForRole() {
+  static Cache::CacheItemHelper cache_helper(
+      BlocklikeTraits<T>::SizeCallback, BlocklikeTraits<T>::SaveToCallback,
+      GetCacheEntryDeleterForRole<T, R>());
+  return &cache_helper;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

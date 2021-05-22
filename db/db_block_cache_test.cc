@@ -460,15 +460,17 @@ class MockCache : public LRUCache {
   }
 
   using ShardedCache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value), Handle** handle,
-                Priority priority) override {
+
+  Status Insert(const Slice& key, void* value,
+                const Cache::CacheItemHelper* helper_cb, size_t charge,
+                Handle** handle, Priority priority) override {
+    DeleterFn delete_cb = helper_cb->del_cb;
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, charge, deleter, handle, priority);
+    return LRUCache::Insert(key, value, charge, delete_cb, handle, priority);
   }
 };
 
