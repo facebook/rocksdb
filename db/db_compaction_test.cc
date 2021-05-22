@@ -5154,7 +5154,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
 }
 
 TEST_F(DBCompactionTest, ManualCompactionMax) {
-  uint64_t l1_avg_size, l2_avg_size;
+  uint64_t l1_avg_size = 0, l2_avg_size = 0;
   auto generate_sst_func = [&]() {
     Random rnd(301);
     for (auto i = 0; i < 100; i++) {
@@ -5208,7 +5208,7 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   ASSERT_TRUE(num_compactions.load() == 1);
 
   // split the compaction to 5
-  uint64_t total = (l1_avg_size + l2_avg_size * 10) * 10;
+  uint64_t total = (l1_avg_size * 10) + (l2_avg_size * 100);
   int num_split = 5;
   opts.max_compaction_bytes = total / num_split;
   DestroyAndReopen(opts);
