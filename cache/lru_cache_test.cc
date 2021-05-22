@@ -8,8 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "db/db_test_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/io_status.h"
+#include "rocksdb/sst_file_manager.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -199,7 +204,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 class TestSecondaryCache : public SecondaryCache {
  public:
   explicit TestSecondaryCache(size_t capacity)
-      : num_inserts_(0), num_lookups_(0) {
+      : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
@@ -207,8 +212,15 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::string Name() override { return "TestSecondaryCache"; }
 
+  void InjectFailure() { inject_failure_ = true; }
+
+  void ResetInjectFailure() { inject_failure_ = false; }
+
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
+    if (inject_failure_) {
+      return Status::Corruption("Insertion Data Corrupted");
+    }
     size_t size;
     char* buf;
     Status s;
@@ -287,6 +299,13 @@ class TestSecondaryCache : public SecondaryCache {
   std::shared_ptr<Cache> cache_;
   uint32_t num_inserts_;
   uint32_t num_lookups_;
+  bool inject_failure_;
+};
+
+class DBSecondaryCacheTest : public DBTestBase {
+ public:
+  DBSecondaryCacheTest()
+      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {}
 };
 
 class LRUSecondaryCacheTest : public LRUCacheTest {
@@ -314,13 +333,13 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
     return reinterpret_cast<TestItem*>(obj)->Size();
   }
 
-  static Status SaveToCallback(void* obj, size_t offset, size_t size,
-                               void* out) {
-    TestItem* item = reinterpret_cast<TestItem*>(obj);
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    TestItem* item = reinterpret_cast<TestItem*>(from_obj);
     char* buf = item->Buf();
-    EXPECT_EQ(size, item->Size());
-    EXPECT_EQ(offset, 0);
-    memcpy(out, buf, size);
+    EXPECT_EQ(length, item->Size());
+    EXPECT_EQ(from_offset, 0);
+    memcpy(out, buf, length);
     return Status::OK();
   }
 
@@ -547,6 +566,372 @@ TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
   cache.reset();
   secondary_cache.reset();
 }
+
+// In this test, the block cache size is set to 4096, after insert 6 KV-pairs
+// and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
+// blocks. block_1 size is 4096 and block_2 size is 2056. The total size
+// of the meta blocks are about 900 to 1000. Therefore, in any situation,
+// if we try to insert block_1 to the block cache, it will always fails. Only
+// block_2 will be successfully inserted into the block cache.
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // Set the file paranoid check, so after flush, the file will be read
+  // all the blocks will be accessed.
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+  // After Flush is successful, RocksDB do the paranoid check for the new
+  // SST file. Meta blocks are always cached in the block cache and they
+  // will not be evicted. When block_2 is cache miss and read out, it is
+  // inserted to the block cache. Note that, block_1 is never successfully
+  // inserted to the block cache. Here are 2 lookups in the secondary cache
+  // for block_1 and block_2
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  Compact("a", "z");
+  // Compaction will create the iterator to scan the whole file. So all the
+  // blocks are needed. Meta blocks are always cached. When block_1 is read
+  // out, block_2 is evicted from block cache and inserted to secondary
+  // cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // The first data block is not in the cache, similarly, trigger the block
+  // cache Lookup and secondary cache lookup for block_1. But block_1 will not
+  // be inserted successfully due to the size. Currently, cache only has
+  // the meta blocks.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // The second data block is not in the cache, similarly, trigger the block
+  // cache Lookup and secondary cache lookup for block_2 and block_2 is found
+  // in the secondary cache. Now block cache has block_2
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // block_2 is in the block cache. There is a block cache hit. No need to
+  // lookup or insert the secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the
+  // secondary cache. Also not in the secondary cache. After Get, still
+  // block_1 is will not be cached.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 6u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the
+  // secondary cache. Also not in the secondary cache. After Get, still
+  // block_1 is will not be cached.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 7u);
+
+  Destroy(options);
+}
+
+// In this test, the block cache size is set to 5100, after insert 6 KV-pairs
+// and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
+// blocks. block_1 size is 4096 and block_2 size is 2056. The total size
+// of the meta blocks are about 900 to 1000. Therefore, we can successfully
+// insert and cache block_1 in the block cache (this is the different place
+// from TestSecondaryCacheCorrectness1)
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
+  LRUCacheOptions opts(5100, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+  // After Flush is successful, RocksDB do the paranoid check for the new
+  // SST file. Meta blocks are always cached in the block cache and they
+  // will not be evicted. When block_2 is cache miss and read out, it is
+  // inserted to the block cache. Thefore, block_1 is evicted from block
+  // cache and successfully inserted to the secondary cache. Here are 2
+  // lookups in the secondary cache for block_1 and block_2.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  Compact("a", "z");
+  // Compaction will create the iterator to scan the whole file. So all the
+  // blocks are needed. After Flush, only block_2 is cached in block cache
+  // and block_1 is in the secondary cache. So when read block_1, it is
+  // read out from secondary cache and inserted to block cache. At the same
+  // time, block_2 is inserted to secondary cache. Now, secondary cache has
+  // both block_1 and block_2. After compaction, block_1 is in the cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // This Get needs to access block_1, since block_1 is cached in block cache
+  // there is no secondary cache lookup.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // This Get needs to access block_2 which is not in the block cache. So
+  // it will lookup the secondary cache for block_2 and cache it in the
+  // block_cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // This Get needs to access block_2 which is already in the block cache.
+  // No need to lookup secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // This Get needs to access block_1, since block_1 is not in block cache
+  // there is one econdary cache lookup. Then, block_1 is cached in the
+  // block cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // This Get needs to access block_1, since block_1 is cached in block cache
+  // there is no secondary cache lookup.
+  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  Destroy(options);
+}
+
+// The block cache size is set to 1024*1024, after insert 6 KV-pairs
+// and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
+// blocks. block_1 size is 4096 and block_2 size is 2056. The total size
+// of the meta blocks are about 900 to 1000. Therefore, we can successfully
+// cache all the blocks in the block cache and there is not secondary cache
+// insertion. 2 lookup is needed for the blocks.
+TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
+  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.paranoid_file_checks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+  // After Flush is successful, RocksDB do the paranoid check for the new
+  // SST file. Meta blocks are always cached in the block cache and they
+  // will not be evicted. Now, block cache is large enough, it cache
+  // both block_1 and block_2. When first time read block_1 and block_2
+  // there are cache misses. So 2 secondary cache lookups are needed for
+  // the 2 blocks
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  Compact("a", "z");
+  // Compaction will iterate the whole SST file. Since all the data blocks
+  // are in the block cache. No need to lookup the secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1000, v.size());
+  // Since the block cache is large enough, all the blocks are cached. we
+  // do not need to lookup the seondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
+  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+
+  Random r_index(47);
+  std::string v;
+  for (int i = 0; i < 1000; i++) {
+    uint32_t key_i = r_index.Next() % N;
+    v = Get(Key(key_i));
+  }
+
+  // We have over 200 data blocks there will be multiple insertion
+  // and lookups.
+  ASSERT_GE(secondary_cache->num_inserts(), 1u);
+  ASSERT_GE(secondary_cache->num_lookups(), 1u);
+
+  Destroy(options);
+}
+
+// In this test, the block cache size is set to 4096, after insert 6 KV-pairs
+// and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
+// blocks. block_1 size is 4096 and block_2 size is 2056. The total size
+// of the meta blocks are about 900 to 1000. Therefore, in any situation,
+// if we try to insert block_1 to the block cache, it will always fails. Only
+// block_2 will be successfully inserted into the block cache.
+TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.paranoid_file_checks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+  // After Flush is successful, RocksDB do the paranoid check for the new
+  // SST file. Meta blocks are always cached in the block cache and they
+  // will not be evicted. When block_2 is cache miss and read out, it is
+  // inserted to the block cache. Note that, block_1 is never successfully
+  // inserted to the block cache. Here are 2 lookups in the secondary cache
+  // for block_1 and block_2
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  // Fail the insertion, in LRU cache, the secondary insertion returned status
+  // is not checked, therefore, the DB will not be influenced.
+  secondary_cache->InjectFailure();
+  Compact("a", "z");
+  // Compaction will create the iterator to scan the whole file. So all the
+  // blocks are needed. Meta blocks are always cached. When block_1 is read
+  // out, block_2 is evicted from block cache and inserted to secondary
+  // cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // The first data block is not in the cache, similarly, trigger the block
+  // cache Lookup and secondary cache lookup for block_1. But block_1 will not
+  // be inserted successfully due to the size. Currently, cache only has
+  // the meta blocks.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // The second data block is not in the cache, similarly, trigger the block
+  // cache Lookup and secondary cache lookup for block_2 and block_2 is found
+  // in the secondary cache. Now block cache has block_2
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+  // block_2 is in the block cache. There is a block cache hit. No need to
+  // lookup or insert the secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the
+  // secondary cache. Also not in the secondary cache. After Get, still
+  // block_1 is will not be cached.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 6u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the
+  // secondary cache. Also not in the secondary cache. After Get, still
+  // block_1 is will not be cached.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 7u);
+  secondary_cache->ResetInjectFailure();
+
+  Destroy(options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -42,10 +42,23 @@ class FilterBitsBuilder {
  public:
   virtual ~FilterBitsBuilder() {}
 
-  // Add Key to filter, you could use any way to store the key.
-  // Such as: storing hashes or original keys
-  // Keys are in sorted order and duplicated keys are possible.
+  // Add a key (or prefix) to the filter. Typically, a builder will keep
+  // a set of 64-bit key hashes and only build the filter in Finish
+  // when the final number of keys is known. Keys are added in sorted order
+  // and duplicated keys are possible, so typically, the builder will
+  // only add this key if its hash is different from the most recently
+  // added.
   virtual void AddKey(const Slice& key) = 0;
+
+  // Called by RocksDB before Finish to populate
+  // TableProperties::num_filter_entries, so should represent the
+  // number of unique keys (and/or prefixes) added, but does not have
+  // to be exact.
+  virtual size_t EstimateEntriesAdded() {
+    // Default implementation for backward compatibility.
+    // 0 conspicuously stands for "unknown".
+    return 0;
+  }
 
   // Generate the filter using the keys that are added
   // The return value of this function would be the filter bits,

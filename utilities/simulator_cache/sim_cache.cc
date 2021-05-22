@@ -245,6 +245,10 @@ class SimCacheImpl : public SimCache {
     return cache_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return cache_->GetDeleter(handle);
+  }
+
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
   void DisownData() override {

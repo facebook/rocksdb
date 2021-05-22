@@ -62,6 +62,7 @@ if(CCACHE_FOUND)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_LIBURING "build with liburing" ON)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
@@ -338,6 +339,22 @@ if (NOT BUILTIN_ATOMIC)
 endif()
 endif()
 
+if (WITH_LIBURING)
+  set(CMAKE_REQUIRED_FLAGS "-luring")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <liburing.h>
+int main() {
+  struct io_uring ring;
+  io_uring_queue_init(1, &ring, 0);
+  return 0;
+}
+" HAS_LIBURING)
+  if (HAS_LIBURING)
+    add_definitions(-DROCKSDB_IOURING_PRESENT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+  endif()
+endif()
+
 # Reset the required flags
 set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
@@ -599,6 +616,7 @@ find_package(Threads REQUIRED)
 
 set(SOURCES
         cache/cache.cc
+        cache/cache_entry_roles.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -1112,6 +1130,7 @@ if(WITH_TESTS)
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
+        db/compaction/compaction_service_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
@@ -1349,7 +1368,8 @@ if(WITH_BENCHMARK_TOOLS)
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench${ARTIFACT_SUFFIX}
-    cache/cache_bench.cc)
+    cache/cache_bench.cc
+    cache/cache_bench_tool.cc)
   target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 

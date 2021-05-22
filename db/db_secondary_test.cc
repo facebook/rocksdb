@@ -187,6 +187,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(result.output_path, this->secondary_path_);
   ASSERT_EQ(result.num_output_records, 2);
   ASSERT_GT(result.bytes_written, 0);
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
@@ -235,6 +236,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   CompactionServiceResult result;
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input1,
                                                                  &result));
+  ASSERT_OK(result.status);
 
   // pick 2 files on level 1 for compaction, which has 6 overlap files on L2
   CompactionServiceInput input2;
@@ -247,6 +249,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   input2.output_level = 2;
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
                                                                  &result));
+  ASSERT_OK(result.status);
 
   CloseSecondary();
 
@@ -259,6 +262,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   Status s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
                                                                   &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 
   // TODO: L0 -> L1 compaction should success, currently version is not built
   // if files is missing.
@@ -304,6 +308,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   Status s =
       db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
@@ -340,11 +345,13 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   Status s =
       db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 
   input.input_files.erase(input.input_files.begin());
 
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
                                                                  &result));
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondary) {

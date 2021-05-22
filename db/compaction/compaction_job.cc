@@ -131,10 +131,12 @@ struct CompactionJob::SubcompactionState {
   // Files produced by this subcompaction
   struct Output {
     Output(FileMetaData&& _meta, const InternalKeyComparator& _icmp,
-           bool _enable_order_check, bool _enable_hash)
+           bool _enable_order_check, bool _enable_hash, bool _finished = false,
+           uint64_t precalculated_hash = 0)
         : meta(std::move(_meta)),
-          validator(_icmp, _enable_order_check, _enable_hash),
-          finished(false) {}
+          validator(_icmp, _enable_order_check, _enable_hash,
+                    precalculated_hash),
+          finished(_finished) {}
     FileMetaData meta;
     OutputValidator validator;
     bool finished;
@@ -299,8 +301,8 @@ void CompactionJob::AggregateStatistics() {
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-    const FileOptions& file_options, VersionSet* versions,
-    const std::atomic<bool>* shutting_down,
+    const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
+    VersionSet* versions, const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     FSDirectory* db_directory, FSDirectory* output_directory,
     FSDirectory* blob_output_directory, Statistics* stats,
@@ -317,6 +319,7 @@ CompactionJob::CompactionJob(
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
+      mutable_db_options_copy_(mutable_db_options),
       log_buffer_(log_buffer),
       output_directory_(output_directory),
       stats_(stats),
@@ -901,9 +904,162 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   return status;
 }
 
+#ifndef ROCKSDB_LITE
+void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
+    SubcompactionState* sub_compact) {
+  assert(sub_compact);
+  assert(sub_compact->compaction);
+  assert(db_options_.compaction_service);
+
+  const Compaction* compaction = sub_compact->compaction;
+  CompactionServiceInput compaction_input;
+  compaction_input.output_level = compaction->output_level();
+
+  const std::vector<CompactionInputFiles>& inputs =
+      *(compact_->compaction->inputs());
+  for (const auto& files_per_level : inputs) {
+    for (const auto& file : files_per_level.files) {
+      compaction_input.input_files.emplace_back(
+          MakeTableFileName(file->fd.GetNumber()));
+    }
+  }
+  compaction_input.column_family.name =
+      compaction->column_family_data()->GetName();
+  compaction_input.column_family.options =
+      compaction->column_family_data()->GetLatestCFOptions();
+  compaction_input.db_options =
+      BuildDBOptions(db_options_, mutable_db_options_copy_);
+  compaction_input.snapshots = existing_snapshots_;
+  compaction_input.has_begin = sub_compact->start;
+  compaction_input.begin =
+      compaction_input.has_begin ? sub_compact->start->ToString() : "";
+  compaction_input.has_end = sub_compact->end;
+  compaction_input.end =
+      compaction_input.has_end ? sub_compact->end->ToString() : "";
+  compaction_input.approx_size = sub_compact->approx_size;
+
+  std::string compaction_input_binary;
+  Status s = compaction_input.Write(&compaction_input_binary);
+  if (!s.ok()) {
+    sub_compact->status = s;
+    return;
+  }
+
+  std::ostringstream input_files_oss;
+  bool is_first_one = true;
+  for (const auto& file : compaction_input.input_files) {
+    input_files_oss << (is_first_one ? "" : ", ") << file;
+    is_first_one = false;
+  }
+
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
+      compaction_input.column_family.name.c_str(), job_id_,
+      compaction_input.output_level, input_files_oss.str().c_str());
+  CompactionServiceJobStatus compaction_status =
+      db_options_.compaction_service->Start(compaction_input_binary, job_id_);
+  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
+    sub_compact->status =
+        Status::Incomplete("CompactionService failed to start compaction job.");
+    return;
+  }
+
+  std::string compaction_result_binary;
+  compaction_status = db_options_.compaction_service->WaitForComplete(
+      job_id_, &compaction_result_binary);
+
+  CompactionServiceResult compaction_result;
+  s = CompactionServiceResult::Read(compaction_result_binary,
+                                    &compaction_result);
+  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
+    sub_compact->status =
+        s.ok() ? compaction_result.status
+               : Status::Incomplete(
+                     "CompactionService failed to run compaction job.");
+    compaction_result.status.PermitUncheckedError();
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction failed, status: %s",
+                   compaction_input.column_family.name.c_str(), job_id_,
+                   s.ToString().c_str());
+    return;
+  }
+
+  if (!s.ok()) {
+    sub_compact->status = s;
+    compaction_result.status.PermitUncheckedError();
+    return;
+  }
+  sub_compact->status = compaction_result.status;
+
+  std::ostringstream output_files_oss;
+  is_first_one = true;
+  for (const auto& file : compaction_result.output_files) {
+    output_files_oss << (is_first_one ? "" : ", ") << file.file_name;
+    is_first_one = false;
+  }
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Receive remote compaction result, output path: "
+                 "%s, files: %s",
+                 compaction_input.column_family.name.c_str(), job_id_,
+                 compaction_result.output_path.c_str(),
+                 output_files_oss.str().c_str());
+
+  if (!s.ok()) {
+    sub_compact->status = s;
+    return;
+  }
+
+  for (const auto& file : compaction_result.output_files) {
+    uint64_t file_num = versions_->NewFileNumber();
+    auto src_file = compaction_result.output_path + "/" + file.file_name;
+    auto tgt_file = TableFileName(compaction->immutable_cf_options()->cf_paths,
+                                  file_num, compaction->output_path_id());
+    s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
+    if (!s.ok()) {
+      sub_compact->status = s;
+      return;
+    }
+
+    FileMetaData meta;
+    uint64_t file_size;
+    s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
+    if (!s.ok()) {
+      sub_compact->status = s;
+      return;
+    }
+    meta.fd = FileDescriptor(file_num, compaction->output_path_id(), file_size,
+                             file.smallest_seqno, file.largest_seqno);
+    meta.smallest.DecodeFrom(file.smallest_internal_key);
+    meta.largest.DecodeFrom(file.largest_internal_key);
+    meta.oldest_ancester_time = file.oldest_ancester_time;
+    meta.file_creation_time = file.file_creation_time;
+    meta.marked_for_compaction = file.marked_for_compaction;
+
+    auto cfd = compaction->column_family_data();
+    sub_compact->outputs.emplace_back(std::move(meta),
+                                      cfd->internal_comparator(), false, false,
+                                      true, file.paranoid_hash);
+  }
+  sub_compact->compaction_job_stats = compaction_result.stats;
+  sub_compact->num_output_records = compaction_result.num_output_records;
+  sub_compact->approx_size = compaction_input.approx_size;  // is this used?
+  sub_compact->total_bytes = compaction_result.total_bytes;
+  IOSTATS_ADD(bytes_written, compaction_result.bytes_written);
+  IOSTATS_ADD(bytes_read, compaction_result.bytes_read);
+}
+#endif  // !ROCKSDB_LITE
+
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
+
+#ifndef ROCKSDB_LITE
+  if (db_options_.compaction_service) {
+    return ProcessKeyValueCompactionWithCompactionService(sub_compact);
+  }
+#endif  // !ROCKSDB_LITE
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUNanos() / 1000;
 
@@ -1951,9 +2107,9 @@ std::string CompactionServiceCompactionJob::GetTableFileName(
 
 CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-    const FileOptions& file_options, VersionSet* versions,
-    const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
-    FSDirectory* output_directory, Statistics* stats,
+    const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
+    VersionSet* versions, const std::atomic<bool>* shutting_down,
+    LogBuffer* log_buffer, FSDirectory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
@@ -1963,10 +2119,10 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     const CompactionServiceInput& compaction_service_input,
     CompactionServiceResult* compaction_service_result)
     : CompactionJob(
-          job_id, compaction, db_options, file_options, versions, shutting_down,
-          0, log_buffer, nullptr, output_directory, nullptr, stats, db_mutex,
-          db_error_handler, existing_snapshots, kMaxSequenceNumber, nullptr,
-          table_cache, event_logger,
+          job_id, compaction, db_options, mutable_db_options, file_options,
+          versions, shutting_down, 0, log_buffer, nullptr, output_directory,
+          nullptr, stats, db_mutex, db_error_handler, existing_snapshots,
+          kMaxSequenceNumber, nullptr, table_cache, event_logger,
           compaction->mutable_cf_options()->paranoid_file_checks,
           compaction->mutable_cf_options()->report_bg_io_stats, dbname,
           &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
@@ -2357,7 +2513,85 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 };
 
+namespace {
+// this is a helper struct to serialize and deserialize class Status, because
+// Status's members are not public.
+struct StatusSerializationAdapter {
+  uint8_t code;
+  uint8_t subcode;
+  uint8_t severity;
+  std::string message;
+
+  StatusSerializationAdapter() {}
+  explicit StatusSerializationAdapter(const Status& s) {
+    code = s.code();
+    subcode = s.subcode();
+    severity = s.severity();
+    auto msg = s.getState();
+    message = msg ? msg : "";
+  }
+
+  Status GetStatus() {
+    return Status(static_cast<Status::Code>(code),
+                  static_cast<Status::SubCode>(subcode),
+                  static_cast<Status::Severity>(severity), message);
+  }
+};
+}  // namespace
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    status_adapter_type_info = {
+        {"code",
+         {offsetof(struct StatusSerializationAdapter, code),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"subcode",
+         {offsetof(struct StatusSerializationAdapter, subcode),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"severity",
+         {offsetof(struct StatusSerializationAdapter, severity),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"message",
+         {offsetof(struct StatusSerializationAdapter, message),
+          OptionType::kEncodedString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+};
+
 static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
+    {"status",
+     {offsetof(struct CompactionServiceResult, status),
+      OptionType::kCustomizable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const std::string& value, void* addr) {
+        auto status_obj = static_cast<Status*>(addr);
+        StatusSerializationAdapter adapter;
+        Status s = OptionTypeInfo::ParseType(
+            opts, value, status_adapter_type_info, &adapter);
+        *status_obj = adapter.GetStatus();
+        return s;
+      },
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const void* addr, std::string* value) {
+        const auto status_obj = static_cast<const Status*>(addr);
+        StatusSerializationAdapter adapter(*status_obj);
+        std::string result;
+        Status s = OptionTypeInfo::SerializeType(opts, status_adapter_type_info,
+                                                 &adapter, &result);
+        *value = "{" + result + "}";
+        return s;
+      },
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const void* addr1, const void* addr2, std::string* mismatch) {
+        const auto status1 = static_cast<const Status*>(addr1);
+        const auto status2 = static_cast<const Status*>(addr2);
+        StatusSerializationAdapter adatper1(*status1);
+        StatusSerializationAdapter adapter2(*status2);
+        return OptionTypeInfo::TypesAreEqual(opts, status_adapter_type_info,
+                                             &adatper1, &adapter2, mismatch);
+      }}},
     {"output_files",
      OptionTypeInfo::Vector<CompactionServiceOutputFile>(
          offsetof(struct CompactionServiceResult, output_files),
@@ -2396,6 +2630,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
 
 Status CompactionServiceInput::Read(const std::string& data_str,
                                     CompactionServiceInput* obj) {
+  if (data_str.size() <= sizeof(BinaryFormatVersion)) {
+    return Status::InvalidArgument("Invalid CompactionServiceInput string");
+  }
   auto format_version = DecodeFixed32(data_str.data());
   if (format_version == kOptionsString) {
     ConfigOptions cf;
@@ -2422,6 +2659,9 @@ Status CompactionServiceInput::Write(std::string* output) {
 
 Status CompactionServiceResult::Read(const std::string& data_str,
                                      CompactionServiceResult* obj) {
+  if (data_str.size() <= sizeof(BinaryFormatVersion)) {
+    return Status::InvalidArgument("Invalid CompactionServiceResult string");
+  }
   auto format_version = DecodeFixed32(data_str.data());
   if (format_version == kOptionsString) {
     ConfigOptions cf;

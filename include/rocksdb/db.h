@@ -239,6 +239,16 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // Open DB and run the compaction.
+  // It's a read-only operation, the result won't be installed to the DB, it
+  // will be output to the `output_directory`. The API should only be used with
+  // `options.CompactionService` to run compaction triggered by
+  // `CompactionService`.
+  static Status OpenAndCompact(
+      const std::string& name, const std::string& output_directory,
+      const std::string& input, std::string* output,
+      const CompactionServiceOptionsOverride& override_options);
+
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -762,6 +772,10 @@ class DB {
     //  "rocksdb.levelstats" - returns multi-line string containing the number
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
+
+    //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
+    //      map with statistics on block cache usage.
+    static const std::string kBlockCacheEntryStats;
 
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.

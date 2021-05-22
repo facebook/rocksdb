@@ -1,6 +1,7 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
+  cache/cache_entry_roles.cc                                    \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
@@ -320,6 +321,9 @@ BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
   tools/simulated_hybrid_file_system.cc                         \
 
+CACHE_BENCH_LIB_SOURCES =					\
+  cache/cache_bench_tool.cc                                     \
+
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
@@ -388,6 +392,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/compaction/compaction_job_test.cc                                  \
   db/compaction/compaction_job_stats_test.cc                            \
   db/compaction/compaction_picker_test.cc                               \
+  db/compaction/compaction_service_test.cc                              \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \

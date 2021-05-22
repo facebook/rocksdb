@@ -73,15 +73,10 @@ class ShardedCache : public Cache {
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
                std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
-  virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(uint32_t shard) = 0;
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
-  virtual void* Value(Handle* handle) override = 0;
-  virtual size_t GetCharge(Handle* handle) const override = 0;
-  virtual void WaitAll(std::vector<Handle*>& handles) override = 0;
 
   virtual uint32_t GetHash(Handle* handle) const = 0;
-  virtual void DisownData() override = 0;
 
   virtual void SetCapacity(size_t capacity) override;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;

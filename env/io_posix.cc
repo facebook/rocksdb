@@ -633,6 +633,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
+  IOStatus ios = IOStatus::OK();
+
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
@@ -679,19 +681,47 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
     ssize_t ret =
         io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+        &ret);
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+        iu);
+
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
+      // If error happens and we submitted fewer than expected, it is an
+      // exception case and we don't retry here. We should still consume
+      // what is is submitted in the ring.
+      for (ssize_t i = 0; i < ret; i++) {
+        struct io_uring_cqe* cqe = nullptr;
+        io_uring_wait_cqe(iu, &cqe);
+        if (cqe != nullptr) {
+          io_uring_cqe_seen(iu, cqe);
+        }
+      }
+      return IOStatus::IOError("io_uring_submit_and_wait() requested " +
+                               ToString(this_reqs) + " but returned " +
+                               ToString(ret));
     }
-    assert(static_cast<size_t>(ret) == this_reqs);
 
     for (size_t i = 0; i < this_reqs; i++) {
-      struct io_uring_cqe* cqe;
+      struct io_uring_cqe* cqe = nullptr;
       WrappedReadRequest* req_wrap;
 
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
-      assert(!ret);
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
+      if (ret) {
+        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+
+        if (cqe != nullptr) {
+          io_uring_cqe_seen(iu, cqe);
+        }
+        continue;
+      }
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       FSReadRequest* req = req_wrap->req;
@@ -740,7 +770,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       io_uring_cqe_seen(iu, cqe);
     }
   }
-  return IOStatus::OK();
+  return ios;
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif
