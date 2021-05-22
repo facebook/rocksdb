@@ -247,6 +247,11 @@ class CloudEnvImpl : public CloudEnv {
     file_deletion_delay_ = delay;
   }
 
+  void FileCacheDeleter(const std::string& fname);
+  void FileCacheErase(const std::string& fname);
+  uint64_t FileCacheGetCharge();
+  uint64_t FileCacheGetNumItems();
+
  protected:
   // The pathname that contains a list of all db's inside a bucket.
   virtual const char* kDbIdRegistry() const { return "/.rockset/dbid/"; }
@@ -307,6 +312,11 @@ class CloudEnvImpl : public CloudEnv {
   Status FetchCloudManifest(const std::string& local_dbname, bool force);
 
   Status RollNewEpoch(const std::string& local_dbname);
+
+  // helper methods to access the file cache
+  void FileCacheAccess(const std::string& fname);
+  void FileCacheInsert(const std::string& fname, uint64_t filesize);
+
   // The dbid of the source database that is cloned
   std::string src_dbid_;
 
