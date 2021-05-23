@@ -2050,7 +2050,7 @@ Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
   WriteBatch batch;
-  Status s = batch.DeleteRange(column_family, begin_key, end_key);
+  Status s = batch.DeleteRange(column_family == nullptr ? DefaultColumnFamily() : column_family, begin_key, end_key);
   if (!s.ok()) {
     return s;
   }

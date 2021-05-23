@@ -21,7 +21,7 @@ class WriteBatch;
 struct SliceParts;
 
 // Abstract base class that defines the basic interface for a write batch.
-// See WriteBatch for a basic implementation and WrithBatchWithIndex for an
+// See WriteBatch for a basic implementation and WriteBatchWithIndex for an
 // indexed implementation.
 class WriteBatchBase {
  public:

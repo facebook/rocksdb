@@ -129,7 +129,7 @@ TEST_F(DBRangeDelTest, DBInvalidRangeCascadingProblem) {
   Status s2 = db->DeleteRange(write_options, nullptr, "Z", "Y");
   ASSERT_TRUE(s2.IsInvalidArgument());
   Status s3 = db->DeleteRange(write_options, nullptr, "A", "B");
-  ASSERT_OK(s3);  // This fails, "end key comes before start key" !!
+  ASSERT_OK(s3);  // This should work as the db is still alive.
 }
 
 TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {

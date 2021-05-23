@@ -101,6 +101,10 @@ class WriteBatchInternal {
   static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
                             const Slice& begin_key, const Slice& end_key);
 
+  static Status DeleteRange(WriteBatch* b, ColumnFamilyHandle* column_family,
+                            uint32_t column_family_id,
+                            const Slice& begin_key, const Slice& end_key);
+
   static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
                             const SliceParts& begin_key,
                             const SliceParts& end_key);

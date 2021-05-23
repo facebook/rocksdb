@@ -1112,9 +1112,23 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
       this, GetColumnFamilyID(column_family), key);
 }
 
-Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
+Status WriteBatchInternal::DeleteRange(WriteBatch* b,
+                                       uint32_t column_family_id,
                                        const Slice& begin_key,
                                        const Slice& end_key) {
+  return WriteBatchInternal::DeleteRange(b, nullptr, column_family_id, begin_key, end_key);
+}
+
+Status WriteBatchInternal::DeleteRange(WriteBatch* b,
+                                       ColumnFamilyHandle* handle,
+                                       uint32_t column_family_id,
+                                       const Slice& begin_key,
+                                       const Slice& end_key) {
+  assert(handle->GetComparator() != nullptr);
+  if (handle->GetComparator()->Compare(begin_key, end_key) > 0) {
+    return Status::InvalidArgument("end key comes before start key");
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1143,7 +1157,7 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
                                const Slice& begin_key, const Slice& end_key) {
-  return WriteBatchInternal::DeleteRange(this, GetColumnFamilyID(column_family),
+  return WriteBatchInternal::DeleteRange(this, column_family, GetColumnFamilyID(column_family),
                                          begin_key, end_key);
 }
 
