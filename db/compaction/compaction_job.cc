@@ -1118,7 +1118,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     start_slice = start_ikey.GetInternalKey();
   }
   if (end) {
-    end_ikey.SetInternalKey(*end, 0, kValueTypeForSeekForPrev);
+    end_ikey.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeekForPrev);
     end_slice = end_ikey.GetInternalKey();
   }
 
