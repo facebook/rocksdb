@@ -1124,9 +1124,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  Cache::CreateCallback create_cb =
-      GetCreateCallback(read_amp_bytes_per_bit, statistics, using_zstd,
-                        filter_policy, *block->GetValue());
+  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1151,8 +1150,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   assert(!compressed_block_cache_key.empty());
   BlockContents contents;
-  Cache::CreateCallback create_cb_special = GetCreateCallback(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy, contents);
+  Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
   block_cache_compressed_handle = block_cache_compressed->Lookup(
       compressed_block_cache_key,
       BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
