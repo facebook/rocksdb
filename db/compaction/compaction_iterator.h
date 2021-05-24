@@ -30,7 +30,9 @@ class SequenceIterWrapper : public InternalIterator {
  public:
   SequenceIterWrapper(InternalIterator* iter, const Comparator* cmp,
                       bool need_count_entries)
-      : cmp_(cmp), inner_iter_(iter), need_count_entries_(need_count_entries) {}
+      : icmp_(cmp, /*named=*/false),
+        inner_iter_(iter),
+        need_count_entries_(need_count_entries) {}
   bool Valid() const override { return inner_iter_->Valid(); }
   Status status() const override { return inner_iter_->status(); }
   void Next() override {
@@ -44,7 +46,7 @@ class SequenceIterWrapper : public InternalIterator {
       // For flush cases, we need to count total number of entries, so we
       // do Next() rather than Seek().
       while (inner_iter_->Valid() &&
-             cmp_->Compare(inner_iter_->key(), target) < 0) {
+             icmp_.Compare(inner_iter_->key(), target) < 0) {
         Next();
       }
     }
@@ -61,7 +63,7 @@ class SequenceIterWrapper : public InternalIterator {
   uint64_t num_itered() const { return num_itered_; }
 
  private:
-  const Comparator* cmp_;         // not owned
+  InternalKeyComparator icmp_;
   InternalIterator* inner_iter_;  // not owned
   uint64_t num_itered_ = 0;
   bool need_count_entries_;
