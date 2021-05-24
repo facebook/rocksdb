@@ -157,34 +157,6 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
-TEST_F(DBBasicTest, ReadOnlyReopenMtimeUnchanged) {
-  auto options = CurrentOptions();
-  Reopen(options);
-  Close();
-  env_->SleepForMicroseconds(1100000);
-
-  std::unordered_map<std::string, uint64_t> files_to_mtime;
-  std::vector<std::string> files;
-  ASSERT_OK(env_->GetChildren(dbname_, &files));
-  for (auto& f : files) {
-    uint64_t file_mtime;
-    ASSERT_OK(env_->GetFileModificationTime(dbname_ + "/" + f, &file_mtime));
-    files_to_mtime[f] = file_mtime;
-  }
-
-  ASSERT_OK(ReadOnlyReopen(options));
-
-  for (auto& f : files) {
-    uint64_t file_mtime_after_readonly_reopen;
-    ASSERT_OK(env_->GetFileModificationTime(dbname_ + "/" + f,
-                                            &file_mtime_after_readonly_reopen));
-    const uint64_t file_mtime_before_readonly_reopen = files_to_mtime[f];
-    ASSERT_EQ(file_mtime_after_readonly_reopen,
-              file_mtime_before_readonly_reopen)
-        << "  file is: " << f;
-  }
-}
-
 TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
