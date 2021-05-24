@@ -23,8 +23,7 @@ Cache::CacheItemHelper* GetCacheItemHelperForRole();
 template <typename TBlocklike>
 Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
                                         Statistics* statistics, bool using_zstd,
-                                        const FilterPolicy* filter_policy,
-                                        const TBlocklike& /*block*/) {
+                                        const FilterPolicy* filter_policy) {
   return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
              void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
     assert(buf != nullptr);

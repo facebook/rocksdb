@@ -659,14 +659,14 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   Destroy(options);
 }
 
-// In this test, the block cache size is set to 5100, after insert 6 KV-pairs
+// In this test, the block cache size is set to 6100, after insert 6 KV-pairs
 // and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
 // blocks. block_1 size is 4096 and block_2 size is 2056. The total size
 // of the meta blocks are about 900 to 1000. Therefore, we can successfully
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  LRUCacheOptions opts(5100, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(6100, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
