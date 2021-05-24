@@ -2048,7 +2048,8 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
   ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
   ASSERT_EQ(1, log_files_after.size());
   ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
-  // The preallocated space should be truncated.
+  // The preallocated space should NOT be truncated.
+  // the DB size is almost the same.
   ASSERT_NEAR(GetAllocatedFileSize(dbname_ + file_before->PathName()), db_size,
               db_size / 100);
   SyncPoint::GetInstance()->DisableProcessing();
