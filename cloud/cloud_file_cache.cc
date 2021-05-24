@@ -73,8 +73,8 @@ void CloudEnvImpl::FileCacheErase(const std::string& fname) {
   Slice key(fname);
   GetCloudEnvOptions().sst_file_cache->get()->Erase(key);
 
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[%s] File Cache Erase %s",
-      Name(), fname.c_str());
+  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[%s] File Cache Erase %s", Name(),
+      fname.c_str());
 }
 
 //

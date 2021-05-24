@@ -238,9 +238,9 @@ Status CloudEnvImpl::NewRandomAccessFile(
 
     // Found in local storage. Update LRU cache.
     // There is a loose coupling between the sst_file_cache and the files on
-    // local storage. The sst_file_cache is only used for accounting of sst files.
-    // We do not keep a reference to the LRU cache handle when
-    // the sst file remains open by the db. If the LRU policy causes the file to be
+    // local storage. The sst_file_cache is only used for accounting of sst
+    // files. We do not keep a reference to the LRU cache handle when the sst
+    // file remains open by the db. If the LRU policy causes the file to be
     // evicted, it will be deleted from local storage, but because the db
     // already has an open file handle to it, it can continue to occupy local
     // storage space until the time the db decides to close the sst file.
