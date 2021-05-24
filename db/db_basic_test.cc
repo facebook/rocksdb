@@ -161,7 +161,6 @@ TEST_F(DBBasicTest, ReadOnlyReopenMtimeUnchanged) {
   auto options = CurrentOptions();
   Reopen(options);
   Close();
- 
   env_->SleepForMicroseconds(1100000);
 
   std::unordered_map<std::string, uint64_t> files_to_mtime;
