@@ -361,5 +361,5 @@ Status CloudStorageProviderImpl::PutCloudObject(
   return DoPutCloudObject(local_file, bucket_name, object_path, fsize);
 }
 
-#endif //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

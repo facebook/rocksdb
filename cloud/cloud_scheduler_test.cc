@@ -184,7 +184,8 @@ int main(int argc, char **argv) {
 #include <stdio.h>
 
 int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as CloudSchedulerTest is not supported in ROCKSDB_LITE\n");
+  fprintf(stderr,
+          "SKIPPED as CloudSchedulerTest is not supported in ROCKSDB_LITE\n");
   return 0;
 }
 
