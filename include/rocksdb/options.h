@@ -1248,6 +1248,18 @@ struct DBOptions {
   // backward/forward compatibility support for now. Some known issues are still
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
+
+  // If true, once a user write fails due to any error, the DB will stop
+  // accepting any more writes. All subsequent writes will be returned with
+  // the last known failure. The only exception to this is writes that have
+  // write_options.no_slowdown set and are returned with Status::Incomplete()
+  // due to a write stall. Once the stall clears, other writes will be
+  // allowed to proceed.
+  // If this is false, some background IO errors may cause writes to
+  // temporarily fail, but the DB will try to recover in the
+  // background. If the recovery is succcessful, future writes will
+  // be allowed to proceed.
+  bool freeze_on_write_failure = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

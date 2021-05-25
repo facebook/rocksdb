@@ -251,7 +251,10 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
-void ErrorHandler::StopDB() {
+void ErrorHandler::MaybeStopDB() {
+  if (!db_options_.freeze_on_write_failure) {
+    return;
+  }
   // Ensure all subsequent writes are failed back to the user
   if (bg_error_.severity() < Status::Severity::kHardError) {
     bg_error_ = Status(bg_error_, Status::Severity::kHardError);
@@ -330,19 +333,21 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   bool auto_recovery = auto_recovery_;
-  if (new_bg_err.severity() >= Status::Severity::kFatalError && auto_recovery) {
+  if ((new_bg_err.severity() >= Status::Severity::kFatalError &&
+       auto_recovery) ||
+      (db_options_.max_bgerror_resume_count == 0)) {
     auto_recovery = false;
   }
 
   // Allow some error specific overrides
   if (new_bg_err == Status::NoSpace()) {
-    new_bg_err = OverrideNoSpaceError(new_bg_err, reason, &auto_recovery);
+    new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
   }
 
-  if ((!db_options_.max_bgerror_resume_count || !auto_recovery) &&
-      new_bg_err.severity() < Status::Severity::kHardError) {
-    // If auto recovery is disabled, make it a hard error, i.e all writes are
-    // stopped and requires user to explicitly call DB::Resume()
+  if (reason == BackgroundErrorReason::kWriteCallback &&
+      db_options_.freeze_on_write_failure) {
+    // We rely on SFM to poll for enough disk space and recover
+    auto_recovery = false;
     new_bg_err = Status(new_bg_err, Status::Severity::kHardError);
   }
 
@@ -412,12 +417,15 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
 
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
-  if (bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
-      bg_io_err.GetDataLoss()) {
+  if ((bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
+       bg_io_err.GetDataLoss()) ||
+      db_options_.freeze_on_write_failure) {
     // First, data loss (non file scope) is treated as unrecoverable error. So
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
-    Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
+    Status bg_err(new_bg_io_err, bg_io_err.GetDataLoss()
+                                     ? Status::Severity::kUnrecoverableError
+                                     : Status::Severity::kHardError);
     bg_error_ = bg_err;
     if (recovery_in_prog_ && recovery_error_.ok()) {
       recovery_error_ = bg_err;
@@ -433,10 +441,9 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                           &bg_err, db_mutex_, &auto_recovery);
     recover_context_ = context;
     return bg_error_;
-  } else if ((bg_io_err.GetScope() ==
-                  IOStatus::IOErrorScope::kIOErrorScopeFile ||
-              bg_io_err.GetRetryable()) &&
-             db_options_.max_bgerror_resume_count > 0) {
+  } else if (bg_io_err.GetScope() ==
+                 IOStatus::IOErrorScope::kIOErrorScopeFile ||
+             bg_io_err.GetRetryable()) {
     // Second, check if the error is a retryable IO error (file scope IO error
     // is also treated as retryable IO error in RocksDB write path). if it is
     // retryable error and its severity is higher than bg_error_, overwrite the
@@ -508,15 +515,13 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
 }
 
 Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
-                                          const BackgroundErrorReason reason,
                                           bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
   if (bg_error.severity() >= Status::Severity::kFatalError) {
     return bg_error;
   }
 
-  if (db_options_.sst_file_manager.get() == nullptr ||
-      reason == BackgroundErrorReason::kWriteCallback) {
+  if (db_options_.sst_file_manager.get() == nullptr) {
     // We rely on SFM to poll for enough disk space and recover
     *auto_recovery = false;
     return bg_error;
@@ -528,7 +533,7 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
     // be inconsistent, and it may be needed for 2PC. If 2PC is not enabled,
     // we can just flush the memtable and discard the log
     *auto_recovery = false;
-    return Status(bg_error, Status::Severity::kFatalError);
+    return Status(bg_error, Status::Severity::kHardError);
   }
 
   {

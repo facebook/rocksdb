@@ -47,6 +47,7 @@ Status OptimisticTransactionDB::Open(const Options& options,
 
   // Disable automatic error recovery
   db_options.max_bgerror_resume_count = 0;
+  db_options.freeze_on_write_failure = true;
   Status s = Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);

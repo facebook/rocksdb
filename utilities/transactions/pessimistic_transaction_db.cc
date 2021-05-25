@@ -230,6 +230,7 @@ Status TransactionDB::Open(
   DBOptions db_options_2pc = db_options;
   // Disable automatic error recovery
   db_options_2pc.max_bgerror_resume_count = 0;
+  db_options_2pc.freeze_on_write_failure = 0;
   PrepareWrap(&db_options_2pc, &column_families_copy,
               &compaction_enabled_cf_indices);
   const bool use_seq_per_batch =

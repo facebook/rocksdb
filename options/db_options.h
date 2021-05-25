@@ -100,6 +100,7 @@ struct ImmutableDBOptions {
   Statistics* stats;
   Logger* logger;
   std::shared_ptr<CompactionService> compaction_service;
+  bool freeze_on_write_failure;
 };
 
 struct MutableDBOptions {

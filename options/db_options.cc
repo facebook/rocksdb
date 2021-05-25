@@ -428,6 +428,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"freeze_on_write_failure",
+         {offsetof(struct ImmutableDBOptions, freeze_on_write_failure),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -579,7 +583,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types),
-      compaction_service(options.compaction_service) {
+      compaction_service(options.compaction_service),
+      freeze_on_write_failure(options.freeze_on_write_failure) {
   stats = statistics.get();
   fs = env->GetFileSystem();
   if (env != nullptr) {
@@ -752,6 +757,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
                    db_host_id.c_str());
+  ROCKS_LOG_HEADER(log, "               Options.freeze_on_write_failure: %d",
+                   freeze_on_write_failure);
 }
 
 MutableDBOptions::MutableDBOptions()

@@ -1545,7 +1545,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     // write to fail, stop the DB and fail subsequent writes as well. There
     // may be other writes in the queue and might cause inconsistency if the
     // recovery succeeds and the queued writes are allowed to go through.
-    error_handler_.StopDB();
+    error_handler_.MaybeStopDB();
   }
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
