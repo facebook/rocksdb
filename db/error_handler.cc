@@ -347,7 +347,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   if (reason == BackgroundErrorReason::kWriteCallback &&
       db_options_.freeze_on_write_failure) {
     // We rely on SFM to poll for enough disk space and recover
-    auto_recovery = false;
+    CancelErrorRecovery();
     new_bg_err = Status(new_bg_err, Status::Severity::kHardError);
   }
 
@@ -417,15 +417,35 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
 
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
-  if ((bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
-       bg_io_err.GetDataLoss()) ||
-      db_options_.freeze_on_write_failure) {
+  if (reason == BackgroundErrorReason::kWriteCallback &&
+      db_options_.freeze_on_write_failure &&
+      new_bg_io_err.severity() <= Status::Severity::kHardError) {
+    CancelErrorRecovery();
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kHardError);
+    bg_error_ = bg_err;
+    if (recovery_in_prog_ && recovery_error_.ok()) {
+      recovery_error_ = bg_err;
+    }
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+    }
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "ErrorHandler: Set background IO error as a hard error requiring"
+        " manual recovery\n");
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                          &bg_err, db_mutex_, &auto_recovery);
+    recover_context_ = context;
+    return bg_error_;
+  } else if (bg_io_err.GetScope() !=
+                 IOStatus::IOErrorScope::kIOErrorScopeFile &&
+             bg_io_err.GetDataLoss()) {
     // First, data loss (non file scope) is treated as unrecoverable error. So
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
-    Status bg_err(new_bg_io_err, bg_io_err.GetDataLoss()
-                                     ? Status::Severity::kUnrecoverableError
-                                     : Status::Severity::kHardError);
+    Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
     bg_error_ = bg_err;
     if (recovery_in_prog_ && recovery_error_.ok()) {
       recovery_error_ = bg_err;
