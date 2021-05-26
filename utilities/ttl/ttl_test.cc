@@ -186,6 +186,18 @@ class TtlTest : public testing::Test {
     }
   }
 
+  // Runs a DeleteRange
+  void MakeDeleteRange(std::string start, std::string end,
+                       ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
+    static WriteOptions wops;
+    WriteBatch wb;
+    ASSERT_OK(cf == nullptr
+                  ? wb.DeleteRange(db_ttl_->DefaultColumnFamily(), start, end)
+                  : wb.DeleteRange(cf, start, end));
+    ASSERT_OK(db_ttl_->Write(wops, &wb));
+  }
+
   // checks the whole kvmap_ to return correct values using KeyMayExist
   void SimpleKeyMayExistCheck() {
     static ReadOptions ropts;
@@ -681,6 +693,29 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   SetTtl(3);
   PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
   SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
+  CloseTtl();
+}
+
+// Test DeleteRange for DBWithTtl
+TEST_F(TtlTest, DeleteRangeTest) {
+  OpenTtl();
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  MakeDeleteRange("a", "b");
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  MakeDeleteRange("b", "d");
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "e", "val"));
+  MakeDeleteRange("d", "e");
+  // first iteration verifies query correctness in memtable, second verifies
+  // query correctness for a single SST file
+  for (int i = 0; i < 2; i++) {
+    if (i > 0) {
+      ASSERT_OK(db_ttl_->Flush(FlushOptions()));
+    }
+    std::string value;
+    ASSERT_TRUE(db_ttl_->Get(ReadOptions(), "a", &value).IsNotFound());
+    ASSERT_TRUE(db_ttl_->Get(ReadOptions(), "c", &value).IsNotFound());
+    ASSERT_OK(db_ttl_->Get(ReadOptions(), "e", &value));
+  }
   CloseTtl();
 }
 
