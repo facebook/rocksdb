@@ -8,9 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/comparator.h"
+
 #include <stdint.h>
+
 #include <algorithm>
 #include <memory>
+#include <mutex>
+
+#include "options/customizable_helper.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 
@@ -20,8 +25,8 @@ namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() { }
-
-  const char* Name() const override { return "leveldb.BytewiseComparator"; }
+  static const char* kClassName() { return kBytewiseClassName(); }
+  const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
@@ -139,9 +144,8 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
   ReverseBytewiseComparatorImpl() { }
 
-  const char* Name() const override {
-    return "rocksdb.ReverseBytewiseComparator";
-  }
+  static const char* kClassName() { return kReverseBytewiseClassName(); }
+  const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return -a.compare(b);
@@ -220,4 +224,52 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinComparators(ObjectLibrary& library,
+                                      const std::string& /*arg*/) {
+  library.Register<Comparator>(
+      BytewiseComparatorImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard */,
+         std::string* /* errmsg */) {
+        return const_cast<Comparator*>(BytewiseComparator());
+      });
+  library.Register<Comparator>(
+      ReverseBytewiseComparatorImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard */,
+         std::string* /* errmsg */) {
+        return const_cast<Comparator*>(ReverseBytewiseComparator());
+      });
+  return 2;
+}
+#endif  // ROCKSDB_LITE
+
+static bool LoadComparator(const std::string& id, Comparator** result) {
+  bool success = true;
+  if (id == BytewiseComparatorImpl::kClassName()) {
+    *result = const_cast<Comparator*>(BytewiseComparator());
+  } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
+    *result = const_cast<Comparator*>(ReverseBytewiseComparator());
+  } else {
+    success = false;
+  }
+  return success;
+}
+
+Status Comparator::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& value,
+                                    const Comparator** result) {
+  Comparator* comparator = const_cast<Comparator*>(*result);
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinComparators(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  Status s = LoadStaticObject<Comparator>(config_options, value, LoadComparator,
+                                          &comparator);
+  if (s.ok()) {
+    *result = const_cast<const Comparator*>(comparator);
+  }
+  return s;
+}
 }  // namespace ROCKSDB_NAMESPACE

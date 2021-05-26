@@ -707,8 +707,17 @@ static int RegisterTestObjects(ObjectLibrary& library,
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
+  library.Register<Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        static test::SimpleSuffixReverseComparator ssrc;
+        return &ssrc;
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
+#endif  // !ROCKSDB_LITE
 
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
@@ -755,7 +764,30 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(factory->Name(), "MockTable");
   }
 }
-#endif  // !ROCKSDB_LITE
+
+TEST_F(LoadCustomizableTest, LoadComparatorTest) {
+  const Comparator* result = nullptr;
+  ASSERT_NOK(Comparator::CreateFromString(
+      config_options_, test::SimpleSuffixReverseComparator::kClassName(),
+      &result));
+  ASSERT_OK(Comparator::CreateFromString(
+      config_options_, Comparator::kBytewiseClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), Comparator::kBytewiseClassName());
+  ASSERT_OK(Comparator::CreateFromString(
+      config_options_, Comparator::kReverseBytewiseClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), Comparator::kReverseBytewiseClassName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(Comparator::CreateFromString(
+        config_options_, test::SimpleSuffixReverseComparator::kClassName(),
+        &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(),
+                 test::SimpleSuffixReverseComparator::kClassName());
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
