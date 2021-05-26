@@ -45,6 +45,8 @@ void SyncPoint::Data::LoadDependency(const std::vector<SyncPointPair>& dependenc
   for (const auto& dependency : dependencies) {
     successors_[dependency.predecessor].push_back(dependency.successor);
     predecessors_[dependency.successor].push_back(dependency.predecessor);
+    point_filter_.Add(dependency.successor);
+    point_filter_.Add(dependency.predecessor);
   }
   cv_.notify_all();
 }
@@ -61,11 +63,15 @@ void SyncPoint::Data::LoadDependencyAndMarkers(
   for (const auto& dependency : dependencies) {
     successors_[dependency.predecessor].push_back(dependency.successor);
     predecessors_[dependency.successor].push_back(dependency.predecessor);
+    point_filter_.Add(dependency.successor);
+    point_filter_.Add(dependency.predecessor);
   }
   for (const auto& marker : markers) {
     successors_[marker.predecessor].push_back(marker.successor);
     predecessors_[marker.successor].push_back(marker.predecessor);
     markers_[marker.predecessor].push_back(marker.successor);
+    point_filter_.Add(marker.predecessor);
+    point_filter_.Add(marker.successor);
   }
   cv_.notify_all();
 }
@@ -99,6 +105,10 @@ void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
+  // Use a filter to prevent mutex lock if possible.
+  if (!point_filter_.MayContain(point)) {
+    return;
+  }
 
   std::unique_lock<std::mutex> lock(mutex_);
   auto thread_id = std::this_thread::get_id();
@@ -107,6 +117,7 @@ void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
   if (marker_iter != markers_.end()) {
     for (auto& marked_point : marker_iter->second) {
       marked_thread_id_.emplace(marked_point, thread_id);
+      point_filter_.Add(marked_point);
     }
   }
 
