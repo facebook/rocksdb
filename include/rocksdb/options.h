@@ -1334,7 +1334,8 @@ struct ReadOptions {
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null:
   // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
-  //    to infer the prefix to use with the seek key.
+  //    to infer whether prefix iterating can be used, by comparing it with the
+  //    seek key.
   // 2. If options.auto_prefix_mode = false, iterate_upper_bound only takes
   //    effect if it shares the same prefix as the seek key. If
   //    iterate_upper_bound is outside the prefix of the seek key, then keys
