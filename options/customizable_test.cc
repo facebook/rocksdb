@@ -717,7 +717,6 @@ static int RegisterTestObjects(ObjectLibrary& library,
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // !ROCKSDB_LITE
 
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
@@ -725,6 +724,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
   // Load any locally defined objects here
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
+#endif  // !ROCKSDB_LITE
 
 class LoadCustomizableTest : public testing::Test {
  public:
