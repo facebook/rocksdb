@@ -199,7 +199,7 @@ class CloudEnvOptions {
   // sst file is not inserted into the local file cache.
   // Cannot be set if keep_local_log_files is true.
   // Default: null (disabled)
-  std::shared_ptr<Cache>* sst_file_cache;
+  std::shared_ptr<Cache> sst_file_cache;
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
@@ -337,7 +337,7 @@ class CloudEnvOptions {
       int _number_objects_listed_in_one_iteration = 5000,
       int _constant_sst_file_size_in_sst_file_manager = -1,
       bool _skip_cloud_files_in_getchildren = false,
-      std::shared_ptr<Cache>* _sst_file_cache = nullptr)
+      std::shared_ptr<Cache> _sst_file_cache = nullptr)
       : cloud_type(_cloud_type),
         log_type(_log_type),
         sst_file_cache(_sst_file_cache),
@@ -370,6 +370,11 @@ class CloudEnvOptions {
   void TEST_Initialize(const std::string& name_prefix,
                        const std::string& object_path,
                        const std::string& region = "");
+
+  // Is the sst file cache configured?
+  bool hasSstFileCache() {
+    return sst_file_cache != nullptr && sst_file_cache->GetCapacity() > 0;
+  }
 };
 
 struct CheckpointToCloudOptions {

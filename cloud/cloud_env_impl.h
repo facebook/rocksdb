@@ -249,6 +249,7 @@ class CloudEnvImpl : public CloudEnv {
 
   void FileCacheDeleter(const std::string& fname);
   void FileCacheErase(const std::string& fname);
+  void FileCachePurge();
   uint64_t FileCacheGetCharge();
   uint64_t FileCacheGetNumItems();
 

@@ -30,6 +30,9 @@ CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base,
 }
 
 CloudEnvImpl::~CloudEnvImpl() {
+  // remove items from the file cache
+  FileCachePurge();
+
   if (cloud_env_options.cloud_log_controller) {
     cloud_env_options.cloud_log_controller->StopTailingStream();
   }
@@ -254,7 +257,7 @@ Status CloudEnvImpl::NewRandomAccessFile(
     }
 
     if (cloud_env_options.keep_local_sst_files ||
-        cloud_env_options.sst_file_cache || !sstfile) {
+        cloud_env_options.hasSstFileCache() || !sstfile) {
       if (!st.ok()) {
         // copy the file to the local storage
         st = GetCloudObject(fname);
@@ -263,7 +266,7 @@ Status CloudEnvImpl::NewRandomAccessFile(
           st = base_env_->NewRandomAccessFile(fname, result, options);
         }
         // Update the size of our local sst file cache
-        if (st.ok() && sstfile && cloud_env_options.sst_file_cache) {
+        if (st.ok() && sstfile && cloud_env_options.hasSstFileCache()) {
           uint64_t local_size;
           Status statx = base_env_->GetFileSize(fname, &local_size);
           if (statx.ok()) {
@@ -1038,7 +1041,7 @@ Status CloudEnvImpl::CheckOption(const EnvOptions& options) {
     std::string msg = "Mmap only if keep_local_sst_files is set";
     return Status::InvalidArgument(msg);
   }
-  if (cloud_env_options.sst_file_cache &&
+  if (cloud_env_options.hasSstFileCache() &&
       cloud_env_options.keep_local_sst_files) {
     std::string msg =
         "Only one of sst_file_cache or keep_local_sst_files can be set";
@@ -1528,8 +1531,8 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
     env->CreateDirIfMissing(local_name);
   }
 
-  if (GetCloudEnvOptions().sst_file_cache &&
-      GetCloudEnvOptions().keep_local_sst_files) {
+  if (cloud_env_options.hasSstFileCache() &&
+      cloud_env_options.keep_local_sst_files) {
     std::string msg =
         "Only one of sst_file_cache or keep_local_sst_files can be set";
     return Status::InvalidArgument(msg);

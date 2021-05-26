@@ -1636,16 +1636,35 @@ TEST_F(CloudTest, SharedBlockCache) {
 
 // Verify that sst_file_cache and file_cache cannot be set together
 TEST_F(CloudTest, KeepLocalFilesAndFileCache) {
-  std::shared_ptr<Cache> cache = NewLRUCache(1024);  // 1 KB cache
-  cloud_env_options_.sst_file_cache = &cache;
+  cloud_env_options_.sst_file_cache = NewLRUCache(1024);  // 1 KB cache
   cloud_env_options_.keep_local_sst_files = true;
   ASSERT_TRUE(checkOpen().IsInvalidArgument());
 }
 
+// Verify that sst_file_cache can be disabled
+TEST_F(CloudTest, FileCacheZero) {
+  cloud_env_options_.sst_file_cache = NewLRUCache(0);  // zero size
+  OpenDB();
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  auto local_files = GetSSTFiles(dbname_);
+  EXPECT_EQ(local_files.size(), 0);
+  EXPECT_EQ(cimpl->FileCacheGetCharge(), 0);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "a", &value));
+  ASSERT_TRUE(value.compare("b") == 0);
+  ASSERT_OK(db_->Get(ReadOptions(), "c", &value));
+  ASSERT_TRUE(value.compare("d") == 0);
+  CloseDB();
+}
+
 // Verify that sst_file_cache is very small, so no files are local.
 TEST_F(CloudTest, FileCacheSmall) {
-  std::shared_ptr<Cache> cache = NewLRUCache(10);  // Practically zero size
-  cloud_env_options_.sst_file_cache = &cache;
+  cloud_env_options_.sst_file_cache = NewLRUCache(10);  // Practically zero size
   OpenDB();
   CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
   ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
@@ -1656,14 +1675,13 @@ TEST_F(CloudTest, FileCacheSmall) {
   EXPECT_EQ(local_files.size(), 0);
   EXPECT_EQ(cimpl->FileCacheGetCharge(), 0);
   CloseDB();
-  // cache->ApplyToAllCacheEntries();
 }
 
 // Relatively large sst_file cache, so all files are local.
 TEST_F(CloudTest, FileCacheLarge) {
   size_t capacity = 10240L;
   std::shared_ptr<Cache> cache = NewLRUCache(capacity);
-  cloud_env_options_.sst_file_cache = &cache;
+  cloud_env_options_.sst_file_cache = cache;
 
   // generate two sst files.
   OpenDB();
@@ -1704,7 +1722,7 @@ TEST_F(CloudTest, FileCacheOnDemand) {
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, nullptr, kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy::kDontChargeCacheMetadata);
-  cloud_env_options_.sst_file_cache = &cache;
+  cloud_env_options_.sst_file_cache = cache;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   OpenDB();
