@@ -388,6 +388,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
+  db/compaction/clipping_iterator_test.cc                               \
   db/compaction/compaction_iterator_test.cc                             \
   db/compaction/compaction_job_test.cc                                  \
   db/compaction/compaction_job_stats_test.cc                            \
