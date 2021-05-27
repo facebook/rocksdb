@@ -15,9 +15,10 @@
 #include <memory>
 #include <mutex>
 
-#include "options/customizable_helper.h"
+#include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -227,49 +228,74 @@ const Comparator* ReverseBytewiseComparator() {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinComparators(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
-  library.Register<Comparator>(
+  library.Register<const Comparator>(
       BytewiseComparatorImpl::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard */,
-         std::string* /* errmsg */) {
-        return const_cast<Comparator*>(BytewiseComparator());
-      });
-  library.Register<Comparator>(
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard */,
+         std::string* /* errmsg */) { return BytewiseComparator(); });
+  library.Register<const Comparator>(
       ReverseBytewiseComparatorImpl::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard */,
-         std::string* /* errmsg */) {
-        return const_cast<Comparator*>(ReverseBytewiseComparator());
-      });
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard */,
+         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
   return 2;
 }
 #endif  // ROCKSDB_LITE
 
-static bool LoadComparator(const std::string& id, Comparator** result) {
-  bool success = true;
-  if (id == BytewiseComparatorImpl::kClassName()) {
-    *result = const_cast<Comparator*>(BytewiseComparator());
-  } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
-    *result = const_cast<Comparator*>(ReverseBytewiseComparator());
-  } else {
-    success = false;
-  }
-  return success;
-}
-
 Status Comparator::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& value,
                                     const Comparator** result) {
-  Comparator* comparator = const_cast<Comparator*>(*result);
 #ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinComparators(*(ObjectLibrary::Default().get()), "");
   });
 #endif  // ROCKSDB_LITE
-  Status s = LoadStaticObject<Comparator>(config_options, value, LoadComparator,
-                                          &comparator);
-  if (s.ok()) {
-    *result = const_cast<const Comparator*>(comparator);
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status =
+      ConfigurableHelper::GetOptionsMap(value, *result, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
   }
-  return s;
+  std::string curr_opts;
+#ifndef ROCKSDB_LITE
+  if (*result != nullptr && (*result)->GetId() == id) {
+    // Try to get the existing options, ignoring any errors
+    ConfigOptions embedded = config_options;
+    embedded.delimiter = ";";
+    (*result)->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
+  }
+#endif
+  if (id == BytewiseComparatorImpl::kClassName()) {
+    *result = BytewiseComparator();
+  } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
+    *result = ReverseBytewiseComparator();
+  } else if (value.empty()) {
+    // No Id and no options.  Clear the object
+    *result = nullptr;
+    return Status::OK();
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+#ifndef ROCKSDB_LITE
+    status = config_options.registry->NewStaticObject(id, result);
+#else
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+#endif  // ROCKSDB_LITE
+    if (!status.ok()) {
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        return Status::OK();
+      } else {
+        return status;
+      }
+    } else if (!curr_opts.empty() || !opt_map.empty()) {
+      Comparator* comparator = const_cast<Comparator*>(*result);
+      status = ConfigurableHelper::ConfigureNewObject(
+          config_options, comparator, id, curr_opts, opt_map);
+    }
+  }
+  return status;
 }
 }  // namespace ROCKSDB_NAMESPACE
