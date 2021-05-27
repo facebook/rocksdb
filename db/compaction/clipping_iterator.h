@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class ClippingIterator : public InternalIterator {
  public:
-  ClippingIterator(InternalIterator* iter, Slice* start, Slice* end,
+  ClippingIterator(InternalIterator* iter, const Slice* start, const Slice* end,
                    const Comparator* cmp)
       : iter_(iter), start_(start), end_(end), cmp_(cmp), valid_(false) {
     assert(iter_);
@@ -247,8 +247,8 @@ class ClippingIterator : public InternalIterator {
   }
 
   InternalIterator* iter_;
-  Slice* start_;
-  Slice* end_;
+  const Slice* start_;
+  const Slice* end_;
   const Comparator* cmp_;
   bool valid_;
 };
