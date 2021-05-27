@@ -707,9 +707,10 @@ static int RegisterTestObjects(ObjectLibrary& library,
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
-  library.Register<Comparator>(
+  library.Register<const Comparator>(
       test::SimpleSuffixReverseComparator::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<Comparator>* /*guard*/,
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
          std::string* /* errmsg */) {
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
