@@ -5,6 +5,7 @@
 
 #include "db/compaction/clipping_iterator.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
