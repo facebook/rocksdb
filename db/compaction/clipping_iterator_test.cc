@@ -5,6 +5,7 @@
 
 #include "db/compaction/clipping_iterator.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,10 +15,49 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// A vector iterator which does its own bounds checking. This is for testing the
+// optimizations in the clipping iterator where we bypass the bounds checking if
+// the input iterator has already performed it.
+class BoundsCheckingVectorIterator : public test::VectorIterator {
+ public:
+  BoundsCheckingVectorIterator(const std::vector<std::string>& keys,
+                               const std::vector<std::string>& values,
+                               const Slice* start, const Slice* end,
+                               const Comparator* cmp)
+      : VectorIterator(keys, values), start_(start), end_(end), cmp_(cmp) {
+    assert(cmp_);
+  }
+
+  bool MayBeOutOfLowerBound() override {
+    assert(Valid());
+
+    if (!start_) {
+      return false;
+    }
+
+    return cmp_->Compare(key(), *start_) < 0;
+  }
+
+  IterBoundCheck UpperBoundCheckResult() override {
+    assert(Valid());
+
+    if (!end_) {
+      return IterBoundCheck::kInbound;
+    }
+
+    return cmp_->Compare(key(), *end_) >= 0 ? IterBoundCheck::kOutOfBound
+                                            : IterBoundCheck::kInbound;
+  }
+
+ private:
+  const Slice* start_;
+  const Slice* end_;
+  const Comparator* cmp_;
+};
+
 class ClippingIteratorTest
     : public ::testing::Test,
-      public ::testing::WithParamInterface<std::tuple<size_t, size_t>> {
-};
+      public ::testing::WithParamInterface<std::tuple<bool, size_t, size_t>> {};
 
 TEST_P(ClippingIteratorTest, Clip) {
   const std::vector<std::string> keys{"key0", "key1", "key2", "key3", "key4",
@@ -31,18 +71,25 @@ TEST_P(ClippingIteratorTest, Clip) {
   // Note: the input always contains key1, key2, and key3; however, the clipping
   // window is based on the test parameters: its left edge is a value in the
   // range [0, 4], and its size is a value in the range [0, 5]
-  using test::VectorIterator;
-  VectorIterator input({keys[1], keys[2], keys[3]},
-                       {values[1], values[2], values[3]});
+  const std::vector<std::string> input_keys{keys[1], keys[2], keys[3]};
+  const std::vector<std::string> input_values{values[1], values[2], values[3]};
 
-  const size_t clip_start_idx = std::get<0>(GetParam());
-  const size_t clip_window_size = std::get<1>(GetParam());
+  const bool use_bounds_checking_vec_it = std::get<0>(GetParam());
+
+  const size_t clip_start_idx = std::get<1>(GetParam());
+  const size_t clip_window_size = std::get<2>(GetParam());
   const size_t clip_end_idx = clip_start_idx + clip_window_size;
 
   const Slice start(keys[clip_start_idx]);
   const Slice end(keys[clip_end_idx]);
 
-  ClippingIterator clip(&input, &start, &end, BytewiseComparator());
+  std::unique_ptr<InternalIterator> input(
+      use_bounds_checking_vec_it
+          ? new BoundsCheckingVectorIterator(input_keys, input_values, &start,
+                                             &end, BytewiseComparator())
+          : new test::VectorIterator(input_keys, input_values));
+
+  ClippingIterator clip(input.get(), &start, &end, BytewiseComparator());
 
   // The range the clipping iterator should return values from. This is
   // essentially the intersection of the input range [1, 4) and the clipping
@@ -139,6 +186,7 @@ TEST_P(ClippingIteratorTest, Clip) {
 INSTANTIATE_TEST_CASE_P(
     ClippingIteratorTest, ClippingIteratorTest,
     ::testing::Combine(
+        ::testing::Bool(),
         ::testing::Range(static_cast<size_t>(0), static_cast<size_t>(5)),
         ::testing::Range(static_cast<size_t>(0), static_cast<size_t>(6))));
 
