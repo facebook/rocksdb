@@ -1332,9 +1332,18 @@ struct ReadOptions {
   // "iterate_upper_bound" defines the extent up to which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
-  // not a valid entry. If prefix_extractor is not null, the Seek target
-  // and iterate_upper_bound need to have the same prefix.
-  // This is because ordering is not guaranteed outside of prefix domain.
+  // not a valid entry. If prefix_extractor is not null:
+  // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
+  //    to infer whether prefix iterating (e.g. applying prefix bloom filter)
+  //    can be used within RocksDB. This is done by comparing
+  //    iterate_upper_bound with the seek key.
+  // 2. If options.auto_prefix_mode = false, iterate_upper_bound only takes
+  //    effect if it shares the same prefix as the seek key. If
+  //    iterate_upper_bound is outside the prefix of the seek key, then keys
+  //    returned outside the prefix range will be undefined, just as if
+  //    iterate_upper_bound = null.
+  // If iterate_upper_bound is not null, SeekToLast() will position the iterator
+  // at the first key smaller than iterate_upper_bound.
   //
   // Default: nullptr
   const Slice* iterate_upper_bound;
