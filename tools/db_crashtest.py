@@ -612,7 +612,7 @@ def whitebox_crash_main(args, unknown_args):
 
         print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
-        # If the running time is 15 minutes over the run time, explict kill and
+        # If the running time is 15 minutes over the run time, explicit kill and
         # exit even if white box kill didn't hit. This is to guarantee run time
         # limit, as if it runs as a job, running too long will create problems
         # for job scheduling or execution.
