@@ -1088,8 +1088,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
                                              existing_snapshots_);
 
-  Slice* start = sub_compact->start;
-  Slice* end = sub_compact->end;
+  const Slice* const start = sub_compact->start;
+  const Slice* const end = sub_compact->end;
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -1107,6 +1107,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> raw_input(
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
+  InternalIterator* input = raw_input.get();
 
   IterKey start_ikey;
   IterKey end_ikey;
@@ -1127,9 +1128,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     clip.reset(new ClippingIterator(
         raw_input.get(), start ? &start_slice : nullptr,
         end ? &end_slice : nullptr, &cfd->internal_comparator()));
+    input = clip.get();
   }
-
-  InternalIterator* const input = clip ? clip.get() : raw_input.get();
 
   input->SeekToFirst();
 
