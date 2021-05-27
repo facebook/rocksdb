@@ -32,6 +32,11 @@ When designing the API for a SecondaryCache, we had a choice between making it v
 
 We decided to make the secondary cache transparent to the rest of RocksDB code by hiding it behind the block cache. A key issue that we needed to address was the allocation and ownership of memory of the cached items - insertion into the secondary cache may require that memory be allocated by the same. This means that parts of the cached object that can be transferred to the secondary cache needs to be copied out (referred to as **unpacking**), and on a lookup the data stored in the secondary cache needs to be provided to the object constructor (referred to as **packing**). For RocksDB cached objects such as data blocks, index and filter blocks, and compression dictionaries, unpacking involves copying out the raw uncompressed BlockContents of the block, and packing involves constructing the corresponding block/index/filter/dictionary object using the raw uncompressed data.
 
+Another alternative we considered was the existing PersistentCache interface. However, we decided to not pursue it and eventually deprecate it for the following reasons -
+* It is exposed directly to the table reader code, which makes it more difficult to implement different policies such as inclusive/exclusive cache, as well as extending it to more sophisticated admission control policies
+* The interface does not allow for custom memory allocation and object packing/unpacking, so new APIs would have to be defined anyway
+* The current PersistentCache implementation is very simple and does not have any admission control policies
+
 ## API
 
 The interface between RocksDB’s block cache and the secondary cache is designed to allow pluggable implementations. For FB internal usage, we plan to use Cachelib  with a wrapper to provide the plug-in implementation and use folly and other fbcode libraries, which cannot be used directly by RocksDB, to efficiently implement the cache operations. The following diagrams show the flow of insertion  and lookup of a block.
@@ -148,6 +153,16 @@ class SecondaryCache {
   virtual void WaitAll(std::vector<SecondaryCacheHandle*> handles) = 0;
 
   virtual std::string GetPrintableOptions() const = 0;
+};
+```
+
+A SecondaryCache is configured by the user by providing a pointer to it in LRUCacheOptions -
+```
+struct LRUCacheOptions {
+  ...
+  // A SecondaryCache instance to use as an additional cache tier
+  std::shared_ptr<SecondaryCache> secondary_cache;
+  ...
 };
 ```
 
