@@ -191,5 +191,5 @@ Longer term, we plan to deploy this in production at Facebook.
 
 ## Call to Action
 
-We are hoping for a community contribution of a secondary cache implementation, which would make this feature usable by the broader RocksDB userbase. If you are interested in contributing, please reach out to us in this issue.
+We are hoping for a community contribution of a secondary cache implementation, which would make this feature usable by the broader RocksDB userbase. If you are interested in contributing, please reach out to us in [this issue](https://github.com/facebook/rocksdb/issues/8347).
 
