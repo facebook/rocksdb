@@ -392,21 +392,6 @@ function run_readrandom {
 
 function run_multireadrandom {
   echo "Multi-Reading $num_keys random keys"
-  out_name="benchmark_readrandom.t${num_threads}.log"
-  cmd="./db_bench --benchmarks=multireadrandom \
-       --use_existing_db=1 \
-       --batch_size=10 \
-       $params_w \
-       --threads=$num_threads \
-       --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
-  eval $cmd
-  summarize_result $output_dir/${out_name} multireadrandom.t${num_threads} multireadrandom
-}
-
-function run_multireadrandom {
-  echo "Multi-Reading $num_keys random keys"
   out_name="benchmark_multireadrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=multireadrandom \
        --use_existing_db=1 \
