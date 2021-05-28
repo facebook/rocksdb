@@ -3201,6 +3201,96 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, CancelManualCompaction1) {
+  CompactRangeOptions compact_options;
+  compact_options.canceled = new std::atomic<bool>(true);
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  int run_manual_compactions = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Setup a callback to disable compactions after a couple of levels are
+  // compacted
+  int compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1",
+      [&](void* /*arg*/) { ++compactions_run; });
+
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Since compactions are disabled, we shouldn't start compacting.
+  // E.g. we should call the compaction function exactly one time.
+  ASSERT_EQ(compactions_run, 0);
+  ASSERT_EQ(run_manual_compactions, 0);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void* /*arg*/) {
+        ++compactions_run;
+        // After 3 compactions disable
+        if (compactions_run == 3) {
+          compact_options.canceled->store(true, std::memory_order_release);
+        }
+      });
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(compactions_run, 3);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+
+  // Compactions should work again if we re-enable them..
+  compact_options.canceled->store(false, std::memory_order_relaxed);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  delete compact_options.canceled;
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();
