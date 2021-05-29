@@ -17,8 +17,10 @@ namespace ROCKSDB_NAMESPACE {
 class OutputValidator {
  public:
   explicit OutputValidator(const InternalKeyComparator& icmp,
-                           bool enable_order_check, bool enable_hash)
+                           bool enable_order_check, bool enable_hash,
+                           uint64_t precalculated_hash = 0)
       : icmp_(icmp),
+        paranoid_hash_(precalculated_hash),
         enable_order_check_(enable_order_check),
         enable_hash_(enable_hash) {}
 
@@ -36,8 +38,6 @@ class OutputValidator {
   // Not (yet) intended to be persisted, so subject to change
   // without notice between releases.
   uint64_t GetHash() const { return paranoid_hash_; }
-
-  void SetHash(uint64_t hash) { paranoid_hash_ = hash; }
 
  private:
   const InternalKeyComparator& icmp_;

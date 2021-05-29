@@ -1092,7 +1092,7 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   assert(cfd);
 
   Status s;
-  JobContext job_context(0, true);
+  JobContext job_context(next_job_id_.fetch_add(1), true);
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
@@ -1243,7 +1243,7 @@ Status DBImpl::CompactFilesImpl(
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), immutable_db_options_,
+      job_context->job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()),
@@ -3130,8 +3130,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
-        file_options_for_compaction_, versions_.get(), &shutting_down_,
-        preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+        mutable_db_options_, file_options_for_compaction_, versions_.get(),
+        &shutting_down_, preserve_deletes_seqnum_.load(), log_buffer,
+        directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()),
         GetDataDir(c->column_family_data(), 0), stats_, &mutex_,
         &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
@@ -3360,7 +3361,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   if (m->cfd != m1->cfd) {
     return false;
   }
-  return true;
+  return false;
 }
 
 #ifndef ROCKSDB_LITE

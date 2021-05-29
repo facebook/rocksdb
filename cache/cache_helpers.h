@@ -111,4 +111,15 @@ class CacheHandleGuard {
   T* value_ = nullptr;
 };
 
+// Build an aliasing shared_ptr that keeps `handle` in cache while there
+// are references, but the pointer is to the value for that cache entry,
+// which must be of type T. This is copyable, unlike CacheHandleGuard, but
+// does not provide access to caching details.
+template <typename T>
+std::shared_ptr<T> MakeSharedCacheHandleGuard(Cache* cache,
+                                              Cache::Handle* handle) {
+  auto wrapper = std::make_shared<CacheHandleGuard<T>>(cache, handle);
+  return std::shared_ptr<T>(wrapper, static_cast<T*>(cache->Value(handle)));
+}
+
 }  // namespace ROCKSDB_NAMESPACE

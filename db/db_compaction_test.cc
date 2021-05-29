@@ -503,6 +503,10 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   options.new_table_reader_for_compaction_inputs = true;
   options.max_open_files = 20;
   options.level0_file_num_compaction_trigger = 3;
+  // Avoid many shards with small max_open_files, where as little as
+  // two table insertions could lead to an LRU eviction, depending on
+  // hash values.
+  options.table_cache_numshardbits = 2;
   DestroyAndReopen(options);
   Random rnd(301);
 
@@ -5147,6 +5151,92 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
       internal_stats_ptr->TEST_GetCompactionStats();
   num = comp_stats2[2].num_input_files_in_output_level;
   ASSERT_EQ(num, 0);
+}
+
+TEST_F(DBCompactionTest, ManualCompactionMax) {
+  uint64_t l1_avg_size = 0, l2_avg_size = 0;
+  auto generate_sst_func = [&]() {
+    Random rnd(301);
+    for (auto i = 0; i < 100; i++) {
+      for (auto j = 0; j < 10; j++) {
+        ASSERT_OK(Put(Key(i * 10 + j), rnd.RandomString(1024)));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(2);
+
+    for (auto i = 0; i < 10; i++) {
+      for (auto j = 0; j < 10; j++) {
+        ASSERT_OK(Put(Key(i * 100 + j * 10), rnd.RandomString(1024)));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(1);
+
+    std::vector<std::vector<FileMetaData>> level_to_files;
+    dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                    &level_to_files);
+
+    uint64_t total = 0;
+    for (const auto& file : level_to_files[1]) {
+      total += file.compensated_file_size;
+    }
+    l1_avg_size = total / level_to_files[1].size();
+
+    total = 0;
+    for (const auto& file : level_to_files[2]) {
+      total += file.compensated_file_size;
+    }
+    l2_avg_size = total / level_to_files[2].size();
+  };
+
+  std::atomic_int num_compactions(0);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkCompaction", [&](void* /*arg*/) { ++num_compactions; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+
+  // with default setting (1.6G by default), it should cover all files in 1
+  // compaction
+  DestroyAndReopen(opts);
+  generate_sst_func();
+  num_compactions.store(0);
+  CompactRangeOptions cro;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_TRUE(num_compactions.load() == 1);
+
+  // split the compaction to 5
+  uint64_t total = (l1_avg_size * 10) + (l2_avg_size * 100);
+  int num_split = 5;
+  opts.max_compaction_bytes = total / num_split;
+  DestroyAndReopen(opts);
+  generate_sst_func();
+  num_compactions.store(0);
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_TRUE(num_compactions.load() == num_split);
+
+  // very small max_compaction_bytes, it should still move forward
+  opts.max_compaction_bytes = l1_avg_size / 2;
+  DestroyAndReopen(opts);
+  generate_sst_func();
+  num_compactions.store(0);
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_TRUE(num_compactions.load() > 10);
+
+  // dynamically set the option
+  num_split = 2;
+  opts.max_compaction_bytes = 0;
+  DestroyAndReopen(opts);
+  generate_sst_func();
+  Status s = db_->SetOptions(
+      {{"max_compaction_bytes", std::to_string(total / num_split)}});
+  ASSERT_OK(s);
+
+  num_compactions.store(0);
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_TRUE(num_compactions.load() == num_split);
 }
 
 TEST_F(DBCompactionTest, CompactionDuringShutdown) {

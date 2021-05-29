@@ -2775,8 +2775,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(s);
       std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
           std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
-      std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-          int_tbl_prop_collector_factories;
+      IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
       std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
           TableBuilderOptions(

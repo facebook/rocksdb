@@ -66,6 +66,7 @@ class CompactionJob {
  public:
   CompactionJob(
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
       const std::atomic<bool>* shutting_down,
       const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
@@ -125,6 +126,7 @@ class CompactionJob {
   CompactionState* compact_;
   InternalStats::CompactionStats compaction_stats_;
   const ImmutableDBOptions& db_options_;
+  const MutableDBOptions mutable_db_options_copy_;
   LogBuffer* log_buffer_;
   FSDirectory* output_directory_;
   Statistics* stats_;
@@ -142,6 +144,9 @@ class CompactionJob {
   // each consecutive pair of slices. Then it divides these ranges into
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
+
+  void ProcessKeyValueCompactionWithCompactionService(
+      SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
@@ -235,9 +240,23 @@ struct CompactionServiceInput {
   int output_level;
 
   // information for subcompaction
-  Slice* begin = nullptr;
-  Slice* end = nullptr;
+  bool has_begin = false;
+  std::string begin;
+  bool has_end = false;
+  std::string end;
   uint64_t approx_size = 0;
+
+  // serialization interface to read and write the object
+  static Status Read(const std::string& data_str, CompactionServiceInput* obj);
+  Status Write(std::string* output);
+
+  // Initialize a dummy ColumnFamilyDescriptor
+  CompactionServiceInput() : column_family("", ColumnFamilyOptions()) {}
+
+#ifndef NDEBUG
+  bool TEST_Equals(CompactionServiceInput* other);
+  bool TEST_Equals(CompactionServiceInput* other, std::string* mismatch);
+#endif  // NDEBUG
 };
 
 // CompactionServiceOutputFile is the metadata for the output SST file
@@ -273,6 +292,7 @@ struct CompactionServiceOutputFile {
 // instance, with these information, the primary db instance with write
 // permission is able to install the result to the DB.
 struct CompactionServiceResult {
+  Status status;
   std::vector<CompactionServiceOutputFile> output_files;
   int output_level;
 
@@ -285,6 +305,15 @@ struct CompactionServiceResult {
   uint64_t bytes_read;
   uint64_t bytes_written;
   CompactionJobStats stats;
+
+  // serialization interface to read and write the object
+  static Status Read(const std::string& data_str, CompactionServiceResult* obj);
+  Status Write(std::string* output);
+
+#ifndef NDEBUG
+  bool TEST_Equals(CompactionServiceResult* other);
+  bool TEST_Equals(CompactionServiceResult* other, std::string* mismatch);
+#endif  // NDEBUG
 };
 
 // CompactionServiceCompactionJob is an read-only compaction job, it takes
@@ -294,6 +323,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
  public:
   CompactionServiceCompactionJob(
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
       const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* output_directory, Statistics* stats,

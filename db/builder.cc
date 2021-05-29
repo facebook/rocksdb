@@ -69,7 +69,7 @@ Status BuildTable(
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback) {
+    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -88,7 +88,10 @@ Status BuildTable(
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots));
+  uint64_t num_unfragmented_tombstones = 0;
   for (auto& range_del_iter : range_del_iters) {
+    num_unfragmented_tombstones +=
+        range_del_iter->num_unfragmented_tombstones();
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
@@ -231,6 +234,10 @@ Status BuildTable(
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
+    if (num_input_entries != nullptr) {
+      *num_input_entries =
+          c_iter.num_input_entry_scanned() + num_unfragmented_tombstones;
+    }
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {

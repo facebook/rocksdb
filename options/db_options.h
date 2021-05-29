@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool flush_verify_memtable_count;
   bool track_and_verify_wals_in_manifest;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
@@ -99,6 +100,7 @@ struct ImmutableDBOptions {
   SystemClock* clock;
   Statistics* stats;
   Logger* logger;
+  std::shared_ptr<CompactionService> compaction_service;
 };
 
 struct MutableDBOptions {
@@ -128,5 +130,16 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
   int max_background_flushes;
 };
+
+#ifndef ROCKSDB_LITE
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string);
+
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options);
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

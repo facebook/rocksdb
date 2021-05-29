@@ -270,7 +270,10 @@ class BlockBasedTable : public TableReader {
                                    bool redundant) const;
   Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                    BlockType block_type,
-                                   GetContext* get_context) const;
+                                   GetContext* get_context,
+                                   const Cache::CacheItemHelper* cache_helper,
+                                   const Cache::CreateCallback& create_cb,
+                                   Cache::Priority priority) const;
 
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>

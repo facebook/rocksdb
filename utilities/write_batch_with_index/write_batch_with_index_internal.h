@@ -306,13 +306,12 @@ class WriteBatchWithIndexInternal {
                                         const Slice& key,
                                         MergeContext* merge_context,
                                         std::string* value, Status* s);
-  Status MergeKey(const Slice& key, const Slice* value, std::string* result,
-                  Slice* result_operand = nullptr) const {
-    return MergeKey(key, value, merge_context_, result, result_operand);
+  Status MergeKey(const Slice& key, const Slice* value,
+                  std::string* result) const {
+    return MergeKey(key, value, merge_context_, result);
   }
   Status MergeKey(const Slice& key, const Slice* value,
-                  const MergeContext& context, std::string* result,
-                  Slice* result_operand = nullptr) const;
+                  const MergeContext& context, std::string* result) const;
   size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
   MergeContext* GetMergeContext() { return &merge_context_; }
   Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }

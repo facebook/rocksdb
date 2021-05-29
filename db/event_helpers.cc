@@ -108,6 +108,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
                             table_properties.num_entries)
               << "num_data_blocks" << table_properties.num_data_blocks
               << "num_entries" << table_properties.num_entries
+              << "num_filter_entries" << table_properties.num_filter_entries
               << "num_deletions" << table_properties.num_deletions
               << "num_merge_operands" << table_properties.num_merge_operands
               << "num_range_deletions" << table_properties.num_range_deletions

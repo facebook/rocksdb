@@ -3,13 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "table/block_based/full_filter_block.h"
+
 #include <set>
 
-#include "table/block_based/full_filter_block.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/status.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/mock_block_based_table.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "table/block_based/mock_block_based_table.h"
+#include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -239,11 +242,9 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
     const bool WHOLE_KEY = true;
     FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                    bits_builder);
-    ASSERT_EQ(0, builder.NumAdded());
     ASSERT_EQ(0, bits_builder->CountUnique());
     // adds key and empty prefix; both abstractions count them
     builder.Add("key1");
-    ASSERT_EQ(2, builder.NumAdded());
     ASSERT_EQ(2, bits_builder->CountUnique());
     // Add different key (unique) and also empty prefix (not unique).
     // From here in this test, it's immaterial whether the block builder
@@ -262,7 +263,6 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
   const bool WHOLE_KEY = true;
   FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                  bits_builder);
-  ASSERT_EQ(0, builder.NumAdded());
   builder.Add("");  // test with empty key too
   builder.Add("prefix1key1");
   builder.Add("prefix1key1");
@@ -275,14 +275,19 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
 
 TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  ASSERT_EQ(0, builder.NumAdded());
+  ASSERT_TRUE(builder.IsEmpty());
   builder.Add("foo");
+  ASSERT_FALSE(builder.IsEmpty());
   builder.Add("bar");
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
-  ASSERT_EQ(5, builder.NumAdded());
-  Slice slice = builder.Finish();
+  // "box" only counts once
+  ASSERT_EQ(4, builder.EstimateEntriesAdded());
+  ASSERT_FALSE(builder.IsEmpty());
+  Status s;
+  Slice slice = builder.Finish(BlockHandle(), &s);
+  ASSERT_OK(s);
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
