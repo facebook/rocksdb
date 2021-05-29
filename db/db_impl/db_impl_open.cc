@@ -1259,7 +1259,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      GetLogSizeAndMaybeTruncate(wal_numbers.back(), true, nullptr)
+      const bool truncate = !read_only;
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
           .PermitUncheckedError();
     }
   }

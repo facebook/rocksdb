@@ -176,8 +176,8 @@ class Cache {
   // data into a buffer. The secondary cache may decide to not store it in a
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
-  using SaveToCallback = Status (*)(void* obj, size_t offset, size_t size,
-                                    void* out);
+  using SaveToCallback = Status (*)(void* from_obj, size_t from_offset,
+                                    size_t length, void* out);
 
   // A function pointer type for custom destruction of an entry's
   // value. The Cache is responsible for copying and reclaiming space
