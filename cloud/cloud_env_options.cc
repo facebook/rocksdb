@@ -33,6 +33,10 @@ void CloudEnvOptions::Dump(Logger* log) const {
          use_aws_transfer_manager ? "true" : "false");
   Header(log, "           COptions.number_objects_listed_in_one_iteration: %d",
          number_objects_listed_in_one_iteration);
+  if (sst_file_cache != nullptr) {
+    Header(log, "           COptions.sst_file_cache size: %ld bytes",
+           sst_file_cache->GetCapacity());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

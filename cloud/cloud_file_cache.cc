@@ -51,8 +51,9 @@ void CloudEnvImpl::FileCacheAccess(const std::string& fname) {
   if (handle) {
     cloud_env_options.sst_file_cache->Release(handle);
   }
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[%s] File Cache access %s", Name(),
-      fname.c_str());
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[%s] File Cache access %s cache-used %" PRIu64 " bytes", Name(),
+      fname.c_str(), cloud_env_options.sst_file_cache->GetUsage());
 }
 
 //
@@ -69,8 +70,10 @@ void CloudEnvImpl::FileCacheInsert(const std::string& fname,
   cloud_env_options.sst_file_cache->Insert(key, new Value(fname, this),
                                            filesize, DeleteEntry);
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[%s] File Cache insert %s size %" PRIu64 "", Name(), fname.c_str(),
-      filesize);
+      "[%s] File Cache insert %s file size %" PRIu64 " cache-used %" PRIu64
+      " bytes",
+      Name(), fname.c_str(), filesize,
+      cloud_env_options.sst_file_cache->GetUsage());
 }
 
 //
@@ -87,8 +90,9 @@ void CloudEnvImpl::FileCacheErase(const std::string& fname) {
   Slice key(fname);
   cloud_env_options.sst_file_cache->Erase(key);
 
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[%s] File Cache Erase %s", Name(),
-      fname.c_str());
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[%s] File Cache Erase %s cache-used %" PRIu64 " bytes", Name(),
+      fname.c_str(), cloud_env_options.sst_file_cache->GetUsage());
 }
 
 //
@@ -96,8 +100,10 @@ void CloudEnvImpl::FileCacheErase(const std::string& fname) {
 //
 void CloudEnvImpl::FileCacheDeleter(const std::string& fname) {
   Status st = base_env_->DeleteFile(fname);
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[%s] File Cache purging %s %s",
-      Name(), fname.c_str(), st.ToString().c_str());
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[%s] File Cache purging %s status %s cache-used %" PRIu64 " bytes",
+      Name(), fname.c_str(), st.ToString().c_str(),
+      cloud_env_options.sst_file_cache->GetUsage());
 }
 
 //
@@ -147,7 +153,8 @@ void CloudEnvImpl::FileCachePurge() {
     }
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[%s] File Cache purged %" PRIu64 " items", Name(), count);
+      "[%s] File Cache purged %" PRIu64 " items used %" PRIu64 " bytes", Name(),
+      count, cloud_env_options.sst_file_cache->GetUsage());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

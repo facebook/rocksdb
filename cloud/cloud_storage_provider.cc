@@ -251,6 +251,8 @@ Status CloudStorageProvider::Prepare(CloudEnv* env) {
           env->GetDestBucketName().c_str());
       st = CreateBucket(env->GetDestBucketName());
     } else {
+      Log(InfoLogLevel::INFO_LEVEL, env->GetLogger(),
+          "[%s] Bucket not found %s", Name(), env->GetDestBucketName().c_str());
       st = Status::NotFound(
           "Bucket not found and create_bucket_if_missing is false");
     }
