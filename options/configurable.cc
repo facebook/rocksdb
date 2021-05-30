@@ -53,6 +53,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
             if (!status.ok()) {
               return status;
             }
+          } else if (!opt_info.CanBeNull()) {
+            status =
+                Status::NotFound("Missing configurable object", map_iter.first);
           }
         }
       }

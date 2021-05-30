@@ -15,10 +15,12 @@
 #include "env/composite_env_wrapper.h"
 #include "env/env_encryption_ctr.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/configurable_helper.h"
 #include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -27,72 +29,6 @@
 #endif
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
-static constexpr char kROT13CipherName[] = "ROT13";
-static constexpr char kCTRProviderName[] = "CTR";
-namespace {
-int RegisterEncryptionBuiltins(ObjectLibrary& library,
-                               const std::string& /*arg*/) {
-  static int count = 0;
-  if (count == 0) {
-    library.Register<EncryptionProvider>(
-        "CTR?(://test)",
-        [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
-           std::string* /*errmsg*/) {
-          if (EndsWith(uri, "://test")) {
-            std::shared_ptr<BlockCipher> cipher =
-                std::make_shared<ROT13BlockCipher>(32);
-            guard->reset(new CTREncryptionProvider(cipher));
-          } else {
-            guard->reset(new CTREncryptionProvider());
-          }
-          return guard->get();
-        });
-
-    library.Register<EncryptionProvider>(
-        "1://test", [](const std::string& /*uri*/,
-                       std::unique_ptr<EncryptionProvider>* guard,
-                       std::string* /*errmsg*/) {
-          std::shared_ptr<BlockCipher> cipher =
-              std::make_shared<ROT13BlockCipher>(32);
-          guard->reset(new CTREncryptionProvider(cipher));
-          return guard->get();
-        });
-
-    library.Register<BlockCipher>(
-        "ROT13?(:.*)",
-        [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
-           std::string* /* errmsg */) {
-          size_t colon = uri.find(':');
-          if (colon != std::string::npos) {
-            size_t block_size = ParseSizeT(uri.substr(colon + 1));
-            guard->reset(new ROT13BlockCipher(block_size));
-          } else {
-            guard->reset(new ROT13BlockCipher(32));
-          }
-
-          return guard->get();
-        });
-    count = 2;
-  }
-  return count;
-}
-}  // namespace
-
-Status BlockCipher::CreateFromString(const ConfigOptions& config_options,
-                                     const std::string& value,
-                                     std::shared_ptr<BlockCipher>* result) {
-  RegisterEncryptionBuiltins(*(ObjectLibrary::Default().get()), "");
-  return LoadSharedObject<BlockCipher>(config_options, value, nullptr, result);
-}
-
-Status EncryptionProvider::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value,
-    std::shared_ptr<EncryptionProvider>* result) {
-  RegisterEncryptionBuiltins(*(ObjectLibrary::Default().get()), "");
-  return LoadSharedObject<EncryptionProvider>(config_options, value, nullptr,
-                                              result);
-}
-
 std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
     const std::shared_ptr<BlockCipher>& cipher) {
   return std::make_shared<CTREncryptionProvider>(cipher);
@@ -1080,20 +1016,45 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
   }
 }
 
-const char* ROT13BlockCipher::Name() const { return kROT13CipherName; }
+static std::unordered_map<std::string, OptionTypeInfo>
+    rot13_block_cipher_type_info = {
+        {"block_size",
+         {0 /* No offset, whole struct*/, OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+};
 
-// Encrypt a block of data.
-// Length of data is equal to BlockSize().
-Status ROT13BlockCipher::Encrypt(char* data) {
-  for (size_t i = 0; i < blockSize_; ++i) {
-    data[i] += 13;
+// Implements a BlockCipher using ROT13.
+//
+// Note: This is a sample implementation of BlockCipher,
+// it is NOT considered safe and should NOT be used in production.
+class ROT13BlockCipher : public BlockCipher {
+ private:
+  size_t blockSize_;
+
+ public:
+  ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {
+    RegisterOptions("ROT13BlockCipherOptions", &blockSize_,
+                    &rot13_block_cipher_type_info);
   }
-  return Status::OK();
-}
 
-// Decrypt a block of data.
-// Length of data is equal to BlockSize().
-Status ROT13BlockCipher::Decrypt(char* data) { return Encrypt(data); }
+  static const char* kClassName() { return "ROT13"; }
+  const char* Name() const override { return kClassName(); }
+  // BlockSize returns the size of each block supported by this cipher stream.
+  size_t BlockSize() override { return blockSize_; }
+
+  // Encrypt a block of data.
+  // Length of data is equal to BlockSize().
+  Status Encrypt(char* data) override {
+    for (size_t i = 0; i < blockSize_; ++i) {
+      data[i] += 13;
+    }
+    return Status::OK();
+  }
+
+  // Decrypt a block of data.
+  // Length of data is equal to BlockSize().
+  Status Decrypt(char* data) override { return Encrypt(data); }
+};
 
 // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
 void CTRCipherStream::AllocateScratch(std::string& scratch) {
@@ -1131,7 +1092,19 @@ Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char* data,
   return EncryptBlock(blockIndex, data, scratch);
 }
 
-const char* CTREncryptionProvider::Name() const { return kCTRProviderName; }
+static std::unordered_map<std::string, OptionTypeInfo>
+    ctr_encryption_provider_type_info = {
+        {"cipher",
+         OptionTypeInfo::AsCustomSharedPtr<BlockCipher>(
+             0 /* No offset, whole struct*/, OptionVerificationType::kByName,
+             OptionTypeFlags::kNone)},
+};
+
+CTREncryptionProvider::CTREncryptionProvider(
+    const std::shared_ptr<BlockCipher>& c)
+    : cipher_(c) {
+  RegisterOptions("Cipher", &cipher_, &ctr_encryption_provider_type_info);
+}
 
 // GetPrefixLength returns the length of the prefix that is added to every file
 // and used for storing encryption options.
@@ -1146,7 +1119,7 @@ Status CTREncryptionProvider::AddCipher(const std::string& /*descriptor*/,
                                         bool /*for_write*/) {
   if (cipher_) {
     return Status::NotSupported("Cannot add keys to CTREncryptionProvider");
-  } else if (strcmp(kROT13CipherName, cipher) == 0) {
+  } else if (strcmp(ROT13BlockCipher::kClassName(), cipher) == 0) {
     cipher_.reset(new ROT13BlockCipher(len));
     return Status::OK();
   } else {
@@ -1261,6 +1234,70 @@ Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
   (*result) = std::unique_ptr<BlockAccessCipherStream>(
       new CTRCipherStream(cipher_, iv.data(), initialCounter));
   return Status::OK();
+}
+
+namespace {
+static void RegisterEncryptionBuiltins() {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    auto lib = ObjectRegistry::Default()->AddLibrary("encryption");
+    std::string ctr =
+        std::string(CTREncryptionProvider::kClassName()) + "?(://test)";
+    lib->Register<EncryptionProvider>(
+        std::string(CTREncryptionProvider::kClassName()) + "(://test)?",
+        [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
+           std::string* /*errmsg*/) {
+          if (EndsWith(uri, "://test")) {
+            std::shared_ptr<BlockCipher> cipher =
+                std::make_shared<ROT13BlockCipher>(32);
+            guard->reset(new CTREncryptionProvider(cipher));
+          } else {
+            guard->reset(new CTREncryptionProvider());
+          }
+          return guard->get();
+        });
+
+    lib->Register<EncryptionProvider>(
+        "1://test", [](const std::string& /*uri*/,
+                       std::unique_ptr<EncryptionProvider>* guard,
+                       std::string* /*errmsg*/) {
+          std::shared_ptr<BlockCipher> cipher =
+              std::make_shared<ROT13BlockCipher>(32);
+          guard->reset(new CTREncryptionProvider(cipher));
+          return guard->get();
+        });
+
+    lib->Register<BlockCipher>(
+        std::string(ROT13BlockCipher::kClassName()) + "(:.*)?",
+        [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
+           std::string* /* errmsg */) {
+          size_t colon = uri.find(':');
+          if (colon != std::string::npos) {
+            size_t block_size = ParseSizeT(uri.substr(colon + 1));
+            guard->reset(new ROT13BlockCipher(block_size));
+          } else {
+            guard->reset(new ROT13BlockCipher(32));
+          }
+
+          return guard->get();
+        });
+  });
+}
+}  // namespace
+
+Status BlockCipher::CreateFromString(const ConfigOptions& config_options,
+                                     const std::string& value,
+                                     std::shared_ptr<BlockCipher>* result) {
+  RegisterEncryptionBuiltins();
+  return LoadSharedObject<BlockCipher>(config_options, value, nullptr, result);
+}
+
+Status EncryptionProvider::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<EncryptionProvider>* result) {
+  RegisterEncryptionBuiltins();
+  return LoadSharedObject<EncryptionProvider>(config_options, value, nullptr,
+                                              result);
 }
 
 #endif // ROCKSDB_LITE

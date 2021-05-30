@@ -87,7 +87,6 @@ class BlockCipher : public Customizable {
   // production!!!
   static std::shared_ptr<BlockCipher> NewROT13Cipher(size_t block_size);
 
-  virtual const char* Name() const = 0;
   // BlockSize returns the size of each block supported by this cipher stream.
   virtual size_t BlockSize() = 0;
 
@@ -111,14 +110,14 @@ class EncryptionProvider : public Customizable {
   // The value describes the type of provider (and potentially optional
   // configuration parameters) used to create this provider.
   // For example, if the value is "CTR", a CTREncryptionProvider will be
-  // created. If the value is preceded by "test://" (e.g test://CTR"), the
-  // TEST_Initialize method will be invoked prior to returning the provider.
+  // created. If the value is ends with "://test" (e.g CTR://test"), the
+  // provider will be initialized in "TEST" mode prior to being returned.
   //
   // @param config_options  Options to control how this provider is created
   //                        and initialized.
   // @param value  The value might be:
   //   - CTR         Create a CTR provider
-  //   - test://CTR Create a CTR provider and initialize it for tests.
+  //   - CTR://test Create a CTR provider and initialize it for tests.
   // @param result The new provider object
   // @return OK if the provider was successfully created
   // @return NotFound if an invalid name was specified in the value
@@ -128,12 +127,10 @@ class EncryptionProvider : public Customizable {
                                  std::shared_ptr<EncryptionProvider>* result);
 
   static const char* Type() { return "EncryptionProvider"; }
+
   // Short-cut method to create a CTR-provider
   static std::shared_ptr<EncryptionProvider> NewCTRProvider(
       const std::shared_ptr<BlockCipher>& cipher);
-
-  // Returns the name of this EncryptionProvider
-  virtual const char* Name() const = 0;
 
   // GetPrefixLength returns the length of the prefix that is added to every
   // file and used for storing encryption options. For optimal performance, the
