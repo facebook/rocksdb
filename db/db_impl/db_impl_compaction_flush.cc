@@ -1257,7 +1257,7 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
-      &manual_compaction_paused_, db_id_, db_session_id_,
+      &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
       c->column_family_data()->GetFullHistoryTsLow());
 
   // Creating a compaction influences the compaction score because the score
@@ -1430,11 +1430,12 @@ void DBImpl::NotifyOnCompactionCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
+  // TODO: Should disabling manual compaction squash compaction completed
+  //   notifications that aren't the result of a shutdown?
   if (c->is_manual_compaction() &&
       manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return;
   }
-  // TODO(ddevec): Suppress a notification if a manual compaction was canceled?
 
   Version* current = cfd->current();
   current->Ref();
@@ -3151,7 +3152,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri, io_tracer_,
-        is_manual ? &manual_compaction_paused_ : nullptr, db_id_,
+        is_manual ? &manual_compaction_paused_ : nullptr,
+        is_manual ? manual_compaction->canceled : nullptr, db_id_,
         db_session_id_, c->column_family_data()->GetFullHistoryTsLow());
     compaction_job.Prepare();
 
