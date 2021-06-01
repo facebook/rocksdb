@@ -232,6 +232,14 @@ struct CompactionJob::SubcompactionState {
 
     return false;
   }
+
+  Status ProcessBlobIfNeeded(const Slice& key, const Slice& value) {
+    if (!blob_garbage_meter) {
+      return Status::OK();
+    }
+
+    return blob_garbage_meter->ProcessOutFlow(key, value);
+  }
 };
 
 // Maintains state for the entire compaction
@@ -1260,8 +1268,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       break;
     }
 
-    if (sub_compact->blob_garbage_meter) {
-      sub_compact->blob_garbage_meter->ProcessOutFlow(key, value);
+    status = sub_compact->ProcessBlobIfNeeded(key, value);
+    if (!status.ok()) {
+      break;
     }
 
     sub_compact->current_output_file_size =
