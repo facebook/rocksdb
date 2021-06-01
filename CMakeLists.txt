@@ -32,10 +32,11 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.10)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 include(ReadVersion)
+include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
@@ -71,6 +72,12 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+
+if ($ENV{CIRCLECI})
+  message(STATUS "Build for CircieCI env, a few tests may be disabled")
+  add_definitions(-DCIRCLECI)
+endif()
+
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
@@ -123,11 +130,11 @@ else()
         set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${gflags_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-        set(GFLAGS_LIB gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
     endif()
     include_directories(${GFLAGS_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
@@ -211,7 +218,7 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -pthread")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
@@ -1321,21 +1328,21 @@ if(WITH_TESTS)
 
   foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-      set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
+      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+      set_target_properties(${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
+        gtest_discover_tests(${exename})
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
       endif()
       if("${exename}" MATCHES "env_librados_test")
         # env_librados_test.cc uses librados directly
-        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
+        target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 
