@@ -1139,28 +1139,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     input = clip.get();
   }
 
-  input->SeekToFirst();
+  std::unique_ptr<InternalIterator> blob_counter;
 
-  Version* const input_version = sub_compact->compaction->input_version();
-  assert(input_version);
-
-  const VersionStorageInfo* const storage_info = input_version->storage_info();
-  assert(storage_info);
-
-  const auto& blob_files = storage_info->GetBlobFiles();
-
-  if (!blob_files.empty()) {
+  if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
     sub_compact->blob_garbage_meter.reset(new BlobGarbageMeter);
+    blob_counter.reset(
+        new BlobCountingIterator(input, sub_compact->blob_garbage_meter.get()));
+    input = blob_counter.get();
   }
 
-  std::unique_ptr<InternalIterator> blob_counter(
-      !blob_files.empty()
-          ? new BlobCountingIterator(raw_input.get(),
-                                     sub_compact->blob_garbage_meter.get())
-          : nullptr);
-
-  InternalIterator* const input =
-      blob_counter ? blob_counter.get() : raw_input.get();
+  input->SeekToFirst();
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
