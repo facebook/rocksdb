@@ -1504,6 +1504,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
@@ -1614,6 +1615,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(value, "bar4");
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   WriteOptions write_options;
@@ -5520,6 +5522,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   delete txn;
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // This test clarifies the existing expectation from the sequence number
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
@@ -5643,6 +5646,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     ASSERT_OK(ReOpen());
   }
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 // Verify that the optimization would not compromize the correctness
 TEST_P(TransactionTest, Optimizations) {

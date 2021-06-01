@@ -1536,9 +1536,11 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
 }
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedNormal) {
   PinnedDataIteratorRandomized(TestConfig::NORMAL);
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedCLoseAndOpen) {
   PinnedDataIteratorRandomized(TestConfig::CLOSE_AND_OPEN);
