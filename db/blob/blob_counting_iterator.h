@@ -19,123 +19,125 @@ class BlobCountingIterator : public InternalIterator {
       : iter_(iter), blob_garbage_meter_(blob_garbage_meter) {
     assert(iter_);
     assert(blob_garbage_meter_);
+
+    UpdateAndCountBlobIfNeeded();
   }
 
   bool Valid() const override {
-    assert(iter_);
+    if (!status_.ok()) {
+      return false;
+    }
+
     return iter_->Valid();
   }
 
   void SeekToFirst() override {
-    assert(iter_);
     iter_->SeekToFirst();
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   void SeekToLast() override {
-    assert(iter_);
     iter_->SeekToLast();
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   void Seek(const Slice& target) override {
-    assert(iter_);
     iter_->Seek(target);
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   void SeekForPrev(const Slice& target) override {
-    assert(iter_);
     iter_->SeekForPrev(target);
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   void Next() override {
-    assert(iter_);
+    assert(Valid());
+
     iter_->Next();
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   bool NextAndGetResult(IterateResult* result) override {
-    assert(iter_);
+    assert(Valid());
+
     const bool res = iter_->NextAndGetResult(result);
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
     return res;
   }
 
   void Prev() override {
-    assert(iter_);
+    assert(Valid());
+
     iter_->Prev();
-    CountBlobIfNeeded();
+    UpdateAndCountBlobIfNeeded();
   }
 
   Slice key() const override {
-    assert(iter_);
+    assert(Valid());
     return iter_->key();
   }
 
   Slice user_key() const override {
-    assert(iter_);
+    assert(Valid());
     return iter_->user_key();
   }
 
   Slice value() const override {
-    assert(iter_);
+    assert(Valid());
     return iter_->value();
   }
 
-  Status status() const override {
-    assert(iter_);
-    return iter_->status();
-  }
+  Status status() const override { return status_; }
 
   bool PrepareValue() override {
-    assert(iter_);
+    assert(Valid());
     return iter_->PrepareValue();
   }
 
   bool MayBeOutOfLowerBound() override {
-    assert(iter_);
+    assert(Valid());
     return iter_->MayBeOutOfLowerBound();
   }
 
   IterBoundCheck UpperBoundCheckResult() override {
-    assert(iter_);
+    assert(Valid());
     return iter_->UpperBoundCheckResult();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
-    assert(iter_);
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
   }
 
   bool IsKeyPinned() const override {
-    assert(iter_);
+    assert(Valid());
     return iter_->IsKeyPinned();
   }
 
   bool IsValuePinned() const override {
-    assert(iter_);
+    assert(Valid());
     return iter_->IsValuePinned();
   }
 
   Status GetProperty(std::string prop_name, std::string* prop) override {
-    assert(iter_);
     return iter_->GetProperty(prop_name, prop);
   }
 
  private:
-  void CountBlobIfNeeded() {
+  void UpdateAndCountBlobIfNeeded() {
+    assert(!Valid() || iter_->status().ok());
+
     if (!Valid()) {
+      status_ = iter_->status();
       return;
     }
 
-    assert(blob_garbage_meter_);
-    blob_garbage_meter_->ProcessInFlow(key(), value());
+    status_ = blob_garbage_meter_->ProcessInFlow(key(), value());
   }
 
   InternalIterator* iter_;
   BlobGarbageMeter* blob_garbage_meter_;
+  Status status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
