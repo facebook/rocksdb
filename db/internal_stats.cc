@@ -1239,7 +1239,7 @@ void InternalStats::DumpDBStats(std::string* value) {
   snprintf(
       buf, sizeof(buf),
       "Interval WAL: %s writes, %s syncs, "
-      "%.2f writes per sync, written: %.2f MB, %.2f MB/s\n",
+      "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
       NumberToHumanString(interval_write_with_wal).c_str(),
       NumberToHumanString(interval_wal_synced).c_str(),
       interval_write_with_wal / static_cast<double>(interval_wal_synced + 1),
