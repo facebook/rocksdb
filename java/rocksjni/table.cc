@@ -3,12 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// This file implements the "bridge" between Java and C++ for rocksdb::Options.
+// This file implements the "bridge" between Java and C++ for
+// ROCKSDB_NAMESPACE::Options.
 
 #include "rocksdb/table.h"
 #include <jni.h>
 #include "include/org_rocksdb_BlockBasedTableConfig.h"
 #include "include/org_rocksdb_PlainTableConfig.h"
+#include "portal.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 
@@ -20,84 +22,134 @@
 jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
     JNIEnv * /*env*/, jobject /*jobj*/, jint jkey_size,
     jint jbloom_bits_per_key, jdouble jhash_table_ratio, jint jindex_sparseness,
-    jint jhuge_page_tlb_size, jbyte jencoding_type, jboolean jfull_scan_mode) {
-  rocksdb::PlainTableOptions options = rocksdb::PlainTableOptions();
+    jint jhuge_page_tlb_size, jbyte jencoding_type, jboolean jfull_scan_mode,
+    jboolean jstore_index_in_file) {
+  ROCKSDB_NAMESPACE::PlainTableOptions options =
+      ROCKSDB_NAMESPACE::PlainTableOptions();
   options.user_key_len = jkey_size;
   options.bloom_bits_per_key = jbloom_bits_per_key;
   options.hash_table_ratio = jhash_table_ratio;
   options.index_sparseness = jindex_sparseness;
   options.huge_page_tlb_size = jhuge_page_tlb_size;
-  options.encoding_type = static_cast<rocksdb::EncodingType>(jencoding_type);
+  options.encoding_type =
+      static_cast<ROCKSDB_NAMESPACE::EncodingType>(jencoding_type);
   options.full_scan_mode = jfull_scan_mode;
-  return reinterpret_cast<jlong>(rocksdb::NewPlainTableFactory(options));
+  options.store_index_in_file = jstore_index_in_file;
+  return reinterpret_cast<jlong>(
+      ROCKSDB_NAMESPACE::NewPlainTableFactory(options));
 }
 
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJJIIZJZZZZJZZJIBBI)J
+ * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
-    JNIEnv * /*env*/, jobject /*jobj*/, jboolean no_block_cache,
-    jlong block_cache_size, jint block_cache_num_shardbits, jlong jblock_cache,
-    jlong block_size, jint block_size_deviation, jint block_restart_interval,
-    jboolean whole_key_filtering, jlong jfilter_policy,
-    jboolean cache_index_and_filter_blocks,
-    jboolean cache_index_and_filter_blocks_with_high_priority,
-    jboolean pin_l0_filter_and_index_blocks_in_cache,
-    jboolean partition_filters, jlong metadata_block_size,
-    jboolean pin_top_level_index_and_filter,
-    jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
-    jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
-    jbyte jindex_type, jint jformat_version) {
-  rocksdb::BlockBasedTableOptions options;
-  options.no_block_cache = no_block_cache;
-
-  if (!no_block_cache) {
-    if (jblock_cache > 0) {
-      std::shared_ptr<rocksdb::Cache> *pCache =
-          reinterpret_cast<std::shared_ptr<rocksdb::Cache> *>(jblock_cache);
+    JNIEnv *, jobject, jboolean jcache_index_and_filter_blocks,
+    jboolean jcache_index_and_filter_blocks_with_high_priority,
+    jboolean jpin_l0_filter_and_index_blocks_in_cache,
+    jboolean jpin_top_level_index_and_filter, jbyte jindex_type_value,
+    jbyte jdata_block_index_type_value,
+    jdouble jdata_block_hash_table_util_ratio, jbyte jchecksum_type_value,
+    jboolean jno_block_cache, jlong jblock_cache_handle,
+    jlong jpersistent_cache_handle, jlong jblock_cache_compressed_handle,
+    jlong jblock_size, jint jblock_size_deviation, jint jblock_restart_interval,
+    jint jindex_block_restart_interval, jlong jmetadata_block_size,
+    jboolean jpartition_filters, jboolean joptimize_filters_for_memory,
+    jboolean juse_delta_encoding, jlong jfilter_policy_handle,
+    jboolean jwhole_key_filtering, jboolean jverify_compression,
+    jint jread_amp_bytes_per_bit, jint jformat_version,
+    jboolean jenable_index_compression, jboolean jblock_align,
+    jbyte jindex_shortening, jlong jblock_cache_size,
+    jint jblock_cache_num_shard_bits, jlong jblock_cache_compressed_size,
+    jint jblock_cache_compressed_num_shard_bits) {
+  ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
+  options.cache_index_and_filter_blocks =
+      static_cast<bool>(jcache_index_and_filter_blocks);
+  options.cache_index_and_filter_blocks_with_high_priority =
+      static_cast<bool>(jcache_index_and_filter_blocks_with_high_priority);
+  options.pin_l0_filter_and_index_blocks_in_cache =
+    static_cast<bool>(jpin_l0_filter_and_index_blocks_in_cache);
+  options.pin_top_level_index_and_filter =
+    static_cast<bool>(jpin_top_level_index_and_filter);
+  options.index_type =
+      ROCKSDB_NAMESPACE::IndexTypeJni::toCppIndexType(jindex_type_value);
+  options.data_block_index_type =
+      ROCKSDB_NAMESPACE::DataBlockIndexTypeJni::toCppDataBlockIndexType(
+          jdata_block_index_type_value);
+  options.data_block_hash_table_util_ratio =
+      static_cast<double>(jdata_block_hash_table_util_ratio);
+  options.checksum = ROCKSDB_NAMESPACE::ChecksumTypeJni::toCppChecksumType(
+      jchecksum_type_value);
+  options.no_block_cache = static_cast<bool>(jno_block_cache);
+  if (options.no_block_cache) {
+    options.block_cache = nullptr;
+  } else {
+    if (jblock_cache_handle > 0) {
+      std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *pCache =
+          reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
+              jblock_cache_handle);
       options.block_cache = *pCache;
-    } else if (block_cache_size > 0) {
-      if (block_cache_num_shardbits > 0) {
-        options.block_cache =
-            rocksdb::NewLRUCache(block_cache_size, block_cache_num_shardbits);
+    } else if (jblock_cache_size >= 0) {
+      if (jblock_cache_num_shard_bits > 0) {
+        options.block_cache = ROCKSDB_NAMESPACE::NewLRUCache(
+            static_cast<size_t>(jblock_cache_size),
+            static_cast<int>(jblock_cache_num_shard_bits));
       } else {
-        options.block_cache = rocksdb::NewLRUCache(block_cache_size);
+        options.block_cache = ROCKSDB_NAMESPACE::NewLRUCache(
+            static_cast<size_t>(jblock_cache_size));
       }
+    } else {
+      options.no_block_cache = true;
+      options.block_cache = nullptr;
     }
   }
-  options.block_size = block_size;
-  options.block_size_deviation = block_size_deviation;
-  options.block_restart_interval = block_restart_interval;
-  options.whole_key_filtering = whole_key_filtering;
-  if (jfilter_policy > 0) {
-    std::shared_ptr<rocksdb::FilterPolicy> *pFilterPolicy =
-        reinterpret_cast<std::shared_ptr<rocksdb::FilterPolicy> *>(
-            jfilter_policy);
+  if (jpersistent_cache_handle > 0) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::PersistentCache> *pCache =
+        reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::PersistentCache> *>(
+            jpersistent_cache_handle);
+    options.persistent_cache = *pCache;
+  }
+  if (jblock_cache_compressed_handle > 0) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *pCache =
+        reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
+            jblock_cache_compressed_handle);
+    options.block_cache_compressed = *pCache;
+  } else if (jblock_cache_compressed_size > 0) {
+    if (jblock_cache_compressed_num_shard_bits > 0) {
+      options.block_cache_compressed = ROCKSDB_NAMESPACE::NewLRUCache(
+          static_cast<size_t>(jblock_cache_compressed_size),
+          static_cast<int>(jblock_cache_compressed_num_shard_bits));
+    } else {
+      options.block_cache_compressed = ROCKSDB_NAMESPACE::NewLRUCache(
+          static_cast<size_t>(jblock_cache_compressed_size));
+    }
+  }
+  options.block_size = static_cast<size_t>(jblock_size);
+  options.block_size_deviation = static_cast<int>(jblock_size_deviation);
+  options.block_restart_interval = static_cast<int>(jblock_restart_interval);
+  options.index_block_restart_interval = static_cast<int>(jindex_block_restart_interval);
+  options.metadata_block_size = static_cast<uint64_t>(jmetadata_block_size);
+  options.partition_filters = static_cast<bool>(jpartition_filters);
+  options.optimize_filters_for_memory =
+      static_cast<bool>(joptimize_filters_for_memory);
+  options.use_delta_encoding = static_cast<bool>(juse_delta_encoding);
+  if (jfilter_policy_handle > 0) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy> *pFilterPolicy =
+        reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy> *>(
+            jfilter_policy_handle);
     options.filter_policy = *pFilterPolicy;
   }
-  options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
-  options.cache_index_and_filter_blocks_with_high_priority =
-      cache_index_and_filter_blocks_with_high_priority;
-  options.pin_l0_filter_and_index_blocks_in_cache =
-      pin_l0_filter_and_index_blocks_in_cache;
-  options.partition_filters = partition_filters;
-  options.metadata_block_size = metadata_block_size;
-  options.pin_top_level_index_and_filter = pin_top_level_index_and_filter;
-  options.hash_index_allow_collision = hash_index_allow_collision;
-  if (block_cache_compressed_size > 0) {
-    if (block_cache_compressd_num_shard_bits > 0) {
-      options.block_cache = rocksdb::NewLRUCache(
-          block_cache_compressed_size, block_cache_compressd_num_shard_bits);
-    } else {
-      options.block_cache = rocksdb::NewLRUCache(block_cache_compressed_size);
-    }
-  }
-  options.checksum = static_cast<rocksdb::ChecksumType>(jchecksum_type);
-  options.index_type =
-      static_cast<rocksdb::BlockBasedTableOptions::IndexType>(jindex_type);
-  options.format_version = jformat_version;
+  options.whole_key_filtering = static_cast<bool>(jwhole_key_filtering);
+  options.verify_compression = static_cast<bool>(jverify_compression);
+  options.read_amp_bytes_per_bit = static_cast<uint32_t>(jread_amp_bytes_per_bit);
+  options.format_version = static_cast<uint32_t>(jformat_version);
+  options.enable_index_compression = static_cast<bool>(jenable_index_compression);
+  options.block_align = static_cast<bool>(jblock_align);
+  options.index_shortening =
+      ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
+          jindex_shortening);
 
-  return reinterpret_cast<jlong>(rocksdb::NewBlockBasedTableFactory(options));
+  return reinterpret_cast<jlong>(
+      ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(options));
 }

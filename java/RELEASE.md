@@ -1,31 +1,36 @@
 ## Cross-building
 
-RocksDB can be built as a single self contained cross-platform JAR. The cross-platform jar can be usd on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
+RocksDB can be built as a single self contained cross-platform JAR. The cross-platform jar can be used on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
 
 Building a cross-platform JAR requires:
 
- * [Vagrant](https://www.vagrantup.com/)
- * [Virtualbox](https://www.virtualbox.org/)
+ * [Docker](https://www.docker.com/docker-community)
  * A Mac OSX machine that can compile RocksDB.
  * Java 7 set as JAVA_HOME.
 
 Once you have these items, run this make command from RocksDB's root source directory:
 
-    make jclean clean rocksdbjavastaticrelease
+    make jclean clean rocksdbjavastaticreleasedocker
 
-This command will build RocksDB natively on OSX, and will then spin up two Vagrant Virtualbox Ubuntu images to build RocksDB for both 32-bit and 64-bit Linux. 
+This command will build RocksDB natively on OSX, and will then spin up docker containers to build RocksDB for 32-bit and 64-bit Linux with glibc, and 32-bit and 64-bit Linux with musl libc.
 
 You can find all native binaries and JARs in the java/target directory upon completion:
 
     librocksdbjni-linux32.so
     librocksdbjni-linux64.so
+    librocksdbjni-linux64-musl.so
+    librocksdbjni-linux32-musl.so
     librocksdbjni-osx.jnilib
-    rocksdbjni-3.5.0-javadoc.jar
-    rocksdbjni-3.5.0-linux32.jar
-    rocksdbjni-3.5.0-linux64.jar
-    rocksdbjni-3.5.0-osx.jar
-    rocksdbjni-3.5.0-sources.jar
-    rocksdbjni-3.5.0.jar
+    rocksdbjni-x.y.z-javadoc.jar
+    rocksdbjni-x.y.z-linux32.jar
+    rocksdbjni-x.y.z-linux64.jar
+    rocksdbjni-x.y.z-linux64-musl.jar
+    rocksdbjni-x.y.z-linux32-musl.jar
+    rocksdbjni-x.y.z-osx.jar
+    rocksdbjni-x.y.z-sources.jar
+    rocksdbjni-x.y.z.jar
+
+Where x.y.z is the built version number of RocksDB.
 
 ## Maven publication
 

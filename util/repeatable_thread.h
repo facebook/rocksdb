@@ -8,23 +8,27 @@
 #include <functional>
 #include <string>
 
+#include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
-#include "util/mock_time_env.h"
+#include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
+// Simple wrapper around port::Thread that supports calling a callback every
+// X seconds. If you pass in 0, then it will call your callback repeatedly
+// without delay.
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,
-                   const std::string& thread_name, Env* env, uint64_t delay_us,
-                   uint64_t initial_delay_us = 0)
+                   const std::string& thread_name, SystemClock* clock,
+                   uint64_t delay_us, uint64_t initial_delay_us = 0)
       : function_(function),
         thread_name_("rocksdb:" + thread_name),
-        env_(env),
+        clock_(clock),
         delay_us_(delay_us),
         initial_delay_us_(initial_delay_us),
+        mutex_(clock),
         cond_var_(&mutex_),
         running_(true),
 #ifndef NDEBUG
@@ -36,7 +40,7 @@ class RepeatableThread {
 
   void cancel() {
     {
-      MutexLock l(&mutex_);
+      InstrumentedMutexLock l(&mutex_);
       if (!running_) {
         return;
       }
@@ -46,17 +50,19 @@ class RepeatableThread {
     thread_.join();
   }
 
+  bool IsRunning() { return running_; }
+
   ~RepeatableThread() { cancel(); }
 
 #ifndef NDEBUG
   // Wait until RepeatableThread starting waiting, call the optional callback,
   // then wait for one run of RepeatableThread. Tests can use provide a
-  // custom env object to mock time, and use the callback here to bump current
+  // custom clock object to mock time, and use the callback here to bump current
   // time and trigger RepeatableThread. See repeatable_thread_test for example.
   //
   // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     while (!waiting_) {
       cond_var_.Wait();
     }
@@ -73,26 +79,16 @@ class RepeatableThread {
 
  private:
   bool wait(uint64_t delay) {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     if (running_ && delay > 0) {
-      uint64_t wait_until = env_->NowMicros() + delay;
+      uint64_t wait_until = clock_->NowMicros() + delay;
 #ifndef NDEBUG
       waiting_ = true;
       cond_var_.SignalAll();
 #endif
       while (running_) {
-#ifndef NDEBUG
-        if (dynamic_cast<MockTimeEnv*>(env_) != nullptr) {
-          // MockTimeEnv is used. Since it is not easy to mock TimedWait,
-          // we wait without timeout to wait for TEST_WaitForRun to wake us up.
-          cond_var_.Wait();
-        } else {
-          cond_var_.TimedWait(wait_until);
-        }
-#else
         cond_var_.TimedWait(wait_until);
-#endif
-        if (env_->NowMicros() >= wait_until) {
+        if (clock_->NowMicros() >= wait_until) {
           break;
         }
       }
@@ -122,7 +118,7 @@ class RepeatableThread {
       function_();
 #ifndef NDEBUG
       {
-        MutexLock l(&mutex_);
+        InstrumentedMutexLock l(&mutex_);
         run_count_++;
         cond_var_.SignalAll();
       }
@@ -132,14 +128,14 @@ class RepeatableThread {
 
   const std::function<void()> function_;
   const std::string thread_name_;
-  Env* const env_;
+  SystemClock* clock_;
   const uint64_t delay_us_;
   const uint64_t initial_delay_us_;
 
   // Mutex lock should be held when accessing running_, waiting_
   // and run_count_.
-  port::Mutex mutex_;
-  port::CondVar cond_var_;
+  InstrumentedMutex mutex_;
+  InstrumentedCondVar cond_var_;
   bool running_;
 #ifndef NDEBUG
   // RepeatableThread waiting for timeout.
@@ -150,4 +146,4 @@ class RepeatableThread {
   port::Thread thread_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

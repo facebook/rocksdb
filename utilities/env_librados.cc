@@ -1,12 +1,12 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
-
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #include "rocksdb/utilities/env_librados.h"
 #include "util/random.h"
 #include <mutex>
 #include <cstdlib>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 /* GLOBAL DIFINE */
 // #define DEBUG
 #ifdef DEBUG
@@ -127,7 +127,7 @@ public:
     Status s;
     int r = _io_ctx->read(_fid, buffer, n, _offset);
     if (r >= 0) {
-      buffer.copy(0, r, scratch);
+      buffer.begin().copy(r, scratch);
       *result = Slice(scratch, r);
       _offset += r;
       s = Status::OK();
@@ -205,7 +205,7 @@ public:
     Status s;
     int r = _io_ctx->read(_fid, buffer, n, offset);
     if (r >= 0) {
-      buffer.copy(0, r, scratch);
+      buffer.begin().copy(r, scratch);
       *result = Slice(scratch, r);
       s = Status::OK();
     } else {
@@ -290,12 +290,18 @@ class LibradosWritableFile : public WritableFile {
     return r;
   }
 
-public:
-  LibradosWritableFile(librados::IoCtx * io_ctx,
-                       std::string fid,
-                       std::string hint,
-                       const EnvLibrados * const env)
-    : _io_ctx(io_ctx), _fid(fid), _hint(hint), _env(env), _buffer(), _buffer_size(0), _file_size(0) {
+ public:
+  LibradosWritableFile(librados::IoCtx* io_ctx, std::string fid,
+                       std::string hint, const EnvLibrados* const env,
+                       const EnvOptions& options)
+      : WritableFile(options),
+        _io_ctx(io_ctx),
+        _fid(fid),
+        _hint(hint),
+        _env(env),
+        _buffer(),
+        _buffer_size(0),
+        _file_size(0) {
     int ret = _io_ctx->stat(_fid, &_file_size, nullptr);
 
     // if file not exist
@@ -1001,7 +1007,8 @@ Status EnvLibrados::NewWritableFile(
       _AddFid(fpath, fid);
     }
 
-    result->reset(new LibradosWritableFile(_GetIoctx(fpath), fid, fpath, this));
+    result->reset(
+        new LibradosWritableFile(_GetIoctx(fpath), fid, fpath, this, options));
     s = Status::OK();
   } while (0);
 
@@ -1042,7 +1049,8 @@ Status EnvLibrados::ReuseWritableFile(
       break;
     }
 
-    result->reset(new LibradosWritableFile(_GetIoctx(dst_fpath), src_fid, dst_fpath, this));
+    result->reset(new LibradosWritableFile(_GetIoctx(dst_fpath), src_fid,
+                                           dst_fpath, this, options));
   } while (0);
 
   LOG_DEBUG("[OUT]%s\n", r.ToString().c_str());
@@ -1485,5 +1493,5 @@ EnvLibrados* EnvLibrados::Default() {
                                  default_pool_name);
   return &default_env;
 }
-// @lint-ignore TXT4 T25377293 Grandfathered in
-}
+
+}  // namespace ROCKSDB_NAMESPACE

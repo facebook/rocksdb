@@ -11,7 +11,10 @@
 // See ../doc/log_format.txt for more detail.
 
 #pragma once
-namespace rocksdb {
+
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 enum RecordType {
@@ -42,4 +45,4 @@ static const int kHeaderSize = 4 + 2 + 1;
 static const int kRecyclableHeaderSize = 4 + 2 + 1 + 4;
 
 }  // namespace log
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -7,15 +7,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <string.h>
-#include "util/coding.h"
 #include "util/hash.h"
-#include "util/util.h"
+#include <string.h>
+#include "port/lang.h"
+#include "util/coding.h"
+#include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+
+uint64_t (*kGetSliceNPHash64UnseededFnPtr)(const Slice&) = &GetSliceHash64;
 
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
-  // Similar to murmur hash
+  // MurmurHash1 - fast but mediocre quality
+  // https://github.com/aappleby/smhasher/wiki/MurmurHash1
+  //
   const uint32_t m = 0xc6a4a793;
   const uint32_t r = 24;
   const char* limit = data + n;
@@ -54,4 +59,42 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   return h;
 }
 
-}  // namespace rocksdb
+// We are standardizing on a preview release of XXH3, because that's
+// the best available at time of standardizing.
+//
+// In testing (mostly Intel Skylake), this hash function is much more
+// thorough than Hash32 and is almost universally faster. Hash() only
+// seems faster when passing runtime-sized keys of the same small size
+// (less than about 24 bytes) thousands of times in a row; this seems
+// to allow the branch predictor to work some magic. XXH3's speed is
+// much less dependent on branch prediction.
+//
+// Hashing with a prefix extractor is potentially a common case of
+// hashing objects of small, predictable size. We could consider
+// bundling hash functions specialized for particular lengths with
+// the prefix extractors.
+uint64_t Hash64(const char* data, size_t n, uint64_t seed) {
+  return XXH3p_64bits_withSeed(data, n, seed);
+}
+
+uint64_t Hash64(const char* data, size_t n) {
+  // Same as seed = 0
+  return XXH3p_64bits(data, n);
+}
+
+uint64_t GetSlicePartsNPHash64(const SliceParts& data, uint64_t seed) {
+  // TODO(ajkr): use XXH3 streaming APIs to avoid the copy/allocation.
+  size_t concat_len = 0;
+  for (int i = 0; i < data.num_parts; ++i) {
+    concat_len += data.parts[i].size();
+  }
+  std::string concat_data;
+  concat_data.reserve(concat_len);
+  for (int i = 0; i < data.num_parts; ++i) {
+    concat_data.append(data.parts[i].data(), data.parts[i].size());
+  }
+  assert(concat_data.size() == concat_len);
+  return NPHash64(concat_data.data(), concat_len, seed);
+}
+
+}  // namespace ROCKSDB_NAMESPACE

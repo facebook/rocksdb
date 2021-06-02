@@ -11,8 +11,8 @@ int main() {
 }
 #else
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <random>
 #include <set>
@@ -22,13 +22,12 @@ int main() {
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-#include "util/testutil.h"
-
-#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -84,11 +83,12 @@ std::ostream& operator<<(std::ostream& os, const Stats& s) {
   return os;
 }
 
-auto icmp = rocksdb::InternalKeyComparator(rocksdb::BytewiseComparator());
+auto icmp = ROCKSDB_NAMESPACE::InternalKeyComparator(
+    ROCKSDB_NAMESPACE::BytewiseComparator());
 
 }  // anonymous namespace
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -165,30 +165,33 @@ static std::string Key(int64_t val) {
 
 }  // anonymous namespace
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
   Stats stats;
-  rocksdb::Random64 rnd(FLAGS_seed);
+  ROCKSDB_NAMESPACE::SystemClock* clock =
+      ROCKSDB_NAMESPACE::SystemClock::Default().get();
+  ROCKSDB_NAMESPACE::Random64 rnd(FLAGS_seed);
   std::default_random_engine random_gen(FLAGS_seed);
   std::normal_distribution<double> normal_dist(FLAGS_tombstone_width_mean,
                                                FLAGS_tombstone_width_stddev);
-  std::vector<std::vector<rocksdb::PersistentRangeTombstone> >
+  std::vector<std::vector<ROCKSDB_NAMESPACE::PersistentRangeTombstone> >
       all_persistent_range_tombstones(FLAGS_add_tombstones_per_run);
   for (int i = 0; i < FLAGS_add_tombstones_per_run; i++) {
     all_persistent_range_tombstones[i] =
-        std::vector<rocksdb::PersistentRangeTombstone>(
+        std::vector<ROCKSDB_NAMESPACE::PersistentRangeTombstone>(
             FLAGS_num_range_tombstones);
   }
-  auto mode = rocksdb::RangeDelPositioningMode::kForwardTraversal;
+  auto mode = ROCKSDB_NAMESPACE::RangeDelPositioningMode::kForwardTraversal;
 
   for (int i = 0; i < FLAGS_num_runs; i++) {
-    rocksdb::ReadRangeDelAggregator range_del_agg(
-        &icmp, rocksdb::kMaxSequenceNumber /* upper_bound */);
+    ROCKSDB_NAMESPACE::ReadRangeDelAggregator range_del_agg(
+        &icmp, ROCKSDB_NAMESPACE::kMaxSequenceNumber /* upper_bound */);
 
-    std::vector<std::unique_ptr<rocksdb::FragmentedRangeTombstoneList> >
+    std::vector<
+        std::unique_ptr<ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList> >
         fragmented_range_tombstone_lists(FLAGS_add_tombstones_per_run);
 
     for (auto& persistent_range_tombstones : all_persistent_range_tombstones) {
@@ -199,41 +202,43 @@ int main(int argc, char** argv) {
         uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
         uint64_t end = static_cast<uint64_t>(
             std::round(start + std::max(1.0, normal_dist(random_gen))));
-        persistent_range_tombstones[j] = rocksdb::PersistentRangeTombstone(
-            rocksdb::Key(start), rocksdb::Key(end), j);
+        persistent_range_tombstones[j] =
+            ROCKSDB_NAMESPACE::PersistentRangeTombstone(
+                ROCKSDB_NAMESPACE::Key(start), ROCKSDB_NAMESPACE::Key(end), j);
       }
 
       auto range_del_iter =
-          rocksdb::MakeRangeDelIterator(persistent_range_tombstones);
+          ROCKSDB_NAMESPACE::MakeRangeDelIterator(persistent_range_tombstones);
       fragmented_range_tombstone_lists.emplace_back(
-          new rocksdb::FragmentedRangeTombstoneList(
-              rocksdb::MakeRangeDelIterator(persistent_range_tombstones),
+          new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList(
+              ROCKSDB_NAMESPACE::MakeRangeDelIterator(
+                  persistent_range_tombstones),
               icmp));
-      std::unique_ptr<rocksdb::FragmentedRangeTombstoneIterator>
+      std::unique_ptr<ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator>
           fragmented_range_del_iter(
-              new rocksdb::FragmentedRangeTombstoneIterator(
+              new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator(
                   fragmented_range_tombstone_lists.back().get(), icmp,
-                  rocksdb::kMaxSequenceNumber));
+                  ROCKSDB_NAMESPACE::kMaxSequenceNumber));
 
-      rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
-                                                       true /* auto_start */);
+      ROCKSDB_NAMESPACE::StopWatchNano stop_watch_add_tombstones(
+          clock, true /* auto_start */);
       range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
 
-    rocksdb::ParsedInternalKey parsed_key;
+    ROCKSDB_NAMESPACE::ParsedInternalKey parsed_key;
     parsed_key.sequence = FLAGS_num_range_tombstones / 2;
-    parsed_key.type = rocksdb::kTypeValue;
+    parsed_key.type = ROCKSDB_NAMESPACE::kTypeValue;
 
     uint64_t first_key = rnd.Uniform(FLAGS_should_delete_upper_bound -
                                      FLAGS_should_deletes_per_run + 1);
 
     for (int j = 0; j < FLAGS_should_deletes_per_run; j++) {
-      std::string key_string = rocksdb::Key(first_key + j);
+      std::string key_string = ROCKSDB_NAMESPACE::Key(first_key + j);
       parsed_key.user_key = key_string;
 
-      rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
-                                                      true /* auto_start */);
+      ROCKSDB_NAMESPACE::StopWatchNano stop_watch_should_delete(
+          clock, true /* auto_start */);
       range_del_agg.ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 

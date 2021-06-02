@@ -5,14 +5,14 @@
 
 #include "db/range_del_aggregator.h"
 
-#include "db/compaction_iteration_stats.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
-#include "include/rocksdb/comparator.h"
-#include "include/rocksdb/types.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/types.h"
 #include "table/internal_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
@@ -20,7 +20,7 @@
 #include "util/kv_map.h"
 #include "util/vector_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 TruncatedRangeDelIterator::TruncatedRangeDelIterator(
     std::unique_ptr<FragmentedRangeTombstoneIterator> iter,
@@ -33,17 +33,22 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
-    if (!ParseInternalKey(smallest->Encode(), &parsed_smallest)) {
-      assert(false);
-    }
+    Status pik_status = ParseInternalKey(smallest->Encode(), &parsed_smallest,
+                                         false /* log_err_key */);  // TODO
+    pik_status.PermitUncheckedError();
+    assert(pik_status.ok());
+
     smallest_ = &parsed_smallest;
   }
   if (largest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_largest = pinned_bounds_.back();
-    if (!ParseInternalKey(largest->Encode(), &parsed_largest)) {
-      assert(false);
-    }
+
+    Status pik_status = ParseInternalKey(largest->Encode(), &parsed_largest,
+                                         false /* log_err_key */);  // TODO
+    pik_status.PermitUncheckedError();
+    assert(pik_status.ok());
+
     if (parsed_largest.type == kTypeRangeDeletion &&
         parsed_largest.sequence == kMaxSequenceNumber) {
       // The file boundary has been artificially extended by a range tombstone.
@@ -322,8 +327,8 @@ void ReadRangeDelAggregator::AddTombstones(
           std::move(input_iter), icmp_, smallest, largest)));
 }
 
-bool ReadRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
-                                          RangeDelPositioningMode mode) {
+bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                                              RangeDelPositioningMode mode) {
   return rep_.ShouldDelete(parsed, mode);
 }
 
@@ -481,4 +486,4 @@ CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
           kMaxSequenceNumber /* upper_bound */));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

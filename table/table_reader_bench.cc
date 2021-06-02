@@ -11,26 +11,28 @@ int main() {
 }
 #else
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "util/file_reader_writer.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/gflags_compat.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 // Make a key that i determines the first 4 characters and j determines the
@@ -49,8 +51,8 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(Env* env, bool measured_by_nanosecond) {
-  return measured_by_nanosecond ? env->NowNanos() : env->NowMicros();
+uint64_t Now(SystemClock* clock, bool measured_by_nanosecond) {
+  return measured_by_nanosecond ? clock->NowNanos() : clock->NowMicros();
 }
 }  // namespace
 
@@ -73,37 +75,35 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           int num_keys2, int num_iter, int /*prefix_len*/,
                           bool if_query_empty_keys, bool for_iterator,
                           bool through_db, bool measured_by_nanosecond) {
-  rocksdb::InternalKeyComparator ikc(opts.comparator);
+  ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
 
   std::string file_name =
       test::PerThreadDBPath("rocksdb_table_reader_benchmark");
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
+  auto* clock = env->GetSystemClock().get();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
-  const ImmutableCFOptions ioptions(opts);
+  const ImmutableOptions ioptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   std::unique_ptr<WritableFileWriter> file_writer;
   if (!through_db) {
-    std::unique_ptr<WritableFile> file;
-    env->NewWritableFile(file_name, &file, env_options);
+    ASSERT_OK(WritableFileWriter::Create(env->GetFileSystem(), file_name,
+                                         FileOptions(env_options), &file_writer,
+                                         nullptr));
 
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
-        int_tbl_prop_collector_factories;
+    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
-    file_writer.reset(
-        new WritableFileWriter(std::move(file), file_name, env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
             CompressionType::kNoCompression, CompressionOptions(),
-            nullptr /* compression_dict */, false /* skip_filters */,
-            kDefaultColumnFamilyName, unknown_level),
-        0 /* column_family_id */, file_writer.get());
+            0 /* column_family_id */, kDefaultColumnFamilyName, unknown_level),
+        file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -129,14 +129,17 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
 
   std::unique_ptr<TableReader> table_reader;
   if (!through_db) {
-    std::unique_ptr<RandomAccessFile> raf;
-    s = env->NewRandomAccessFile(file_name, &raf, env_options);
+    const auto& fs = env->GetFileSystem();
+    FileOptions fopts(env_options);
+
+    std::unique_ptr<FSRandomAccessFile> raf;
+    s = fs->NewRandomAccessFile(file_name, fopts, &raf, nullptr);
     if (!s.ok()) {
       fprintf(stderr, "Create File Error: %s\n", s.ToString().c_str());
       exit(1);
     }
     uint64_t file_size;
-    env->GetFileSize(file_name, &file_size);
+    fs->GetFileSize(file_name, fopts.io_options, &file_size, nullptr);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
@@ -166,21 +169,21 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         if (!for_iterator) {
           // Query one existing key;
           std::string key = MakeKey(r1, r2, through_db);
-          uint64_t start_time = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(clock, measured_by_nanosecond);
           if (!through_db) {
             PinnableSlice value;
             MergeContext merge_context;
             SequenceNumber max_covering_tombstone_seq = 0;
-            GetContext get_context(ioptions.user_comparator,
-                                   ioptions.merge_operator, ioptions.info_log,
-                                   ioptions.statistics, GetContext::kNotFound,
-                                   Slice(key), &value, nullptr, &merge_context,
-                                   &max_covering_tombstone_seq, env);
+            GetContext get_context(
+                ioptions.user_comparator, ioptions.merge_operator.get(),
+                ioptions.logger, ioptions.stats, GetContext::kNotFound,
+                Slice(key), &value, nullptr, &merge_context, true,
+                &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
           }
-          hist.Add(Now(env, measured_by_nanosecond) - start_time);
+          hist.Add(Now(clock, measured_by_nanosecond) - start_time);
         } else {
           int r2_len;
           if (if_query_empty_keys) {
@@ -194,11 +197,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string start_key = MakeKey(r1, r2, through_db);
           std::string end_key = MakeKey(r1, r2 + r2_len, through_db);
           uint64_t total_time = 0;
-          uint64_t start_time = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(clock, measured_by_nanosecond);
           Iterator* iter = nullptr;
           InternalIterator* iiter = nullptr;
           if (!through_db) {
-            iiter = table_reader->NewIterator(read_options, nullptr);
+            iiter = table_reader->NewIterator(
+                read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+                /*skip_filters=*/false, TableReaderCaller::kUncategorized);
           } else {
             iter = db->NewIterator(read_options);
           }
@@ -210,10 +215,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
               break;
             }
             // verify key;
-            total_time += Now(env, measured_by_nanosecond) - start_time;
+            total_time += Now(clock, measured_by_nanosecond) - start_time;
             assert(Slice(MakeKey(r1, r2 + count, through_db)) ==
                    (through_db ? iter->key() : iiter->key()));
-            start_time = Now(env, measured_by_nanosecond);
+            start_time = Now(clock, measured_by_nanosecond);
             if (++count >= r2_len) {
               break;
             }
@@ -225,7 +230,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             assert(false);
           }
           delete iter;
-          total_time += Now(env, measured_by_nanosecond) - start_time;
+          total_time += Now(clock, measured_by_nanosecond) - start_time;
           hist.Add(total_time);
         }
       }
@@ -254,7 +259,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   }
 }
 }  // namespace
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 DEFINE_bool(query_empty, false, "query non-existing keys instead of existing "
             "ones.");
@@ -279,24 +284,24 @@ int main(int argc, char** argv) {
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
 
-  std::shared_ptr<rocksdb::TableFactory> tf;
-  rocksdb::Options options;
+  std::shared_ptr<ROCKSDB_NAMESPACE::TableFactory> tf;
+  ROCKSDB_NAMESPACE::Options options;
   if (FLAGS_prefix_len < 16) {
-    options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
-        FLAGS_prefix_len));
+    options.prefix_extractor.reset(
+        ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_len));
   }
-  rocksdb::ReadOptions ro;
-  rocksdb::EnvOptions env_options;
+  ROCKSDB_NAMESPACE::ReadOptions ro;
+  ROCKSDB_NAMESPACE::EnvOptions env_options;
   options.create_if_missing = true;
-  options.compression = rocksdb::CompressionType::kNoCompression;
+  options.compression = ROCKSDB_NAMESPACE::CompressionType::kNoCompression;
 
   if (FLAGS_table_factory == "cuckoo_hash") {
 #ifndef ROCKSDB_LITE
     options.allow_mmap_reads = FLAGS_mmap_read;
     env_options.use_mmap_reads = FLAGS_mmap_read;
-    rocksdb::CuckooTableOptions table_options;
+    ROCKSDB_NAMESPACE::CuckooTableOptions table_options;
     table_options.hash_table_ratio = 0.75;
-    tf.reset(rocksdb::NewCuckooTableFactory(table_options));
+    tf.reset(ROCKSDB_NAMESPACE::NewCuckooTableFactory(table_options));
 #else
     fprintf(stderr, "Plain table is not supported in lite mode\n");
     exit(1);
@@ -306,20 +311,20 @@ int main(int argc, char** argv) {
     options.allow_mmap_reads = FLAGS_mmap_read;
     env_options.use_mmap_reads = FLAGS_mmap_read;
 
-    rocksdb::PlainTableOptions plain_table_options;
+    ROCKSDB_NAMESPACE::PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 16;
     plain_table_options.bloom_bits_per_key = (FLAGS_prefix_len == 16) ? 0 : 8;
     plain_table_options.hash_table_ratio = 0.75;
 
-    tf.reset(new rocksdb::PlainTableFactory(plain_table_options));
-    options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
-        FLAGS_prefix_len));
+    tf.reset(new ROCKSDB_NAMESPACE::PlainTableFactory(plain_table_options));
+    options.prefix_extractor.reset(
+        ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_len));
 #else
     fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
     exit(1);
 #endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "block_based") {
-    tf.reset(new rocksdb::BlockBasedTableFactory());
+    tf.reset(new ROCKSDB_NAMESPACE::BlockBasedTableFactory());
   } else {
     fprintf(stderr, "Invalid table type %s\n", FLAGS_table_factory.c_str());
   }
@@ -329,10 +334,10 @@ int main(int argc, char** argv) {
     bool measured_by_nanosecond = FLAGS_time_unit == "nanosecond";
 
     options.table_factory = tf;
-    rocksdb::TableReaderBenchmark(options, env_options, ro, FLAGS_num_keys1,
-                                  FLAGS_num_keys2, FLAGS_iter, FLAGS_prefix_len,
-                                  FLAGS_query_empty, FLAGS_iterator,
-                                  FLAGS_through_db, measured_by_nanosecond);
+    ROCKSDB_NAMESPACE::TableReaderBenchmark(
+        options, env_options, ro, FLAGS_num_keys1, FLAGS_num_keys2, FLAGS_iter,
+        FLAGS_prefix_len, FLAGS_query_empty, FLAGS_iterator, FLAGS_through_db,
+        measured_by_nanosecond);
   } else {
     return 1;
   }

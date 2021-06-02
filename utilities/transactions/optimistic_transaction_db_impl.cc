@@ -10,13 +10,13 @@
 #include <string>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "utilities/transactions/optimistic_transaction.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Transaction* OptimisticTransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options,
@@ -27,6 +27,12 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
   } else {
     return new OptimisticTransaction(this, write_options, txn_options);
   }
+}
+
+std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(
+    size_t idx) {
+  assert(idx < bucketed_locks_.size());
+  return std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
 }
 
 Status OptimisticTransactionDB::Open(const Options& options,
@@ -54,6 +60,18 @@ Status OptimisticTransactionDB::Open(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles,
     OptimisticTransactionDB** dbptr) {
+  return OptimisticTransactionDB::Open(db_options,
+                                       OptimisticTransactionDBOptions(), dbname,
+                                       column_families, handles, dbptr);
+}
+
+Status OptimisticTransactionDB::Open(
+    const DBOptions& db_options,
+    const OptimisticTransactionDBOptions& occ_options,
+    const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles,
+    OptimisticTransactionDB** dbptr) {
   Status s;
   DB* db;
 
@@ -63,16 +81,18 @@ Status OptimisticTransactionDB::Open(
   for (auto& column_family : column_families_copy) {
     ColumnFamilyOptions* options = &column_family.options;
 
-    if (options->max_write_buffer_number_to_maintain == 0) {
-      // Setting to -1 will set the History size to max_write_buffer_number.
-      options->max_write_buffer_number_to_maintain = -1;
+    if (options->max_write_buffer_size_to_maintain == 0 &&
+        options->max_write_buffer_number_to_maintain == 0) {
+      // Setting to -1 will set the History size to
+      // max_write_buffer_number * write_buffer_size.
+      options->max_write_buffer_size_to_maintain = -1;
     }
   }
 
   s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
-    *dbptr = new OptimisticTransactionDBImpl(db);
+    *dbptr = new OptimisticTransactionDBImpl(db, occ_options);
   }
 
   return s;
@@ -87,5 +107,5 @@ void OptimisticTransactionDBImpl::ReinitializeTransaction(
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

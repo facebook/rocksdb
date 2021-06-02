@@ -13,7 +13,7 @@
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Constructor: also specify the delimiter character.
 StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
@@ -114,4 +114,4 @@ MergeOperators::CreateStringAppendTESTOperator() {
   return std::make_shared<StringAppendTESTOperator>(',');
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

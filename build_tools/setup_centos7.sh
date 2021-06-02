@@ -1,8 +1,9 @@
 #!/bin/bash
-set -e
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+set -ex
 
-ROCKSDB_VERSION="5.10.3"
-ZSTD_VERSION="1.1.3"
+ROCKSDB_VERSION="6.7.3"
+ZSTD_VERSION="1.4.4"
 
 echo "This script configures CentOS with everything needed to build and run RocksDB"
 
@@ -39,5 +40,6 @@ cd /usr/local/rocksdb
 chown -R vagrant:vagrant /usr/local/rocksdb/
 sudo -u vagrant make static_lib
 cd examples/
-sudo -u vagrant make all
-sudo -u vagrant ./c_simple_example
+sudo -u vagrant LD_LIBRARY_PATH=/usr/local/lib/ make all
+sudo -u vagrant LD_LIBRARY_PATH=/usr/local/lib/ ./c_simple_example
+

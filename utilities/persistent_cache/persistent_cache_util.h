@@ -9,7 +9,7 @@
 
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Simple synchronized queue implementation with the option of
@@ -48,7 +48,7 @@ class BoundedQueue {
     T t = std::move(q_.front());
     size_ -= t.Size();
     q_.pop_front();
-    return std::move(t);
+    return t;
   }
 
   size_t Size() const {
@@ -64,4 +64,4 @@ class BoundedQueue {
   const size_t max_size_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

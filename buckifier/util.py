@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 """
 This module keeps commonly used components.
 """
@@ -5,11 +6,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+try:
+    from builtins import object
+except ImportError:
+    from __builtin__ import object
 import subprocess
+import sys
 import os
 import time
 
-class ColorString:
+class ColorString(object):
     """ Generate colorful strings on terminal """
     HEADER = '\033[95m'
     BLUE = '\033[94m'
@@ -20,7 +26,13 @@ class ColorString:
 
     @staticmethod
     def _make_color_str(text, color):
-        return "".join([color, text.encode('utf-8'), ColorString.ENDC])
+        # In Python2, default encoding for unicode string is ASCII
+        if sys.version_info.major <= 2:
+            return "".join(
+                [color, text.encode('utf-8'), ColorString.ENDC])
+        # From Python3, default encoding for unicode string is UTF-8
+        return "".join(
+            [color, text, ColorString.ENDC])
 
     @staticmethod
     def ok(text):

@@ -11,7 +11,7 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_LITE
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
@@ -35,7 +35,7 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
   bool snapshot_released = false;
   // TODO(myabandeh): set min_uncommitted
   bool in_snapshot = txn_db_->IsInSnapshot(
-      sequence, snapshot_sequence, 0 /*min_uncommitted*/, &snapshot_released);
+      sequence, snapshot_sequence, kMinUnCommittedSeq, &snapshot_released);
   if (snapshot_released) {
     return SnapshotCheckerResult::kSnapshotReleased;
   }
@@ -46,4 +46,4 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
 #endif  // ROCKSDB_LITE
 DisableGCSnapshotChecker DisableGCSnapshotChecker::instance_;
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

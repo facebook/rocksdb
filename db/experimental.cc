@@ -5,9 +5,9 @@
 
 #include "rocksdb/experimental.h"
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace experimental {
 
 #ifndef ROCKSDB_LITE
@@ -47,4 +47,4 @@ Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
 }
 
 }  // namespace experimental
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

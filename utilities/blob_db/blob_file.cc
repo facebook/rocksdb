@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -5,63 +6,42 @@
 #ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_file.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
 #include <stdio.h>
+#include <cinttypes>
 
 #include <algorithm>
-#include <limits>
 #include <memory>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "util/filename.h"
-#include "util/logging.h"
+#include "file/filename.h"
+#include "file/readahead_raf.h"
+#include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace blob_db {
 
-BlobFile::BlobFile()
-    : parent_(nullptr),
-      file_number_(0),
-      info_log_(nullptr),
-      column_family_id_(std::numeric_limits<uint32_t>::max()),
-      compression_(kNoCompression),
-      has_ttl_(false),
-      blob_count_(0),
-      file_size_(0),
-      closed_(false),
-      obsolete_(false),
-      expiration_range_({0, 0}),
-      last_access_(-1),
-      last_fsync_(0),
-      header_valid_(false),
-      footer_valid_(false) {}
-
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
                    Logger* info_log)
+    : parent_(p), path_to_dir_(bdir), file_number_(fn), info_log_(info_log) {}
+
+BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
+                   Logger* info_log, uint32_t column_family_id,
+                   CompressionType compression, bool has_ttl,
+                   const ExpirationRange& expiration_range)
     : parent_(p),
       path_to_dir_(bdir),
       file_number_(fn),
       info_log_(info_log),
-      column_family_id_(std::numeric_limits<uint32_t>::max()),
-      compression_(kNoCompression),
-      has_ttl_(false),
-      blob_count_(0),
-      file_size_(0),
-      closed_(false),
-      obsolete_(false),
-      expiration_range_({0, 0}),
-      last_access_(-1),
-      last_fsync_(0),
-      header_valid_(false),
-      footer_valid_(false) {}
+      column_family_id_(column_family_id),
+      compression_(compression),
+      has_ttl_(has_ttl),
+      expiration_range_(expiration_range),
+      header_(column_family_id, compression, has_ttl, expiration_range),
+      header_valid_(true) {}
 
 BlobFile::~BlobFile() {
   if (obsolete_) {
@@ -74,32 +54,10 @@ BlobFile::~BlobFile() {
   }
 }
 
-uint32_t BlobFile::column_family_id() const { return column_family_id_; }
+uint32_t BlobFile::GetColumnFamilyId() const { return column_family_id_; }
 
 std::string BlobFile::PathName() const {
   return BlobFileName(path_to_dir_, file_number_);
-}
-
-std::shared_ptr<Reader> BlobFile::OpenRandomAccessReader(
-    Env* env, const DBOptions& db_options,
-    const EnvOptions& env_options) const {
-  constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
-  std::unique_ptr<RandomAccessFile> sfile;
-  std::string path_name(PathName());
-  Status s = env->NewRandomAccessFile(path_name, &sfile, env_options);
-  if (!s.ok()) {
-    // report something here.
-    return nullptr;
-  }
-  sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
-
-  std::unique_ptr<RandomAccessFileReader> sfile_reader;
-  sfile_reader.reset(new RandomAccessFileReader(std::move(sfile), path_name));
-
-  std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
-      std::move(sfile_reader), db_options.env, db_options.statistics.get());
-
-  return log_reader;
 }
 
 std::string BlobFile::DumpState() const {
@@ -121,13 +79,7 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
-  assert(last_fsync_ <= file_size_);
-  return (hard) ? file_size_ > last_fsync_
-                : (file_size_ - last_fsync_) >= bytes_per_sync;
-}
-
-Status BlobFile::WriteFooterAndCloseLocked() {
+Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -135,9 +87,11 @@ Status BlobFile::WriteFooterAndCloseLocked() {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer);
+  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+                                       /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
+    immutable_sequence_ = sequence;
     file_size_ += BlobLogFooter::kSize;
   }
   // delete the sequential writer
@@ -155,9 +109,17 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   assert(ra_file_reader_);
 
   Slice result;
-  char scratch[BlobLogFooter::kSize + 10];
-  Status s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
-                                   scratch);
+  std::string buf;
+  AlignedBuf aligned_buf;
+  Status s;
+  if (ra_file_reader_->use_direct_io()) {
+    s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
+                              &result, nullptr, &aligned_buf);
+  } else {
+    buf.reserve(BlobLogFooter::kSize + 10);
+    s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
+                              &result, &buf[0], nullptr);
+  }
   if (!s.ok()) return s;
   if (result.size() != BlobLogFooter::kSize) {
     // should not happen
@@ -169,8 +131,6 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 }
 
 Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
-  // assume that file has been fully fsync'd
-  last_fsync_.store(file_size_);
   blob_count_ = footer.blob_count;
   expiration_range_ = footer.expiration_range;
   closed_ = true;
@@ -181,7 +141,6 @@ Status BlobFile::Fsync() {
   Status s;
   if (log_writer_.get()) {
     s = log_writer_->Sync();
-    last_fsync_.store(file_size_.load());
   }
   return s;
 }
@@ -191,15 +150,16 @@ void BlobFile::CloseRandomAccessLocked() {
   last_access_ = -1;
 }
 
-Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
+Status BlobFile::GetReader(Env* env, const FileOptions& file_options,
                            std::shared_ptr<RandomAccessFileReader>* reader,
                            bool* fresh_open) {
   assert(reader != nullptr);
   assert(fresh_open != nullptr);
   *fresh_open = false;
   int64_t current_time = 0;
-  env->GetCurrentTime(&current_time);
-  last_access_.store(current_time);
+  if (env->GetCurrentTime(&current_time).ok()) {
+    last_access_.store(current_time);
+  }
   Status s;
 
   {
@@ -217,8 +177,9 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  std::unique_ptr<RandomAccessFile> rfile;
-  s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
+  std::unique_ptr<FSRandomAccessFile> rfile;
+  s = env->GetFileSystem()->NewRandomAccessFile(PathName(), file_options,
+                                                &rfile, nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file for random-read: %s status: '%s'"
@@ -228,54 +189,63 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile),
-                                                             PathName());
+  ra_file_reader_ =
+      std::make_shared<RandomAccessFileReader>(std::move(rfile), PathName());
   *reader = ra_file_reader_;
   *fresh_open = true;
   return s;
 }
 
-Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
+Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
+                              const FileOptions& file_options) {
   assert(Immutable());
   // Get file size.
   uint64_t file_size = 0;
-  Status s = env->GetFileSize(PathName(), &file_size);
+  Status s =
+      fs->GetFileSize(PathName(), file_options.io_options, &file_size, nullptr);
   if (s.ok()) {
     file_size_ = file_size;
   } else {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to get size of blob file %" ROCKSDB_PRIszt
+                    "Failed to get size of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
   if (file_size < BlobLogHeader::kSize) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Incomplete blob file blob file %" ROCKSDB_PRIszt
+                    "Incomplete blob file blob file %" PRIu64
                     ", size: %" PRIu64,
                     file_number_, file_size);
     return Status::Corruption("Incomplete blob file header.");
   }
 
   // Create file reader.
-  std::unique_ptr<RandomAccessFile> file;
-  s = env->NewRandomAccessFile(PathName(), &file, env_options);
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  s = RandomAccessFileReader::Create(fs, PathName(), file_options, &file_reader,
+                                     nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to open blob file %" ROCKSDB_PRIszt ", status: %s",
+                    "Failed to open blob file %" PRIu64 ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), PathName()));
 
   // Read file header.
-  char header_buf[BlobLogHeader::kSize];
+  std::string header_buf;
+  AlignedBuf aligned_buf;
   Slice header_slice;
-  s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, header_buf);
+  if (file_reader->use_direct_io()) {
+    s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
+                          nullptr, &aligned_buf);
+  } else {
+    header_buf.reserve(BlobLogHeader::kSize);
+    s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
+                          &header_buf[0], nullptr);
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read header of blob file %" ROCKSDB_PRIszt
+                    "Failed to read header of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -284,7 +254,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = header.DecodeFrom(header_slice);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to decode header of blob file %" ROCKSDB_PRIszt
+                    "Failed to decode header of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -303,13 +273,21 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     assert(!footer_valid_);
     return Status::OK();
   }
-  char footer_buf[BlobLogFooter::kSize];
+  std::string footer_buf;
   Slice footer_slice;
-  s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                        &footer_slice, footer_buf);
+  if (file_reader->use_direct_io()) {
+    s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
+                          BlobLogFooter::kSize, &footer_slice, nullptr,
+                          &aligned_buf);
+  } else {
+    footer_buf.reserve(BlobLogFooter::kSize);
+    s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
+                          BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
+                          nullptr);
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read footer of blob file %" ROCKSDB_PRIszt
+                    "Failed to read footer of blob file %" PRIu64
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -332,5 +310,5 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

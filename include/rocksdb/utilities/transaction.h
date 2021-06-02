@@ -14,7 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Iterator;
 class TransactionDB;
@@ -23,6 +23,83 @@ class WriteBatchWithIndex;
 using TransactionName = std::string;
 
 using TransactionID = uint64_t;
+
+/*
+  class Endpoint allows to define prefix ranges.
+
+  Prefix ranges are introduced below.
+
+  == Basic Ranges ==
+  Let's start from basic ranges. Key Comparator defines ordering of rowkeys.
+  Then, one can specify finite closed ranges by just providing rowkeys of their
+  endpoints:
+
+    lower_endpoint <= X <= upper_endpoint
+
+  However our goal is to provide a richer set of endpoints. Read on.
+
+  == Lexicographic ordering ==
+  A lexicographic (or dictionary) ordering satisfies these criteria: If there
+  are two keys in form
+    key_a = {prefix_a, suffix_a}
+    key_b = {prefix_b, suffix_b}
+  and
+    prefix_a < prefix_b
+  then
+    key_a < key_b.
+
+  == Prefix ranges ==
+  With lexicographic ordering, one may want to define ranges in form
+
+     "prefix is $PREFIX"
+
+  which translates to a range in form
+
+    {$PREFIX, -infinity} < X < {$PREFIX, +infinity}
+
+  where -infinity will compare less than any possible suffix, and +infinity
+  will compare as greater than any possible suffix.
+
+  class Endpoint allows to define these kind of rangtes.
+
+  == Notes ==
+  BytewiseComparator and ReverseBytewiseComparator produce lexicographic
+  ordering.
+
+  The row comparison function is able to compare key prefixes. If the data
+  domain includes keys A and B, then the comparison function is able to compare
+  equal-length prefixes:
+
+    min_len= min(byte_length(A), byte_length(B));
+    cmp(Slice(A, min_len), Slice(B, min_len));  // this call is valid
+
+  == Other options ==
+  As far as MyRocks is concerned, the alternative to prefix ranges would be to
+  support both open (non-inclusive) and closed (inclusive) range endpoints.
+*/
+
+class Endpoint {
+ public:
+  Slice slice;
+
+  /*
+    true  : the key has a "+infinity" suffix. A suffix that would compare as
+            greater than any other suffix
+    false : otherwise
+  */
+  bool inf_suffix;
+
+  explicit Endpoint(const Slice& slice_arg, bool inf_suffix_arg = false)
+      : slice(slice_arg), inf_suffix(inf_suffix_arg) {}
+
+  explicit Endpoint(const char* s, bool inf_suffix_arg = false)
+      : slice(s), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint(const char* s, size_t size, bool inf_suffix_arg = false)
+      : slice(s, size), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint() : inf_suffix(false) {}
+};
 
 // Provides notification to the caller of SetSnapshotOnNextOperation when
 // the actual snapshot gets created
@@ -52,6 +129,10 @@ class TransactionNotifier {
 //  -Support for using Transactions with DBWithTTL
 class Transaction {
  public:
+  // No copying allowed
+  Transaction(const Transaction&) = delete;
+  void operator=(const Transaction&) = delete;
+
   virtual ~Transaction() {}
 
   // If a transaction has a snapshot set, the transaction will ensure that
@@ -131,11 +212,13 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain).
+  //  (See max_write_buffer_size_to_maintain).
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
-  // TransactionOptions.expiration.
+  // TransactionOptions.expiration. Status::TxnNotPrepared() may be returned if
+  // TransactionOptions.skip_prepare is false and Prepare is not called on this
+  // transaction before Commit.
   virtual Status Commit() = 0;
 
   // Discard all batched writes in this transaction.
@@ -205,6 +288,19 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // Batched version of MultiGet - see DBImpl::MultiGet(). Sub-classes are
+  // expected to override this with an implementation that calls
+  // DBImpl::MultiGet()
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+    }
+  }
+
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
@@ -230,7 +326,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // Status::MergeInProgress() if merge operations cannot be resolved.
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
@@ -256,6 +352,12 @@ class Transaction {
       pinnable_val->PinSelf();
       return s;
     }
+  }
+
+  // Get a range lock on [start_endpoint; end_endpoint].
+  virtual Status GetRangeLock(ColumnFamilyHandle*, const Endpoint&,
+                              const Endpoint&) {
+    return Status::NotSupported();
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
@@ -293,8 +395,10 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
-  // assume_tracked=true expects the key be already tracked. If valid then it
-  // skips ValidateSnapshot. Returns error otherwise.
+  // assume_tracked=true expects the key be already tracked. More
+  // specifically, it means the the key was previous tracked in the same
+  // savepoint, with the same exclusive flag, and at a lower sequence number.
+  // If valid then it skips ValidateSnapshot.  Returns error otherwise.
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
@@ -305,7 +409,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value, const bool assume_tracked = false) = 0;
@@ -472,7 +576,8 @@ class Transaction {
     AWAITING_PREPARE = 1,
     PREPARED = 2,
     AWAITING_COMMIT = 3,
-    COMMITED = 4,
+    COMMITTED = 4,
+    COMMITED = COMMITTED, // old misspelled name
     AWAITING_ROLLBACK = 5,
     ROLLEDBACK = 6,
     LOCKS_STOLEN = 7,
@@ -507,14 +612,15 @@ class Transaction {
     id_ = id;
   }
 
+  virtual uint64_t GetLastLogNumber() const { return log_number_; }
+
  private:
   friend class PessimisticTransactionDB;
   friend class WriteUnpreparedTxnDB;
-  // No copying allowed
-  Transaction(const Transaction&);
-  void operator=(const Transaction&);
+  friend class TransactionTest_TwoPhaseLogRollingTest_Test;
+  friend class TransactionTest_TwoPhaseLogRollingTest2_Test;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

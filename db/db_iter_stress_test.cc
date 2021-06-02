@@ -8,9 +8,9 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "utilities/merge_operators.h"
 
 #ifdef GFLAGS
@@ -29,7 +29,7 @@ bool FLAGS_verbose = false;
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBIteratorStressTest : public testing::Test {
  public:
@@ -97,7 +97,8 @@ struct StressTestIterator : public InternalIterator {
 
   bool MaybeFail() {
     if (rnd->Next() >=
-        std::numeric_limits<uint64_t>::max() * error_probability) {
+        static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+            error_probability) {
       return false;
     }
     if (rnd->Next() % 2) {
@@ -114,7 +115,8 @@ struct StressTestIterator : public InternalIterator {
 
   void MaybeMutate() {
     if (rnd->Next() >=
-        std::numeric_limits<uint64_t>::max() * mutation_probability) {
+        static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+            mutation_probability) {
       return;
     }
     do {
@@ -126,8 +128,9 @@ struct StressTestIterator : public InternalIterator {
       if (data->hidden.empty()) {
         hide_probability = 1;
       }
-      bool do_hide =
-          rnd->Next() < std::numeric_limits<uint64_t>::max() * hide_probability;
+      bool do_hide = rnd->Next() <
+                     static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+                         hide_probability;
       if (do_hide) {
         // Hide a random entry.
         size_t idx = rnd->Next() % data->entries.size();
@@ -508,9 +511,9 @@ TEST_F(DBIteratorStressTest, StressTest) {
                       target_hidden_fraction;
                   internal_iter->trace = trace;
                   db_iter.reset(NewDBIterator(
-                      env_, ropt, ImmutableCFOptions(options),
+                      env_, ropt, ImmutableOptions(options),
                       MutableCFOptions(options), BytewiseComparator(),
-                      internal_iter, sequence,
+                      internal_iter, nullptr /* version */, sequence,
                       options.max_sequential_skip_in_iterations,
                       nullptr /*read_callback*/));
                 }
@@ -645,7 +648,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
             << "\n  mutated on the fly: " << num_recently_removed << std::endl;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

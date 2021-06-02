@@ -5,12 +5,27 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Base class for all Env implementations in RocksDB.
  */
 public abstract class Env extends RocksObject {
-  public static final int FLUSH_POOL = 0;
-  public static final int COMPACTION_POOL = 1;
+
+  static {
+    RocksDB.loadLibrary();
+  }
+
+  private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
+  static {
+    /**
+     * The Ownership of the Default Env belongs to C++
+     * and so we disown the native handle here so that
+     * we cannot accidentally free it from Java.
+     */
+    DEFAULT_ENV.disOwnNativeHandle();
+  }
 
   /**
    * <p>Returns the default environment suitable for the current operating
@@ -18,13 +33,13 @@ public abstract class Env extends RocksObject {
    *
    * <p>The result of {@code getDefault()} is a singleton whose ownership
    * belongs to rocksdb c++.  As a result, the returned RocksEnv will not
-   * have the ownership of its c++ resource, and calling its dispose()
+   * have the ownership of its c++ resource, and calling its dispose()/close()
    * will be no-op.</p>
    *
    * @return the default {@link org.rocksdb.RocksEnv} instance.
    */
   public static Env getDefault() {
-    return default_env_;
+    return DEFAULT_ENV;
   }
 
   /**
@@ -32,27 +47,38 @@ public abstract class Env extends RocksObject {
    * for this environment.</p>
    * <p>Default number: 1</p>
    *
-   * @param num the number of threads
+   * @param number the number of threads
    *
    * @return current {@link RocksEnv} instance.
    */
-  public Env setBackgroundThreads(final int num) {
-    return setBackgroundThreads(num, FLUSH_POOL);
+  public Env setBackgroundThreads(final int number) {
+    return setBackgroundThreads(number, Priority.LOW);
+  }
+
+  /**
+   * <p>Gets the number of background worker threads of the pool
+   * for this environment.</p>
+   *
+   * @param priority the priority id of a specified thread pool.
+   *
+   * @return the number of threads.
+   */
+  public int getBackgroundThreads(final Priority priority) {
+    return getBackgroundThreads(nativeHandle_, priority.getValue());
   }
 
   /**
    * <p>Sets the number of background worker threads of the specified thread
    * pool for this environment.</p>
    *
-   * @param num the number of threads
-   * @param poolID the id to specified a thread pool.  Should be either
-   *     FLUSH_POOL or COMPACTION_POOL.
+   * @param number the number of threads
+   * @param priority the priority id of a specified thread pool.
    *
    * <p>Default number: 1</p>
    * @return current {@link RocksEnv} instance.
    */
-  public Env setBackgroundThreads(final int num, final int poolID) {
-    setBackgroundThreads(nativeHandle_, num, poolID);
+  public Env setBackgroundThreads(final int number, final Priority priority) {
+    setBackgroundThreads(nativeHandle_, number, priority.getValue());
     return this;
   }
 
@@ -60,33 +86,82 @@ public abstract class Env extends RocksObject {
    * <p>Returns the length of the queue associated with the specified
    * thread pool.</p>
    *
-   * @param poolID the id to specified a thread pool.  Should be either
-   *     FLUSH_POOL or COMPACTION_POOL.
+   * @param priority the priority id of a specified thread pool.
    *
    * @return the thread pool queue length.
    */
-  public int getThreadPoolQueueLen(final int poolID) {
-    return getThreadPoolQueueLen(nativeHandle_, poolID);
-  }
-
-
-  protected Env(final long nativeHandle) {
-    super(nativeHandle);
-  }
-
-  static {
-    default_env_ = new RocksEnv(getDefaultEnvInternal());
+  public int getThreadPoolQueueLen(final Priority priority) {
+    return getThreadPoolQueueLen(nativeHandle_, priority.getValue());
   }
 
   /**
-   * <p>The static default Env. The ownership of its native handle
-   * belongs to rocksdb c++ and is not able to be released on the Java
-   * side.</p>
+   * Enlarge number of background worker threads of a specific thread pool
+   * for this environment if it is smaller than specified. 'LOW' is the default
+   * pool.
+   *
+   * @param number the number of threads.
+   * @param priority the priority id of a specified thread pool.
+   *
+   * @return current {@link RocksEnv} instance.
    */
-  static Env default_env_;
+  public Env incBackgroundThreadsIfNeeded(final int number,
+    final Priority priority) {
+    incBackgroundThreadsIfNeeded(nativeHandle_, number, priority.getValue());
+    return this;
+  }
+
+  /**
+   * Lower IO priority for threads from the specified pool.
+   *
+   * @param priority the priority id of a specified thread pool.
+   *
+   * @return current {@link RocksEnv} instance.
+   */
+  public Env lowerThreadPoolIOPriority(final Priority priority) {
+    lowerThreadPoolIOPriority(nativeHandle_, priority.getValue());
+    return this;
+  }
+
+  /**
+   * Lower CPU priority for threads from the specified pool.
+   *
+   * @param priority the priority id of a specified thread pool.
+   *
+   * @return current {@link RocksEnv} instance.
+   */
+  public Env lowerThreadPoolCPUPriority(final Priority priority) {
+    lowerThreadPoolCPUPriority(nativeHandle_, priority.getValue());
+    return this;
+  }
+
+  /**
+   * Returns the status of all threads that belong to the current Env.
+   *
+   * @return the status of all threads belong to this env.
+   *
+   * @throws RocksDBException if the thread list cannot be acquired.
+   */
+  public List<ThreadStatus> getThreadList() throws RocksDBException {
+    return Arrays.asList(getThreadList(nativeHandle_));
+  }
+
+  Env(final long nativeHandle) {
+    super(nativeHandle);
+  }
 
   private static native long getDefaultEnvInternal();
   private native void setBackgroundThreads(
-      long handle, int num, int priority);
-  private native int getThreadPoolQueueLen(long handle, int poolID);
+      final long handle, final int number, final byte priority);
+  private native int getBackgroundThreads(final long handle,
+    final byte priority);
+  private native int getThreadPoolQueueLen(final long handle,
+      final byte priority);
+  private native void incBackgroundThreadsIfNeeded(final long handle,
+      final int number, final byte priority);
+  private native void lowerThreadPoolIOPriority(final long handle,
+      final byte priority);
+  private native void lowerThreadPoolCPUPriority(final long handle,
+      final byte priority);
+  private native ThreadStatus[] getThreadList(final long handle)
+      throws RocksDBException;
 }

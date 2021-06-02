@@ -14,8 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class IngestExternalFileOptionsTest {
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource
-      = new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE
+      = new RocksNativeLibraryResource();
 
   public static final Random rand =
       PlatformRandomHelper.getPlatformSpecificRandomFactory();
@@ -82,6 +82,26 @@ public class IngestExternalFileOptionsTest {
       final boolean allowBlockingFlush = rand.nextBoolean();
       options.setAllowBlockingFlush(allowBlockingFlush);
       assertThat(options.allowBlockingFlush()).isEqualTo(allowBlockingFlush);
+    }
+  }
+
+  @Test
+  public void ingestBehind() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.ingestBehind()).isFalse();
+      options.setIngestBehind(true);
+      assertThat(options.ingestBehind()).isTrue();
+    }
+  }
+
+  @Test
+  public void writeGlobalSeqno() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.writeGlobalSeqno()).isTrue();
+      options.setWriteGlobalSeqno(false);
+      assertThat(options.writeGlobalSeqno()).isFalse();
     }
   }
 }

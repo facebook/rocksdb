@@ -8,10 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <random>
 #include <stdint.h>
+#include <algorithm>
+#include <random>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -63,7 +66,18 @@ class Random {
 
   // Randomly returns true ~"1/n" of the time, and false otherwise.
   // REQUIRES: n > 0
-  bool OneIn(int n) { return (Next() % n) == 0; }
+  bool OneIn(int n) { return Uniform(n) == 0; }
+
+  // "Optional" one-in-n, where 0 or negative always returns false
+  // (may or may not consume a random value)
+  bool OneInOpt(int n) { return n > 0 && OneIn(n); }
+
+  // Returns random bool that is true for the given percentage of
+  // calls on average. Zero or less is always false and 100 or more
+  // is always true (may or may not consume a random value)
+  bool PercentTrue(int percentage) {
+    return static_cast<int>(Uniform(100)) < percentage;
+  }
 
   // Skewed: pick "base" uniformly from range [0,max_log] and then
   // return "base" random bits.  The effect is to pick a number in the
@@ -72,12 +86,65 @@ class Random {
     return Uniform(1 << Uniform(max_log + 1));
   }
 
+  // Returns a random string of length "len"
+  std::string RandomString(int len);
+
+  // Generates a random string of len bytes using human-readable characters
+  std::string HumanReadableString(int len);
+
+  // Generates a random binary data
+  std::string RandomBinaryString(int len);
+
   // Returns a Random instance for use by the current thread without
   // additional locking
   static Random* GetTLSInstance();
 };
 
-// A simple 64bit random number generator based on std::mt19937_64
+// A good 32-bit random number generator based on std::mt19937.
+// This exists in part to avoid compiler variance in warning about coercing
+// uint_fast32_t from mt19937 to uint32_t.
+class Random32 {
+ private:
+  std::mt19937 generator_;
+
+ public:
+  explicit Random32(uint32_t s) : generator_(s) {}
+
+  // Generates the next random number
+  uint32_t Next() { return static_cast<uint32_t>(generator_()); }
+
+  // Returns a uniformly distributed value in the range [0..n-1]
+  // REQUIRES: n > 0
+  uint32_t Uniform(uint32_t n) {
+    return static_cast<uint32_t>(
+        std::uniform_int_distribution<std::mt19937::result_type>(
+            0, n - 1)(generator_));
+  }
+
+  // Returns an *almost* uniformly distributed value in the range [0..n-1].
+  // Much faster than Uniform().
+  // REQUIRES: n > 0
+  uint32_t Uniformish(uint32_t n) {
+    // fastrange (without the header)
+    return static_cast<uint32_t>((uint64_t(generator_()) * uint64_t(n)) >> 32);
+  }
+
+  // Randomly returns true ~"1/n" of the time, and false otherwise.
+  // REQUIRES: n > 0
+  bool OneIn(uint32_t n) { return Uniform(n) == 0; }
+
+  // Skewed: pick "base" uniformly from range [0,max_log] and then
+  // return "base" random bits.  The effect is to pick a number in the
+  // range [0,2^max_log-1] with exponential bias towards smaller numbers.
+  uint32_t Skewed(int max_log) {
+    return Uniform(uint32_t{1} << Uniform(max_log + 1));
+  }
+
+  // Reset the seed of the generator to the given value
+  void Seed(uint32_t new_seed) { generator_.seed(new_seed); }
+};
+
+// A good 64-bit random number generator based on std::mt19937_64
 class Random64 {
  private:
   std::mt19937_64 generator_;
@@ -106,4 +173,17 @@ class Random64 {
   }
 };
 
-}  // namespace rocksdb
+// A seeded replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last, uint32_t seed) {
+  std::mt19937 rng(seed);
+  std::shuffle(first, last, rng);
+}
+
+// A replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last) {
+  RandomShuffle(first, last, std::random_device{}());
+}
+
+}  // namespace ROCKSDB_NAMESPACE

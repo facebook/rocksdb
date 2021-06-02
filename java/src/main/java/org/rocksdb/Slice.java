@@ -55,7 +55,8 @@ public class Slice extends AbstractSlice<byte[]> {
    * Slice instances using a handle. </p>
    *
    * @param nativeHandle address of native instance.
-   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   * @param owningNativeHandle true if the Java side owns the memory pointed to
+   *     by this reference, false if ownership belongs to the C++ side
    */
   Slice(final long nativeHandle, final boolean owningNativeHandle) {
     super();

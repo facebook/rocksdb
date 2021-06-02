@@ -10,25 +10,21 @@
 #pragma once
 #include <stdint.h>
 #include <string>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
+#include "file/file_prefetch_buffer.h"
+#include "file/random_access_file_reader.h"
+
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 
+#include "memory/memory_allocator.h"
 #include "options/cf_options.h"
+#include "port/malloc.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
-#include "util/file_reader_writer.h"
-#include "util/memory_allocator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFile;
 struct ReadOptions;
@@ -42,6 +38,8 @@ const int kMagicNumberLengthByte = 8;
 // block or a meta block.
 class BlockHandle {
  public:
+  // Creates a block handle with special values indicating "uninitialized,"
+  // distinct from the "null" block handle.
   BlockHandle();
   BlockHandle(uint64_t offset, uint64_t size);
 
@@ -69,6 +67,13 @@ class BlockHandle {
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
 
+  inline bool operator==(const BlockHandle& rhs) const {
+    return offset_ == rhs.offset_ && size_ == rhs.size_;
+  }
+  inline bool operator!=(const BlockHandle& rhs) const {
+    return !(*this == rhs);
+  }
+
  private:
   uint64_t offset_;
   uint64_t size_;
@@ -76,23 +81,44 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
-inline uint32_t GetCompressFormatForVersion(
-    CompressionType compression_type, uint32_t version) {
-#ifdef NDEBUG
-  (void)compression_type;
-#endif
-  // snappy is not versioned
-  assert(compression_type != kSnappyCompression &&
-         compression_type != kXpressCompression &&
-         compression_type != kNoCompression);
-  // As of version 2, we encode compressed block with
+// Value in block-based table file index.
+//
+// The index entry for block n is: y -> h, [x],
+// where: y is some key between the last key of block n (inclusive) and the
+// first key of block n+1 (exclusive); h is BlockHandle pointing to block n;
+// x, if present, is the first key of block n (unshortened).
+// This struct represents the "h, [x]" part.
+struct IndexValue {
+  BlockHandle handle;
+  // Empty means unknown.
+  Slice first_internal_key;
+
+  IndexValue() = default;
+  IndexValue(BlockHandle _handle, Slice _first_internal_key)
+      : handle(_handle), first_internal_key(_first_internal_key) {}
+
+  // have_first_key indicates whether the `first_internal_key` is used.
+  // If previous_handle is not null, delta encoding is used;
+  // in this case, the two handles must point to consecutive blocks:
+  // handle.offset() ==
+  //     previous_handle->offset() + previous_handle->size() + kBlockTrailerSize
+  void EncodeTo(std::string* dst, bool have_first_key,
+                const BlockHandle* previous_handle) const;
+  Status DecodeFrom(Slice* input, bool have_first_key,
+                    const BlockHandle* previous_handle);
+
+  std::string ToString(bool hex, bool have_first_key) const;
+};
+
+inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
+  // As of format_version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
   // DO NOT CHANGE THIS FUNCTION, it affects disk format
-  return version >= 2 ? 2 : 1;
+  return format_version >= 2 ? 2 : 1;
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 4;
+  return version <= 5;
 }
 
 // Footer encapsulates the fixed information stored at the tail
@@ -181,21 +207,30 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
-Status ReadFooterFromFile(RandomAccessFileReader* file,
+Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
-// 1-byte type + 32-bit crc
+// 1-byte compression type + 32-bit checksum
 static const size_t kBlockTrailerSize = 5;
+
+// Make block size calculation for IO less error prone
+inline uint64_t block_size(const BlockHandle& handle) {
+  return handle.size() + kBlockTrailerSize;
+}
 
 inline CompressionType get_block_compression_type(const char* block_data,
                                                   size_t block_size) {
   return static_cast<CompressionType>(block_data[block_size]);
 }
 
+// Represents the contents of a block read from an SST file. Depending on how
+// it's created, it may or may not own the actual block bytes. As an example,
+// BlockContents objects representing data read from mmapped files only point
+// into the mmapped region.
 struct BlockContents {
-  Slice data;     // Actual contents of data
+  Slice data;  // Actual contents of data
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG
@@ -206,16 +241,20 @@ struct BlockContents {
 
   BlockContents() {}
 
+  // Does not take ownership of the underlying data bytes.
   BlockContents(const Slice& _data) : data(_data) {}
 
+  // Takes ownership of the underlying data bytes.
   BlockContents(CacheAllocationPtr&& _data, size_t _size)
       : data(_data.get(), _size), allocation(std::move(_data)) {}
 
+  // Takes ownership of the underlying data bytes.
   BlockContents(std::unique_ptr<char[]>&& _data, size_t _size)
       : data(_data.get(), _size) {
     allocation.reset(_data.release());
   }
 
+  // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const { return allocation.get() != nullptr; }
 
   // It's the caller's responsibility to make sure that this is
@@ -266,7 +305,7 @@ struct BlockContents {
 extern Status ReadBlockContents(
     RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
     const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableCFOptions& ioptions,
+    BlockContents* contents, const ImmutableOptions& ioptions,
     bool do_uncompress = true, const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 
@@ -281,7 +320,7 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
                                       const char* data, size_t n,
                                       BlockContents* contents,
                                       uint32_t compress_format_version,
-                                      const ImmutableCFOptions& ioptions,
+                                      const ImmutableOptions& ioptions,
                                       MemoryAllocator* allocator = nullptr);
 
 // This is an extension to UncompressBlockContents that accepts
@@ -290,7 +329,10 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
 extern Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& info, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr);
+
+// Replace db_host_id contents with the real hostname if necessary
+extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 
 // Implementation details follow.  Clients should ignore,
 
@@ -303,4 +345,4 @@ inline BlockHandle::BlockHandle()
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

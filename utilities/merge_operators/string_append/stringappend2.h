@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 /**
  * A TEST MergeOperator for rocksdb that implements string append.
  * It is built using the MergeOperator interface rather than the simpler
@@ -17,7 +18,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class StringAppendTESTOperator : public MergeOperator {
  public:
@@ -45,4 +46,4 @@ class StringAppendTESTOperator : public MergeOperator {
 
 };
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

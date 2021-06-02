@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 set -e
 
@@ -377,7 +378,7 @@ function send_to_ods {
     echo >&2 "ERROR: Key $key doesn't have a value."
     return
   fi
-  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build$git_br&key=$key&value=$value" \
+  curl --silent "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build$git_br&key=$key&value=$value" \
     --connect-timeout 60
 }
 

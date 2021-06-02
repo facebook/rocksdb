@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 /**
  * Enum CompactionStyle
  *
@@ -21,6 +23,9 @@ package org.rocksdb;
  *   compaction strategy. It is suited for keeping event log data with
  *   very low overhead (query log for example). It periodically deletes
  *   the old data, so it's basically a TTL compaction style.</li>
+ *   <li><strong>NONE</strong> - Disable background compaction.
+ *   Compaction jobs are submitted
+ *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)} ()}.</li>
  * </ol>
  *
  * @see <a
@@ -31,22 +36,45 @@ package org.rocksdb;
  * FIFO Compaction</a>
  */
 public enum CompactionStyle {
-  LEVEL((byte) 0),
-  UNIVERSAL((byte) 1),
-  FIFO((byte) 2);
+  LEVEL((byte) 0x0),
+  UNIVERSAL((byte) 0x1),
+  FIFO((byte) 0x2),
+  NONE((byte) 0x3);
 
-  private final byte value_;
+  private final byte value;
 
-  private CompactionStyle(byte value) {
-    value_ = value;
+  CompactionStyle(final byte value) {
+    this.value = value;
   }
 
   /**
-   * Returns the byte value of the enumerations value
+   * Get the internal representation value.
    *
-   * @return byte representation
+   * @return the internal representation value.
    */
+  //TODO(AR) should be made package-private
   public byte getValue() {
-    return value_;
+    return value;
+  }
+
+  /**
+   * Get the Compaction style from the internal representation value.
+   *
+   * @param value the internal representation value.
+   *
+   * @return the Compaction style
+   *
+   * @throws IllegalArgumentException if the value does not match a
+   *     CompactionStyle
+   */
+  static CompactionStyle fromValue(final byte value)
+      throws IllegalArgumentException {
+    for (final CompactionStyle compactionStyle : CompactionStyle.values()) {
+      if (compactionStyle.value == value) {
+        return compactionStyle;
+      }
+    }
+    throw new IllegalArgumentException("Unknown value for CompactionStyle: "
+        + value);
   }
 }

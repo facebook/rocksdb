@@ -9,10 +9,10 @@
 #include "db/column_family.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 WriteThread::WriteThread(const ImmutableDBOptions& db_options)
     : max_yield_usec_(db_options.enable_write_thread_adaptive_yield
@@ -22,6 +22,8 @@ WriteThread::WriteThread(const ImmutableDBOptions& db_options)
       allow_concurrent_memtable_write_(
           db_options.allow_concurrent_memtable_write),
       enable_pipelined_write_(db_options.enable_pipelined_write),
+      max_write_batch_group_size_bytes(
+          db_options.max_write_batch_group_size_bytes),
       newest_writer_(nullptr),
       newest_memtable_writer_(nullptr),
       last_sequence_(0),
@@ -59,7 +61,7 @@ uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
 
 uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
                                 AdaptationContext* ctx) {
-  uint8_t state;
+  uint8_t state = 0;
 
   // 1. Busy loop using "pause" for 1 micro sec
   // 2. Else SOMETIMES busy loop using "yield" for 100 micro sec (default)
@@ -206,6 +208,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 }
 
 void WriteThread::SetState(Writer* w, uint8_t new_state) {
+  assert(w);
   auto state = w->state.load(std::memory_order_acquire);
   if (state == STATE_LOCKED_WAITING ||
       !w->state.compare_exchange_strong(state, new_state)) {
@@ -238,6 +241,7 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
         MutexLock lock(&stall_mu_);
         writers = newest_writer->load(std::memory_order_relaxed);
         if (writers == &write_stall_dummy_) {
+          TEST_SYNC_POINT_CALLBACK("WriteThread::WriteStall::Wait", w);
           stall_cv_.Wait();
           // Load newest_writers_ again since it may have changed
           writers = newest_writer->load(std::memory_order_relaxed);
@@ -342,6 +346,15 @@ void WriteThread::BeginWriteStall() {
       prev->link_older = w->link_older;
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
+      // Only update `link_newer` if it's already set.
+      // `CreateMissingNewerLinks()` will update the nullptr `link_newer` later,
+      // which assumes the the first non-nullptr `link_newer` is the last
+      // nullptr link in the writer list.
+      // If `link_newer` is set here, `CreateMissingNewerLinks()` may stop
+      // updating the whole list when it sees the first non nullptr link.
+      if (prev->link_older && prev->link_older->link_newer) {
+        prev->link_older->link_newer = prev;
+      }
       w = prev->link_older;
     } else {
       prev = w;
@@ -353,7 +366,11 @@ void WriteThread::BeginWriteStall() {
 void WriteThread::EndWriteStall() {
   MutexLock lock(&stall_mu_);
 
+  // Unlink write_stall_dummy_ from the write queue. This will unblock
+  // pending write threads to enqueue themselves
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
+  assert(write_stall_dummy_.link_older != nullptr);
+  write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
   newest_writer_.exchange(write_stall_dummy_.link_older);
 
   // Wake up writers
@@ -406,9 +423,10 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
   // down the small write too much.
-  size_t max_size = 1 << 20;
-  if (size <= (128 << 10)) {
-    max_size = size + (128 << 10);
+  size_t max_size = max_write_batch_group_size_bytes;
+  const uint64_t min_batch_size_bytes = max_write_batch_group_size_bytes / 8;
+  if (size <= min_batch_size_bytes) {
+    max_size = size + min_batch_size_bytes;
   }
 
   leader->write_group = write_group;
@@ -428,6 +446,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
   while (w != newest_writer) {
+    assert(w->link_newer);
     w = w->link_newer;
 
     if (w->sync && !leader->sync) {
@@ -441,9 +460,14 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
       break;
     }
 
-    if (!w->disable_wal && leader->disable_wal) {
-      // Do not include a write that needs WAL into a batch that has
+    if (w->disable_wal != leader->disable_wal) {
+      // Do not mix writes that enable WAL with the ones whose
       // WAL disabled.
+      break;
+    }
+
+    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
+      // Do not mix writes with different levels of integrity protection.
       break;
     }
 
@@ -454,7 +478,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     }
 
     if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // dont batch writes that don't want to be batched
+      // don't batch writes that don't want to be batched
       break;
     }
 
@@ -485,9 +509,10 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
   // down the small write too much.
-  size_t max_size = 1 << 20;
-  if (size <= (128 << 10)) {
-    max_size = size + (128 << 10);
+  size_t max_size = max_write_batch_group_size_bytes;
+  const uint64_t min_batch_size_bytes = max_write_batch_group_size_bytes / 8;
+  if (size <= min_batch_size_bytes) {
+    max_size = size + min_batch_size_bytes;
   }
 
   leader->write_group = write_group;
@@ -501,6 +526,7 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
 
     Writer* w = leader;
     while (w != newest_writer) {
+      assert(w->link_newer);
       w = w->link_newer;
 
       if (w->batch == nullptr) {
@@ -557,6 +583,7 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
     if (w == last_writer) {
       break;
     }
+    assert(next);
     w = next;
   }
   // Note that leader has to exit last, since it owns the write group.
@@ -588,6 +615,8 @@ bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
   }
   // else we're the last parallel worker and should perform exit duties.
   w->status = write_group->status;
+  // Callers of this function must ensure w->status is checked.
+  write_group->status.PermitUncheckedError();
   return true;
 }
 
@@ -604,10 +633,16 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
 
 static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
 void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
-                                         Status status) {
+                                         Status& status) {
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
+
+  // If status is non-ok already, then write_group.status won't have the chance
+  // of being propagated to caller.
+  if (!status.ok()) {
+    write_group.status.PermitUncheckedError();
+  }
 
   // Propagate memtable write error to the whole group.
   if (status.ok() && !write_group.status.ok()) {
@@ -710,6 +745,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // leader now
 
     while (last_writer != leader) {
+      assert(last_writer);
       last_writer->status = status;
       // we need to read link_older before calling SetState, because as soon
       // as it is marked committed the other thread's Await may return and
@@ -763,4 +799,4 @@ void WriteThread::WaitForMemTableWriters() {
   newest_memtable_writer_.store(nullptr);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

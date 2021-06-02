@@ -12,11 +12,11 @@
 #include <functional>
 #include <limits>
 #include <vector>
+#include "memory/arena.h"
 #include "port/port.h"
-#include "util/arena.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Comparator;
 struct FileMetaData;
@@ -60,7 +60,7 @@ class FileIndexer {
 
   enum {
     // MSVC version 1800 still does not have constexpr for ::max()
-    kLevelMaxIndex = rocksdb::port::kMaxInt32
+    kLevelMaxIndex = ROCKSDB_NAMESPACE::port::kMaxInt32
   };
 
  private:
@@ -139,4 +139,4 @@ class FileIndexer {
   int32_t* level_rb_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

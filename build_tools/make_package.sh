@@ -1,5 +1,6 @@
 # shellcheck disable=SC1113
 #/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 set -e
 
@@ -102,31 +103,26 @@ function main() {
   gem_install fpm
 
   make static_lib
-  make install INSTALL_PATH=package
-
-  cd package
-
-  LIB_DIR=lib
-  if [[ -z "$ARCH" ]]; then
-      ARCH=$(getconf LONG_BIT)
+  LIBDIR=/usr/lib
+  if [[ $FPM_OUTPUT = "rpm" ]]; then
+      LIBDIR=$(rpm --eval '%_libdir')
   fi
-  if [[ ("$FPM_OUTPUT" = "rpm") && ($ARCH -eq 64) ]]; then
-      mv lib lib64
-      LIB_DIR=lib64
-  fi
+
+  rm -rf package
+  make install DESTDIR=package PREFIX=/usr LIBDIR=$LIBDIR
 
   fpm \
     -s dir \
     -t $FPM_OUTPUT \
+    -C package \
     -n rocksdb \
     -v $1 \
-    --prefix /usr \
     --url http://rocksdb.org/ \
     -m rocksdb@fb.com \
     --license BSD \
     --vendor Facebook \
     --description "RocksDB is an embeddable persistent key-value store for fast storage." \
-    include $LIB_DIR
+    usr
 }
 
 # shellcheck disable=SC2068

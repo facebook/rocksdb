@@ -8,6 +8,17 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.DELETE;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.DELETE_RANGE;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.LOG;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.MERGE;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.PUT;
+import static org.rocksdb.util.CapturingWriteBatchHandler.Action.SINGLE_DELETE;
+
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -16,18 +27,14 @@ import org.rocksdb.util.CapturingWriteBatchHandler;
 import org.rocksdb.util.CapturingWriteBatchHandler.Event;
 import org.rocksdb.util.WriteBatchGetter;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.rocksdb.util.CapturingWriteBatchHandler.Action.*;
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 /**
  * This class mimics the db/write_batch_test.cc
  * in the c++ rocksdb library.
  */
 public class WriteBatchTest {
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -74,6 +81,38 @@ public class WriteBatchTest {
         assertThat(handler.getEvents().get(5)).isEqualTo(new Event(DELETE_RANGE, baz, foo));
         assertThat(handler.getEvents().get(6)).isEqualTo(new Event(LOG, null, hello));
       }
+    }
+  }
+
+  @Test
+  public void multipleBatchOperationsDirect()
+      throws UnsupportedEncodingException, RocksDBException {
+    try (WriteBatch batch = new WriteBatch()) {
+      ByteBuffer key = ByteBuffer.allocateDirect(16);
+      ByteBuffer value = ByteBuffer.allocateDirect(16);
+      key.put("foo".getBytes("US-ASCII")).flip();
+      value.put("bar".getBytes("US-ASCII")).flip();
+      batch.put(key, value);
+      assertThat(key.position()).isEqualTo(3);
+      assertThat(key.limit()).isEqualTo(3);
+      assertThat(value.position()).isEqualTo(3);
+      assertThat(value.limit()).isEqualTo(3);
+
+      key.clear();
+      key.put("box".getBytes("US-ASCII")).flip();
+      batch.remove(key);
+      assertThat(key.position()).isEqualTo(3);
+      assertThat(key.limit()).isEqualTo(3);
+
+      batch.put("baz".getBytes("US-ASCII"), "boo".getBytes("US-ASCII"));
+
+      WriteBatchTestInternalHelper.setSequence(batch, 100);
+      assertThat(WriteBatchTestInternalHelper.sequence(batch)).isNotNull().isEqualTo(100);
+      assertThat(batch.count()).isEqualTo(3);
+      assertThat(new String(getContents(batch), "US-ASCII"))
+          .isEqualTo("Put(baz, boo)@102"
+              + "Delete(box)@101"
+              + "Put(foo, bar)@100");
     }
   }
 
@@ -180,6 +219,7 @@ public class WriteBatchTest {
   @Test
   public void deleteRange() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatch batch = new WriteBatch();
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
@@ -190,9 +230,8 @@ public class WriteBatchTest {
       assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
       assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
 
-      WriteBatch batch = new WriteBatch();
       batch.deleteRange("key2".getBytes(), "key4".getBytes());
-      db.write(new WriteOptions(), batch);
+      db.write(wOpt, batch);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
       assertThat(db.get("key2".getBytes())).isNull();
@@ -399,7 +438,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void hasEndrepareRange() throws RocksDBException {
+  public void hasEndPrepareRange() throws RocksDBException {
     try (final WriteBatch batch = new WriteBatch()) {
       assertThat(batch.hasEndPrepare()).isFalse();
     }

@@ -9,7 +9,7 @@
 
 #include <memory>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // MemoryAllocator is an interface that a client can implement to supply custom
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
@@ -45,33 +45,33 @@ struct JemallocAllocatorOptions {
   bool limit_tcache_size = false;
 
   // Lower bound of allocation size to use tcache, if limit_tcache_size=true.
-  // When used with block cache, it is recommneded to set it to block_size/4.
+  // When used with block cache, it is recommended to set it to block_size/4.
   size_t tcache_size_lower_bound = 1024;
 
   // Upper bound of allocation size to use tcache, if limit_tcache_size=true.
-  // When used with block cache, it is recommneded to set it to block_size.
+  // When used with block cache, it is recommended to set it to block_size.
   size_t tcache_size_upper_bound = 16 * 1024;
 };
 
-// Generate memory allocators which allocates through Jemalloc and utilize
-// MADV_DONTDUMP through madvice to exclude cache items from core dump.
+// Generate memory allocator which allocates through Jemalloc and utilize
+// MADV_DONTDUMP through madvise to exclude cache items from core dump.
 // Applications can use the allocator with block cache to exclude block cache
 // usage from core dump.
 //
 // Implementation details:
-// The JemallocNodumpAllocator creates a delicated jemalloc arena, and all
-// allocations of the JemallocNodumpAllocator is through the same arena.
-// The memory allocator hooks memory allocation of the arena, and call
-// madvice() with MADV_DONTDUMP flag to exclude the piece of memory from
-// core dump. Side benefit of using single arena would be reduce of jemalloc
-// metadata for some workload.
+// The JemallocNodumpAllocator creates a dedicated jemalloc arena, and all
+// allocations of the JemallocNodumpAllocator are through the same arena.
+// The memory allocator hooks memory allocation of the arena, and calls
+// madvise() with MADV_DONTDUMP flag to exclude the piece of memory from
+// core dump. Side benefit of using single arena would be reduction of jemalloc
+// metadata for some workloads.
 //
 // To mitigate mutex contention for using one single arena, jemalloc tcache
 // (thread-local cache) is enabled to cache unused allocations for future use.
-// The tcache normally incur 0.5M extra memory usage per-thread. The usage
-// can be reduce by limitting allocation sizes to cache.
+// The tcache normally incurs 0.5M extra memory usage per-thread. The usage
+// can be reduced by limiting allocation sizes to cache.
 extern Status NewJemallocNodumpAllocator(
     JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

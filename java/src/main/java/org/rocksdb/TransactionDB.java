@@ -83,8 +83,8 @@ public class TransactionDB extends RocksDB
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = open(dbOptions.nativeHandle_,
@@ -102,6 +102,53 @@ public class TransactionDB extends RocksDB
     }
 
     return tdb;
+  }
+
+  /**
+   * This is similar to {@link #close()} except that it
+   * throws an exception if any error occurs.
+   *
+   * This will not fsync the WAL files.
+   * If syncing is required, the caller must first call {@link #syncWal()}
+   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
+   * with {@link WriteOptions#setSync(boolean)} set to true.
+   *
+   * See also {@link #close()}.
+   *
+   * @throws RocksDBException if an error occurs whilst closing.
+   */
+  public void closeE() throws RocksDBException {
+    if (owningHandle_.compareAndSet(true, false)) {
+      try {
+        closeDatabase(nativeHandle_);
+      } finally {
+        disposeInternal();
+      }
+    }
+  }
+
+  /**
+   * This is similar to {@link #closeE()} except that it
+   * silently ignores any errors.
+   *
+   * This will not fsync the WAL files.
+   * If syncing is required, the caller must first call {@link #syncWal()}
+   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
+   * with {@link WriteOptions#setSync(boolean)} set to true.
+   *
+   * See also {@link #close()}.
+   */
+  @Override
+  public void close() {
+    if (owningHandle_.compareAndSet(true, false)) {
+      try {
+        closeDatabase(nativeHandle_);
+      } catch (final RocksDBException e) {
+        // silently ignore the error report
+      } finally {
+        disposeInternal();
+      }
+    }
   }
 
   @Override
@@ -327,12 +374,16 @@ public class TransactionDB extends RocksDB
     this.transactionDbOptions_ = transactionDbOptions;
   }
 
+  @Override protected final native void disposeInternal(final long handle);
+
   private static native long open(final long optionsHandle,
       final long transactionDbOptionsHandle, final String path)
       throws RocksDBException;
   private static native long[] open(final long dbOptionsHandle,
       final long transactionDbOptionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
+  private native static void closeDatabase(final long handle)
+      throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,
@@ -350,5 +401,4 @@ public class TransactionDB extends RocksDB
   private native DeadlockPath[] getDeadlockInfoBuffer(final long handle);
   private native void setDeadlockInfoBufferSize(final long handle,
       final int targetSize);
-  @Override protected final native void disposeInternal(final long handle);
 }

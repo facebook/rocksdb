@@ -4,17 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/get_context.h"
+
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
-#include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -38,15 +39,14 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       bool* value_found, MergeContext* merge_context,
-                       SequenceNumber* _max_covering_tombstone_seq, Env* env,
-                       SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob_index)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, std::string* timestamp, bool* value_found,
+    MergeContext* merge_context, bool do_merge,
+    SequenceNumber* _max_covering_tombstone_seq, SystemClock* clock,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -54,20 +54,36 @@ GetContext::GetContext(const Comparator* ucmp,
       state_(init_state),
       user_key_(user_key),
       pinnable_val_(pinnable_val),
+      timestamp_(timestamp),
       value_found_(value_found),
       merge_context_(merge_context),
       max_covering_tombstone_seq_(_max_covering_tombstone_seq),
-      env_(env),
+      clock_(clock),
       seq_(seq),
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
-      is_blob_index_(is_blob_index) {
+      do_merge_(do_merge),
+      is_blob_index_(is_blob_index),
+      tracing_get_id_(tracing_get_id) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
   sample_ = should_sample_file_read();
 }
+
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
+    SystemClock* clock, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
+    bool* is_blob_index, uint64_t tracing_get_id)
+    : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
+                 pinnable_val, nullptr, value_found, merge_context, do_merge,
+                 _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
+                 callback, is_blob_index, tracing_get_id) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -138,6 +154,10 @@ void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_add > 0) {
     RecordTick(statistics_, BLOCK_CACHE_ADD, get_context_stats_.num_cache_add);
   }
+  if (get_context_stats_.num_cache_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_ADD_REDUNDANT,
+               get_context_stats_.num_cache_add_redundant);
+  }
   if (get_context_stats_.num_cache_bytes_write > 0) {
     RecordTick(statistics_, BLOCK_CACHE_BYTES_WRITE,
                get_context_stats_.num_cache_bytes_write);
@@ -145,6 +165,10 @@ void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_index_add > 0) {
     RecordTick(statistics_, BLOCK_CACHE_INDEX_ADD,
                get_context_stats_.num_cache_index_add);
+  }
+  if (get_context_stats_.num_cache_index_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_ADD_REDUNDANT,
+               get_context_stats_.num_cache_index_add_redundant);
   }
   if (get_context_stats_.num_cache_index_bytes_insert > 0) {
     RecordTick(statistics_, BLOCK_CACHE_INDEX_BYTES_INSERT,
@@ -154,6 +178,10 @@ void GetContext::ReportCounters() {
     RecordTick(statistics_, BLOCK_CACHE_DATA_ADD,
                get_context_stats_.num_cache_data_add);
   }
+  if (get_context_stats_.num_cache_data_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_ADD_REDUNDANT,
+               get_context_stats_.num_cache_data_add_redundant);
+  }
   if (get_context_stats_.num_cache_data_bytes_insert > 0) {
     RecordTick(statistics_, BLOCK_CACHE_DATA_BYTES_INSERT,
                get_context_stats_.num_cache_data_bytes_insert);
@@ -162,6 +190,10 @@ void GetContext::ReportCounters() {
     RecordTick(statistics_, BLOCK_CACHE_FILTER_ADD,
                get_context_stats_.num_cache_filter_add);
   }
+  if (get_context_stats_.num_cache_filter_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_ADD_REDUNDANT,
+               get_context_stats_.num_cache_filter_add_redundant);
+  }
   if (get_context_stats_.num_cache_filter_bytes_insert > 0) {
     RecordTick(statistics_, BLOCK_CACHE_FILTER_BYTES_INSERT,
                get_context_stats_.num_cache_filter_bytes_insert);
@@ -169,6 +201,10 @@ void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_compression_dict_add > 0) {
     RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_ADD,
                get_context_stats_.num_cache_compression_dict_add);
+  }
+  if (get_context_stats_.num_cache_compression_dict_add_redundant > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+               get_context_stats_.num_cache_compression_dict_add_redundant);
   }
   if (get_context_stats_.num_cache_compression_dict_bytes_insert > 0) {
     RecordTick(statistics_, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
@@ -182,7 +218,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
-  if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+  if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
     *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
@@ -211,34 +247,56 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
           // Blob value not supported. Stop.
-          state_ = kBlobIndex;
+          state_ = kUnexpectedBlobIndex;
           return false;
         }
         if (kNotFound == state_) {
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            if (LIKELY(value_pinner != nullptr)) {
-              // If the backing resources for the value are provided, pin them
-              pinnable_val_->PinSlice(value, value_pinner);
-            } else {
-              TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf", this);
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              if (LIKELY(value_pinner != nullptr)) {
+                // If the backing resources for the value are provided, pin them
+                pinnable_val_->PinSlice(value, value_pinner);
+              } else {
+                TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
+                                         this);
 
-              // Otherwise copy the value
-              pinnable_val_->PinSelf(value);
+                // Otherwise copy the value
+                pinnable_val_->PinSelf(value);
+              }
             }
+          } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
+            push_operand(value, value_pinner);
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, &value,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, &value,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, clock_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
+          } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
+            push_operand(value, value_pinner);
+          }
+        }
+        if (state_ == kFound) {
+          size_t ts_sz = ucmp_->timestamp_size();
+          if (ts_sz > 0 && timestamp_ != nullptr) {
+            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            timestamp_->assign(ts.data(), ts.size());
           }
         }
         if (is_blob_index_ != nullptr) {
@@ -247,6 +305,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion:
         // TODO(noetzli): Verify correctness once merge of single-deletes
@@ -257,14 +316,18 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, nullptr,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, clock_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
+            // If do_merge_ = false then the current value shouldn't be part of
+            // merge_context_->operand_list
           }
         }
         return false;
@@ -273,24 +336,23 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-            value_pinner != nullptr) {
-          value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-          merge_context_->PushOperand(value, true /*value_pinned*/);
-        } else {
-          merge_context_->PushOperand(value, false);
-        }
-        if (merge_operator_ != nullptr &&
-            merge_operator_->ShouldMerge(merge_context_->GetOperandsDirectionBackward())) {
+        push_operand(value, value_pinner);
+        if (do_merge_ && merge_operator_ != nullptr &&
+            merge_operator_->ShouldMerge(
+                merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, nullptr,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+            // do_merge_ = true this is the case where this function is called
+            // as part of DB Get API hence merge operators should be merged.
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, clock_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
           }
           return false;
@@ -305,6 +367,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
+  if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+      value_pinner != nullptr) {
+    value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
+    merge_context_->PushOperand(value, true /*value_pinned*/);
+  } else {
+    merge_context_->PushOperand(value, false);
+  }
 }
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
@@ -335,4 +407,4 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 #endif  // ROCKSDB_LITE
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

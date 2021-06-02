@@ -11,7 +11,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class HashLinkListRepFactory : public MemTableRepFactory {
  public:
@@ -45,5 +45,5 @@ class HashLinkListRepFactory : public MemTableRepFactory {
   bool if_log_bucket_dist_when_flash_;
 };
 
-}
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # Script to report lite build binary size for latest RocksDB commits.
 # Usage:
 #   ./report_lite_binary_size [num_recent_commits]

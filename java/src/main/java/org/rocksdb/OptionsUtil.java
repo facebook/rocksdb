@@ -59,7 +59,7 @@ public class OptionsUtil {
    * @param cfDescs A list of {@link org.rocksdb.ColumnFamilyDescriptor}'s be
    *     returned.
    * @param ignoreUnknownOptions this flag can be set to true if you want to
-   *     ignore options that are from a newer version of the db, esentially for
+   *     ignore options that are from a newer version of the db, essentially for
    *     forward compatibility.
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -69,6 +69,25 @@ public class OptionsUtil {
       List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions) throws RocksDBException {
     loadLatestOptions(
         dbPath, env.nativeHandle_, dbOptions.nativeHandle_, cfDescs, ignoreUnknownOptions);
+  }
+
+  /**
+   * Similar to LoadLatestOptions, this function constructs the DBOptions
+   * and ColumnFamilyDescriptors based on the specified RocksDB Options file.
+   * See LoadLatestOptions above.
+   *
+   * @param dbPath the path to the RocksDB.
+   * @param configOptions {@link org.rocksdb.ConfigOptions} instance.
+   * @param dbOptions {@link org.rocksdb.DBOptions} instance. This will be
+   *     filled and returned.
+   * @param cfDescs A list of {@link org.rocksdb.ColumnFamilyDescriptor}'s be
+   *     returned.
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public static void loadLatestOptions(ConfigOptions configOptions, String dbPath,
+      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+    loadLatestOptions(configOptions.nativeHandle_, dbPath, dbOptions.nativeHandle_, cfDescs);
   }
 
   /**
@@ -112,6 +131,26 @@ public class OptionsUtil {
   }
 
   /**
+   * Similar to LoadLatestOptions, this function constructs the DBOptions
+   * and ColumnFamilyDescriptors based on the specified RocksDB Options file.
+   * See LoadLatestOptions above.
+   *
+   * @param optionsFileName the RocksDB options file path.
+   * @param configOptions {@link org.rocksdb.ConfigOptions} instance.
+   * @param dbOptions {@link org.rocksdb.DBOptions} instance. This will be
+   *     filled and returned.
+   * @param cfDescs A list of {@link org.rocksdb.ColumnFamilyDescriptor}'s be
+   *     returned.
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public static void loadOptionsFromFile(ConfigOptions configOptions, String optionsFileName,
+      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+    loadOptionsFromFile(
+        configOptions.nativeHandle_, optionsFileName, dbOptions.nativeHandle_, cfDescs);
+  }
+
+  /**
    * Returns the latest options file name under the specified RocksDB path.
    *
    * @param dbPath the path to the RocksDB.
@@ -134,9 +173,13 @@ public class OptionsUtil {
   // native methods
   private native static void loadLatestOptions(String dbPath, long envHandle, long dbOptionsHandle,
       List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions) throws RocksDBException;
+  private native static void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
+      List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
   private native static void loadOptionsFromFile(String optionsFileName, long envHandle,
       long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions)
       throws RocksDBException;
+  private native static void loadOptionsFromFile(long cfgHandle, String optionsFileName,
+      long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
   private native static String getLatestOptionsFileName(String dbPath, long envHandle)
       throws RocksDBException;
 }

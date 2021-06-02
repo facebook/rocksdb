@@ -1,13 +1,12 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 //  Copyright (c) 2017 International Business Machines Corp.
 //  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #define CRC_TABLE
-#include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <strings.h>
 #include "util/crc32c_ppc_constants.h"
@@ -28,7 +27,7 @@ unsigned int __crc32_vpmsum(unsigned int crc, unsigned char const *p,
                             unsigned long len);
 
 static uint32_t crc32_vpmsum(uint32_t crc, unsigned char const *data,
-                             unsigned len) {
+                             size_t len) {
   unsigned int prealign;
   unsigned int tail;
 
@@ -68,7 +67,7 @@ out:
  * does not gracefully handle the case where the data pointer is NULL.  There
  * may be room for performance improvement here.
  */
-uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
+uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, size_t len) {
   unsigned char *buf2;
 
   if (!data) {
@@ -88,7 +87,7 @@ uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
  * ppc systems using power7 or below) in order to compile properly
  * there, even though it won't be called.
  */
-uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
+uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, size_t len) {
   return 0;
 }
 

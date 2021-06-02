@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #ifndef DBWRAPPER_H
 #define DBWRAPPER_H
 
@@ -25,10 +26,11 @@ class DBWrapper : public node::ObjectWrap {
 
     // Helper methods
     static bool HasFamilyNamed(std::string& name, DBWrapper* db);
-    static bool AddToBatch(rocksdb::WriteBatch& batch, bool del,
-        Handle<Array> array);
-    static bool AddToBatch(rocksdb::WriteBatch& batch, bool del,
-        Handle<Array> array, DBWrapper* db_wrapper, std::string cf);
+    static bool AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
+                           Handle<Array> array);
+    static bool AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
+                           Handle<Array> array, DBWrapper* db_wrapper,
+                           std::string cf);
     static Handle<Value> CompactRangeDefault(const v8::Arguments& args);
     static Handle<Value> CompactColumnFamily(const Arguments& args);
     static Handle<Value> CompactOptions(const Arguments& args);
@@ -48,10 +50,10 @@ class DBWrapper : public node::ObjectWrap {
     static Handle<Value> Close(const Arguments& args);
 
     // Internal fields
-    rocksdb::Options options_;
-    rocksdb::Status status_;
-    rocksdb::DB* db_;
-    std::unordered_map<std::string, rocksdb::ColumnFamilyHandle*>
+    ROCKSDB_NAMESPACE::Options options_;
+    ROCKSDB_NAMESPACE::Status status_;
+    ROCKSDB_NAMESPACE::DB* db_;
+    std::unordered_map<std::string, ROCKSDB_NAMESPACE::ColumnFamilyHandle*>
         columnFamilies_;
 };
 

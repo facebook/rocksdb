@@ -15,8 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class WriteOptionsTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   public static final Random rand = PlatformRandomHelper.
           getPlatformSpecificRandomFactory();
@@ -45,6 +45,11 @@ public class WriteOptionsTest {
       assertThat(writeOptions.noSlowdown()).isTrue();
       writeOptions.setNoSlowdown(false);
       assertThat(writeOptions.noSlowdown()).isFalse();
+
+      writeOptions.setLowPri(true);
+      assertThat(writeOptions.lowPri()).isTrue();
+      writeOptions.setLowPri(false);
+      assertThat(writeOptions.lowPri()).isFalse();
     }
   }
 

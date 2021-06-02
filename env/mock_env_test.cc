@@ -1,6 +1,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include "env/mock_env.h"
 
@@ -8,9 +10,9 @@
 #include <string>
 
 #include "rocksdb/env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MockEnvTest : public testing::Test {
  public:
@@ -20,9 +22,7 @@ class MockEnvTest : public testing::Test {
   MockEnvTest()
       : env_(new MockEnv(Env::Default())) {
   }
-  ~MockEnvTest() {
-    delete env_;
-  }
+  ~MockEnvTest() override { delete env_; }
 };
 
 TEST_F(MockEnvTest, Corrupt) {
@@ -77,7 +77,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
   ASSERT_TRUE(delta == 3 || delta == 4);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::CompactionFilterFactory.
+// ROCKSDB_NAMESPACE::CompactionFilterFactory.
 
 #ifndef JAVA_ROCKSJNI_COMPACTION_FILTER_FACTORY_JNICALLBACK_H_
 #define JAVA_ROCKSJNI_COMPACTION_FILTER_FACTORY_JNICALLBACK_H_
@@ -15,7 +15,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksjni/jnicallback.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CompactionFilterFactoryJniCallback : public JniCallback, public CompactionFilterFactory {
  public:
@@ -30,6 +30,6 @@ class CompactionFilterFactoryJniCallback : public JniCallback, public Compaction
     jmethodID m_jcreate_compaction_filter_methodid;
 };
 
-}  //namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_COMPACTION_FILTER_FACTORY_JNICALLBACK_H_

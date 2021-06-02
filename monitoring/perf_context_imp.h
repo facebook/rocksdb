@@ -8,7 +8,7 @@
 #include "rocksdb/perf_context.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 extern PerfContext perf_context;
 #else
@@ -22,12 +22,16 @@ extern thread_local PerfContext perf_context;
 
 #if defined(NPERF_CONTEXT)
 
-#define PERF_TIMER_GUARD(metric)
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
-#define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
 #define PERF_TIMER_START(metric)
+#define PERF_TIMER_GUARD(metric)
+#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)
+#define PERF_CPU_TIMER_GUARD(metric, clock)
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats, \
+                                               ticker_type)
+#define PERF_TIMER_MEASURE(metric)
 #define PERF_COUNTER_ADD(metric, value)
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)
 
 #else
 
@@ -42,14 +46,14 @@ extern thread_local PerfContext perf_context;
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD_WITH_ENV(metric, env)                         \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), env); \
+#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)                       \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), clock); \
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_CPU_TIMER_GUARD(metric, env)              \
+#define PERF_CPU_TIMER_GUARD(metric, clock)            \
   PerfStepTimer perf_step_timer_##metric(              \
-      &(perf_context.metric), env, true,               \
+      &(perf_context.metric), clock, true,             \
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   perf_step_timer_##metric.Start();
 
@@ -90,4 +94,4 @@ extern thread_local PerfContext perf_context;
 
 #endif
 
-}
+}  // namespace ROCKSDB_NAMESPACE

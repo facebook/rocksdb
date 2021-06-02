@@ -13,7 +13,7 @@
 #include "util/mutexlock.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 class BlobDBListener : public EventListener {
@@ -37,10 +37,30 @@ class BlobDBListener : public EventListener {
     blob_db_impl_->UpdateLiveSSTSize();
   }
 
- private:
+ protected:
   BlobDBImpl* blob_db_impl_;
 };
 
+class BlobDBListenerGC : public BlobDBListener {
+ public:
+  explicit BlobDBListenerGC(BlobDBImpl* blob_db_impl)
+      : BlobDBListener(blob_db_impl) {}
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    BlobDBListener::OnFlushCompleted(db, info);
+
+    assert(blob_db_impl_);
+    blob_db_impl_->ProcessFlushJobInfo(info);
+  }
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    BlobDBListener::OnCompactionCompleted(db, info);
+
+    assert(blob_db_impl_);
+    blob_db_impl_->ProcessCompactionJobInfo(info);
+  }
+};
+
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

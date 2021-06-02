@@ -10,24 +10,25 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/file_system.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control their
-// deletion rate.
-// All SstFileManager public functions are thread-safe.
+// SstFileManager is used to track SST and blob files in the DB and control
+// their deletion rate. All SstFileManager public functions are thread-safe.
 // SstFileManager is not extensible.
 class SstFileManager {
  public:
   virtual ~SstFileManager() {}
 
   // Update the maximum allowed space that should be used by RocksDB, if
-  // the total size of the SST files exceeds max_allowed_space, writes to
-  // RocksDB will fail.
+  // the total size of the SST and blob files exceeds max_allowed_space, writes
+  // to RocksDB will fail.
   //
   // Setting max_allowed_space to 0 will disable this feature; maximum allowed
   // space will be infinite (Default value).
@@ -41,14 +42,14 @@ class SstFileManager {
   // other background functions may continue, such as logging and flushing.
   virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
 
-  // Return true if the total size of SST files exceeded the maximum allowed
-  // space usage.
+  // Return true if the total size of SST  and blob files exceeded the maximum
+  // allowed space usage.
   //
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
 
-  // Returns true if the total size of SST files as well as estimated size
-  // of ongoing compactions exceeds the maximums allowed space usage.
+  // Returns true if the total size of SST and blob files as well as estimated
+  // size of ongoing compactions exceeds the maximums allowed space usage.
   virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
 
   // Return the total size of all tracked files.
@@ -79,12 +80,18 @@ class SstFileManager {
   // Return the total size of trash files
   // thread-safe
   virtual uint64_t GetTotalTrashSize() = 0;
+
+  // Set the statistics ptr to dump the stat information
+  virtual void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
-// instances to track SST file and control there deletion rate.
+// instances to track SST and blob files and control there deletion rate.
+// Even though SstFileManager don't track WAL files but it still control
+// there deletion rate.
 //
 // @param env: Pointer to Env object, please see "rocksdb/env.h".
+// @param fs: Pointer to FileSystem object (rocksdb/file_system.h"
 // @param info_log: If not nullptr, info_log will be used to log errors.
 //
 // == Deletion rate limiting specific arguments ==
@@ -93,6 +100,7 @@ class SstFileManager {
 //    this value is set to 1024 (1 Kb / sec) and we deleted a file of size 4 Kb
 //    in 1 second, we will wait for another 3 seconds before we delete other
 //    files, Set to 0 to disable deletion rate limiting.
+//    This option also affect the delete rate of WAL files in the DB.
 // @param delete_existing_trash: Deprecated, this argument have no effect, but
 //    if user provide trash_dir we will schedule deletes for files in the dir
 // @param status: If not nullptr, status will contain any errors that happened
@@ -108,10 +116,20 @@ class SstFileManager {
 //    files already renamed as a trash may be partial, so users should not
 //    directly recover them without checking.
 extern SstFileManager* NewSstFileManager(
+    Env* env, std::shared_ptr<FileSystem> fs,
+    std::shared_ptr<Logger> info_log = nullptr,
+    const std::string& trash_dir = "", int64_t rate_bytes_per_sec = 0,
+    bool delete_existing_trash = true, Status* status = nullptr,
+    double max_trash_db_ratio = 0.25,
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
+
+// Same as above, but takes a pointer to a legacy Env object, instead of
+// Env and FileSystem objects
+extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
     double max_trash_db_ratio = 0.25,
     uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

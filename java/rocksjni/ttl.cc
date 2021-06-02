@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::TtlDB methods.
+// calling c++ ROCKSDB_NAMESPACE::TtlDB methods.
 // from Java side.
 
 #include <jni.h>
@@ -23,19 +23,19 @@
  * Method:    open
  * Signature: (JLjava/lang/String;IZ)J
  */
-jlong Java_org_rocksdb_TtlDB_open(JNIEnv* env, jclass /*jcls*/,
-                                  jlong joptions_handle, jstring jdb_path,
-                                  jint jttl, jboolean jread_only) {
+jlong Java_org_rocksdb_TtlDB_open(
+    JNIEnv* env, jclass, jlong joptions_handle, jstring jdb_path, jint jttl,
+    jboolean jread_only) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
     return 0;
   }
 
-  auto* opt = reinterpret_cast<rocksdb::Options*>(joptions_handle);
-  rocksdb::DBWithTTL* db = nullptr;
-  rocksdb::Status s =
-      rocksdb::DBWithTTL::Open(*opt, db_path, &db, jttl, jread_only);
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(joptions_handle);
+  ROCKSDB_NAMESPACE::DBWithTTL* db = nullptr;
+  ROCKSDB_NAMESPACE::Status s =
+      ROCKSDB_NAMESPACE::DBWithTTL::Open(*opt, db_path, &db, jttl, jread_only);
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   // as TTLDB extends RocksDB on the java side, we can reuse
@@ -43,7 +43,7 @@ jlong Java_org_rocksdb_TtlDB_open(JNIEnv* env, jclass /*jcls*/,
   if (s.ok()) {
     return reinterpret_cast<jlong>(db);
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
 }
@@ -53,11 +53,10 @@ jlong Java_org_rocksdb_TtlDB_open(JNIEnv* env, jclass /*jcls*/,
  * Method:    openCF
  * Signature: (JLjava/lang/String;[[B[J[IZ)[J
  */
-jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
-                                         jlong jopt_handle, jstring jdb_path,
-                                         jobjectArray jcolumn_names,
-                                         jlongArray jcolumn_options,
-                                         jintArray jttls, jboolean jread_only) {
+jlongArray Java_org_rocksdb_TtlDB_openCF(
+    JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
+    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    jintArray jttls, jboolean jread_only) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -72,18 +71,18 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
     return nullptr;
   }
 
-  std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   jboolean has_exception = JNI_FALSE;
-  rocksdb::JniUtil::byteStrings<std::string>(
+  ROCKSDB_NAMESPACE::JniUtil::byteStrings<std::string>(
       env, jcolumn_names,
       [](const char* str_data, const size_t str_len) {
         return std::string(str_data, str_len);
       },
       [&jco, &column_families](size_t idx, std::string cf_name) {
-        rocksdb::ColumnFamilyOptions* cf_options =
-            reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jco[idx]);
+        ROCKSDB_NAMESPACE::ColumnFamilyOptions* cf_options =
+            reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jco[idx]);
         column_families.push_back(
-            rocksdb::ColumnFamilyDescriptor(cf_name, *cf_options));
+            ROCKSDB_NAMESPACE::ColumnFamilyDescriptor(cf_name, *cf_options));
       },
       &has_exception);
 
@@ -108,10 +107,10 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
   }
   env->ReleaseIntArrayElements(jttls, jttlv, JNI_ABORT);
 
-  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jopt_handle);
-  std::vector<rocksdb::ColumnFamilyHandle*> handles;
-  rocksdb::DBWithTTL* db = nullptr;
-  rocksdb::Status s = rocksdb::DBWithTTL::Open(
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> handles;
+  ROCKSDB_NAMESPACE::DBWithTTL* db = nullptr;
+  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::DBWithTTL::Open(
       *opt, db_path, column_families, &handles, &db, ttl_values, jread_only);
 
   // we have now finished with db_path
@@ -142,9 +141,36 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
 
     return jresults;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return NULL;
   }
+}
+
+/*
+ * Class:     org_rocksdb_TtlDB
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TtlDB_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* ttl_db = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jhandle);
+  assert(ttl_db != nullptr);
+  delete ttl_db;
+}
+
+/*
+ * Class:     org_rocksdb_TtlDB
+ * Method:    closeDatabase
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_TtlDB_closeDatabase(
+    JNIEnv* /* env */, jclass, jlong /* jhandle */) {
+  // auto* ttl_db = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jhandle);
+  // assert(ttl_db != nullptr);
+  // ROCKSDB_NAMESPACE::Status s = ttl_db->Close();
+  // ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+
+  //TODO(AR) this is disabled until https://github.com/facebook/rocksdb/issues/4818 is resolved!
 }
 
 /*
@@ -153,7 +179,7 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass /*jcls*/,
  * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;[BJI)J;
  */
 jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
-    JNIEnv* env, jobject /*jobj*/, jlong jdb_handle, jbyteArray jcolumn_name,
+    JNIEnv* env, jobject, jlong jdb_handle, jbyteArray jcolumn_name,
     jlong jcolumn_options, jint jttl) {
   jbyte* cfname = env->GetByteArrayElements(jcolumn_name, nullptr);
   if (cfname == nullptr) {
@@ -162,20 +188,20 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
   }
   const jsize len = env->GetArrayLength(jcolumn_name);
 
-  auto* cfOptions =
-      reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jcolumn_options);
+  auto* cfOptions = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
+      jcolumn_options);
 
-  auto* db_handle = reinterpret_cast<rocksdb::DBWithTTL*>(jdb_handle);
-  rocksdb::ColumnFamilyHandle* handle;
-  rocksdb::Status s = db_handle->CreateColumnFamilyWithTtl(
+  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jdb_handle);
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle;
+  ROCKSDB_NAMESPACE::Status s = db_handle->CreateColumnFamilyWithTtl(
       *cfOptions, std::string(reinterpret_cast<char*>(cfname), len), &handle,
       jttl);
 
-  env->ReleaseByteArrayElements(jcolumn_name, cfname, 0);
+  env->ReleaseByteArrayElements(jcolumn_name, cfname, JNI_ABORT);
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   return 0;
 }

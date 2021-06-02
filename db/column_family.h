@@ -24,9 +24,10 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Version;
 class VersionSet;
@@ -43,8 +44,115 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
+class BlobFileCache;
 
 extern const double kIncSlowdownRatio;
+// This file contains a list of data structures for managing column family
+// level metadata.
+//
+// The basic relationships among classes declared here are illustrated as
+// following:
+//
+//       +----------------------+    +----------------------+   +--------+
+//   +---+ ColumnFamilyHandle 1 | +--+ ColumnFamilyHandle 2 |   | DBImpl |
+//   |   +----------------------+ |  +----------------------+   +----+---+
+//   | +--------------------------+                                  |
+//   | |                               +-----------------------------+
+//   | |                               |
+//   | | +-----------------------------v-------------------------------+
+//   | | |                                                             |
+//   | | |                      ColumnFamilySet                        |
+//   | | |                                                             |
+//   | | +-------------+--------------------------+----------------+---+
+//   | |               |                          |                |
+//   | +-------------------------------------+    |                |
+//   |                 |                     |    |                v
+//   |   +-------------v-------------+ +-----v----v---------+
+//   |   |                           | |                    |
+//   |   |     ColumnFamilyData 1    | | ColumnFamilyData 2 |    ......
+//   |   |                           | |                    |
+//   +--->                           | |                    |
+//       |                 +---------+ |                    |
+//       |                 | MemTable| |                    |
+//       |                 |  List   | |                    |
+//       +--------+---+--+-+----+----+ +--------------------++
+//                |   |  |      |
+//                |   |  |      |
+//                |   |  |      +-----------------------+
+//                |   |  +-----------+                  |
+//                v   +--------+     |                  |
+//       +--------+--------+   |     |                  |
+//       |                 |   |     |       +----------v----------+
+// +---> |SuperVersion 1.a +----------------->                     |
+//       |                 +------+  |       | MemTableListVersion |
+//       +---+-------------+   |  |  |       |                     |
+//           |                 |  |  |       +----+------------+---+
+//           |      current    |  |  |            |            |
+//           |   +-------------+  |  |mem         |            |
+//           |   |                |  |            |            |
+//         +-v---v-------+    +---v--v---+  +-----v----+  +----v-----+
+//         |             |    |          |  |          |  |          |
+//         | Version 1.a |    | memtable |  | memtable |  | memtable |
+//         |             |    |   1.a    |  |   1.b    |  |   1.c    |
+//         +-------------+    |          |  |          |  |          |
+//                            +----------+  +----------+  +----------+
+//
+// DBImpl keeps a ColumnFamilySet, which references to all column families by
+// pointing to respective ColumnFamilyData object of each column family.
+// This is how DBImpl can list and operate on all the column families.
+// ColumnFamilyHandle also points to ColumnFamilyData directly, so that
+// when a user executes a query, it can directly find memtables and Version
+// as well as SuperVersion to the column family, without going through
+// ColumnFamilySet.
+//
+// ColumnFamilySet points to the latest view of the LSM-tree (list of memtables
+// and SST files) indirectly, while ongoing operations may hold references
+// to a current or an out-of-date SuperVersion, which in turn points to a
+// point-in-time view of the LSM-tree. This guarantees the memtables and SST
+// files being operated on will not go away, until the SuperVersion is
+// unreferenced to 0 and destoryed.
+//
+// The following graph illustrates a possible referencing relationships:
+//
+// Column       +--------------+      current       +-----------+
+// Family +---->+              +------------------->+           |
+//  Data        | SuperVersion +----------+         | Version A |
+//              |      3       |   imm    |         |           |
+// Iter2 +----->+              |  +-------v------+  +-----------+
+//              +-----+--------+  | MemtableList +----------------> Empty
+//                    |           |   Version r  |  +-----------+
+//                    |           +--------------+  |           |
+//                    +------------------+   current| Version B |
+//              +--------------+         |   +----->+           |
+//              |              |         |   |      +-----+-----+
+// Compaction +>+ SuperVersion +-------------+            ^
+//    Job       |      2       +------+  |                |current
+//              |              +----+ |  |     mem        |    +------------+
+//              +--------------+    | |  +--------------------->            |
+//                                  | +------------------------> MemTable a |
+//                                  |          mem        |    |            |
+//              +--------------+    |                     |    +------------+
+//              |              +--------------------------+
+//  Iter1 +-----> SuperVersion |    |                          +------------+
+//              |      1       +------------------------------>+            |
+//              |              +-+  |        mem               | MemTable b |
+//              +--------------+ |  |                          |            |
+//                               |  |    +--------------+      +-----^------+
+//                               |  |imm | MemtableList |            |
+//                               |  +--->+   Version s  +------------+
+//                               |       +--------------+
+//                               |       +--------------+
+//                               |       | MemtableList |
+//                               +------>+   Version t  +-------->  Empty
+//                                 imm   +--------------+
+//
+// In this example, even if the current LSM-tree consists of Version A and
+// memtable a, which is also referenced by SuperVersion, two older SuperVersion
+// SuperVersion2 and Superversion1 still exist, and are referenced by a
+// compaction job and an old iterator Iter1, respectively. SuperVersion2
+// contains Version B, memtable a and memtable b; SuperVersion1 contains
+// Version B and memtable b (mutable). As a result, Version B and memtable b
+// are prevented from being destroyed or deleted.
 
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
@@ -91,6 +199,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 struct SuperVersion {
   // Accessing members of this class is not thread-safe and requires external
   // synchronization (ie db mutex held or on write thread).
+  ColumnFamilyData* cfd;
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
@@ -114,8 +223,8 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(MemTable* new_mem, MemTableListVersion* new_imm,
-            Version* new_current);
+  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
+            MemTableListVersion* new_imm, Version* new_current);
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use
@@ -144,13 +253,12 @@ extern Status CheckCFPathsSupported(const DBOptions& db_options,
 
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
-// Wrap user defined table proproties collector factories `from cf_options`
+// Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
 extern void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories);
+    IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 
@@ -168,18 +276,13 @@ class ColumnFamilyData {
   // Ref() can only be called from a context where the caller can guarantee
   // that ColumnFamilyData is alive (while holding a non-zero ref already,
   // holding a DB mutex, or as the leader in a write batch group).
-  void Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
+  void Ref() { refs_.fetch_add(1); }
 
-  // Unref decreases the reference count, but does not handle deletion
-  // when the count goes to 0.  If this method returns true then the
-  // caller should delete the instance immediately, or later, by calling
-  // FreeDeadColumnFamilies().  Unref() can only be called while holding
-  // a DB mutex, or during single-threaded recovery.
-  bool Unref() {
-    int old_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
-    assert(old_refs > 0);
-    return old_refs == 1;
-  }
+  // UnrefAndTryDelete() decreases the reference count and do free if needed,
+  // return true if this is freed else false, UnrefAndTryDelete() can only
+  // be called while holding a DB mutex, or during single-threaded recovery.
+  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
+  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
@@ -211,8 +314,8 @@ class ColumnFamilyData {
   }
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
-  const EnvOptions* soptions() const;
-  const ImmutableCFOptions* ioptions() const { return &ioptions_; }
+  const FileOptions* soptions() const;
+  const ImmutableOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
   // You should use this API to reference MutableCFOptions most of the time.
@@ -232,9 +335,13 @@ class ColumnFamilyData {
 
   bool is_delete_range_supported() { return is_delete_range_supported_; }
 
+  // Validate CF options against DB options
+  static Status ValidateOptions(const DBOptions& db_options,
+                                const ColumnFamilyOptions& cf_options);
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
+      const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
 #endif  // ROCKSDB_LITE
 
@@ -242,6 +349,11 @@ class ColumnFamilyData {
 
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
+
+  bool IsEmpty() {
+    return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
+  }
+
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* _current);
@@ -264,12 +376,14 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
+  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
   bool NeedsCompaction() const;
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
+                             const MutableDBOptions& mutable_db_options,
                              LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
@@ -286,7 +400,8 @@ class ColumnFamilyData {
   //
   // Thread-safe
   Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
-                                    SuperVersion* super_version, bool* overlap);
+                                    SuperVersion* super_version,
+                                    bool allow_data_in_errors, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
@@ -295,10 +410,12 @@ class ColumnFamilyData {
   static const int kCompactToBaseLevel;
   // REQUIRES: DB mutex held
   Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,
+                           const MutableDBOptions& mutable_db_options,
                            int input_level, int output_level,
-                           uint32_t output_path_id, uint32_t max_subcompactions,
+                           const CompactRangeOptions& compact_range_options,
                            const InternalKey* begin, const InternalKey* end,
-                           InternalKey** compaction_end, bool* manual_conflict);
+                           InternalKey** compaction_end, bool* manual_conflict,
+                           uint64_t max_file_num_to_ignore);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe
@@ -310,20 +427,19 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-  int_tbl_prop_collector_factories() const {
+  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
     return &int_tbl_prop_collector_factories_;
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
-  SuperVersion* GetReferencedSuperVersion(InstrumentedMutex* db_mutex);
+  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
-  SuperVersion* GetThreadLocalSuperVersion(InstrumentedMutex* db_mutex);
-  // Try to return SuperVersion back to thread local storage. Retrun true on
+  SuperVersion* GetThreadLocalSuperVersion(DBImpl* db);
+  // Try to return SuperVersion back to thread local storage. Return true on
   // success and false on failure. It fails when the thread local storage
   // contains anything other than SuperVersion::kSVInUse flag.
   bool ReturnThreadLocalSuperVersion(SuperVersion* sv);
@@ -357,9 +473,11 @@ class ColumnFamilyData {
     kPendingCompactionBytes,
   };
   static std::pair<WriteStallCondition, WriteStallCause>
-  GetWriteStallConditionAndCause(int num_unflushed_memtables, int num_l0_files,
-                                 uint64_t num_compaction_needed_bytes,
-                                 const MutableCFOptions& mutable_cf_options);
+  GetWriteStallConditionAndCause(
+      int num_unflushed_memtables, int num_l0_files,
+      uint64_t num_compaction_needed_bytes,
+      const MutableCFOptions& mutable_cf_options,
+      const ImmutableCFOptions& immutable_cf_options);
 
   // Recalculate some small conditions, which are changed only during
   // compaction, adding new memtable and/or
@@ -379,21 +497,44 @@ class ColumnFamilyData {
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
-  Status AddDirectories();
+  // created_dirs remembers directory created, so that we don't need to call
+  // the same data creation operation again.
+  Status AddDirectories(
+      std::map<std::string, std::shared_ptr<FSDirectory>>* created_dirs);
 
-  Directory* GetDataDir(size_t path_id) const;
+  FSDirectory* GetDataDir(size_t path_id) const;
+
+  // full_history_ts_low_ can only increase.
+  void SetFullHistoryTsLow(std::string ts_low) {
+    assert(!ts_low.empty());
+    const Comparator* ucmp = user_comparator();
+    assert(ucmp);
+    if (full_history_ts_low_.empty() ||
+        ucmp->CompareTimestamp(ts_low, full_history_ts_low_) > 0) {
+      full_history_ts_low_ = std::move(ts_low);
+    }
+  }
+
+  const std::string& GetFullHistoryTsLow() const {
+    return full_history_ts_low_;
+  }
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
 
  private:
   friend class ColumnFamilySet;
+  static const uint32_t kDummyColumnFamilyDataId;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const EnvOptions& env_options,
-                   ColumnFamilySet* column_family_set);
+                   const FileOptions& file_options,
+                   ColumnFamilySet* column_family_set,
+                   BlockCacheTracer* const block_cache_tracer,
+                   const std::shared_ptr<IOTracer>& io_tracer);
+
+  std::vector<std::string> GetDbPaths() const;
 
   uint32_t id_;
   const std::string name_;
@@ -405,16 +546,16 @@ class ColumnFamilyData {
   std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories_;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
 
   const bool is_delete_range_supported_;
 
   std::unique_ptr<TableCache> table_cache_;
+  std::unique_ptr<BlobFileCache> blob_file_cache_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -470,7 +611,11 @@ class ColumnFamilyData {
   std::atomic<uint64_t> last_memtable_id_;
 
   // Directories corresponding to cf_paths.
-  std::vector<std::unique_ptr<Directory>> data_dirs_;
+  std::vector<std::shared_ptr<FSDirectory>> data_dirs_;
+
+  bool db_paths_registered_;
+
+  std::string full_history_ts_low_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -519,9 +664,11 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname,
                   const ImmutableDBOptions* db_options,
-                  const EnvOptions& env_options, Cache* table_cache,
-                  WriteBufferManager* write_buffer_manager,
-                  WriteController* write_controller);
+                  const FileOptions& file_options, Cache* table_cache,
+                  WriteBufferManager* _write_buffer_manager,
+                  WriteController* _write_controller,
+                  BlockCacheTracer* const block_cache_tracer,
+                  const std::shared_ptr<IOTracer>& io_tracer);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -550,6 +697,10 @@ class ColumnFamilySet {
 
   Cache* get_table_cache() { return table_cache_; }
 
+  WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
+
+  WriteController* write_controller() { return write_controller_; }
+
  private:
   friend class ColumnFamilyData;
   // helper function that gets called from cfd destructor
@@ -576,10 +727,12 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
+  BlockCacheTracer* const block_cache_tracer_;
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access
@@ -630,4 +783,4 @@ extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 extern const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -8,10 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
-#include "util/logging.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static std::string IKey(const std::string& user_key,
                         uint64_t seq,
@@ -41,12 +40,12 @@ static void TestKey(const std::string& key,
   Slice in(encoded);
   ParsedInternalKey decoded("", 0, kTypeValue);
 
-  ASSERT_TRUE(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(key, decoded.user_key.ToString());
   ASSERT_EQ(seq, decoded.sequence);
   ASSERT_EQ(vt, decoded.type);
 
-  ASSERT_TRUE(!ParseInternalKey(Slice("bar"), &decoded));
+  ASSERT_NOK(ParseInternalKey(Slice("bar"), &decoded, true /* log_err_key */));
 }
 
 class FormatTest : public testing::Test {};
@@ -186,7 +185,7 @@ TEST_F(FormatTest, UpdateInternalKey) {
 
   Slice in(ikey);
   ParsedInternalKey decoded;
-  ASSERT_TRUE(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(user_key, decoded.user_key.ToString());
   ASSERT_EQ(new_seq, decoded.sequence);
   ASSERT_EQ(new_val_type, decoded.type);
@@ -199,7 +198,7 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
   ASSERT_LT(cmp.Compare(t.SerializeEndKey(), k), 0);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

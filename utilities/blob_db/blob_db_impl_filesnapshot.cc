@@ -5,15 +5,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_db_impl.h"
-
-#include "util/filename.h"
-#include "util/logging.h"
+#include "file/filename.h"
+#include "logging/logging.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Status BlobDBImpl::DisableFileDeletions() {
@@ -32,7 +32,7 @@ Status BlobDBImpl::DisableFileDeletions() {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "Disalbed blob file deletions. count: %d", count);
+                 "Disabled blob file deletions. count: %d", count);
   return Status::OK();
 }
 
@@ -94,15 +94,20 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
     filemetadata.size = static_cast<size_t>(blob_file->GetFileSize());
+    const uint64_t file_number = blob_file->BlobFileNumber();
     // Path should be relative to db_name, but begin with slash.
-    filemetadata.name =
-        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber());
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+    filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
+    filemetadata.file_number = file_number;
+    if (blob_file->HasTTL()) {
+      filemetadata.oldest_ancester_time = blob_file->GetExpirationRange().first;
+    }
+    auto cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily());
     filemetadata.column_family_name = cfh->GetName();
     metadata->emplace_back(filemetadata);
   }
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

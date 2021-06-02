@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
+
 /**
  * Similar to {@link org.rocksdb.WriteBatch} but with a binary searchable
  * index built for all the keys inserted.
@@ -57,7 +59,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   show two entries with the same key.
    */
   public WriteBatchWithIndex(
-      final AbstractComparator<? extends AbstractSlice<?>>
+      final AbstractComparator
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
     super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
@@ -129,11 +131,36 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public RocksIterator newIteratorWithBase(
       final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator) {
-    RocksIterator iterator = new RocksIterator(baseIterator.parent_,
-        iteratorWithBase(
-            nativeHandle_, columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
+    return newIteratorWithBase(columnFamilyHandle, baseIterator, null);
+  }
+
+  /**
+   * Provides Read-Your-Own-Writes like functionality by
+   * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
+   * as a delta and baseIterator as a base
+   *
+   * Updating write batch with the current key of the iterator is not safe.
+   * We strongly recommand users not to do it. It will invalidate the current
+   * key() and value() of the iterator. This invalidation happens even before
+   * the write batch update finishes. The state may recover after Next() is
+   * called.
+   *
+   * @param columnFamilyHandle The column family to iterate over
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @param readOptions the read options, or null
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-time from baseIterator and modifications made in this write batch.
+   */
+  public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
+      final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
+    final RocksIterator iterator = new RocksIterator(baseIterator.parent_,
+        iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
+            baseIterator.nativeHandle_, readOptions == null ? 0 : readOptions.nativeHandle_));
+
     // when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
+
     return iterator;
   }
 
@@ -149,7 +176,25 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
+    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator, null);
+  }
+
+  /**
+   * Provides Read-Your-Own-Writes like functionality by
+   * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
+   * as a delta and baseIterator as a base. Operates on the default column
+   * family.
+   *
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @param readOptions the read options, or null
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-timefrom baseIterator and modifications made in this write batch.
+   */
+  public RocksIterator newIteratorWithBase(final RocksIterator baseIterator,
+      /* @Nullable */ final ReadOptions readOptions) {
+    return newIteratorWithBase(
+        baseIterator.parent_.getDefaultColumnFamily(), baseIterator, readOptions);
   }
 
   /**
@@ -198,7 +243,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * the results using the DB's merge operator (if the batch contains any
    * merge requests).
    *
-   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is
    * read from the DB but will NOT change which keys are read from the batch
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
@@ -228,7 +273,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * the results using the DB's merge operator (if the batch contains any
    * merge requests).
    *
-   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is
    * read from the DB but will NOT change which keys are read from the batch
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
@@ -255,6 +300,10 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void put(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
+  @Override
+  final native void putDirect(final long handle, final ByteBuffer key, final int keyOffset,
+      final int keyLength, final ByteBuffer value, final int valueOffset, final int valueLength,
+      final long cfHandle);
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);
   @Override final native void merge(final long handle, final byte[] key,
@@ -269,8 +318,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void singleDelete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
+  final native void removeDirect(final long handle, final ByteBuffer key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException;
+  // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
+  @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);
+  // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen, final long cfHandle);
@@ -292,8 +346,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(
-      final long handle, final long baseIteratorHandle, final long cfHandle);
+  private native long iteratorWithBase(final long handle, final long baseIteratorHandle,
+      final long cfHandle, final long readOptionsHandle);
   private native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen);
   private native byte[] getFromBatch(final long handle, final long optHandle,

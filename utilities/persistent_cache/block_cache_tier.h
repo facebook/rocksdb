@@ -19,23 +19,22 @@
 #include <string>
 #include <thread>
 
+#include "memory/arena.h"
+#include "memtable/skiplist.h"
+#include "monitoring/histogram.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/persistent_cache.h"
-
+#include "rocksdb/system_clock.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
+#include "util/mutexlock.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
-#include "memtable/skiplist.h"
-#include "monitoring/histogram.h"
-#include "port/port.h"
-#include "util/arena.h"
-#include "util/coding.h"
-#include "util/crc32c.h"
-#include "util/mutexlock.h"
-
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Block cache tier implementation
@@ -47,13 +46,13 @@ class BlockCacheTier : public PersistentCacheTier {
         insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
         writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
-    Info(opt_.log, "Initializing allocator. size=%d B count=%d",
+    Info(opt_.log, "Initializing allocator. size=%d B count=%" ROCKSDB_PRIszt,
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
 
   virtual ~BlockCacheTier() {
     // Close is re-entrant so we can call close even if it is already closed
-    Close();
+    Close().PermitUncheckedError();
     assert(!insert_th_.joinable());
   }
 
@@ -74,7 +73,7 @@ class BlockCacheTier : public PersistentCacheTier {
   void TEST_Flush() override {
     while (insert_ops_.Size()) {
       /* sleep override */
-      Env::Default()->SleepForMicroseconds(1000000);
+      SystemClock::Default()->SleepForMicroseconds(1000000);
     }
   }
 
@@ -100,7 +99,7 @@ class BlockCacheTier : public PersistentCacheTier {
 
     std::string key_;
     std::string data_;
-    const bool signal_ = false;  // signal to request processing thread to exit
+    bool signal_ = false;  // signal to request processing thread to exit
   };
 
   // entry point for insert thread
@@ -141,7 +140,7 @@ class BlockCacheTier : public PersistentCacheTier {
   port::RWMutex lock_;                          // Synchronization
   const PersistentCacheConfig opt_;             // BlockCache options
   BoundedQueue<InsertOp> insert_ops_;           // Ops waiting for insert
-  rocksdb::port::Thread insert_th_;                       // Insert thread
+  ROCKSDB_NAMESPACE::port::Thread insert_th_;   // Insert thread
   uint32_t writer_cache_id_ = 0;                // Current cache file identifier
   WriteableCacheFile* cache_file_ = nullptr;    // Current cache file reference
   CacheWriteBufferAllocator buffer_allocator_;  // Buffer provider
@@ -151,6 +150,6 @@ class BlockCacheTier : public PersistentCacheTier {
   Statistics stats_;                                 // Statistics
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

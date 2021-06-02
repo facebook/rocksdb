@@ -14,7 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/concurrent_task_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TaskLimiterToken;
 
@@ -22,6 +22,10 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
  public:
   explicit ConcurrentTaskLimiterImpl(const std::string& name,
                                      int32_t max_outstanding_task);
+  // No copying allowed
+  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
+  ConcurrentTaskLimiterImpl& operator=(const ConcurrentTaskLimiterImpl&) =
+      delete;
 
   virtual ~ConcurrentTaskLimiterImpl();
 
@@ -44,25 +48,25 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
   std::string name_;
   std::atomic<int32_t> max_outstanding_tasks_;
   std::atomic<int32_t> outstanding_tasks_;
-
-  // No copying allowed
-  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
-  ConcurrentTaskLimiterImpl& operator=(
-      const ConcurrentTaskLimiterImpl&) = delete;
 };
 
 class TaskLimiterToken {
  public:
   explicit TaskLimiterToken(ConcurrentTaskLimiterImpl* limiter)
-      : limiter_(limiter) {}
+      : limiter_(limiter), released_(false) {}
   ~TaskLimiterToken();
+  // Releases the token from the `ConcurrentTaskLimiterImpl` if not already
+  // released.
+  // Not thread-safe.
+  void ReleaseOnce();
 
  private:
   ConcurrentTaskLimiterImpl* limiter_;
+  bool released_;
 
   // no copying allowed
   TaskLimiterToken(const TaskLimiterToken&) = delete;
   void operator=(const TaskLimiterToken&) = delete;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

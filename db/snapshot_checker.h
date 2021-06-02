@@ -6,7 +6,7 @@
 #pragma once
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 enum class SnapshotCheckerResult : int {
   kInSnapshot = 0,
@@ -58,4 +58,4 @@ class WritePreparedSnapshotChecker : public SnapshotChecker {
 #endif  // !ROCKSDB_LITE
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

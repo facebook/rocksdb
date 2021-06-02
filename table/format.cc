@@ -9,27 +9,26 @@
 
 #include "table/format.h"
 
+#include <cinttypes>
 #include <string>
-#include <inttypes.h>
 
+#include "block_fetcher.h"
+#include "file/random_access_file_reader.h"
+#include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "table/block.h"
-#include "table/block_based_table_reader.h"
-#include "table/block_fetcher.h"
+#include "rocksdb/options.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
-#include "util/logging.h"
-#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
@@ -42,10 +41,11 @@ extern const uint64_t kPlainTableMagicNumber;
 const uint64_t kLegacyPlainTableMagicNumber = 0;
 const uint64_t kPlainTableMagicNumber = 0;
 #endif
+const char* kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&
-         stats->stats_level_ > kExceptDetailedTimers;
+         stats->get_stats_level() > kExceptDetailedTimers;
 }
 
 void BlockHandle::EncodeTo(std::string* dst) const {
@@ -56,8 +56,7 @@ void BlockHandle::EncodeTo(std::string* dst) const {
 }
 
 Status BlockHandle::DecodeFrom(Slice* input) {
-  if (GetVarint64(input, &offset_) &&
-      GetVarint64(input, &size_)) {
+  if (GetVarint64(input, &offset_) && GetVarint64(input, &size_)) {
     return Status::OK();
   } else {
     // reset in case failure after partially decoding
@@ -91,6 +90,58 @@ std::string BlockHandle::ToString(bool hex) const {
 }
 
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
+
+void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
+                          const BlockHandle* previous_handle) const {
+  if (previous_handle) {
+    assert(handle.offset() == previous_handle->offset() +
+                                  previous_handle->size() + kBlockTrailerSize);
+    PutVarsignedint64(dst, handle.size() - previous_handle->size());
+  } else {
+    handle.EncodeTo(dst);
+  }
+  assert(dst->size() != 0);
+
+  if (have_first_key) {
+    PutLengthPrefixedSlice(dst, first_internal_key);
+  }
+}
+
+Status IndexValue::DecodeFrom(Slice* input, bool have_first_key,
+                              const BlockHandle* previous_handle) {
+  if (previous_handle) {
+    int64_t delta;
+    if (!GetVarsignedint64(input, &delta)) {
+      return Status::Corruption("bad delta-encoded index value");
+    }
+    handle = BlockHandle(
+        previous_handle->offset() + previous_handle->size() + kBlockTrailerSize,
+        previous_handle->size() + delta);
+  } else {
+    Status s = handle.DecodeFrom(input);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!have_first_key) {
+    first_internal_key = Slice();
+  } else if (!GetLengthPrefixedSlice(input, &first_internal_key)) {
+    return Status::Corruption("bad first key in block info");
+  }
+
+  return Status::OK();
+}
+
+std::string IndexValue::ToString(bool hex, bool have_first_key) const {
+  std::string s;
+  EncodeTo(&s, have_first_key, nullptr);
+  if (hex) {
+    return Slice(s).ToString(true);
+  } else {
+    return s;
+  }
+}
 
 namespace {
 inline bool IsLegacyFooterFormat(uint64_t magic_number) {
@@ -159,7 +210,7 @@ Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
   assert(input->size() >= kMinEncodedLength);
 
-  const char *magic_ptr =
+  const char* magic_ptr =
       input->data() + input->size() - kMagicNumberLengthByte;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
@@ -217,49 +268,66 @@ std::string Footer::ToString() const {
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
     result.append("table_magic_number: " +
-                  rocksdb::ToString(table_magic_number_) + "\n  ");
+                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
   } else {
-    result.append("checksum: " + rocksdb::ToString(checksum_) + "\n  ");
+    result.append("checksum: " + ROCKSDB_NAMESPACE::ToString(checksum_) +
+                  "\n  ");
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("footer version: " + rocksdb::ToString(version_) + "\n  ");
+    result.append("footer version: " + ROCKSDB_NAMESPACE::ToString(version_) +
+                  "\n  ");
     result.append("table_magic_number: " +
-                  rocksdb::ToString(table_magic_number_) + "\n  ");
+                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
   }
   return result;
 }
 
-Status ReadFooterFromFile(RandomAccessFileReader* file,
+Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption(
-      "file is too short (" + ToString(file_size) + " bytes) to be an "
-      "sstable: " + file->file_name());
+    return Status::Corruption("file is too short (" + ToString(file_size) +
+                              " bytes) to be an "
+                              "sstable: " +
+                              file->file_name());
   }
 
-  char footer_space[Footer::kMaxEncodedLength];
+  std::string footer_buf;
+  AlignedBuf internal_buf;
   Slice footer_input;
   size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)
           ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
           : 0;
   Status s;
+  // TODO: Need to pass appropriate deadline to TryReadFromCache(). Right now,
+  // there is no readahead for point lookups, so TryReadFromCache will fail if
+  // the required data is not in the prefetch buffer. Once deadline is enabled
+  // for iterator, TryReadFromCache might do a readahead. Revisit to see if we
+  // need to pass a timeout at that point
   if (prefetch_buffer == nullptr ||
-      !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
-                                         &footer_input)) {
-    s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                   footer_space);
+      !prefetch_buffer->TryReadFromCache(IOOptions(), read_offset,
+                                         Footer::kMaxEncodedLength,
+                                         &footer_input, nullptr)) {
+    if (file->use_direct_io()) {
+      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, nullptr, &internal_buf);
+    } else {
+      footer_buf.reserve(Footer::kMaxEncodedLength);
+      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, &footer_buf[0], nullptr);
+    }
     if (!s.ok()) return s;
   }
 
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::Corruption(
-      "file is too short (" + ToString(file_size) + " bytes) to be an "
-      "sstable" + file->file_name());
+    return Status::Corruption("file is too short (" + ToString(file_size) +
+                              " bytes) to be an "
+                              "sstable" +
+                              file->file_name());
   }
 
   s = footer->DecodeFrom(&footer_input);
@@ -269,10 +337,9 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   if (enforce_table_magic_number != 0 &&
       enforce_table_magic_number != footer->table_magic_number()) {
     return Status::Corruption(
-      "Bad table magic number: expected "
-      + ToString(enforce_table_magic_number) + ", found "
-      + ToString(footer->table_magic_number())
-      + " in " + file->file_name());
+        "Bad table magic number: expected " +
+        ToString(enforce_table_magic_number) + ", found " +
+        ToString(footer->table_magic_number()) + " in " + file->file_name());
   }
   return Status::OK();
 }
@@ -280,112 +347,43 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
-  CacheAllocationPtr ubuf;
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator) {
+  Status ret = Status::OK();
 
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(ioptions.env,
-    ShouldReportDetailedTime(ioptions.env, ioptions.statistics));
-  int decompress_size = 0;
-  switch (uncompression_info.type()) {
-    case kSnappyCompression: {
-      size_t ulength = 0;
-      static char snappy_corrupt_msg[] =
-        "Snappy not supported or corrupted Snappy compressed block contents";
-      if (!Snappy_GetUncompressedLength(data, n, &ulength)) {
-        return Status::Corruption(snappy_corrupt_msg);
-      }
-      ubuf = AllocateBlock(ulength, allocator);
-      if (!Snappy_Uncompress(data, n, ubuf.get())) {
-        return Status::Corruption(snappy_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), ulength);
-      break;
-    }
-    case kZlibCompression:
-      ubuf = Zlib_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kZlibCompression, format_version),
-          allocator);
-      if (!ubuf) {
-        static char zlib_corrupt_msg[] =
-          "Zlib not supported or corrupted Zlib compressed block contents";
-        return Status::Corruption(zlib_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    case kBZip2Compression:
-      ubuf = BZip2_Uncompress(
-          data, n, &decompress_size,
-          GetCompressFormatForVersion(kBZip2Compression, format_version),
-          allocator);
-      if (!ubuf) {
-        static char bzip2_corrupt_msg[] =
-          "Bzip2 not supported or corrupted Bzip2 compressed block contents";
-        return Status::Corruption(bzip2_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    case kLZ4Compression:
-      ubuf = LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kLZ4Compression, format_version),
-          allocator);
-      if (!ubuf) {
-        static char lz4_corrupt_msg[] =
-          "LZ4 not supported or corrupted LZ4 compressed block contents";
-        return Status::Corruption(lz4_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    case kLZ4HCCompression:
-      ubuf = LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-          allocator);
-      if (!ubuf) {
-        static char lz4hc_corrupt_msg[] =
-          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
-        return Status::Corruption(lz4hc_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    case kXpressCompression:
-      // XPRESS allocates memory internally, thus no support for custom
-      // allocator.
-      ubuf.reset(XPRESS_Uncompress(data, n, &decompress_size));
-      if (!ubuf) {
-        static char xpress_corrupt_msg[] =
-          "XPRESS not supported or corrupted XPRESS compressed block contents";
-        return Status::Corruption(xpress_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    case kZSTD:
-    case kZSTDNotFinalCompression:
-      ubuf = ZSTD_Uncompress(uncompression_info, data, n, &decompress_size,
-                             allocator);
-      if (!ubuf) {
-        static char zstd_corrupt_msg[] =
-            "ZSTD not supported or corrupted ZSTD compressed block contents";
-        return Status::Corruption(zstd_corrupt_msg);
-      }
-      *contents = BlockContents(std::move(ubuf), decompress_size);
-      break;
-    default:
-      return Status::Corruption("bad block type");
+  StopWatchNano timer(ioptions.clock,
+                      ShouldReportDetailedTime(ioptions.env, ioptions.stats));
+  size_t uncompressed_size = 0;
+  CacheAllocationPtr ubuf =
+      UncompressData(uncompression_info, data, n, &uncompressed_size,
+                     GetCompressFormatForVersion(format_version), allocator);
+  if (!ubuf) {
+    return Status::Corruption(
+        "Unsupported compression method or corrupted compressed block contents",
+        CompressionTypeToString(uncompression_info.type()));
   }
 
-  if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
-    MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
-      timer.ElapsedNanos());
-  }
-  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
-  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  *contents = BlockContents(std::move(ubuf), uncompressed_size);
 
-  return Status::OK();
+  if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
+    RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
+                          timer.ElapsedNanos());
+  }
+  RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
+                        contents->data.size());
+  RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
+
+  TEST_SYNC_POINT_CALLBACK(
+      "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
+      static_cast<void*>(&ret));
+  TEST_SYNC_POINT_CALLBACK(
+      "UncompressBlockContentsForCompressionType:"
+      "TamperWithDecompressionOutput",
+      static_cast<void*>(contents));
+
+  return ret;
 }
 
 //
@@ -398,13 +396,27 @@ Status UncompressBlockContentsForCompressionType(
 Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
-                               const ImmutableCFOptions& ioptions,
+                               const ImmutableOptions& ioptions,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
-  assert(data[n] == uncompression_info.type());
+  assert(data[n] == static_cast<char>(uncompression_info.type()));
   return UncompressBlockContentsForCompressionType(uncompression_info, data, n,
                                                    contents, format_version,
                                                    ioptions, allocator);
 }
 
-}  // namespace rocksdb
+// Replace the contents of db_host_id with the actual hostname, if db_host_id
+// matches the keyword kHostnameForDbHostId
+Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
+  assert(db_host_id);
+  if (*db_host_id == kHostnameForDbHostId) {
+    Status s = env->GetHostNameString(db_host_id);
+    if (!s.ok()) {
+      db_host_id->clear();
+    }
+    return s;
+  }
+
+  return Status::OK();
+}
+}  // namespace ROCKSDB_NAMESPACE

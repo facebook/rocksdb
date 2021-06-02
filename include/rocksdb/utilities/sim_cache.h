@@ -14,7 +14,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class SimCache;
 
@@ -25,7 +25,7 @@ class SimCache;
 // can help users tune their current block cache size, and determine how
 // efficient they are using the memory.
 //
-// Since GetSimCapacity() returns the capacity for simulutation, it differs from
+// Since GetSimCapacity() returns the capacity for simulation, it differs from
 // actual memory usage, which can be estimated as:
 // sim_capacity * entry_size / (entry_size + block_size),
 // where 76 <= entry_size <= 104,
@@ -34,6 +34,10 @@ class SimCache;
 // sim_capacity * 2%
 extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
                                              size_t sim_capacity,
+                                             int num_shard_bits);
+
+extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,
+                                             std::shared_ptr<Cache> cache,
                                              int num_shard_bits);
 
 class SimCache : public Cache {
@@ -56,7 +60,7 @@ class SimCache : public Cache {
   // sets the maximum configured capacity of the simcache. When the new
   // capacity is less than the old capacity and the existing usage is
   // greater than new capacity, the implementation will purge old entries
-  // to fit new capapicty.
+  // to fit new capacity.
   virtual void SetSimCapacity(size_t capacity) = 0;
 
   // returns the lookup times of simcache
@@ -73,7 +77,8 @@ class SimCache : public Cache {
   // stop logging to the file automatically after reaching a specific size in
   // bytes, a values of 0 disable this feature
   virtual Status StartActivityLogging(const std::string& activity_log_file,
-                                      Env* env, uint64_t max_logging_size = 0) = 0;
+                                      Env* env,
+                                      uint64_t max_logging_size = 0) = 0;
 
   // Stop cache activity logging if any
   virtual void StopActivityLogging() = 0;
@@ -86,4 +91,4 @@ class SimCache : public Cache {
   SimCache& operator=(const SimCache&);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

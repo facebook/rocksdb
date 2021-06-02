@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #pragma once
 
 #include <algorithm>
@@ -9,7 +10,7 @@
 #include "rocksdb/slice.h"
 #include "table/internal_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Iterator over a vector of keys/values
 class VectorIterator : public InternalIterator {
@@ -19,7 +20,7 @@ class VectorIterator : public InternalIterator {
       : keys_(std::move(keys)),
         values_(std::move(values)),
         indexed_cmp_(icmp, &keys_),
-        current_(keys.size()) {
+        current_(0) {
     assert(keys_.size() == values_.size());
 
     indices_.reserve(keys_.size());
@@ -97,4 +98,4 @@ class VectorIterator : public InternalIterator {
   size_t current_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

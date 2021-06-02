@@ -7,70 +7,64 @@
 
 #include <algorithm>
 
+#include "memory/allocator.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
-#include "util/allocator.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
-  uint32_t num_blocks =
-      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
-
-  // Make num_blocks an odd number to make sure more bits are involved
-  // when determining which block.
-  if (num_blocks % 2 == 0) {
-    num_blocks++;
+uint32_t roundUpToPow2(uint32_t x) {
+  uint32_t rv = 1;
+  while (rv < x) {
+    rv <<= 1;
   }
-
-  return num_blocks * (CACHE_LINE_SIZE * 8);
+  return rv;
 }
 }
 
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
-                           uint32_t locality, uint32_t num_probes,
-                           size_t huge_page_tlb_size, Logger* logger)
-    : DynamicBloom(num_probes) {
-  SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size, logger);
-}
+                           uint32_t num_probes, size_t huge_page_tlb_size,
+                           Logger* logger)
+    // Round down, except round up with 1
+    : kNumDoubleProbes((num_probes + (num_probes == 1)) / 2) {
+  assert(num_probes % 2 == 0);  // limitation of current implementation
+  assert(num_probes <= 10);     // limitation of current implementation
+  assert(kNumDoubleProbes > 0);
 
-DynamicBloom::DynamicBloom(uint32_t num_probes)
-    : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
-
-void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
-                              uint32_t num_blocks) {
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw_data);
-  kTotalBits = total_bits;
-  kNumBlocks = num_blocks;
-}
-
-void DynamicBloom::SetTotalBits(Allocator* allocator,
-                                uint32_t total_bits, uint32_t locality,
-                                size_t huge_page_tlb_size,
-                                Logger* logger) {
-  kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
-                              : (total_bits + 7) / 8 * 8;
-  kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
-
-  assert(kNumBlocks > 0 || kTotalBits > 0);
-  assert(kNumProbes > 0);
-
-  uint32_t sz = kTotalBits / 8;
-  if (kNumBlocks > 0) {
-    sz += CACHE_LINE_SIZE - 1;
+  // Determine how much to round off + align by so that x ^ i (that's xor) is
+  // a valid u64 index if x is a valid u64 index and 0 <= i < kNumDoubleProbes.
+  uint32_t block_bytes = /*bytes/u64*/ 8 *
+                         /*u64s*/ std::max(1U, roundUpToPow2(kNumDoubleProbes));
+  uint32_t block_bits = block_bytes * 8;
+  uint32_t blocks = (total_bits + block_bits - 1) / block_bits;
+  uint32_t sz = blocks * block_bytes;
+  kLen = sz / /*bytes/u64*/ 8;
+  assert(kLen > 0);
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < kNumDoubleProbes; ++i) {
+    // Ensure probes starting at last word are in range
+    assert(((kLen - 1) ^ i) < kLen);
   }
+#endif
+
+  // Padding to correct for allocation not originally aligned on block_bytes
+  // boundary
+  sz += block_bytes - 1;
   assert(allocator);
 
   char* raw = allocator->AllocateAligned(sz, huge_page_tlb_size, logger);
   memset(raw, 0, sz);
-  auto cache_line_offset = reinterpret_cast<uintptr_t>(raw) % CACHE_LINE_SIZE;
-  if (kNumBlocks > 0 && cache_line_offset > 0) {
-    raw += CACHE_LINE_SIZE - cache_line_offset;
+  auto block_offset = reinterpret_cast<uintptr_t>(raw) % block_bytes;
+  if (block_offset > 0) {
+    // Align on block_bytes boundary
+    raw += block_bytes - block_offset;
   }
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw);
+  static_assert(sizeof(std::atomic<uint64_t>) == sizeof(uint64_t),
+                "Expecting zero-space-overhead atomic");
+  data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
 }
 
-}  // rocksdb
+}  // namespace ROCKSDB_NAMESPACE

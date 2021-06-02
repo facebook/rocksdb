@@ -6,17 +6,15 @@
 package org.rocksdb;
 
 import org.junit.ClassRule;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class RocksMemEnvTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Test
   public void memEnvFillAndReopen() throws RocksDBException {
@@ -33,7 +31,7 @@ public class RocksMemEnvTest {
         "baz".getBytes()
     };
 
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(true)
              .setEnv(env);
@@ -107,7 +105,7 @@ public class RocksMemEnvTest {
         "baz".getBytes()
     };
 
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(true)
              .setEnv(env);
@@ -136,7 +134,7 @@ public class RocksMemEnvTest {
 
   @Test(expected = RocksDBException.class)
   public void createIfMissingFalse() throws RocksDBException {
-    try (final Env env = new RocksMemEnv();
+    try (final Env env = new RocksMemEnv(Env.getDefault());
          final Options options = new Options()
              .setCreateIfMissing(false)
              .setEnv(env);

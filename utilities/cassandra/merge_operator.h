@@ -7,7 +7,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
 
 /**
@@ -41,4 +41,4 @@ private:
  size_t operands_limit_;
 };
 } // namespace cassandra
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

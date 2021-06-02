@@ -7,21 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "monitoring/histogram.h"
 
-#include <inttypes.h>
-#include <cassert>
-#include <math.h>
 #include <stdio.h>
+#include <cassert>
+#include <cinttypes>
+#include <cmath>
 
 #include "port/port.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 HistogramBucketMapper::HistogramBucketMapper() {
   // If you change this, you also need to change
@@ -181,7 +177,7 @@ double HistogramStat::StandardDeviation() const {
   double variance =
       static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
       static_cast<double>(cur_num * cur_num);
-  return sqrt(variance);
+  return std::sqrt(variance);
 }
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
@@ -255,8 +251,7 @@ void HistogramImpl::Add(uint64_t value) {
 
 void HistogramImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(
-        *static_cast_with_check<const HistogramImpl, const Histogram>(&other));
+    Merge(*static_cast_with_check<const HistogramImpl>(&other));
   }
 }
 
@@ -289,4 +284,4 @@ void HistogramImpl::Data(HistogramData * const data) const {
   stats_.Data(data);
 }
 
-} // namespace levedb
+}  // namespace ROCKSDB_NAMESPACE

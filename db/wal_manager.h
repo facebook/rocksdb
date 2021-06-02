@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "db/version_set.h"
+#include "file/file_util.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -25,21 +26,32 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
+
+// WAL manager provides the abstraction for reading the WAL files as a single
+// unit. Internally, it opens and reads the files using Reader or Writer
+// abstraction.
 class WalManager {
  public:
   WalManager(const ImmutableDBOptions& db_options,
-             const EnvOptions& env_options, const bool seq_per_batch = false)
+             const FileOptions& file_options,
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const bool seq_per_batch = false)
       : db_options_(db_options),
-        env_options_(env_options),
+        file_options_(file_options),
         env_(db_options.env),
+        fs_(db_options.fs, io_tracer),
         purge_wal_files_last_run_(0),
-        seq_per_batch_(seq_per_batch) {}
+        seq_per_batch_(seq_per_batch),
+        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)),
+        io_tracer_(io_tracer) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
+  // Allow user to tail transaction log to find all recent changes to the
+  // database that are newer than `seq_number`.
   Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options,
@@ -50,6 +62,8 @@ class WalManager {
   void ArchiveWALFile(const std::string& fname, uint64_t number);
 
   Status DeleteFile(const std::string& fname, uint64_t number);
+
+  Status GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log_file);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
@@ -78,8 +92,9 @@ class WalManager {
 
   // ------- state from DBImpl ------
   const ImmutableDBOptions& db_options_;
-  const EnvOptions& env_options_;
+  const FileOptions file_options_;
   Env* env_;
+  const FileSystemPtr fs_;
 
   // ------- WalManager state -------
   // cache for ReadFirstRecord() calls
@@ -91,10 +106,14 @@ class WalManager {
 
   bool seq_per_batch_;
 
+  bool wal_in_db_path_;
+
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.
   static const uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
+
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

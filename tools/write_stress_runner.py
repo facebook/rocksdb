@@ -1,4 +1,7 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import subprocess
 import argparse
 import random
@@ -9,7 +12,7 @@ import sys
 def generate_runtimes(total_runtime):
     # combination of short runtimes and long runtimes, with heavier
     # weight on short runtimes
-    possible_runtimes_sec = range(1, 10) + range(1, 20) + [100, 1000]
+    possible_runtimes_sec = list(range(1, 10)) + list(range(1, 20)) + [100, 1000]
     runtimes = []
     while total_runtime > 0:
         chosen = random.choice(possible_runtimes_sec)
@@ -21,7 +24,7 @@ def generate_runtimes(total_runtime):
 
 def main(args):
     runtimes = generate_runtimes(int(args.runtime_sec))
-    print "Going to execute write stress for " + str(runtimes)  # noqa: E999 T25377293 Grandfathered in
+    print("Going to execute write stress for " + str(runtimes))  # noqa: E999 T25377293 Grandfathered in
     first_time = True
 
     for runtime in runtimes:

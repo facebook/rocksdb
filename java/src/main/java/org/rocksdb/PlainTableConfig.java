@@ -21,6 +21,8 @@ public class PlainTableConfig extends TableFormatConfig {
   public static final EncodingType DEFAULT_ENCODING_TYPE =
       EncodingType.kPlain;
   public static final boolean DEFAULT_FULL_SCAN_MODE = false;
+  public static final boolean DEFAULT_STORE_INDEX_IN_FILE
+      = false;
 
   public PlainTableConfig() {
     keySize_ = VARIABLE_LENGTH;
@@ -30,6 +32,7 @@ public class PlainTableConfig extends TableFormatConfig {
     hugePageTlbSize_ = DEFAULT_HUGE_TLB_SIZE;
     encodingType_ = DEFAULT_ENCODING_TYPE;
     fullScanMode_ = DEFAULT_FULL_SCAN_MODE;
+    storeIndexInFile_ = DEFAULT_STORE_INDEX_IN_FILE;
   }
 
   /**
@@ -208,10 +211,9 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param storeIndexInFile value indicating if index shall
    *     be stored in a file
    * @return the reference to the current config.
-   * @deprecated
    */
-  @Deprecated
   public PlainTableConfig setStoreIndexInFile(boolean storeIndexInFile) {
+    this.storeIndexInFile_ = storeIndexInFile;
     return this;
   }
 
@@ -220,20 +222,23 @@ public class PlainTableConfig extends TableFormatConfig {
    * in a file.
    *
    * @return currently set value for store index in file.
-   * @deprecated
    */
-  @Deprecated
   public boolean storeIndexInFile() {
-    return false;
+    return storeIndexInFile_;
   }
 
   @Override protected long newTableFactoryHandle() {
-    return newTableFactoryHandle(keySize_, bloomBitsPerKey_, hashTableRatio_, indexSparseness_,
-        hugePageTlbSize_, encodingType_.getValue(), fullScanMode_);
+    return newTableFactoryHandle(keySize_, bloomBitsPerKey_,
+        hashTableRatio_, indexSparseness_, hugePageTlbSize_,
+        encodingType_.getValue(), fullScanMode_,
+        storeIndexInFile_);
   }
 
-  private native long newTableFactoryHandle(int keySize, int bloomBitsPerKey, double hashTableRatio,
-      int indexSparseness, int hugePageTlbSize, byte encodingType, boolean fullScanMode);
+  private native long newTableFactoryHandle(
+      int keySize, int bloomBitsPerKey,
+      double hashTableRatio, int indexSparseness,
+      int hugePageTlbSize, byte encodingType,
+      boolean fullScanMode, boolean storeIndexInFile);
 
   private int keySize_;
   private int bloomBitsPerKey_;
@@ -242,4 +247,5 @@ public class PlainTableConfig extends TableFormatConfig {
   private int hugePageTlbSize_;
   private EncodingType encodingType_;
   private boolean fullScanMode_;
+  private boolean storeIndexInFile_;
 }

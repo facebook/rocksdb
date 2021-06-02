@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #
 #
 
@@ -12,6 +12,7 @@ input_data_dir=$1
 db_dir=$2
 extern_sst_dir=$3
 rm -rf $db_dir
+mkdir -p $extern_sst_dir
 
 set -e
 

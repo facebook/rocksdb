@@ -4,10 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/persistent_cache_helper.h"
-#include "table/block_based_table_reader.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void PersistentCacheHelper::InsertRawPage(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
@@ -21,7 +21,8 @@ void PersistentCacheHelper::InsertRawPage(
                                           cache_options.key_prefix.size(),
                                           handle, cache_key);
   // insert content to cache
-  cache_options.persistent_cache->Insert(key, data, size);
+  cache_options.persistent_cache->Insert(key, data, size)
+      .PermitUncheckedError();
 }
 
 void PersistentCacheHelper::InsertUncompressedPage(
@@ -39,8 +40,10 @@ void PersistentCacheHelper::InsertUncompressedPage(
                                           cache_options.key_prefix.size(),
                                           handle, cache_key);
   // insert block contents to page cache
-  cache_options.persistent_cache->Insert(key, contents.data.data(),
-                                         contents.data.size());
+  cache_options.persistent_cache
+      ->Insert(key, contents.data.data(), contents.data.size())
+      .PermitUncheckedError();
+  ;
 }
 
 Status PersistentCacheHelper::LookupRawPage(
@@ -110,4 +113,4 @@ Status PersistentCacheHelper::LookupUncompressedPage(
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

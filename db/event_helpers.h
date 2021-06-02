@@ -10,11 +10,11 @@
 
 #include "db/column_family.h"
 #include "db/version_edit.h"
+#include "logging/event_logger.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
-#include "util/event_logger.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EventHelpers {
  public:
@@ -34,8 +34,10 @@ class EventHelpers {
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       const std::string& db_name, const std::string& cf_name,
       const std::string& file_path, int job_id, const FileDescriptor& fd,
-      const TableProperties& table_properties, TableFileCreationReason reason,
-      const Status& s);
+      uint64_t oldest_blob_file_number, const TableProperties& table_properties,
+      TableFileCreationReason reason, const Status& s,
+      const std::string& file_checksum,
+      const std::string& file_checksum_func_name);
   static void LogAndNotifyTableFileDeletion(
       EventLogger* event_logger, int job_id,
       uint64_t file_number, const std::string& file_path,
@@ -52,4 +54,4 @@ class EventHelpers {
       const FileDescriptor& fd, const TableFileCreationInfo& info);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

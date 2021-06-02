@@ -14,7 +14,7 @@
 #include <thread>
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Helper class that locks a mutex on construction and unlocks the mutex when
 // the destructor of the MutexLock object is invoked.
@@ -31,13 +31,14 @@ class MutexLock {
   explicit MutexLock(port::Mutex *mu) : mu_(mu) {
     this->mu_->Lock();
   }
+  // No copying allowed
+  MutexLock(const MutexLock &) = delete;
+  void operator=(const MutexLock &) = delete;
+
   ~MutexLock() { this->mu_->Unlock(); }
 
  private:
   port::Mutex *const mu_;
-  // No copying allowed
-  MutexLock(const MutexLock&);
-  void operator=(const MutexLock&);
 };
 
 //
@@ -50,13 +51,14 @@ class ReadLock {
   explicit ReadLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->ReadLock();
   }
+  // No copying allowed
+  ReadLock(const ReadLock &) = delete;
+  void operator=(const ReadLock &) = delete;
+
   ~ReadLock() { this->mu_->ReadUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  ReadLock(const ReadLock&);
-  void operator=(const ReadLock&);
 };
 
 //
@@ -65,13 +67,14 @@ class ReadLock {
 class ReadUnlock {
  public:
   explicit ReadUnlock(port::RWMutex *mu) : mu_(mu) { mu->AssertHeld(); }
+  // No copying allowed
+  ReadUnlock(const ReadUnlock &) = delete;
+  ReadUnlock &operator=(const ReadUnlock &) = delete;
+
   ~ReadUnlock() { mu_->ReadUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  ReadUnlock(const ReadUnlock &) = delete;
-  ReadUnlock &operator=(const ReadUnlock &) = delete;
 };
 
 //
@@ -84,13 +87,14 @@ class WriteLock {
   explicit WriteLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->WriteLock();
   }
+  // No copying allowed
+  WriteLock(const WriteLock &) = delete;
+  void operator=(const WriteLock &) = delete;
+
   ~WriteLock() { this->mu_->WriteUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  WriteLock(const WriteLock&);
-  void operator=(const WriteLock&);
 };
 
 //
@@ -128,4 +132,55 @@ class SpinMutex {
   std::atomic<bool> locked_;
 };
 
-}  // namespace rocksdb
+// We want to prevent false sharing
+template <class T>
+struct ALIGN_AS(CACHE_LINE_SIZE) LockData {
+  T lock_;
+};
+
+//
+// Inspired by Guava: https://github.com/google/guava/wiki/StripedExplained
+// A striped Lock. This offers the underlying lock striping similar
+// to that of ConcurrentHashMap in a reusable form, and extends it for
+// semaphores and read-write locks. Conceptually, lock striping is the technique
+// of dividing a lock into many <i>stripes</i>, increasing the granularity of a
+// single lock and allowing independent operations to lock different stripes and
+// proceed concurrently, instead of creating contention for a single lock.
+//
+template <class T, class P>
+class Striped {
+ public:
+  Striped(size_t stripes, std::function<uint64_t(const P &)> hash)
+      : stripes_(stripes), hash_(hash) {
+
+    locks_ = reinterpret_cast<LockData<T> *>(
+        port::cacheline_aligned_alloc(sizeof(LockData<T>) * stripes));
+    for (size_t i = 0; i < stripes; i++) {
+      new (&locks_[i]) LockData<T>();
+    }
+
+  }
+
+  virtual ~Striped() {
+    if (locks_ != nullptr) {
+      assert(stripes_ > 0);
+      for (size_t i = 0; i < stripes_; i++) {
+        locks_[i].~LockData<T>();
+      }
+      port::cacheline_aligned_free(locks_);
+    }
+  }
+
+  T *get(const P &key) {
+    uint64_t h = hash_(key);
+    size_t index = h % stripes_;
+    return &reinterpret_cast<LockData<T> *>(&locks_[index])->lock_;
+  }
+
+ private:
+  size_t stripes_;
+  LockData<T> *locks_;
+  std::function<uint64_t(const P &)> hash_;
+};
+
+}  // namespace ROCKSDB_NAMESPACE

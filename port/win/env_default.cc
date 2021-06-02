@@ -7,15 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #include <mutex>
 
-#include <rocksdb/env.h>
 #include "port/win/env_win.h"
+#include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/compression_context_cache.h"
-#include "util/sync_point.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // We choose not to destroy the env because joining the threads from the
@@ -38,4 +40,6 @@ Env* Env::Default() {
   return envptr;
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE
+
+#endif

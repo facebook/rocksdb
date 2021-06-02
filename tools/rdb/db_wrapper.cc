@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -83,7 +84,7 @@ Handle<Value> DBWrapper::Open(const Arguments& args) {
 
   std::string db_file = *v8::String::Utf8Value(args[0]->ToString());
 
-  std::vector<std::string> cfs = { rocksdb::kDefaultColumnFamilyName };
+  std::vector<std::string> cfs = {ROCKSDB_NAMESPACE::kDefaultColumnFamilyName};
 
   if (!args[1]->IsUndefined()) {
     Handle<Array> array = Handle<Array>::Cast(args[1]);
@@ -97,21 +98,21 @@ Handle<Value> DBWrapper::Open(const Arguments& args) {
   }
 
   if (cfs.size() == 1) {
-    db_wrapper->status_ = rocksdb::DB::Open(
+    db_wrapper->status_ = ROCKSDB_NAMESPACE::DB::Open(
         db_wrapper->options_, db_file, &db_wrapper->db_);
 
     return scope.Close(Boolean::New(db_wrapper->status_.ok()));
   }
 
-  std::vector<rocksdb::ColumnFamilyDescriptor> families;
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> families;
 
   for (std::vector<int>::size_type i = 0; i < cfs.size(); i++) {
-    families.push_back(rocksdb::ColumnFamilyDescriptor(
-        cfs[i], rocksdb::ColumnFamilyOptions()));
+    families.push_back(ROCKSDB_NAMESPACE::ColumnFamilyDescriptor(
+        cfs[i], ROCKSDB_NAMESPACE::ColumnFamilyOptions()));
   }
 
-  std::vector<rocksdb::ColumnFamilyHandle*> handles;
-  db_wrapper->status_ = rocksdb::DB::Open(
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> handles;
+  db_wrapper->status_ = ROCKSDB_NAMESPACE::DB::Open(
       db_wrapper->options_, db_file, families, &handles, &db_wrapper->db_);
 
   if (!db_wrapper->status_.ok()) {
@@ -157,11 +158,12 @@ Handle<Value> DBWrapper::Get(const Arguments& args) {
   std::string value;
 
   if (args[1]->IsUndefined()) {
-    db_wrapper->status_ = db_wrapper->db_->Get(
-        rocksdb::ReadOptions(), key, &value);
+    db_wrapper->status_ =
+        db_wrapper->db_->Get(ROCKSDB_NAMESPACE::ReadOptions(), key, &value);
   } else if (db_wrapper->HasFamilyNamed(cf, db_wrapper)) {
-    db_wrapper->status_ = db_wrapper->db_->Get(
-        rocksdb::ReadOptions(), db_wrapper->columnFamilies_[cf], key, &value);
+    db_wrapper->status_ =
+        db_wrapper->db_->Get(ROCKSDB_NAMESPACE::ReadOptions(),
+                             db_wrapper->columnFamilies_[cf], key, &value);
   } else {
     return scope.Close(Null());
   }
@@ -186,16 +188,12 @@ Handle<Value> DBWrapper::Put(const Arguments& args) {
   std::string cf        = *v8::String::Utf8Value(args[2]->ToString());
 
   if (args[2]->IsUndefined()) {
-    db_wrapper->status_  = db_wrapper->db_->Put(
-      rocksdb::WriteOptions(), key, value
-    );
+    db_wrapper->status_ =
+        db_wrapper->db_->Put(ROCKSDB_NAMESPACE::WriteOptions(), key, value);
   } else if (db_wrapper->HasFamilyNamed(cf, db_wrapper)) {
-    db_wrapper->status_ = db_wrapper->db_->Put(
-      rocksdb::WriteOptions(),
-      db_wrapper->columnFamilies_[cf],
-      key,
-      value
-    );
+    db_wrapper->status_ =
+        db_wrapper->db_->Put(ROCKSDB_NAMESPACE::WriteOptions(),
+                             db_wrapper->columnFamilies_[cf], key, value);
   } else {
     return scope.Close(Boolean::New(false));
   }
@@ -216,14 +214,15 @@ Handle<Value> DBWrapper::Delete(const Arguments& args) {
   std::string arg1      = *v8::String::Utf8Value(args[1]->ToString());
 
   if (args[1]->IsUndefined()) {
-    db_wrapper->status_ = db_wrapper->db_->Delete(
-        rocksdb::WriteOptions(), arg0);
+    db_wrapper->status_ =
+        db_wrapper->db_->Delete(ROCKSDB_NAMESPACE::WriteOptions(), arg0);
   } else {
     if (!db_wrapper->HasFamilyNamed(arg1, db_wrapper)) {
       return scope.Close(Boolean::New(false));
     }
-    db_wrapper->status_ = db_wrapper->db_->Delete(
-        rocksdb::WriteOptions(), db_wrapper->columnFamilies_[arg1], arg0);
+    db_wrapper->status_ =
+        db_wrapper->db_->Delete(ROCKSDB_NAMESPACE::WriteOptions(),
+                                db_wrapper->columnFamilies_[arg1], arg0);
   }
 
   return scope.Close(Boolean::New(db_wrapper->status_.ok()));
@@ -231,19 +230,20 @@ Handle<Value> DBWrapper::Delete(const Arguments& args) {
 
 Handle<Value> DBWrapper::Dump(const Arguments& args) {
   HandleScope scope;
-  std::unique_ptr<rocksdb::Iterator> iterator;
+  std::unique_ptr<ROCKSDB_NAMESPACE::Iterator> iterator;
   DBWrapper* db_wrapper = ObjectWrap::Unwrap<DBWrapper>(args.This());
   std::string arg0      = *v8::String::Utf8Value(args[0]->ToString());
 
   if (args[0]->IsUndefined()) {
-    iterator.reset(db_wrapper->db_->NewIterator(rocksdb::ReadOptions()));
+    iterator.reset(
+        db_wrapper->db_->NewIterator(ROCKSDB_NAMESPACE::ReadOptions()));
   } else {
     if (!db_wrapper->HasFamilyNamed(arg0, db_wrapper)) {
       return scope.Close(Boolean::New(false));
     }
 
     iterator.reset(db_wrapper->db_->NewIterator(
-        rocksdb::ReadOptions(), db_wrapper->columnFamilies_[arg0]));
+        ROCKSDB_NAMESPACE::ReadOptions(), db_wrapper->columnFamilies_[arg0]));
   }
 
   iterator->SeekToFirst();
@@ -274,9 +274,9 @@ Handle<Value> DBWrapper::CreateColumnFamily(const Arguments& args) {
     return scope.Close(Boolean::New(false));
   }
 
-  rocksdb::ColumnFamilyHandle* cf;
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf;
   db_wrapper->status_ = db_wrapper->db_->CreateColumnFamily(
-      rocksdb::ColumnFamilyOptions(), cf_name, &cf);
+      ROCKSDB_NAMESPACE::ColumnFamilyOptions(), cf_name, &cf);
 
   if (!db_wrapper->status_.ok()) {
     return scope.Close(Boolean::New(false));
@@ -287,7 +287,7 @@ Handle<Value> DBWrapper::CreateColumnFamily(const Arguments& args) {
   return scope.Close(Boolean::New(true));
 }
 
-bool DBWrapper::AddToBatch(rocksdb::WriteBatch& batch, bool del,
+bool DBWrapper::AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
                            Handle<Array> array) {
   Handle<Array> put_pair;
   for (uint i = 0; i < array->Length(); i++) {
@@ -318,7 +318,7 @@ bool DBWrapper::AddToBatch(rocksdb::WriteBatch& batch, bool del,
   return true;
 }
 
-bool DBWrapper::AddToBatch(rocksdb::WriteBatch& batch, bool del,
+bool DBWrapper::AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
                            Handle<Array> array, DBWrapper* db_wrapper,
                            std::string cf) {
   Handle<Array> put_pair;
@@ -363,7 +363,7 @@ Handle<Value> DBWrapper::WriteBatch(const Arguments& args) {
   DBWrapper* db_wrapper     = ObjectWrap::Unwrap<DBWrapper>(args.This());
   Handle<Array> sub_batches = Handle<Array>::Cast(args[0]);
   Local<Object> sub_batch;
-  rocksdb::WriteBatch batch;
+  ROCKSDB_NAMESPACE::WriteBatch batch;
   bool well_formed;
 
   for (uint i = 0; i < sub_batches->Length(); i++) {
@@ -403,7 +403,8 @@ Handle<Value> DBWrapper::WriteBatch(const Arguments& args) {
     }
   }
 
-  db_wrapper->status_ = db_wrapper->db_->Write(rocksdb::WriteOptions(), &batch);
+  db_wrapper->status_ =
+      db_wrapper->db_->Write(ROCKSDB_NAMESPACE::WriteOptions(), &batch);
 
   return scope.Close(Boolean::New(db_wrapper->status_.ok()));
 }
@@ -412,8 +413,8 @@ Handle<Value> DBWrapper::CompactRangeDefault(const Arguments& args) {
   HandleScope scope;
 
   DBWrapper* db_wrapper = ObjectWrap::Unwrap<DBWrapper>(args.This());
-  rocksdb::Slice begin     = *v8::String::Utf8Value(args[0]->ToString());
-  rocksdb::Slice end       = *v8::String::Utf8Value(args[1]->ToString());
+  ROCKSDB_NAMESPACE::Slice begin = *v8::String::Utf8Value(args[0]->ToString());
+  ROCKSDB_NAMESPACE::Slice end = *v8::String::Utf8Value(args[1]->ToString());
   db_wrapper->status_    = db_wrapper->db_->CompactRange(&end, &begin);
 
   return scope.Close(Boolean::New(db_wrapper->status_.ok()));
@@ -423,8 +424,8 @@ Handle<Value> DBWrapper::CompactColumnFamily(const Arguments& args) {
   HandleScope scope;
 
   DBWrapper* db_wrapper = ObjectWrap::Unwrap<DBWrapper>(args.This());
-  rocksdb::Slice begin  = *v8::String::Utf8Value(args[0]->ToString());
-  rocksdb::Slice end    = *v8::String::Utf8Value(args[1]->ToString());
+  ROCKSDB_NAMESPACE::Slice begin = *v8::String::Utf8Value(args[0]->ToString());
+  ROCKSDB_NAMESPACE::Slice end = *v8::String::Utf8Value(args[1]->ToString());
   std::string cf        = *v8::String::Utf8Value(args[2]->ToString());
   db_wrapper->status_    = db_wrapper->db_->CompactRange(
       db_wrapper->columnFamilies_[cf], &begin, &end);
@@ -440,8 +441,8 @@ Handle<Value> DBWrapper::CompactOptions(const Arguments& args) {
   }
 
   DBWrapper* db_wrapper = ObjectWrap::Unwrap<DBWrapper>(args.This());
-  rocksdb::Slice begin     = *v8::String::Utf8Value(args[0]->ToString());
-  rocksdb::Slice end       = *v8::String::Utf8Value(args[1]->ToString());
+  ROCKSDB_NAMESPACE::Slice begin = *v8::String::Utf8Value(args[0]->ToString());
+  ROCKSDB_NAMESPACE::Slice end = *v8::String::Utf8Value(args[1]->ToString());
   Local<Object> options  = args[2]->ToObject();
   int target_level = -1, target_path_id = 0;
 
@@ -472,8 +473,8 @@ Handle<Value> DBWrapper::CompactAll(const Arguments& args) {
   }
 
   DBWrapper* db_wrapper = ObjectWrap::Unwrap<DBWrapper>(args.This());
-  rocksdb::Slice begin  = *v8::String::Utf8Value(args[0]->ToString());
-  rocksdb::Slice end    = *v8::String::Utf8Value(args[1]->ToString());
+  ROCKSDB_NAMESPACE::Slice begin = *v8::String::Utf8Value(args[0]->ToString());
+  ROCKSDB_NAMESPACE::Slice end = *v8::String::Utf8Value(args[1]->ToString());
   Local<Object> options = args[2]->ToObject();
   std::string cf        = *v8::String::Utf8Value(args[3]->ToString());
 

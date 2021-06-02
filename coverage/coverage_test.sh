@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 # Exit on error.
 set -e
@@ -11,21 +12,24 @@ fi
 ROOT=".."
 # Fetch right version of gcov
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
-  source $ROOT/build_tools/fbcode_config.sh
+  source $ROOT/build_tools/fbcode_config_platform007.sh
   GCOV=$GCC_BASE/bin/gcov
 else
   GCOV=$(which gcov)
 fi
+echo -e "Using $GCOV"
 
 COVERAGE_DIR="$PWD/COVERAGE_REPORT"
 mkdir -p $COVERAGE_DIR
 
 # Find all gcno files to generate the coverage report
 
+PYTHON=${1:-`which python`}
+echo -e "Using $PYTHON"
 GCNO_FILES=`find $ROOT -name "*.gcno"`
 $GCOV --preserve-paths --relative-only --no-output $GCNO_FILES 2>/dev/null |
   # Parse the raw gcov report to more human readable form.
-  python $ROOT/coverage/parse_gcov_output.py |
+  $PYTHON $ROOT/coverage/parse_gcov_output.py |
   # Write the output to both stdout and report file.
   tee $COVERAGE_DIR/coverage_report_all.txt &&
 echo -e "Generated coverage report for all files: $COVERAGE_DIR/coverage_report_all.txt\n"
@@ -40,7 +44,7 @@ RECENT_REPORT=$COVERAGE_DIR/coverage_report_recent.txt
 
 echo -e "Recently updated files: $LATEST_FILES\n" > $RECENT_REPORT
 $GCOV --preserve-paths --relative-only --no-output $GCNO_FILES 2>/dev/null |
-  python $ROOT/coverage/parse_gcov_output.py -interested-files $LATEST_FILES |
+  $PYTHON $ROOT/coverage/parse_gcov_output.py -interested-files $LATEST_FILES |
   tee -a $RECENT_REPORT &&
 echo -e "Generated coverage report for recently updated files: $RECENT_REPORT\n"
 

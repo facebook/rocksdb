@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include "rocksdb/perf_context.h"
+
 #include <algorithm>
 #include <iostream>
 #include <thread>
@@ -15,11 +17,11 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/system_clock.h"
+#include "test_util/testharness.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;
@@ -31,9 +33,10 @@ int FLAGS_min_write_buffer_number_to_merge = 7;
 bool FLAGS_verbose = false;
 
 // Path to the database on file system
-const std::string kDbName = rocksdb::test::PerThreadDBPath("perf_context_test");
+const std::string kDbName =
+    ROCKSDB_NAMESPACE::test::PerThreadDBPath("perf_context_test");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<DB> OpenDb(bool read_only = false) {
     DB* db;
@@ -47,7 +50,8 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
 
     if (FLAGS_use_set_based_memetable) {
 #ifndef ROCKSDB_LITE
-      options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(0));
+      options.prefix_extractor.reset(
+          ROCKSDB_NAMESPACE::NewFixedPrefixTransform(0));
       options.memtable_factory.reset(NewHashSkipListRepFactory());
 #endif  // ROCKSDB_LITE
     }
@@ -74,12 +78,12 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
 
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
   }
 
   for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
     std::string key = "k" + ToString(i);
-    db->Delete(write_options, key);
+    ASSERT_OK(db->Delete(write_options, key));
   }
 
   HistogramImpl hist_get;
@@ -89,7 +93,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string value;
 
     get_perf_context()->Reset();
-    StopWatchNano timer(Env::Default());
+    StopWatchNano timer(SystemClock::Default().get());
     timer.Start();
     auto status = db->Get(read_options, key, &value);
     auto elapsed_nanos = timer.ElapsedNanos();
@@ -108,16 +112,15 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
     get_perf_context()->Reset();
-    StopWatchNano timer(Env::Default(), true);
+    StopWatchNano timer(SystemClock::Default().get(), true);
     iter->SeekToFirst();
     hist_seek_to_first.Add(get_perf_context()->user_key_comparison_count);
     auto elapsed_nanos = timer.ElapsedNanos();
 
     if (FLAGS_verbose) {
-      std::cout << "SeekToFirst uesr key comparison: \n"
-                << hist_seek_to_first.ToString()
-                << "ikey skipped: " << get_perf_context()->internal_key_skipped_count
-                << "\n"
+      std::cout << "SeekToFirst user key comparison: \n"
+                << hist_seek_to_first.ToString() << "ikey skipped: "
+                << get_perf_context()->internal_key_skipped_count << "\n"
                 << "idelete skipped: "
                 << get_perf_context()->internal_delete_skipped_count << "\n"
                 << "elapsed: " << elapsed_nanos << "\n";
@@ -130,7 +133,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string key = "k" + ToString(i);
 
     get_perf_context()->Reset();
-    StopWatchNano timer(Env::Default(), true);
+    StopWatchNano timer(SystemClock::Default().get(), true);
     iter->Seek(key);
     auto elapsed_nanos = timer.ElapsedNanos();
     hist_seek.Add(get_perf_context()->user_key_comparison_count);
@@ -144,7 +147,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
 
     get_perf_context()->Reset();
     ASSERT_TRUE(iter->Valid());
-    StopWatchNano timer2(Env::Default(), true);
+    StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
@@ -154,7 +157,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Seek uesr key comparison: \n" << hist_seek.ToString();
+    std::cout << "Seek user key comparison: \n" << hist_seek.ToString();
   }
 }
 
@@ -163,7 +166,7 @@ TEST_F(PerfContextTest, StopWatchNanoOverhead) {
   const int kTotalIterations = 1000000;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatchNano timer(Env::Default(), true);
+  StopWatchNano timer(SystemClock::Default().get(), true);
   for (auto& timing : timings) {
     timing = timer.ElapsedNanos(true /* reset */);
   }
@@ -184,7 +187,7 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(Env::Default(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -249,7 +252,7 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_random_key) {
-    std::random_shuffle(keys.begin(), keys.end());
+    RandomShuffle(std::begin(keys), std::end(keys));
   }
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 1U);
@@ -268,7 +271,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::vector<std::string> values;
 
     get_perf_context()->Reset();
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
     if (++num_mutex_waited > 3) {
 #ifndef NDEBUG
       ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
@@ -312,7 +315,10 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(get_perf_context()->user_key_comparison_count);
 
     get_perf_context()->Reset();
-    db->MultiGet(read_options, multiget_keys, &values);
+    auto statuses = db->MultiGet(read_options, multiget_keys, &values);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
@@ -322,9 +328,10 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Put uesr key comparison: \n" << hist_put.ToString()
-              << "Get uesr key comparison: \n" << hist_get.ToString()
-              << "MultiGet uesr key comparison: \n" << hist_get.ToString();
+    std::cout << "Put user key comparison: \n"
+              << hist_put.ToString() << "Get user key comparison: \n"
+              << hist_get.ToString() << "MultiGet user key comparison: \n"
+              << hist_get.ToString();
     std::cout << "Put(): Pre and Post Process Time: \n"
               << hist_write_pre_post.ToString() << " Writing WAL time: \n"
               << hist_write_wal_time.ToString() << "\n"
@@ -426,7 +433,10 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(get_perf_context()->user_key_comparison_count);
 
     get_perf_context()->Reset();
-    db->MultiGet(read_options, multiget_keys, &values);
+    auto statuses = db->MultiGet(read_options, multiget_keys, &values);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
@@ -436,8 +446,9 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "ReadOnly Get uesr key comparison: \n" << hist_get.ToString()
-              << "ReadOnly MultiGet uesr key comparison: \n"
+    std::cout << "ReadOnly Get user key comparison: \n"
+              << hist_get.ToString()
+              << "ReadOnly MultiGet user key comparison: \n"
               << hist_mget.ToString();
 
     std::cout << "ReadOnly Get(): Time to get snapshot: \n"
@@ -522,7 +533,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   }
 
   if (FLAGS_random_key) {
-    std::random_shuffle(keys.begin(), keys.end());
+    RandomShuffle(std::begin(keys), std::end(keys));
   }
 
   HistogramImpl hist_put_time;
@@ -530,14 +541,14 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   HistogramImpl hist_time_diff;
 
   SetPerfLevel(kEnableTime);
-  StopWatchNano timer(Env::Default());
+  StopWatchNano timer(SystemClock::Default().get());
   for (const int i : keys) {
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
 
     get_perf_context()->Reset();
     timer.Start();
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
     auto put_time = timer.ElapsedNanos();
     hist_put_time.Add(put_time);
     hist_wal_time.Add(get_perf_context()->write_wal_time);
@@ -571,7 +582,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
     iter->Next();
     hist_next.Add(get_perf_context()->user_key_comparison_count);
   }
-
+  ASSERT_OK(iter->status());
   if (FLAGS_verbose) {
     std::cout << "Seek:\n" << hist_seek.ToString() << "Next:\n"
               << hist_next.ToString();
@@ -583,25 +594,26 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
   for (PerfLevel perf_level_test :
        {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
     for (int c = 0; c < 2; ++c) {
-    InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
-    mutex.Lock();
-    rocksdb::port::Thread child_thread([&] {
-      SetPerfLevel(perf_level_test);
-      get_perf_context()->Reset();
-      ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
+      InstrumentedMutex mutex(nullptr, SystemClock::Default().get(),
+                              stats_code[c]);
       mutex.Lock();
-      mutex.Unlock();
-      if (perf_level_test == PerfLevel::kEnableTimeExceptForMutex ||
-          stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+      ROCKSDB_NAMESPACE::port::Thread child_thread([&] {
+        SetPerfLevel(perf_level_test);
+        get_perf_context()->Reset();
         ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
-      } else {
-        // increment the counter only when it's a DB Mutex
-        ASSERT_GT(get_perf_context()->db_mutex_lock_nanos, 0);
-      }
-    });
-    Env::Default()->SleepForMicroseconds(100);
-    mutex.Unlock();
-    child_thread.join();
+        mutex.Lock();
+        mutex.Unlock();
+        if (perf_level_test == PerfLevel::kEnableTimeExceptForMutex ||
+            stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+          ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
+        } else {
+          // increment the counter only when it's a DB Mutex
+          ASSERT_GT(get_perf_context()->db_mutex_lock_nanos, 0);
+        }
+      });
+      SystemClock::Default()->SleepForMicroseconds(100);
+      mutex.Unlock();
+      child_thread.join();
   }
   }
 }
@@ -610,7 +622,8 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
   SetPerfLevel(kEnableTime);
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
   for (int c = 0; c < 2; ++c) {
-    InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
+    InstrumentedMutex mutex(nullptr, SystemClock::Default().get(),
+                            stats_code[c]);
     InstrumentedCondVar lock(&mutex);
     get_perf_context()->Reset();
     mutex.Lock();
@@ -688,6 +701,89 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
   delete db;
 }
 
+TEST_F(PerfContextTest, CopyAndMove) {
+  // Assignment operator
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perf_context_assign;
+    perf_context_assign = *get_perf_context();
+    ASSERT_EQ(
+        1,
+        (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1,
+        (*(perf_context_assign.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_assign.ClearPerLevelPerfContext();
+    perf_context_assign.Reset();
+  }
+  // Copy constructor
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perf_context_copy(*get_perf_context());
+    ASSERT_EQ(
+        1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_copy.ClearPerLevelPerfContext();
+    perf_context_copy.Reset();
+  }
+  // Move constructor
+  {
+    get_perf_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+    ASSERT_EQ(
+        1,
+        (*(get_perf_context()->level_to_perf_context))[5].bloom_filter_useful);
+    PerfContext perf_context_move = std::move(*get_perf_context());
+    ASSERT_EQ(
+        1, (*(perf_context_move.level_to_perf_context))[5].bloom_filter_useful);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    ASSERT_EQ(
+        1, (*(perf_context_move.level_to_perf_context))[5].bloom_filter_useful);
+    perf_context_move.ClearPerLevelPerfContext();
+    perf_context_move.Reset();
+  }
+}
+
+TEST_F(PerfContextTest, PerfContextDisableEnable) {
+  get_perf_context()->Reset();
+  get_perf_context()->EnablePerLevelPerfContext();
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, 0);
+  get_perf_context()->DisablePerLevelPerfContext();
+  PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, 5);
+  get_perf_context()->EnablePerLevelPerfContext();
+  PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1, 0);
+  get_perf_context()->DisablePerLevelPerfContext();
+  PerfContext perf_context_copy(*get_perf_context());
+  ASSERT_EQ(1, (*(perf_context_copy.level_to_perf_context))[0]
+                   .bloom_filter_full_positive);
+  // this was set when per level perf context is disabled, should not be copied
+  ASSERT_NE(
+      1, (*(perf_context_copy.level_to_perf_context))[5].bloom_filter_useful);
+  ASSERT_EQ(
+      1, (*(perf_context_copy.level_to_perf_context))[0].block_cache_hit_count);
+  perf_context_copy.ClearPerLevelPerfContext();
+  perf_context_copy.Reset();
+  get_perf_context()->ClearPerLevelPerfContext();
+  get_perf_context()->Reset();
+}
+
 TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
   get_perf_context()->Reset();
   get_perf_context()->EnablePerLevelPerfContext();
@@ -730,7 +826,137 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
   ASSERT_NE(std::string::npos,
             zero_excluded.find("block_cache_miss_count = 4@level1, 2@level3"));
 }
-}  // namespace rocksdb
+
+TEST_F(PerfContextTest, CPUTimer) {
+  if (SystemClock::Default()->CPUNanos() == 0) {
+    ROCKSDB_GTEST_SKIP("Target without CPUNanos support");
+    return;
+  }
+
+  DestroyDB(kDbName, Options());
+  auto db = OpenDb();
+  WriteOptions write_options;
+  ReadOptions read_options;
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+
+  std::string max_str = "0";
+  for (int i = 0; i < FLAGS_total_keys; ++i) {
+    std::string i_str = ToString(i);
+    std::string key = "k" + i_str;
+    std::string value = "v" + i_str;
+    max_str = max_str > i_str ? max_str : i_str;
+
+    ASSERT_OK(db->Put(write_options, key, value));
+  }
+  std::string last_key = "k" + max_str;
+  std::string last_value = "v" + max_str;
+
+  {
+    // Get
+    get_perf_context()->Reset();
+    std::string value;
+    ASSERT_OK(db->Get(read_options, "k0", &value));
+    ASSERT_EQ(value, "v0");
+
+    if (FLAGS_verbose) {
+      std::cout << "Get CPU time nanos: " << get_perf_context()->get_cpu_nanos
+                << "ns\n";
+    }
+
+    // Iter
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+
+    // Seek
+    get_perf_context()->Reset();
+    iter->Seek(last_key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(last_value, iter->value().ToString());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Seek CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekForPrev
+    get_perf_context()->Reset();
+    iter->SeekForPrev(last_key);
+    ASSERT_TRUE(iter->Valid());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekForPrev CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekToLast
+    get_perf_context()->Reset();
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(last_value, iter->value().ToString());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekToLast CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // SeekToFirst
+    get_perf_context()->Reset();
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v0", iter->value().ToString());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter SeekToFirst CPU time nanos: "
+                << get_perf_context()->iter_seek_cpu_nanos << "ns\n";
+    }
+
+    // Next
+    get_perf_context()->Reset();
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v1", iter->value().ToString());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Next CPU time nanos: "
+                << get_perf_context()->iter_next_cpu_nanos << "ns\n";
+    }
+
+    // Prev
+    get_perf_context()->Reset();
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("v0", iter->value().ToString());
+
+    if (FLAGS_verbose) {
+      std::cout << "Iter Prev CPU time nanos: "
+                << get_perf_context()->iter_prev_cpu_nanos << "ns\n";
+    }
+
+    // monotonically increasing
+    get_perf_context()->Reset();
+    auto count = get_perf_context()->iter_seek_cpu_nanos;
+    for (int i = 0; i < FLAGS_total_keys; ++i) {
+      iter->Seek("k" + ToString(i));
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("v" + ToString(i), iter->value().ToString());
+      auto next_count = get_perf_context()->iter_seek_cpu_nanos;
+      ASSERT_GT(next_count, count);
+      count = next_count;
+    }
+
+    // iterator creation/destruction; multiple iterators
+    {
+      std::unique_ptr<Iterator> iter2(db->NewIterator(read_options));
+      ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
+      iter2->Seek(last_key);
+      ASSERT_TRUE(iter2->Valid());
+      ASSERT_EQ(last_value, iter2->value().ToString());
+      ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, count);
+      count = get_perf_context()->iter_seek_cpu_nanos;
+    }
+    ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
+  }
+}
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -5,11 +5,11 @@
 
 #pragma once
 #include <memory>
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/serialize.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
 extern const char kData[];
 extern const char kExpiringData[];
@@ -33,14 +33,11 @@ RowValue CreateTestRowValue(
 RowValue CreateRowTombstone(int64_t timestamp);
 
 void VerifyRowValueColumns(
-  std::vector<std::shared_ptr<ColumnBase>> &columns,
-  std::size_t index_of_vector,
-  int8_t expected_mask,
-  int8_t expected_index,
-  int64_t expected_timestamp
-);
+    const std::vector<std::shared_ptr<ColumnBase>> &columns,
+    std::size_t index_of_vector, int8_t expected_mask, int8_t expected_index,
+    int64_t expected_timestamp);
 
 int64_t ToMicroSeconds(int64_t seconds);
 int32_t ToSeconds(int64_t microseconds);
 }
-}
+}  // namespace ROCKSDB_NAMESPACE

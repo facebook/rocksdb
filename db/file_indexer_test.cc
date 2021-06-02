@@ -7,16 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <string>
 #include "db/file_indexer.h"
+#include <string>
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class IntComparator : public Comparator {
  public:
@@ -47,7 +47,7 @@ class FileIndexerTest : public testing::Test {
   FileIndexerTest()
       : kNumLevels(4), files(new std::vector<FileMetaData*>[kNumLevels]) {}
 
-  ~FileIndexerTest() {
+  ~FileIndexerTest() override {
     ClearFiles();
     delete[] files;
   }
@@ -341,10 +341,10 @@ TEST_F(FileIndexerTest, mixed) {
   ClearFiles();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

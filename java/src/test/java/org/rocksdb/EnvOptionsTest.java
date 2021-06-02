@@ -14,9 +14,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class EnvOptionsTest {
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE = new RocksNativeLibraryResource();
 
   public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
+
+  @Test
+  public void dbOptionsConstructor() {
+    final long compactionReadaheadSize = 4 * 1024 * 1024;
+    try (final DBOptions dbOptions = new DBOptions()
+        .setCompactionReadaheadSize(compactionReadaheadSize)) {
+      try (final EnvOptions envOptions = new EnvOptions(dbOptions)) {
+        assertThat(envOptions.compactionReadaheadSize())
+            .isEqualTo(compactionReadaheadSize);
+      }
+    }
+  }
 
   @Test
   public void useMmapReads() {

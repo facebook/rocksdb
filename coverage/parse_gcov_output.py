@@ -1,7 +1,11 @@
+#!/usr/bin/env python
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+
+from __future__ import print_function
+
+import optparse
 import re
 import sys
-
-from optparse import OptionParser
 
 # the gcov report follows certain pattern. Each file will have two lines
 # of report, from which we can extract the file name, total lines and coverage
@@ -46,7 +50,7 @@ def parse_gcov_report(gcov_input):
 def get_option_parser():
     usage = "Parse the gcov output and generate more human-readable code " +\
             "coverage report."
-    parser = OptionParser(usage)
+    parser = optparse.OptionParser(usage)
 
     parser.add_option(
         "--interested-files", "-i",
@@ -71,8 +75,8 @@ def display_file_coverage(per_file_coverage, total_coverage):
     header_template = \
         "%" + str(max_file_name_length) + "s\t%s\t%s"
     separator = "-" * (max_file_name_length + 10 + 20)
-    print header_template % ("Filename", "Coverage", "Lines")  # noqa: E999 T25377293 Grandfathered in
-    print separator
+    print(header_template % ("Filename", "Coverage", "Lines"))  # noqa: E999 T25377293 Grandfathered in
+    print(separator)
 
     # -- Print body
     # template for printing coverage report for each file.
@@ -80,12 +84,12 @@ def display_file_coverage(per_file_coverage, total_coverage):
 
     for fname, coverage_info in per_file_coverage.items():
         coverage, lines = coverage_info
-        print record_template % (fname, coverage, lines)
+        print(record_template % (fname, coverage, lines))
 
     # -- Print footer
     if total_coverage:
-        print separator
-        print record_template % ("Total", total_coverage[0], total_coverage[1])
+        print(separator)
+        print(record_template % ("Total", total_coverage[0], total_coverage[1]))
 
 def report_coverage():
     parser = get_option_parser()
@@ -109,7 +113,7 @@ def report_coverage():
         total_coverage = None
 
     if not len(per_file_coverage):
-        print >> sys.stderr, "Cannot find coverage info for the given files."
+        print("Cannot find coverage info for the given files.", file=sys.stderr)
         return
     display_file_coverage(per_file_coverage, total_coverage)
 

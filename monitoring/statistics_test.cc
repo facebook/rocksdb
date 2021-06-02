@@ -5,12 +5,12 @@
 //
 
 #include "port/stack_trace.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #include "rocksdb/statistics.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class StatisticsTest : public testing::Test {};
 
@@ -38,10 +38,10 @@ TEST_F(StatisticsTest, SanityHistograms) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

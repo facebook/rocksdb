@@ -9,18 +9,21 @@
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
+#include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TestReadCallback : public ReadCallback {
  public:
   TestReadCallback(SnapshotChecker* snapshot_checker,
                    SequenceNumber snapshot_seq)
-      : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
+      : ReadCallback(snapshot_seq),
+        snapshot_checker_(snapshot_checker),
+        snapshot_seq_(snapshot_seq) {}
 
-  bool IsVisible(SequenceNumber seq) override {
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
     return snapshot_checker_->CheckInSnapshot(seq, snapshot_seq_) ==
            SnapshotCheckerResult::kInSnapshot;
   }
@@ -33,7 +36,8 @@ class TestReadCallback : public ReadCallback {
 // Test merge operator functionality.
 class DBMergeOperatorTest : public DBTestBase {
  public:
-  DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
+  DBMergeOperatorTest()
+      : DBTestBase("/db_merge_operator_test", /*env_do_fsync=*/false) {}
 
   std::string GetWithReadCallback(SnapshotChecker* snapshot_checker,
                                   const Slice& key,
@@ -44,9 +48,11 @@ class DBMergeOperatorTest : public DBTestBase {
     ReadOptions read_opt;
     read_opt.snapshot = snapshot;
     PinnableSlice value;
-    Status s =
-        dbfull()->GetImpl(read_opt, db_->DefaultColumnFamily(), key, &value,
-                          nullptr /*value_found*/, &read_callback);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &value;
+    get_impl_options.callback = &read_callback;
+    Status s = dbfull()->GetImpl(read_opt, key, get_impl_options);
     if (!s.ok()) {
       return s.ToString();
     }
@@ -88,7 +94,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
   std::string value;
-  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
   // Make sure that only the latest two merge operands are used. If this was
   // not the case the value would be "a,b,c,d".
   ASSERT_EQ(value, "c,d");
@@ -99,7 +105,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k2", "c"));
   ASSERT_OK(Merge("k2", "d"));
   ASSERT_OK(Flush());
-  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
   ASSERT_EQ(value, "c,d");
 
   // All K3 values are flushed and are in different files.
@@ -110,7 +116,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k3", "cd"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "de"));
-  ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
+  ASSERT_OK(db_->Get(ReadOptions(), "k3", &value));
   ASSERT_EQ(value, "cd,de");
 
   // All K4 values are in different levels
@@ -124,7 +130,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   ASSERT_OK(Merge("k4", "de"));
-  ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
+  ASSERT_OK(db_->Get(ReadOptions(), "k4", &value));
   ASSERT_EQ(value, "cd,de");
 }
 
@@ -238,7 +244,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
       std::string key = Key(key_id % 35);
       key_id++;
       for (int k = 0; k < kOperandsPerKeyPerFile; k++) {
-        std::string val = RandomString(&rnd, kOperandSize);
+        std::string val = rnd.RandomString(kOperandSize);
         ASSERT_OK(db_->Merge(WriteOptions(), key, val));
         if (true_data[key].size() == 0) {
           true_data[key] = val;
@@ -273,83 +279,20 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   VerifyDBFromMap(true_data);
 }
 
-TEST_P(MergeOperatorPinningTest, Randomized) {
-  do {
-    Options options = CurrentOptions();
-    options.merge_operator = MergeOperators::CreateMaxOperator();
-    BlockBasedTableOptions table_options;
-    table_options.no_block_cache = disable_block_cache_;
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
-
-    Random rnd(301);
-    std::map<std::string, std::string> true_data;
-
-    const int kTotalMerges = 5000;
-    // Every key gets ~10 operands
-    const int kKeyRange = kTotalMerges / 10;
-    const int kOperandSize = 20;
-    const int kNumPutBefore = kKeyRange / 10;  // 10% value
-    const int kNumPutAfter = kKeyRange / 10;   // 10% overwrite
-    const int kNumDelete = kKeyRange / 10;     // 10% delete
-
-    // kNumPutBefore keys will have base values
-    for (int i = 0; i < kNumPutBefore; i++) {
-      std::string key = Key(rnd.Next() % kKeyRange);
-      std::string value = RandomString(&rnd, kOperandSize);
-      ASSERT_OK(db_->Put(WriteOptions(), key, value));
-
-      true_data[key] = value;
-    }
-
-    // Do kTotalMerges merges
-    for (int i = 0; i < kTotalMerges; i++) {
-      std::string key = Key(rnd.Next() % kKeyRange);
-      std::string value = RandomString(&rnd, kOperandSize);
-      ASSERT_OK(db_->Merge(WriteOptions(), key, value));
-
-      if (true_data[key] < value) {
-        true_data[key] = value;
-      }
-    }
-
-    // Overwrite random kNumPutAfter keys
-    for (int i = 0; i < kNumPutAfter; i++) {
-      std::string key = Key(rnd.Next() % kKeyRange);
-      std::string value = RandomString(&rnd, kOperandSize);
-      ASSERT_OK(db_->Put(WriteOptions(), key, value));
-
-      true_data[key] = value;
-    }
-
-    // Delete random kNumDelete keys
-    for (int i = 0; i < kNumDelete; i++) {
-      std::string key = Key(rnd.Next() % kKeyRange);
-      ASSERT_OK(db_->Delete(WriteOptions(), key));
-
-      true_data.erase(key);
-    }
-
-    VerifyDBFromMap(true_data);
-
-    // Skip HashCuckoo since it does not support merge operators
-  } while (ChangeOptions(kSkipMergePut | kSkipHashCuckoo));
-}
-
 class MergeOperatorHook : public MergeOperator {
  public:
   explicit MergeOperatorHook(std::shared_ptr<MergeOperator> _merge_op)
       : merge_op_(_merge_op) {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     before_merge_();
     bool res = merge_op_->FullMergeV2(merge_in, merge_out);
     after_merge_();
     return res;
   }
 
-  virtual const char* Name() const override { return merge_op_->Name(); }
+  const char* Name() const override { return merge_op_->Name(); }
 
   std::shared_ptr<MergeOperator> merge_op_;
   std::function<void()> before_merge_ = []() {};
@@ -386,7 +329,7 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
   for (int i = 0; i < kNumOperands; i++) {
     for (int j = 0; j < kNumKeys; j++) {
       std::string k = Key(j);
-      std::string v = RandomString(&rnd, kOperandSize);
+      std::string v = rnd.RandomString(kOperandSize);
       ASSERT_OK(db_->Merge(WriteOptions(), k, v));
 
       true_data[k] = std::max(true_data[k], v);
@@ -401,8 +344,9 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
   // Code executed before merge operation
   merge_hook->before_merge_ = [&]() {
     // Evict all tables from cache before every merge operation
+    auto* table_cache = dbfull()->TEST_table_cache();
     for (uint64_t num : file_numbers) {
-      TableCache::Evict(dbfull()->TEST_table_cache(), num);
+      TableCache::Evict(table_cache, num);
     }
     // Decrease cache capacity to force all unrefed blocks to be evicted
     if (bbto.block_cache) {
@@ -423,7 +367,7 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
   VerifyDBFromMap(true_data, &total_reads);
   ASSERT_EQ(merge_cnt, total_reads);
 
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   VerifyDBFromMap(true_data, &total_reads);
 }
@@ -442,7 +386,7 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
   std::function<void()> writer_func = [&]() {
     int k = 0;
     for (int i = 0; i < kNumWrites; i++) {
-      db_->Merge(WriteOptions(), Key(k), Key(k));
+      ASSERT_OK(db_->Merge(WriteOptions(), Key(k), Key(k)));
 
       if (i && i % kNumOperands == 0) {
         k++;
@@ -460,7 +404,7 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
     ReadOptions ro;
     ro.tailing = true;
     Iterator* iter = db_->NewIterator(ro);
-
+    ASSERT_OK(iter->status());
     iter->SeekToFirst();
     for (int i = 0; i < (kNumWrites / kNumOperands); i++) {
       while (!iter->Valid()) {
@@ -473,12 +417,13 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
 
       iter->Next();
     }
+    ASSERT_OK(iter->status());
 
     delete iter;
   };
 
-  rocksdb::port::Thread writer_thread(writer_func);
-  rocksdb::port::Thread reader_thread(reader_func);
+  ROCKSDB_NAMESPACE::port::Thread writer_thread(writer_func);
+  ROCKSDB_NAMESPACE::port::Thread reader_thread(reader_func);
 
   writer_thread.join();
   reader_thread.join();
@@ -506,35 +451,36 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   //    ForwardIterator to not pin it in some circumstances. This test
   //    reproduces it.
 
-  db_->Merge(WriteOptions(), "key", "sst");
-  db_->Flush(FlushOptions()); // Switch to SuperVersion A
-  db_->Merge(WriteOptions(), "key", "memtable");
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "sst"));
+  ASSERT_OK(db_->Flush(FlushOptions()));  // Switch to SuperVersion A
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "memtable"));
 
   // Pin SuperVersion A
   std::unique_ptr<Iterator> someone_else(db_->NewIterator(ReadOptions()));
+  ASSERT_OK(someone_else->status());
 
   bool pushed_first_operand = false;
   bool stepped_to_next_operand = false;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBIter::MergeValuesNewToOld:PushedFirstOperand", [&](void*) {
         EXPECT_FALSE(pushed_first_operand);
         pushed_first_operand = true;
-        db_->Flush(FlushOptions()); // Switch to SuperVersion B
+        EXPECT_OK(db_->Flush(FlushOptions()));  // Switch to SuperVersion B
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBIter::MergeValuesNewToOld:SteppedToNextOperand", [&](void*) {
         EXPECT_FALSE(stepped_to_next_operand);
         stepped_to_next_operand = true;
         someone_else.reset(); // Unpin SuperVersion A
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ReadOptions ro;
   ro.tailing = true;
   std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
   iter->Seek("key");
 
-  ASSERT_TRUE(iter->status().ok());
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   EXPECT_EQ(std::string("sst,memtable"), iter->value().ToString());
   EXPECT_TRUE(pushed_first_operand);
@@ -636,10 +582,90 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   db_->ReleaseSnapshot(snapshot2);
 }
 
-}  // namespace rocksdb
+class PerConfigMergeOperatorPinningTest
+    : public DBMergeOperatorTest,
+      public testing::WithParamInterface<std::tuple<bool, int>> {
+ public:
+  PerConfigMergeOperatorPinningTest() {
+    std::tie(disable_block_cache_, option_config_) = GetParam();
+  }
+
+  bool disable_block_cache_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    MergeOperatorPinningTest, PerConfigMergeOperatorPinningTest,
+    ::testing::Combine(::testing::Bool(),
+                       ::testing::Range(static_cast<int>(DBTestBase::kDefault),
+                                        static_cast<int>(DBTestBase::kEnd))));
+
+TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
+  if (ShouldSkipOptions(option_config_, kSkipMergePut)) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateMaxOperator();
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = disable_block_cache_;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::map<std::string, std::string> true_data;
+
+  const int kTotalMerges = 5000;
+  // Every key gets ~10 operands
+  const int kKeyRange = kTotalMerges / 10;
+  const int kOperandSize = 20;
+  const int kNumPutBefore = kKeyRange / 10;  // 10% value
+  const int kNumPutAfter = kKeyRange / 10;   // 10% overwrite
+  const int kNumDelete = kKeyRange / 10;     // 10% delete
+
+  // kNumPutBefore keys will have base values
+  for (int i = 0; i < kNumPutBefore; i++) {
+    std::string key = Key(rnd.Next() % kKeyRange);
+    std::string value = rnd.RandomString(kOperandSize);
+    ASSERT_OK(db_->Put(WriteOptions(), key, value));
+
+    true_data[key] = value;
+  }
+
+  // Do kTotalMerges merges
+  for (int i = 0; i < kTotalMerges; i++) {
+    std::string key = Key(rnd.Next() % kKeyRange);
+    std::string value = rnd.RandomString(kOperandSize);
+    ASSERT_OK(db_->Merge(WriteOptions(), key, value));
+
+    if (true_data[key] < value) {
+      true_data[key] = value;
+    }
+  }
+
+  // Overwrite random kNumPutAfter keys
+  for (int i = 0; i < kNumPutAfter; i++) {
+    std::string key = Key(rnd.Next() % kKeyRange);
+    std::string value = rnd.RandomString(kOperandSize);
+    ASSERT_OK(db_->Put(WriteOptions(), key, value));
+
+    true_data[key] = value;
+  }
+
+  // Delete random kNumDelete keys
+  for (int i = 0; i < kNumDelete; i++) {
+    std::string key = Key(rnd.Next() % kKeyRange);
+    ASSERT_OK(db_->Delete(WriteOptions(), key));
+
+    true_data.erase(key);
+  }
+
+  VerifyDBFromMap(true_data);
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

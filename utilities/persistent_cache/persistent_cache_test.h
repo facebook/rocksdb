@@ -19,14 +19,15 @@
 #include <vector>
 
 #include "db/db_test_util.h"
-#include "rocksdb/cache.h"
-#include "table/block_builder.h"
+#include "memory/arena.h"
 #include "port/port.h"
-#include "util/arena.h"
-#include "util/testharness.h"
+#include "rocksdb/cache.h"
+#include "table/block_based/block_builder.h"
+#include "test_util/testharness.h"
+#include "util/random.h"
 #include "utilities/persistent_cache/volatile_tier_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Unit tests for testing PersistentCacheTier
@@ -182,7 +183,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_EQ(stats_verify_hits_, max_keys);
     ASSERT_EQ(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 
@@ -193,7 +194,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_LT(stats_verify_hits_, max_keys);
     ASSERT_GT(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 
@@ -205,7 +206,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_GT(stats_verify_hits_, 0);
     ASSERT_GT(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 
@@ -255,7 +256,7 @@ class PersistentCacheDBTest : public DBTestBase {
     std::string str;
     for (int i = 0; i < num_iter; i++) {
       if (i % 4 == 0) {  // high compression ratio
-        str = RandomString(&rnd, 1000);
+        str = rnd.RandomString(1000);
       }
       values->push_back(str);
       ASSERT_OK(Put(1, Key(i), (*values)[i]));
@@ -280,6 +281,6 @@ class PersistentCacheDBTest : public DBTestBase {
                const size_t max_keys, const size_t max_usecase);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

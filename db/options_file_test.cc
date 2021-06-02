@@ -6,13 +6,13 @@
 #ifndef ROCKSDB_LITE
 #include <string>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class OptionsFileTest : public testing::Test {
  public:
   OptionsFileTest() : dbname_(test::PerThreadDBPath("options_file_test")) {}
@@ -25,7 +25,7 @@ void UpdateOptionsFiles(DB* db,
                         std::unordered_set<std::string>* filename_history,
                         int* options_files_count) {
   std::vector<std::string> filenames;
-  db->GetEnv()->GetChildren(db->GetName(), &filenames);
+  EXPECT_OK(db->GetEnv()->GetChildren(db->GetName(), &filenames));
   uint64_t number;
   FileType type;
   *options_files_count = 0;
@@ -42,7 +42,7 @@ void VerifyOptionsFileName(
     DB* db, const std::unordered_set<std::string>& past_filenames) {
   std::vector<std::string> filenames;
   std::unordered_set<std::string> current_filenames;
-  db->GetEnv()->GetChildren(db->GetName(), &filenames);
+  EXPECT_OK(db->GetEnv()->GetChildren(db->GetName(), &filenames));
   uint64_t number;
   FileType type;
   for (auto filename : filenames) {
@@ -65,7 +65,7 @@ TEST_F(OptionsFileTest, NumberOfOptionsFiles) {
   const int kReopenCount = 20;
   Options opt;
   opt.create_if_missing = true;
-  DestroyDB(dbname_, opt);
+  ASSERT_OK(DestroyDB(dbname_, opt));
   std::unordered_set<std::string> filename_history;
   DB* db;
   for (int i = 0; i < kReopenCount; ++i) {
@@ -98,7 +98,7 @@ TEST_F(OptionsFileTest, OptionsFileName) {
   ASSERT_EQ(type, kTempFile);
   ASSERT_EQ(number, kTempOptionsFileNum);
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)

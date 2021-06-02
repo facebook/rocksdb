@@ -15,14 +15,9 @@
 
 #include "port/jemalloc_helper.h"
 
-
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_JEMALLOC
-
-#ifdef JEMALLOC_NO_RENAME
-#define malloc_stats_print je_malloc_stats_print
-#endif
 
 typedef struct {
   char* cur;
@@ -55,5 +50,5 @@ void DumpMallocStats(std::string* stats) {
 #else
 void DumpMallocStats(std::string*) {}
 #endif  // ROCKSDB_JEMALLOC
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

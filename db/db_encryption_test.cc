@@ -7,16 +7,24 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #if !defined(ROCKSDB_LITE)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif
 #include <iostream>
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBEncryptionTest : public DBTestBase {
  public:
-  DBEncryptionTest() : DBTestBase("/db_encryption_test") {}
+  DBEncryptionTest()
+      : DBTestBase("/db_encryption_test", /*env_do_fsync=*/true) {}
+  Env* GetTargetEnv() {
+    if (encrypted_env_ != nullptr) {
+      return (static_cast<EnvWrapper*>(encrypted_env_))->target();
+    } else {
+      return env_;
+    }
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -33,20 +41,20 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   auto status = env_->GetChildren(dbname_, &fileNames);
   ASSERT_OK(status);
 
-  auto defaultEnv = Env::Default();
+  Env* target = GetTargetEnv();
   int hits = 0;
   for (auto it = fileNames.begin() ; it != fileNames.end(); ++it) {
-    if ((*it == "..") || (*it == ".")) {
+    if (*it == "LOCK") {
       continue;
     }
     auto filePath = dbname_ + "/" + *it;
     std::unique_ptr<SequentialFile> seqFile;
     auto envOptions = EnvOptions(CurrentOptions());
-    status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
+    status = target->NewSequentialFile(filePath, &seqFile, envOptions);
     ASSERT_OK(status);
 
     uint64_t fileSize;
-    status = defaultEnv->GetFileSize(filePath, &fileSize);
+    status = target->GetFileSize(filePath, &fileSize);
     ASSERT_OK(status);
 
     std::string scratch;
@@ -83,12 +91,40 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   }
 }
 
+TEST_F(DBEncryptionTest, ReadEmptyFile) {
+  auto defaultEnv = GetTargetEnv();
+
+  // create empty file for reading it back in later
+  auto envOptions = EnvOptions(CurrentOptions());
+  auto filePath = dbname_ + "/empty.empty";
+
+  Status status;
+  {
+    std::unique_ptr<WritableFile> writableFile;
+    status = defaultEnv->NewWritableFile(filePath, &writableFile, envOptions);
+    ASSERT_OK(status);
+  }
+
+  std::unique_ptr<SequentialFile> seqFile;
+  status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
+  ASSERT_OK(status);
+
+  std::string scratch;
+  Slice data;
+  // reading back 16 bytes from the empty file shouldn't trigger an assertion.
+  // it should just work and return an empty string
+  status = seqFile->Read(16, &data, (char*)scratch.data());
+  ASSERT_OK(status);
+
+  ASSERT_TRUE(data.empty());
+}
+
 #endif // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

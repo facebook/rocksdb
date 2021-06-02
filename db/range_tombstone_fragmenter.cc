@@ -6,17 +6,16 @@
 #include "db/range_tombstone_fragmenter.h"
 
 #include <algorithm>
+#include <cinttypes>
+#include <cstdio>
 #include <functional>
 #include <set>
-
-#include <inttypes.h>
-#include <stdio.h>
 
 #include "util/autovector.h"
 #include "util/kv_map.h"
 #include "util/vector_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
@@ -26,12 +25,12 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     return;
   }
   bool is_sorted = true;
-  int num_tombstones = 0;
   InternalKey pinned_last_start_key;
   Slice last_start_key;
+  num_unfragmented_tombstones_ = 0;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
-       unfragmented_tombstones->Next(), num_tombstones++) {
-    if (num_tombstones > 0 &&
+       unfragmented_tombstones->Next(), num_unfragmented_tombstones_++) {
+    if (num_unfragmented_tombstones_ > 0 &&
         icmp.Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
       is_sorted = false;
       break;
@@ -51,8 +50,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
 
   // Sort the tombstones before fragmenting them.
   std::vector<std::string> keys, values;
-  keys.reserve(num_tombstones);
-  values.reserve(num_tombstones);
+  keys.reserve(num_unfragmented_tombstones_);
+  values.reserve(num_unfragmented_tombstones_);
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
     keys.emplace_back(unfragmented_tombstones->key().data(),
@@ -407,9 +406,10 @@ bool FragmentedRangeTombstoneIterator::Valid() const {
 }
 
 SequenceNumber FragmentedRangeTombstoneIterator::MaxCoveringTombstoneSeqnum(
-    const Slice& user_key) {
-  SeekToCoveringTombstone(user_key);
-  return ValidPos() && ucmp_->Compare(start_key(), user_key) <= 0 ? seq() : 0;
+    const Slice& target_user_key) {
+  SeekToCoveringTombstone(target_user_key);
+  return ValidPos() && ucmp_->Compare(start_key(), target_user_key) <= 0 ? seq()
+                                                                         : 0;
 }
 
 std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -435,4 +435,4 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
   return splits;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

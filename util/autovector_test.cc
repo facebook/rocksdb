@@ -9,15 +9,15 @@
 #include <utility>
 
 #include "rocksdb/env.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/autovector.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 using std::cout;
 using std::endl;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class AutoVectorTest : public testing::Test {};
 const unsigned long kSize = 8;
@@ -208,7 +208,7 @@ std::vector<std::string> GetTestKeys(size_t size) {
 
   int index = 0;
   for (auto& key : keys) {
-    key = "item-" + rocksdb::ToString(index++);
+    key = "item-" + ROCKSDB_NAMESPACE::ToString(index++);
   }
   return keys;
 }
@@ -322,7 +322,7 @@ TEST_F(AutoVectorTest, PerfBench) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

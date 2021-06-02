@@ -9,9 +9,9 @@
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using rocksdb::Slice;
-using rocksdb::Logger;
-using rocksdb::MergeOperator;
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::MergeOperator;
+using ROCKSDB_NAMESPACE::Slice;
 
 namespace {  // anonymous namespace
 
@@ -19,8 +19,8 @@ namespace {  // anonymous namespace
 // Slice::compare
 class MaxOperator : public MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     Slice& max = merge_out->existing_operand;
     if (merge_in.existing_value) {
       max = Slice(merge_in.existing_value->data(),
@@ -38,9 +38,9 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMerge(const Slice& /*key*/, const Slice& left_operand,
-                            const Slice& right_operand, std::string* new_value,
-                            Logger* /*logger*/) const override {
+  bool PartialMerge(const Slice& /*key*/, const Slice& left_operand,
+                    const Slice& right_operand, std::string* new_value,
+                    Logger* /*logger*/) const override {
     if (left_operand.compare(right_operand) >= 0) {
       new_value->assign(left_operand.data(), left_operand.size());
     } else {
@@ -49,10 +49,10 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMergeMulti(const Slice& /*key*/,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* /*logger*/) const override {
+  bool PartialMergeMulti(const Slice& /*key*/,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value,
+                         Logger* /*logger*/) const override {
     Slice max;
     for (const auto& operand : operand_list) {
       if (max.compare(operand) < 0) {
@@ -64,14 +64,14 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  virtual const char* Name() const override { return "MaxOperator"; }
+  const char* Name() const override { return "MaxOperator"; }
 };
 
 }  // end of anonymous namespace
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateMaxOperator() {
   return std::make_shared<MaxOperator>();
 }
-}
+}  // namespace ROCKSDB_NAMESPACE

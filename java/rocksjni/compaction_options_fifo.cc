@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ for
-// rocksdb::CompactionOptionsFIFO.
+// ROCKSDB_NAMESPACE::CompactionOptionsFIFO.
 
 #include <jni.h>
 
@@ -17,8 +17,8 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_CompactionOptionsFIFO_newCompactionOptionsFIFO(
-    JNIEnv* /*env*/, jclass /*jcls*/) {
-  const auto* opt = new rocksdb::CompactionOptionsFIFO();
+    JNIEnv*, jclass) {
+  const auto* opt = new ROCKSDB_NAMESPACE::CompactionOptionsFIFO();
   return reinterpret_cast<jlong>(opt);
 }
 
@@ -28,9 +28,9 @@ jlong Java_org_rocksdb_CompactionOptionsFIFO_newCompactionOptionsFIFO(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_CompactionOptionsFIFO_setMaxTableFilesSize(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jmax_table_files_size) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
+    JNIEnv*, jobject, jlong jhandle, jlong jmax_table_files_size) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
   opt->max_table_files_size = static_cast<uint64_t>(jmax_table_files_size);
 }
 
@@ -39,35 +39,11 @@ void Java_org_rocksdb_CompactionOptionsFIFO_setMaxTableFilesSize(
  * Method:    maxTableFilesSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_CompactionOptionsFIFO_maxTableFilesSize(JNIEnv* /*env*/,
-                                                               jobject /*jobj*/,
-                                                               jlong jhandle) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
+jlong Java_org_rocksdb_CompactionOptionsFIFO_maxTableFilesSize(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
   return static_cast<jlong>(opt->max_table_files_size);
-}
-
-/*
- * Class:     org_rocksdb_CompactionOptionsFIFO
- * Method:    setTtl
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_CompactionOptionsFIFO_setTtl(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle, jlong ttl) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
-  opt->ttl = static_cast<uint64_t>(ttl);
-}
-
-/*
- * Class:     org_rocksdb_CompactionOptionsFIFO
- * Method:    ttl
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_CompactionOptionsFIFO_ttl(JNIEnv* /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
-  return static_cast<jlong>(opt->ttl);
 }
 
 /*
@@ -76,9 +52,9 @@ jlong Java_org_rocksdb_CompactionOptionsFIFO_ttl(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_CompactionOptionsFIFO_setAllowCompaction(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jboolean allow_compaction) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
+    JNIEnv*, jobject, jlong jhandle, jboolean allow_compaction) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
   opt->allow_compaction = static_cast<bool>(allow_compaction);
 }
 
@@ -88,8 +64,9 @@ void Java_org_rocksdb_CompactionOptionsFIFO_setAllowCompaction(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_CompactionOptionsFIFO_allowCompaction(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-  auto* opt = reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
   return static_cast<jboolean>(opt->allow_compaction);
 }
 
@@ -98,8 +75,7 @@ jboolean Java_org_rocksdb_CompactionOptionsFIFO_allowCompaction(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionOptionsFIFO_disposeInternal(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
-                                                            jlong jhandle) {
-  delete reinterpret_cast<rocksdb::CompactionOptionsFIFO*>(jhandle);
+void Java_org_rocksdb_CompactionOptionsFIFO_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
+  delete reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
 }

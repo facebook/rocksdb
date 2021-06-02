@@ -4,12 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/test_utils.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
+
+class RowValueMergeTest : public testing::Test {};
 
 TEST(RowValueMergeTest, Merge) {
   std::vector<RowValue> row_values;
@@ -41,12 +43,12 @@ TEST(RowValueMergeTest, Merge) {
 
   RowValue merged = RowValue::Merge(std::move(row_values));
   EXPECT_FALSE(merged.IsTombstone());
-  EXPECT_EQ(merged.columns_.size(), 5);
-  VerifyRowValueColumns(merged.columns_, 0, kExpiringColumn, 0, 6);
-  VerifyRowValueColumns(merged.columns_, 1, kColumn, 1, 8);
-  VerifyRowValueColumns(merged.columns_, 2, kTombstone, 2, 7);
-  VerifyRowValueColumns(merged.columns_, 3, kExpiringColumn, 7, 17);
-  VerifyRowValueColumns(merged.columns_, 4, kTombstone, 11, 11);
+  EXPECT_EQ(merged.get_columns().size(), 5);
+  VerifyRowValueColumns(merged.get_columns(), 0, kExpiringColumn, 0, 6);
+  VerifyRowValueColumns(merged.get_columns(), 1, kColumn, 1, 8);
+  VerifyRowValueColumns(merged.get_columns(), 2, kTombstone, 2, 7);
+  VerifyRowValueColumns(merged.get_columns(), 3, kExpiringColumn, 7, 17);
+  VerifyRowValueColumns(merged.get_columns(), 4, kTombstone, 11, 11);
 }
 
 TEST(RowValueMergeTest, MergeWithRowTombstone) {
@@ -83,10 +85,10 @@ TEST(RowValueMergeTest, MergeWithRowTombstone) {
 
   RowValue merged = RowValue::Merge(std::move(row_values));
   EXPECT_FALSE(merged.IsTombstone());
-  EXPECT_EQ(merged.columns_.size(), 3);
-  VerifyRowValueColumns(merged.columns_, 0, kColumn, 3, 12);
-  VerifyRowValueColumns(merged.columns_, 1, kColumn, 4, 13);
-  VerifyRowValueColumns(merged.columns_, 2, kColumn, 5, 14);
+  EXPECT_EQ(merged.get_columns().size(), 3);
+  VerifyRowValueColumns(merged.get_columns(), 0, kColumn, 3, 12);
+  VerifyRowValueColumns(merged.get_columns(), 1, kColumn, 4, 13);
+  VerifyRowValueColumns(merged.get_columns(), 2, kColumn, 5, 14);
 
   // If the tombstone's timestamp is the latest, then it returns a
   // row tombstone.
@@ -104,7 +106,7 @@ TEST(RowValueMergeTest, MergeWithRowTombstone) {
 }
 
 } // namespace cassandra
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

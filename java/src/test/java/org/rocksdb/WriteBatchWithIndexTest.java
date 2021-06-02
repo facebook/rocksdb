@@ -9,23 +9,23 @@
 
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static java.nio.charset.StandardCharsets.UTF_8;
-
-
 public class WriteBatchWithIndexTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -104,7 +104,96 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
-  public void write_writeBatchWithIndex() throws RocksDBException {
+  public void readYourOwnWritesCf() throws RocksDBException {
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
+
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+
+    // Test open database with column family names
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
+      final ColumnFamilyHandle newCf = columnFamilyHandleList.get(1);
+
+      try {
+        final byte[] k1 = "key1".getBytes();
+        final byte[] v1 = "value1".getBytes();
+        final byte[] k2 = "key2".getBytes();
+        final byte[] v2 = "value2".getBytes();
+
+        db.put(newCf, k1, v1);
+        db.put(newCf, k2, v2);
+
+        try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+             final ReadOptions readOptions = new ReadOptions();
+             final RocksIterator base = db.newIterator(newCf, readOptions);
+             final RocksIterator it = wbwi.newIteratorWithBase(newCf, base, readOptions)) {
+          it.seek(k1);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k1);
+          assertThat(it.value()).isEqualTo(v1);
+
+          it.seek(k2);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k2);
+          assertThat(it.value()).isEqualTo(v2);
+
+          // put data to the write batch and make sure we can read it.
+          final byte[] k3 = "key3".getBytes();
+          final byte[] v3 = "value3".getBytes();
+          wbwi.put(newCf, k3, v3);
+          it.seek(k3);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k3);
+          assertThat(it.value()).isEqualTo(v3);
+
+          // update k2 in the write batch and check the value
+          final byte[] v2Other = "otherValue2".getBytes();
+          wbwi.put(newCf, k2, v2Other);
+          it.seek(k2);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k2);
+          assertThat(it.value()).isEqualTo(v2Other);
+
+          // delete k1 and make sure we can read back the write
+          wbwi.delete(newCf, k1);
+          it.seek(k1);
+          assertThat(it.key()).isNotEqualTo(k1);
+
+          // reinsert k1 and make sure we see the new value
+          final byte[] v1Other = "otherValue1".getBytes();
+          wbwi.put(newCf, k1, v1Other);
+          it.seek(k1);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k1);
+          assertThat(it.value()).isEqualTo(v1Other);
+
+          // single remove k3 and make sure we can read back the write
+          wbwi.singleDelete(newCf, k3);
+          it.seek(k3);
+          assertThat(it.isValid()).isEqualTo(false);
+
+          // reinsert k3 and make sure we see the new value
+          final byte[] v3Other = "otherValue3".getBytes();
+          wbwi.put(newCf, k3, v3Other);
+          it.seek(k3);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k3);
+          assertThat(it.value()).isEqualTo(v3Other);
+        }
+      } finally {
+        for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
+          columnFamilyHandle.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  public void writeBatchWithIndex() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
@@ -114,15 +203,46 @@ public class WriteBatchWithIndexTest {
       final byte[] k2 = "key2".getBytes();
       final byte[] v2 = "value2".getBytes();
 
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex();
+           final WriteOptions wOpt = new WriteOptions()) {
+        wbwi.put(k1, v1);
+        wbwi.put(k2, v2);
+
+        db.write(wOpt, wbwi);
+      }
+
+      assertThat(db.get(k1)).isEqualTo(v1);
+      assertThat(db.get(k2)).isEqualTo(v2);
+    }
+  }
+
+  @Test
+  public void write_writeBatchWithIndexDirect() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      ByteBuffer k1 = ByteBuffer.allocateDirect(16);
+      ByteBuffer v1 = ByteBuffer.allocateDirect(16);
+      ByteBuffer k2 = ByteBuffer.allocateDirect(16);
+      ByteBuffer v2 = ByteBuffer.allocateDirect(16);
+      k1.put("key1".getBytes()).flip();
+      v1.put("value1".getBytes()).flip();
+      k2.put("key2".getBytes()).flip();
+      v2.put("value2".getBytes()).flip();
+
       try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
         wbwi.put(k1, v1);
+        assertThat(k1.position()).isEqualTo(4);
+        assertThat(k1.limit()).isEqualTo(4);
+        assertThat(v1.position()).isEqualTo(6);
+        assertThat(v1.limit()).isEqualTo(6);
+
         wbwi.put(k2, v2);
 
         db.write(new WriteOptions(), wbwi);
       }
 
-      assertThat(db.get(k1)).isEqualTo(v1);
-      assertThat(db.get(k2)).isEqualTo(v2);
+      assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
     }
   }
 
@@ -164,9 +284,6 @@ public class WriteBatchWithIndexTest {
       // add a single deletion record
       wbwi.singleDelete(k5b);
 
-      // add a delete range record
-      wbwi.deleteRange(k6b, k7b);
-
       // add a log record
       wbwi.putLogData(v8b);
 
@@ -181,13 +298,11 @@ public class WriteBatchWithIndexTest {
               new DirectSlice(k4), DirectSlice.NONE),
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.SINGLE_DELETE,
               new DirectSlice(k5), DirectSlice.NONE),
-          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE_RANGE,
-              new DirectSlice(k6), new DirectSlice(k7)),
       };
 
       try (final WBWIRocksIterator it = wbwi.newIterator()) {
         //direct access - seek to key offsets
-        final int[] testOffsets = {2, 0, 3, 4, 1, 5};
+        final int[] testOffsets = {2, 0, 3, 4, 1};
 
         for (int i = 0; i < testOffsets.length; i++) {
           final int testOffset = testOffsets[i];
@@ -198,6 +313,13 @@ public class WriteBatchWithIndexTest {
 
           final WBWIRocksIterator.WriteEntry entry = it.entry();
           assertThat(entry).isEqualTo(expected[testOffset]);
+
+          // Direct buffer seek
+          expected[testOffset].getKey().data().mark();
+          ByteBuffer db = expected[testOffset].getKey().data();
+          it.seek(db);
+          assertThat(db.position()).isEqualTo(key.length);
+          assertThat(it.isValid()).isTrue();
         }
 
         //forward iterative access
@@ -512,6 +634,7 @@ public class WriteBatchWithIndexTest {
   @Test
   public void deleteRange() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatch batch = new WriteBatch();
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
@@ -522,9 +645,8 @@ public class WriteBatchWithIndexTest {
       assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
       assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
 
-      WriteBatch batch = new WriteBatch();
       batch.deleteRange("key2".getBytes(), "key4".getBytes());
-      db.write(new WriteOptions(), batch);
+      db.write(wOpt, batch);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
       assertThat(db.get("key2".getBytes())).isNull();

@@ -10,13 +10,13 @@
 #include "memtable/inlineskiplist.h"
 #include <set>
 #include <unordered_set>
+#include "memory/concurrent_arena.h"
 #include "rocksdb/env.h"
-#include "util/concurrent_arena.h"
+#include "test_util/testharness.h"
 #include "util/hash.h"
 #include "util/random.h"
-#include "util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Our test skip list stores 8-byte unsigned integers
 typedef uint64_t Key;
@@ -412,12 +412,18 @@ class ConcurrentTest {
   }
 
   // REQUIRES: No concurrent calls for the same k
-  void ConcurrentWriteStep(uint32_t k) {
+  void ConcurrentWriteStep(uint32_t k, bool use_hint = false) {
     const int g = current_.Get(k) + 1;
     const Key new_key = MakeKey(k, g);
     char* buf = list_.AllocateKey(sizeof(Key));
     memcpy(buf, &new_key, sizeof(Key));
-    list_.InsertConcurrently(buf);
+    if (use_hint) {
+      void* hint = nullptr;
+      list_.InsertWithHintConcurrently(buf, &hint);
+      delete[] reinterpret_cast<char*>(hint);
+    } else {
+      list_.InsertConcurrently(buf);
+    }
     ASSERT_EQ(g, current_.Get(k) + 1);
     current_.Set(k, g);
   }
@@ -508,6 +514,7 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
 class TestState {
  public:
   ConcurrentTest t_;
+  bool use_hint_;
   int seed_;
   std::atomic<bool> quit_flag_;
   std::atomic<uint32_t> next_writer_;
@@ -575,7 +582,7 @@ static void ConcurrentReader(void* arg) {
 static void ConcurrentWriter(void* arg) {
   TestState* state = reinterpret_cast<TestState*>(arg);
   uint32_t k = state->next_writer_++ % ConcurrentTest::K;
-  state->t_.ConcurrentWriteStep(k);
+  state->t_.ConcurrentWriteStep(k, state->use_hint_);
   state->AdjustPendingWriters(-1);
 }
 
@@ -600,7 +607,8 @@ static void RunConcurrentRead(int run) {
   }
 }
 
-static void RunConcurrentInsert(int run, int write_parallelism = 4) {
+static void RunConcurrentInsert(int run, bool use_hint = false,
+                                int write_parallelism = 4) {
   Env::Default()->SetBackgroundThreads(1 + write_parallelism,
                                        Env::Priority::LOW);
   const int seed = test::RandomSeed() + (run * 100);
@@ -612,6 +620,7 @@ static void RunConcurrentInsert(int run, int write_parallelism = 4) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
     TestState state(seed + 1);
+    state.use_hint_ = use_hint;
     Env::Default()->Schedule(ConcurrentReader, &state);
     state.Wait(TestState::RUNNING);
     for (int k = 0; k < kSize; k += write_parallelism) {
@@ -635,9 +644,18 @@ TEST_F(InlineSkipTest, ConcurrentRead5) { RunConcurrentRead(5); }
 TEST_F(InlineSkipTest, ConcurrentInsert1) { RunConcurrentInsert(1); }
 TEST_F(InlineSkipTest, ConcurrentInsert2) { RunConcurrentInsert(2); }
 TEST_F(InlineSkipTest, ConcurrentInsert3) { RunConcurrentInsert(3); }
+TEST_F(InlineSkipTest, ConcurrentInsertWithHint1) {
+  RunConcurrentInsert(1, true);
+}
+TEST_F(InlineSkipTest, ConcurrentInsertWithHint2) {
+  RunConcurrentInsert(2, true);
+}
+TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
+  RunConcurrentInsert(3, true);
+}
 
 #endif  // ROCKSDB_VALGRIND_RUN
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

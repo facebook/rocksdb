@@ -1,21 +1,29 @@
 # - Find zstd
 # Find the zstd compression library and includes
 #
-# ZSTD_INCLUDE_DIR - where to find zstd.h, etc.
-# ZSTD_LIBRARIES - List of libraries when using zstd.
-# ZSTD_FOUND - True if zstd found.
+# zstd_INCLUDE_DIRS - where to find zstd.h, etc.
+# zstd_LIBRARIES - List of libraries when using zstd.
+# zstd_FOUND - True if zstd found.
 
-find_path(ZSTD_INCLUDE_DIR
+find_path(zstd_INCLUDE_DIRS
   NAMES zstd.h
-  HINTS ${ZSTD_ROOT_DIR}/include)
+  HINTS ${zstd_ROOT_DIR}/include)
 
-find_library(ZSTD_LIBRARIES
+find_library(zstd_LIBRARIES
   NAMES zstd
-  HINTS ${ZSTD_ROOT_DIR}/lib)
+  HINTS ${zstd_ROOT_DIR}/lib)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(zstd DEFAULT_MSG ZSTD_LIBRARIES ZSTD_INCLUDE_DIR)
+find_package_handle_standard_args(zstd DEFAULT_MSG zstd_LIBRARIES zstd_INCLUDE_DIRS)
 
 mark_as_advanced(
-  ZSTD_LIBRARIES
-  ZSTD_INCLUDE_DIR)
+  zstd_LIBRARIES
+  zstd_INCLUDE_DIRS)
+
+if(zstd_FOUND AND NOT (TARGET zstd::zstd))
+  add_library (zstd::zstd UNKNOWN IMPORTED)
+  set_target_properties(zstd::zstd
+    PROPERTIES
+      IMPORTED_LOCATION ${zstd_LIBRARIES}
+      INTERFACE_INCLUDE_DIRECTORIES ${zstd_INCLUDE_DIRS})
+endif()

@@ -12,22 +12,21 @@
 
 #pragma once
 
-#include <atomic>
-
-#include "rocksdb/env.h"
-
 #include <stdint.h>
 #include <windows.h>
 
-namespace rocksdb {
+#include <atomic>
+#include <memory>
 
-class Env;
+#include "rocksdb/env.h"
+
+namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 
 namespace port {
-
-class WinLogger : public rocksdb::Logger {
+class WinLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
-  WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
+  WinLogger(uint64_t (*gettid)(), SystemClock* clock, HANDLE file,
             const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL);
 
   virtual ~WinLogger();
@@ -38,7 +37,7 @@ class WinLogger : public rocksdb::Logger {
 
   void Flush() override;
 
-  using rocksdb::Logger::Logv;
+  using ROCKSDB_NAMESPACE::Logger::Logv;
   void Logv(const char* format, va_list ap) override;
 
   size_t GetLogFileSize() const override;
@@ -54,14 +53,13 @@ protected:
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
   std::atomic_uint_fast64_t last_flush_micros_;
-  Env* env_;
+  SystemClock* clock_;
   bool flush_pending_;
 
   Status CloseInternal();
 
   const static uint64_t flush_every_seconds_ = 5;
 };
-
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

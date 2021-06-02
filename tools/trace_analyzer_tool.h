@@ -16,9 +16,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/write_batch.h"
-#include "util/trace_replay.h"
+#include "trace_replay/trace_replay.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 class WriteBatch;
@@ -117,17 +117,17 @@ struct TraceStats {
   std::vector<std::pair<uint64_t, uint64_t>> correlation_output;
   std::map<uint32_t, uint64_t> uni_key_num;
 
-  std::unique_ptr<rocksdb::WritableFile> time_series_f;
-  std::unique_ptr<rocksdb::WritableFile> a_key_f;
-  std::unique_ptr<rocksdb::WritableFile> a_count_dist_f;
-  std::unique_ptr<rocksdb::WritableFile> a_prefix_cut_f;
-  std::unique_ptr<rocksdb::WritableFile> a_value_size_f;
-  std::unique_ptr<rocksdb::WritableFile> a_key_size_f;
-  std::unique_ptr<rocksdb::WritableFile> a_key_num_f;
-  std::unique_ptr<rocksdb::WritableFile> a_qps_f;
-  std::unique_ptr<rocksdb::WritableFile> a_top_qps_prefix_f;
-  std::unique_ptr<rocksdb::WritableFile> w_key_f;
-  std::unique_ptr<rocksdb::WritableFile> w_prefix_cut_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> time_series_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_key_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_count_dist_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_prefix_cut_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_value_size_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_key_size_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_key_num_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_qps_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> a_top_qps_prefix_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> w_key_f;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> w_prefix_cut_f;
 
   TraceStats();
   ~TraceStats();
@@ -196,7 +196,7 @@ class TraceAnalyzer {
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
-  rocksdb::Env* env_;
+  ROCKSDB_NAMESPACE::Env* env_;
   EnvOptions env_options_;
   std::unique_ptr<TraceReader> trace_reader_;
   size_t offset_;
@@ -215,10 +215,11 @@ class TraceAnalyzer {
   uint64_t time_series_start_;
   uint32_t sample_max_;
   uint32_t cur_time_sec_;
-  std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
-  std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
-  std::unique_ptr<rocksdb::WritableFile> cf_qps_f_;  // The qps of each CF>
-  std::unique_ptr<rocksdb::SequentialFile> wkey_input_f_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>
+      trace_sequence_f_;                                    // readable trace
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> qps_f_;  // overall qps
+  std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>
+      cf_qps_f_;              // The qps of each CF>
   std::vector<TypeUnit> ta_;  // The main statistic collecting data structure
   std::map<uint32_t, CfUnit> cfs_;  // All the cf_id appears in this trace;
   std::vector<uint32_t> qps_peak_;
@@ -233,20 +234,24 @@ class TraceAnalyzer {
   Status StatsUnitCorrelationUpdate(StatsUnit& unit, const uint32_t& type,
                                     const uint64_t& ts, const std::string& key);
   Status OpenStatsOutputFiles(const std::string& type, TraceStats& new_stats);
-  Status CreateOutputFile(const std::string& type, const std::string& cf_name,
-                          const std::string& ending,
-                          std::unique_ptr<rocksdb::WritableFile>* f_ptr);
-  void CloseOutputFiles();
+  Status CreateOutputFile(
+      const std::string& type, const std::string& cf_name,
+      const std::string& ending,
+      std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>* f_ptr);
+  Status CloseOutputFiles();
 
   void PrintStatistics();
-  Status TraceUnitWriter(std::unique_ptr<rocksdb::WritableFile>& f_ptr,
-                         TraceUnit& unit);
+  Status TraceUnitWriter(
+      std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>& f_ptr, TraceUnit& unit);
   Status WriteTraceSequence(const uint32_t& type, const uint32_t& cf_id,
                             const std::string& key, const size_t value_size,
                             const uint64_t ts);
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);
   Status MakeStatisticQPS();
+  // Set the default trace file version as version 0.2
+  int trace_file_version_;
+  int db_version_;
 };
 
 // write bach handler to be used for WriteBache iterator
@@ -279,12 +284,43 @@ class TraceWriteHandler : public WriteBatch::Handler {
     return ta_ptr->HandleMerge(column_family_id, key, value);
   }
 
+  // The following hanlders are not implemented, return Status::OK() to avoid
+  // the running time assertion and other irrelevant falures.
+  virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
+                                const Slice& /*key*/,
+                                const Slice& /*value*/) override {
+    return Status::OK();
+  }
+
+  // The default implementation of LogData does nothing.
+  virtual void LogData(const Slice& /*blob*/) override {}
+
+  virtual Status MarkBeginPrepare(bool = false) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkEndPrepare(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkNoop(bool /*empty_batch*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkRollback(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkCommit(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
  private:
   TraceAnalyzer* ta_ptr;
 };
 
 int trace_analyzer_tool(int argc, char** argv);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

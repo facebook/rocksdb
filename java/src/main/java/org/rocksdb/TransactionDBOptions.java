@@ -111,7 +111,7 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * The wait timeout in milliseconds when writing a key
    * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#remove} or {@link RocksDB#write}
+   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
    * directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
@@ -129,7 +129,7 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * If positive, specifies the wait timeout in milliseconds when writing a key
    * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#remove} or {@link RocksDB#write}
+   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
    * directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.

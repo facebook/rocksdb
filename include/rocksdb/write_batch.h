@@ -24,14 +24,15 @@
 
 #pragma once
 
-#include <atomic>
-#include <stack>
-#include <string>
 #include <stdint.h>
+#include <atomic>
+#include <memory>
+#include <string>
+#include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class ColumnFamilyHandle;
@@ -60,6 +61,12 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+                      size_t protection_bytes_per_key);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -269,7 +276,7 @@ class WriteBatch : public WriteBatchBase {
     virtual bool Continue();
 
    protected:
-    friend class WriteBatch;
+    friend class WriteBatchInternal;
     virtual bool WriteAfterCommit() const { return true; }
     virtual bool WriteBeforePrepare() const { return false; }
   };
@@ -282,7 +289,7 @@ class WriteBatch : public WriteBatchBase {
   size_t GetDataSize() const { return rep_.size(); }
 
   // Returns the number of updates in the batch
-  int Count() const;
+  uint32_t Count() const;
 
   // Returns true if PutCF will be called during Iterate
   bool HasPut() const;
@@ -305,11 +312,17 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkEndPrepare will be called during Iterate
   bool HasEndPrepare() const;
 
-  // Returns trie if MarkCommit will be called during Iterate
+  // Returns true if MarkCommit will be called during Iterate
   bool HasCommit() const;
 
-  // Returns trie if MarkRollback will be called during Iterate
+  // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
+
+  // Assign timestamp to write batch
+  Status AssignTimestamp(const Slice& ts);
+
+  // Assign timestamps to write batch
+  Status AssignTimestamps(const std::vector<Slice>& ts_list);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -330,6 +343,9 @@ class WriteBatch : public WriteBatchBase {
 
   void SetMaxBytes(size_t max_bytes) override { max_bytes_ = max_bytes; }
 
+  struct ProtectionInfo;
+  size_t GetProtectionBytesPerKey() const;
+
  private:
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
@@ -337,7 +353,7 @@ class WriteBatch : public WriteBatchBase {
   // remove duplicate keys. Remove it when the hack is replaced with a proper
   // solution.
   friend class WriteBatchWithIndex;
-  SavePoints* save_points_;
+  std::unique_ptr<SavePoints> save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to
   // specify that only the first x records of the batch be written to
@@ -359,10 +375,11 @@ class WriteBatch : public WriteBatchBase {
   // more details.
   bool is_latest_persistent_state_ = false;
 
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-
-  // Intentionally copyable
+  const size_t timestamp_size_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

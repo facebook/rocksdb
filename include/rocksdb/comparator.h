@@ -10,7 +10,9 @@
 
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
@@ -20,12 +22,29 @@ class Slice;
 // from multiple threads.
 class Comparator {
  public:
+  Comparator() : timestamp_size_(0) {}
+
+  Comparator(size_t ts_sz) : timestamp_size_(ts_sz) {}
+
+  Comparator(const Comparator& orig) : timestamp_size_(orig.timestamp_size_) {}
+
+  Comparator& operator=(const Comparator& rhs) {
+    if (this != &rhs) {
+      timestamp_size_ = rhs.timestamp_size_;
+    }
+    return *this;
+  }
+
   virtual ~Comparator() {}
 
+  static const char* Type() { return "Comparator"; }
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
   //   > 0 iff "a" > "b"
+  // Note that Compare(a, b) also compares timestamp if timestamp size is
+  // non-zero. For the same user key with different timestamps, larger (newer)
+  // timestamp comes first.
   virtual int Compare(const Slice& a, const Slice& b) const = 0;
 
   // Compares two slices for equality. The following invariant should always
@@ -55,9 +74,8 @@ class Comparator {
   // If *start < limit, changes *start to a short string in [start,limit).
   // Simple comparator implementations may return with *start unchanged,
   // i.e., an implementation of this method that does nothing is correct.
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const = 0;
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const = 0;
 
   // Changes *key to a short string >= *key.
   // Simple comparator implementations may return with *key unchanged,
@@ -79,6 +97,39 @@ class Comparator {
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
+
+  inline size_t timestamp_size() const { return timestamp_size_; }
+
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
+  }
+
+  // For two events e1 and e2 whose timestamps are t1 and t2 respectively,
+  // Returns value:
+  // < 0  iff t1 < t2
+  // == 0 iff t1 == t2
+  // > 0  iff t1 > t2
+  // Note that an all-zero byte array will be the smallest (oldest) timestamp
+  // of the same length, and a byte array with all bits 1 will be the largest.
+  // In the future, we can extend Comparator so that subclasses can specify
+  // both largest and smallest timestamps.
+  virtual int CompareTimestamp(const Slice& /*ts1*/,
+                               const Slice& /*ts2*/) const {
+    return 0;
+  }
+
+  virtual int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/,
+                                      const Slice& b, bool /*b_has_ts*/) const {
+    return Compare(a, b);
+  }
+
+  virtual bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return 0 ==
+           CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
+  }
+
+ private:
+  size_t timestamp_size_;
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise
@@ -90,4 +141,4 @@ extern const Comparator* BytewiseComparator();
 // ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
