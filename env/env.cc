@@ -648,23 +648,14 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
 
 Status Env::CreateFromSystem(const ConfigOptions& config_options, Env** result,
                              std::shared_ptr<Env>* guard) {
-  *result = config_options.env;
   const char* env_uri = getenv("TEST_ENV_URI");
   const char* fs_uri = getenv("TEST_FS_URI");
-  if (env_uri && fs_uri) {  // Both specified.  Cannot choose.  Return Invalid
-    return Status::InvalidArgument("cannot specify both fs_uri and env_uri");
-  } else if (env_uri) {  // Only have an ENV URI.  Create an Env from it
-    return CreateFromString(config_options, env_uri, result, guard);
-  } else if (fs_uri) {  // Only have an FS URI.  Create an FS and wrap it
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::CreateFromString(config_options, fs_uri, &fs);
-    if (s.ok()) {
-      guard->reset(new CompositeEnvWrapper(*result, fs));
-      *result = guard->get();
-    }
-    return s;
+  if (env_uri || fs_uri) {
+    return CreateFromFlags(config_options, (env_uri != nullptr) ? env_uri : "",
+                           (fs_uri != nullptr) ? fs_uri : "", result, guard);
   } else {
     // Neither specified.  Use the default
+    *result = config_options.env;
     guard->reset();
     return Status::OK();
   }
