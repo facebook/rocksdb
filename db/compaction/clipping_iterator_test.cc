@@ -29,6 +29,23 @@ class BoundsCheckingVectorIterator : public test::VectorIterator {
     assert(cmp_);
   }
 
+  bool NextAndGetResult(IterateResult* result) override {
+    assert(Valid());
+    assert(result);
+
+    Next();
+
+    if (!Valid()) {
+      return false;
+    }
+
+    result->key = key();
+    result->bound_check_result = UpperBoundCheckResult();
+    result->value_prepared = true;
+
+    return true;
+  }
+
   bool MayBeOutOfLowerBound() override {
     assert(Valid());
 
@@ -132,6 +149,26 @@ TEST_P(ClippingIteratorTest, Clip) {
   }
 
   clip.Next();
+  ASSERT_FALSE(clip.Valid());
+
+  // Do it again using NextAndGetResult
+  clip.SeekToFirst();
+  ASSERT_TRUE(clip.Valid());
+  ASSERT_EQ(clip.key(), keys[data_start_idx]);
+  ASSERT_EQ(clip.value(), values[data_start_idx]);
+
+  for (size_t i = data_start_idx + 1; i < data_end_idx; ++i) {
+    IterateResult result;
+    ASSERT_TRUE(clip.NextAndGetResult(&result));
+    ASSERT_EQ(result.key, keys[i]);
+    ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+    ASSERT_TRUE(clip.Valid());
+    ASSERT_EQ(clip.key(), keys[i]);
+    ASSERT_EQ(clip.value(), values[i]);
+  }
+
+  IterateResult result;
+  ASSERT_FALSE(clip.NextAndGetResult(&result));
   ASSERT_FALSE(clip.Valid());
 
   // Call SeekToLast and iterate backward

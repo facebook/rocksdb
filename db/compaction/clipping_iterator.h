@@ -100,17 +100,28 @@ class ClippingIterator : public InternalIterator {
   }
 
   bool NextAndGetResult(IterateResult* result) override {
+    assert(valid_);
     assert(result);
 
-    Next();
+    IterateResult res;
+    valid_ = iter_->NextAndGetResult(&res);
 
-    if (valid_) {
-      result->key = key();
-      result->bound_check_result = IterBoundCheck::kInbound;
-      result->value_prepared = false;
+    if (!valid_) {
+      return false;
     }
 
-    return valid_;
+    if (end_) {
+      EnforceUpperBoundImpl(res.bound_check_result);
+
+      if (!valid_) {
+        return false;
+      }
+    }
+
+    res.bound_check_result = IterBoundCheck::kInbound;
+    *result = res;
+
+    return true;
   }
 
   void Prev() override {
@@ -183,16 +194,7 @@ class ClippingIterator : public InternalIterator {
     valid_ = iter_->Valid();
   }
 
-  void EnforceUpperBound() {
-    if (!valid_) {
-      return;
-    }
-
-    if (!end_) {
-      return;
-    }
-
-    const IterBoundCheck bound_check_result = iter_->UpperBoundCheckResult();
+  void EnforceUpperBoundImpl(IterBoundCheck bound_check_result) {
     if (bound_check_result == IterBoundCheck::kInbound) {
       return;
     }
@@ -207,6 +209,18 @@ class ClippingIterator : public InternalIterator {
     if (cmp_->Compare(key(), *end_) >= 0) {
       valid_ = false;
     }
+  }
+
+  void EnforceUpperBound() {
+    if (!valid_) {
+      return;
+    }
+
+    if (!end_) {
+      return;
+    }
+
+    EnforceUpperBoundImpl(iter_->UpperBoundCheckResult());
   }
 
   void EnforceLowerBound() {
