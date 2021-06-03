@@ -103,7 +103,7 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr);
+                        /*io_tracer=*/nullptr, /*db_session_id*/ "");
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -153,7 +153,7 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr);
+                        /*io_tracer=*/nullptr, /*db_session_id*/ "");
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());

@@ -99,7 +99,8 @@ class BlockBasedTable : public TableReader {
                      bool force_direct_prefetch = false,
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr,
-                     size_t max_file_size_for_l0_meta_pin = 0);
+                     size_t max_file_size_for_l0_meta_pin = 0,
+                     const std::string& db_session_id = "");
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -446,12 +447,23 @@ class BlockBasedTable : public TableReader {
       bool use_cache, bool prefetch, bool pin,
       BlockCacheLookupContext* lookup_context);
 
-  static void SetupCacheKeyPrefix(Rep* rep);
+  static void SetupCacheKeyPrefix(Rep* rep, const std::string& db_session_id);
 
   // Generate a cache key prefix from the file
   template <typename TCache, typename TFile>
   static void GenerateCachePrefix(TCache* cc, TFile* file, char* buffer,
-                                  size_t* size) {
+                                  size_t* size,
+                                  const std::string& db_session_id) {
+    if (cc != nullptr && cc->IsSecondaryCacheEnabled() &&
+        db_session_id.size() != 0) {
+      // db_session_id is 20 bytes as defined.
+      assert(db_session_id.size() == 20);
+      memcpy(buffer, db_session_id.c_str(), 20);
+      char* end = EncodeVarint64(buffer + 20, cc->NewId());
+      // kMaxVarint64Length is 10 therefore, the prefix is at most 30 bytes.
+      *size = static_cast<size_t>(end - buffer);
+      return;
+    }
     // generate an id from the file
     *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 

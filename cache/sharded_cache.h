@@ -60,6 +60,7 @@ class CacheShard {
       CacheMetadataChargePolicy metadata_charge_policy) {
     metadata_charge_policy_ = metadata_charge_policy;
   }
+  virtual bool IsSecondaryCacheEnabled() = 0;
 
  protected:
   CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
@@ -111,6 +112,7 @@ class ShardedCache : public Cache {
       const ApplyToAllEntriesOptions& opts) override;
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
+  virtual bool IsSecondaryCacheEnabled() override;
 
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;

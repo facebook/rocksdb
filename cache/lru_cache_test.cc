@@ -216,11 +216,16 @@ class TestSecondaryCache : public SecondaryCache {
 
   void ResetInjectFailure() { inject_failure_ = false; }
 
+  void SetDbSessionId(const std::string& db_session_id) {
+    db_session_id_ = db_session_id;
+  }
+
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
+    assert(IsDbSessionIdAsKeyPrefix(key) == true);
     size_t size;
     char* buf;
     Status s;
@@ -273,6 +278,20 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
+  bool IsDbSessionIdAsKeyPrefix(const Slice& key) {
+    if (db_session_id_.size() == 0) {
+      return true;
+    }
+    if (key.size() < 20) {
+      return false;
+    }
+    std::string s_key = key.ToString();
+    if (s_key.substr(0, 20) != db_session_id_) {
+      return false;
+    }
+    return true;
+  }
+
  private:
   class TestSecondaryCacheHandle : public SecondaryCacheHandle {
    public:
@@ -300,6 +319,7 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_inserts_;
   uint32_t num_lookups_;
   bool inject_failure_;
+  std::string db_session_id_;
 };
 
 class DBSecondaryCacheTest : public DBTestBase {
@@ -591,6 +611,9 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
+  std::string session_id;
+  db_->GetDbSessionId(session_id);
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -680,6 +703,9 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
+  std::string session_id;
+  db_->GetDbSessionId(session_id);
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -768,6 +794,9 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   options.paranoid_file_checks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
+  std::string session_id;
+  db_->GetDbSessionId(session_id);
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -815,6 +844,9 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
+  std::string session_id;
+  db_->GetDbSessionId(session_id);
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 256;
   for (int i = 0; i < N; i++) {
@@ -860,6 +892,9 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   options.paranoid_file_checks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
+  std::string session_id;
+  db_->GetDbSessionId(session_id);
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {

@@ -485,6 +485,9 @@ class Cache {
   // should check the Value() of each handle for nullptr
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
+  // Determines if if the secondary cache is enabled.
+  virtual bool IsSecondaryCacheEnabled() { return false; }
+
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };

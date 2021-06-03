@@ -371,26 +371,27 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
 }
 
 // Helper function to setup the cache key's prefix for the Table.
-void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
+void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
+                                          const std::string& db_session_id) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->table_options.block_cache != nullptr) {
     GenerateCachePrefix<Cache, FSRandomAccessFile>(
         rep->table_options.block_cache.get(), rep->file->file(),
-        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
+        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size, db_session_id);
   }
   if (rep->table_options.persistent_cache != nullptr) {
     GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
         rep->table_options.persistent_cache.get(), rep->file->file(),
         &rep->persistent_cache_key_prefix[0],
-        &rep->persistent_cache_key_prefix_size);
+        &rep->persistent_cache_key_prefix_size, "");
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
     GenerateCachePrefix<Cache, FSRandomAccessFile>(
         rep->table_options.block_cache_compressed.get(), rep->file->file(),
         &rep->compressed_cache_key_prefix[0],
-        &rep->compressed_cache_key_prefix_size);
+        &rep->compressed_cache_key_prefix_size, "");
   }
 }
 
@@ -512,7 +513,7 @@ Status BlockBasedTable::Open(
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
-    size_t max_file_size_for_l0_meta_pin) {
+    size_t max_file_size_for_l0_meta_pin, const std::string& db_session_id) {
   table_reader->reset();
 
   Status s;
@@ -586,7 +587,7 @@ Status BlockBasedTable::Open(
     rep->internal_prefix_transform.reset(
         new InternalKeySliceTransform(prefix_extractor));
   }
-  SetupCacheKeyPrefix(rep);
+  SetupCacheKeyPrefix(rep, db_session_id);
   std::unique_ptr<BlockBasedTable> new_table(
       new BlockBasedTable(rep, block_cache_tracer));
 

@@ -68,14 +68,16 @@ const int kLoadConcurency = 128;
 TableCache::TableCache(const ImmutableOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
-                       const std::shared_ptr<IOTracer>& io_tracer)
+                       const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_session_id)
     : ioptions_(ioptions),
       file_options_(file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      db_session_id_(db_session_id) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -137,7 +139,7 @@ Status TableCache::GetTableReader(
                            internal_comparator, skip_filters, immortal_tables_,
                            false /* force_direct_prefetch */, level,
                            fd.largest_seqno, block_cache_tracer_,
-                           max_file_size_for_l0_meta_pin),
+                           max_file_size_for_l0_meta_pin, db_session_id_),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

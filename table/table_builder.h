@@ -37,12 +37,13 @@ struct TableReaderOptions {
                      bool _skip_filters = false, bool _immortal = false,
                      bool _force_direct_prefetch = false, int _level = -1,
                      BlockCacheTracer* const _block_cache_tracer = nullptr,
-                     size_t _max_file_size_for_l0_meta_pin = 0)
+                     size_t _max_file_size_for_l0_meta_pin = 0,
+                     const std::string& _db_session_id = "")
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
                            _force_direct_prefetch, _level,
                            0 /* _largest_seqno */, _block_cache_tracer,
-                           _max_file_size_for_l0_meta_pin) {}
+                           _max_file_size_for_l0_meta_pin, _db_session_id) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableOptions& _ioptions,
@@ -53,7 +54,8 @@ struct TableReaderOptions {
                      bool _force_direct_prefetch, int _level,
                      SequenceNumber _largest_seqno,
                      BlockCacheTracer* const _block_cache_tracer,
-                     size_t _max_file_size_for_l0_meta_pin)
+                     size_t _max_file_size_for_l0_meta_pin,
+                     const std::string& _db_session_id)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -64,7 +66,8 @@ struct TableReaderOptions {
         level(_level),
         largest_seqno(_largest_seqno),
         block_cache_tracer(_block_cache_tracer),
-        max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin) {}
+        max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
+        db_session_id(_db_session_id) {}
 
   const ImmutableOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -87,6 +90,8 @@ struct TableReaderOptions {
   // Largest L0 file size whose meta-blocks may be pinned (can be zero when
   // unknown).
   const size_t max_file_size_for_l0_meta_pin;
+
+  std::string db_session_id;
 };
 
 struct TableBuilderOptions {

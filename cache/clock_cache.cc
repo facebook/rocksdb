@@ -306,6 +306,7 @@ class ClockCacheShard final : public CacheShard {
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
       uint32_t average_entries_per_lock, uint32_t* state) override;
+  bool IsSecondaryCacheEnabled() override { return false; }
 
  private:
   static const uint32_t kInCacheBit = 1;

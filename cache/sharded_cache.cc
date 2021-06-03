@@ -229,4 +229,6 @@ int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
 
+bool ShardedCache::IsSecondaryCacheEnabled() { return false; }
+
 }  // namespace ROCKSDB_NAMESPACE

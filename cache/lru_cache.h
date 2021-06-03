@@ -316,6 +316,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   virtual std::string GetPrintableOptions() const override;
 
+  virtual bool IsSecondaryCacheEnabled() override {
+    return (secondary_cache_ != nullptr);
+  }
+
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
   //  Retrieves number of elements in LRU, for unit test purpose only
@@ -417,6 +421,9 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) override {}
+  virtual bool IsSecondaryCacheEnabled() override {
+    return is_secondary_cache_enabled_;
+  }
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
@@ -426,6 +433,7 @@ class LRUCache
  private:
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
+  bool is_secondary_cache_enabled_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
