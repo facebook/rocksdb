@@ -2587,6 +2587,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
@@ -2643,6 +2644,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
@@ -2693,6 +2695,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // commit cache size = 2
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   // Add a dummy key to evict v2 commit cache, but keep v1 commit cache.
@@ -2751,6 +2754,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
