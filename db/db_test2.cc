@@ -3204,7 +3204,8 @@ TEST_F(DBTest2, PausingManualCompaction4) {
 
 TEST_F(DBTest2, CancelManualCompaction1) {
   CompactRangeOptions compact_options;
-  auto canceledPtr = std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
   compact_options.canceled = canceledPtr.get();
 
   Options options = CurrentOptions();
@@ -3293,7 +3294,8 @@ TEST_F(DBTest2, CancelManualCompaction1) {
 
 TEST_F(DBTest2, CancelManualCompaction2) {
   CompactRangeOptions compact_options;
-  auto canceledPtr = std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
   compact_options.canceled = canceledPtr.get();
   compact_options.max_subcompactions = 1;
 

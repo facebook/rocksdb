@@ -403,7 +403,7 @@ class CompactionIterator {
     return (manual_compaction_paused_ &&
             manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
            (manual_compaction_canceled_ &&
-            manual_compaction_canceled_->load(std::memory_order_relaxed) > 0);
+            manual_compaction_canceled_->load(std::memory_order_relaxed));
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
