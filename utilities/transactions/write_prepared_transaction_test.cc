@@ -2606,7 +2606,13 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
   // Add a flush to avoid compaction to fallback to trivial move.
 
+  // The callback might be called twice, record the calling state to
+  // prevent double calling.
+  bool callback_finished = false;
   auto callback = [&](void*) {
+    if (callback_finished) {
+      return;
+    }
     // Release snapshot1 after CompactionIterator init.
     // CompactionIterator need to figure out the earliest snapshot
     // that can see key1:value1_2 is kMaxSequenceNumber, not
@@ -2615,6 +2621,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
     // Add some keys to advance max_evicted_seq.
     ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
     ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
+    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
@@ -2715,11 +2722,18 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   add_dummy();
   auto* s2 = db->GetSnapshot();
 
+  // The callback might be called twice, record the calling state to
+  // prevent double calling.
+  bool callback_finished = false;
   auto callback = [&](void*) {
+    if (callback_finished) {
+      return;
+    }
     db->ReleaseSnapshot(s1);
     // Add some dummy entries to trigger s1 being cleanup from old_commit_map.
     add_dummy();
     add_dummy();
+    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
