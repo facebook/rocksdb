@@ -1322,7 +1322,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       ((manual_compaction_paused_ &&
         manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
        (manual_compaction_canceled_ &&
-        manual_compaction_canceled_->load(std::memory_order_relaxed) > 0))) {
+        manual_compaction_canceled_->load(std::memory_order_relaxed)))) {
     status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {

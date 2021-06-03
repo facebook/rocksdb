@@ -2828,8 +2828,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     } else if (is_manual && manual_compaction->canceled &&
-               manual_compaction->canceled->load(std::memory_order_acquire) >
-                   0) {
+               manual_compaction->canceled->load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {
