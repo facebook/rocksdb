@@ -140,12 +140,16 @@ TEST_P(ClippingIteratorTest, Clip) {
   ASSERT_TRUE(clip.Valid());
   ASSERT_EQ(clip.key(), keys[data_start_idx]);
   ASSERT_EQ(clip.value(), values[data_start_idx]);
+  ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+  ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
 
   for (size_t i = data_start_idx + 1; i < data_end_idx; ++i) {
     clip.Next();
     ASSERT_TRUE(clip.Valid());
     ASSERT_EQ(clip.key(), keys[i]);
     ASSERT_EQ(clip.value(), values[i]);
+    ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+    ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
   }
 
   clip.Next();
@@ -156,6 +160,8 @@ TEST_P(ClippingIteratorTest, Clip) {
   ASSERT_TRUE(clip.Valid());
   ASSERT_EQ(clip.key(), keys[data_start_idx]);
   ASSERT_EQ(clip.value(), values[data_start_idx]);
+  ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+  ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
 
   for (size_t i = data_start_idx + 1; i < data_end_idx; ++i) {
     IterateResult result;
@@ -165,6 +171,8 @@ TEST_P(ClippingIteratorTest, Clip) {
     ASSERT_TRUE(clip.Valid());
     ASSERT_EQ(clip.key(), keys[i]);
     ASSERT_EQ(clip.value(), values[i]);
+    ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+    ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
   }
 
   IterateResult result;
@@ -176,12 +184,16 @@ TEST_P(ClippingIteratorTest, Clip) {
   ASSERT_TRUE(clip.Valid());
   ASSERT_EQ(clip.key(), keys[data_end_idx - 1]);
   ASSERT_EQ(clip.value(), values[data_end_idx - 1]);
+  ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+  ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
 
   for (size_t i = data_end_idx - 2; i >= data_start_idx; --i) {
     clip.Prev();
     ASSERT_TRUE(clip.Valid());
     ASSERT_EQ(clip.key(), keys[i]);
     ASSERT_EQ(clip.value(), values[i]);
+    ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+    ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
   }
 
   clip.Prev();
@@ -197,10 +209,14 @@ TEST_P(ClippingIteratorTest, Clip) {
       ASSERT_TRUE(clip.Valid());
       ASSERT_EQ(clip.key(), keys[data_start_idx]);
       ASSERT_EQ(clip.value(), values[data_start_idx]);
+      ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+      ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
     } else if (i < data_end_idx) {
       ASSERT_TRUE(clip.Valid());
       ASSERT_EQ(clip.key(), keys[i]);
       ASSERT_EQ(clip.value(), values[i]);
+      ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+      ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
     } else {
       ASSERT_FALSE(clip.Valid());
     }
@@ -213,10 +229,14 @@ TEST_P(ClippingIteratorTest, Clip) {
       ASSERT_TRUE(clip.Valid());
       ASSERT_EQ(clip.key(), keys[i]);
       ASSERT_EQ(clip.value(), values[i]);
+      ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+      ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
     } else {
       ASSERT_TRUE(clip.Valid());
       ASSERT_EQ(clip.key(), keys[data_end_idx - 1]);
       ASSERT_EQ(clip.value(), values[data_end_idx - 1]);
+      ASSERT_FALSE(clip.MayBeOutOfLowerBound());
+      ASSERT_EQ(clip.UpperBoundCheckResult(), IterBoundCheck::kInbound);
     }
   }
 }
