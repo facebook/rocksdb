@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
@@ -3203,7 +3204,8 @@ TEST_F(DBTest2, PausingManualCompaction4) {
 
 TEST_F(DBTest2, CancelManualCompaction1) {
   CompactRangeOptions compact_options;
-  compact_options.canceled = new std::atomic<bool>(true);
+  auto canceledPtr = std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -3287,13 +3289,12 @@ TEST_F(DBTest2, CancelManualCompaction1) {
 #endif  // !ROCKSDB_LITE
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-  delete compact_options.canceled;
 }
 
 TEST_F(DBTest2, CancelManualCompaction2) {
   CompactRangeOptions compact_options;
-  compact_options.canceled = new std::atomic<bool>(true);
+  auto canceledPtr = std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
   compact_options.max_subcompactions = 1;
 
   Options options = CurrentOptions();
@@ -3371,8 +3372,6 @@ TEST_F(DBTest2, CancelManualCompaction2) {
 #endif  // !ROCKSDB_LITE
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-  delete compact_options.canceled;
 }
 
 TEST_F(DBTest2, OptimizeForPointLookup) {
