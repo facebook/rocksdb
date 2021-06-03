@@ -24,6 +24,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
+      synced_bytes_(0),
       manual_flush_(manual_flush) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
@@ -44,6 +45,28 @@ IOStatus Writer::Close() {
   if (dest_) {
     s = dest_->Close();
     dest_.reset();
+  }
+  return s;
+}
+
+IOStatus Writer::SyncWithoutFlush(bool use_fsync) {
+  IOStatus s;
+  if (dest_) {
+    s = dest_->SyncWithoutFlush(use_fsync);
+    if (s.ok()) {
+      synced_bytes_ = dest_->GetFileSize();
+    }
+  }
+  return s;
+}
+
+IOStatus Writer::Sync(bool use_fsync) {
+  IOStatus s;
+  if (dest_) {
+    s = dest_->Sync(use_fsync);
+    if (s.ok()) {
+      synced_bytes_ = dest_->GetFileSize();
+    }
   }
   return s;
 }
