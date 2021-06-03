@@ -11,6 +11,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// An internal iterator that wraps another one and ensures that any keys
+// returned are strictly within a range [start, end). If the underlying
+// iterator has already performed the bounds checking, it relies on that result;
+// otherwise, it performs the necessary key comparisons itself. Both bounds
+// are optional.
 class ClippingIterator : public InternalIterator {
  public:
   ClippingIterator(InternalIterator* iter, const Slice* start, const Slice* end,
