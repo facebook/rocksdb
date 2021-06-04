@@ -2,6 +2,7 @@
 ## Unreleased
 ### Behavior Changes
 * Added API comments clarifying safe usage of Disable/EnableManualCompaction and EventListener callbacks for compaction.
+* Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
 
 ## 6.21.0 (2021-05-21)
 ### Bug Fixes
