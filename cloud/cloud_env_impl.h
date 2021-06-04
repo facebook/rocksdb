@@ -339,6 +339,8 @@ class CloudEnvImpl : public CloudEnv {
   void StopPurger();
 
  private:
+  void log(InfoLogLevel level, const std::string& fname,
+           const std::string& msg);
   Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
   std::string generateNewEpochId();
   std::unique_ptr<CloudManifest> cloud_manifest_;
