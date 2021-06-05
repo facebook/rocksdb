@@ -1986,7 +1986,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       std::move(writable_file), fname, file_options_, db_options_.clock,
       io_tracer_, db_options_.stats, listeners,
       db_options_.file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kTableFile)));
+      tmp_set.Contains(FileType::kTableFile), false));
 
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),

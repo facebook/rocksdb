@@ -4133,6 +4133,7 @@ Status VersionSet::ProcessManifestWrites(
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
             io_tracer_, nullptr, db_options_->listeners, nullptr,
+            tmp_set.Contains(FileType::kDescriptorFile),
             tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));

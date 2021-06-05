@@ -6,16 +6,20 @@
 #include <algorithm>
 #include <vector>
 
+#include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/crc32c.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -228,6 +232,57 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     ASSERT_EQ(target.size(), actual.size());
     ASSERT_EQ(target, actual);
   }
+}
+
+class DBWritableFileWriterTest : public DBTestBase {
+ public:
+  DBWritableFileWriterTest()
+      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {
+    fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+    fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
+  }
+
+  std::shared_ptr<FaultInjectionTestFS> fault_fs_;
+  std::unique_ptr<Env> fault_env_;
+};
+
+TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = this->dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  Random rnd(301);
+  std::string data = rnd.RandomString(1000);
+  uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Flush());
+  Random size_r(47);
+  for (int i = 0; i < 2000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
 }
 
 #ifndef ROCKSDB_LITE
