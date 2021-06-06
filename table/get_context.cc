@@ -47,8 +47,7 @@ GetContext::GetContext(
     SequenceNumber* _max_covering_tombstone_seq, SystemClock* clock,
     SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
     ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id,
-    std::function<Status(const Slice& blob_index, Slice& blob_value)>
-        get_blob_callback)
+    std::unique_ptr<BlobFileMergeCallback>&& blob_file_merge_callback)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -68,7 +67,7 @@ GetContext::GetContext(
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
       tracing_get_id_(tracing_get_id),
-      get_blob_callback_(get_blob_callback) {
+      blob_file_merge_callback_(std::move(blob_file_merge_callback)) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -83,12 +82,12 @@ GetContext::GetContext(
     SystemClock* clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
     bool* is_blob_index, uint64_t tracing_get_id,
-    std::function<Status(const Slice& blob_index, Slice& blob_value)>
-        get_blob_callback)
+    std::unique_ptr<BlobFileMergeCallback>&& blob_file_merge_callback)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, nullptr, value_found, merge_context, do_merge,
                  _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
-                 callback, is_blob_index, tracing_get_id, get_blob_callback) {}
+                 callback, is_blob_index, tracing_get_id,
+                 std::move(blob_file_merge_callback)) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -276,31 +275,38 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
             // merge_context_->operand_list
-            push_operand(value, value_pinner);
+            if (is_blob_index_ != nullptr && *is_blob_index_) {
+              Slice blob_value;
+              if (GetBlobValue(value, blob_value) == false) {
+                return false;
+              }
+              push_operand(blob_value, value_pinner);
+            } else {
+              push_operand(value, value_pinner);
+            }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           if (is_blob_index_ != nullptr && *is_blob_index_) {
-            Slice blob_value = value;
-            Status status = get_blob_callback_(value, blob_value);
-            if (!status.ok()) {
-              if (status.IsIncomplete()) {
-                MarkKeyMayExist();
-                return false;
-              }
-              state_ = kCorrupt;
+            Slice blob_value;
+            if (GetBlobValue(value, blob_value) == false) {
               return false;
             }
             Merge(&blob_value);
-            *is_blob_index_ = false;
+            if (do_merge_ == false) {
+              // It means this function is called as part of DB GetMergeOperands
+              // API and the current value should be part of
+              // merge_context_->operand_list
+              push_operand(blob_value, value_pinner);
+            }
           } else {
             Merge(&value);
-          }
-          if (do_merge_ == false) {
-            // It means this function is called as part of DB GetMergeOperands
-            // API and the current value should be part of
-            // merge_context_->operand_list
-            push_operand(value, value_pinner);
+            if (do_merge_ == false) {
+              // It means this function is called as part of DB GetMergeOperands
+              // API and the current value should be part of
+              // merge_context_->operand_list
+              push_operand(value, value_pinner);
+            }
           }
         }
         if (state_ == kFound) {
@@ -364,6 +370,21 @@ void GetContext::Merge(const Slice* value) {
       }
     }
   }
+}
+
+bool GetContext::GetBlobValue(const Slice& blob_index, Slice& blob_value) {
+  Status status = blob_file_merge_callback_->OnBlobFileMergeBegin(
+      user_key_, blob_index, blob_value, is_blob_index_, pinnable_val_);
+  if (!status.ok()) {
+    if (status.IsIncomplete()) {
+      MarkKeyMayExist();
+      return false;
+    }
+    state_ = kCorrupt;
+    return false;
+  }
+  *is_blob_index_ = false;
+  return true;
 }
 
 void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {

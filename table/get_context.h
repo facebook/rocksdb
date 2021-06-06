@@ -5,6 +5,8 @@
 
 #pragma once
 #include <string>
+
+#include "db/blob/blob_file_merge_callback.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/read_callback.h"
@@ -104,8 +106,8 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0,
-             std::function<Status(const Slice& value, Slice& result)>
-                 merge_callback = nullptr);
+             std::unique_ptr<BlobFileMergeCallback>&& blob_file_merge_callback =
+                 nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -116,8 +118,8 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0,
-             std::function<Status(const Slice& value, Slice& result)>
-                 merge_callback = nullptr);
+             std::unique_ptr<BlobFileMergeCallback>&& blob_file_merge_callback =
+                 nullptr);
 
   GetContext() = delete;
 
@@ -175,6 +177,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
+  bool GetBlobValue(const Slice& blob_index, Slice& blob_value);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -206,9 +209,7 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
-
-  std::function<Status(const Slice& blob_index, Slice& blob_value)>
-      get_blob_callback_;
+  std::unique_ptr<BlobFileMergeCallback> blob_file_merge_callback_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay
