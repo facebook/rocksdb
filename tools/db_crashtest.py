@@ -461,6 +461,25 @@ def inject_inconsistencies_to_db_dir(dir_path):
         with open(os.path.join(dir_path, fname), "w") as fd:
             fd.write("garbage")
 
+def execute_cmd(cmd, timeout):
+    child = subprocess.Popen(cmd, stderr=subprocess.PIPE,
+                             stdout=subprocess.PIPE)
+    print("Running db_stress with pid=%d: %s\n\n"
+          % (child.pid, ' '.join(cmd)))
+
+    try:
+        outs, errs = child.communicate(timeout=timeout)
+        hit_timeout = False
+        print("WARNING: db_stress ended before kill: exitcode=%d\n"
+              % child.returncode)
+    except subprocess.TimeoutExpired:
+        hit_timeout = True
+        child.kill()
+        print("KILLED %d\n" % child.pid)
+        outs, errs = child.communicate()
+
+    return hit_timeout, child.returncode, outs.decode('utf-8'), errs.decode('utf-8')
+
 
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
@@ -474,46 +493,25 @@ def blackbox_crash_main(args, unknown_args):
           + "total-duration=" + str(cmd_params['duration']) + "\n")
 
     while time.time() < exit_time:
-        run_had_errors = False
-        killtime = time.time() + cmd_params['interval']
-
         cmd = gen_cmd(dict(
             list(cmd_params.items())
             + list({'db': dbname}.items())), unknown_args)
 
-        child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-        print("Running db_stress with pid=%d: %s\n\n"
-              % (child.pid, ' '.join(cmd)))
+        hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['interval'])
 
-        stop_early = False
-        while time.time() < killtime:
-            if child.poll() is not None:
-                print("WARNING: db_stress ended before kill: exitcode=%d\n"
-                      % child.returncode)
-                stop_early = True
-                break
-            time.sleep(1)
+        if not hit_timeout:
+            print('Exit Before Killing') 
+            print('stdout:')
+            print(outs)
+            print('stderr:')
+            print(errs)
+            sys.exit(2)
 
-        if not stop_early:
-            if child.poll() is not None:
-                print("WARNING: db_stress ended before kill: exitcode=%d\n"
-                      % child.returncode)
-            else:
-                child.kill()
-                print("KILLED %d\n" % child.pid)
-                time.sleep(1)  # time to stabilize after a kill
-
-        while True:
-            line = child.stderr.readline().strip().decode('utf-8')
-            if line == '':
-                break
-            elif not line.startswith('WARNING'):
+        for line in errs.split('\n'):
+            if line != '' and  not line.startswith('WARNING'):
                 run_had_errors = True
                 print('stderr has error message:')
                 print('***' + line + '***')
-
-        if run_had_errors:
-            sys.exit(2)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -614,20 +612,24 @@ def whitebox_crash_main(args, unknown_args):
 
         print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
-        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE)
-        stdoutdata, stderrdata = popen.communicate()
-        if stdoutdata:
-            stdoutdata = stdoutdata.decode('utf-8')
-        if stderrdata:
-            stderrdata = stderrdata.decode('utf-8')
-        retncode = popen.returncode
+        # If the running time is 15 minutes over the run time, explicit kill and
+        # exit even if white box kill didn't hit. This is to guarantee run time
+        # limit, as if it runs as a job, running too long will create problems
+        # for job scheduling or execution.
+        # TODO detect a hanging condition. The job might run too long as RocksDB
+        # hits a hanging bug.
+        hit_timeout, retncode, stdoutdata, stderrdata = execute_cmd(
+            cmd, exit_time - time.time() + 900)
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
                check_mode, additional_opts['kill_random_test'], retncode))
 
         print(msg)
         print(stdoutdata)
         print(stderrdata)
+
+        if hit_timeout:
+            print("Killing the run for running too long")
+            break
 
         expected = False
         if additional_opts['kill_random_test'] is None and (retncode == 0):

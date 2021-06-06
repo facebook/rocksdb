@@ -33,7 +33,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                                                  true /*use_delta_encoding*/,
                                                  use_value_delta_encoding),
       p_index_builder_(p_index_builder),
-      keys_added_to_partition_(0) {
+      keys_added_to_partition_(0),
+      total_added_in_built_(0) {
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
@@ -85,6 +86,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     }
   }
 
+  total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
@@ -100,6 +102,10 @@ void PartitionedFilterBlockBuilder::Add(const Slice& key) {
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   FullFilterBlockBuilder::AddKey(key);
   keys_added_to_partition_++;
+}
+
+size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
@@ -131,6 +137,8 @@ Slice PartitionedFilterBlockBuilder::Finish(
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
     if (finishing_filters) {
+      // Simplest to just add them all at the end
+      total_added_in_built_ = 0;
       if (p_index_builder_->seperator_is_key_plus_seq()) {
         return index_on_filter_block_builder_.Finish();
       } else {
