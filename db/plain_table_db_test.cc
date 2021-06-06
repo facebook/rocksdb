@@ -657,7 +657,11 @@ TEST_P(PlainTableDBTest, Immortal) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_EQ("b", Get("0000000000000bar"));
     ASSERT_EQ("v1", Get("1000000000000foo"));
-    ASSERT_EQ(2, copied);
+    if (mmap_mode()) {
+      ASSERT_EQ(0, copied);
+    } else {
+      ASSERT_EQ(2, copied);
+    }
     copied = 0;
 
     Close();

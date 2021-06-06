@@ -94,6 +94,11 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
   cache_->Release(handle);
 }
 
+static void ReleaseHandle(void* table_cache, void* cache_handle) {
+  reinterpret_cast<TableCache*>(table_cache)
+      ->ReleaseHandle(reinterpret_cast<Cache::Handle*>(cache_handle));
+}
+
 Status TableCache::GetTableReader(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
@@ -391,7 +396,9 @@ Status TableCache::Get(const ReadOptions& options,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
                        int level, size_t max_file_size_for_l0_meta_pin) {
-  auto& fd = file_meta.fd;
+  // XXX may already have a table reader.
+  // if it does, we need to Ref the version that it belongs to
+  const FileDescriptor& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
 #ifndef ROCKSDB_LITE
@@ -440,7 +447,28 @@ Status TableCache::Get(const ReadOptions& options,
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
+      Cleanable unpinner;
+      std::function<Cleanable*()> table_pinner;
+      if (handle != nullptr) {
+        table_pinner = [&]() -> Cleanable* {
+          unpinner.RegisterCleanup(&ROCKSDB_NAMESPACE::ReleaseHandle,
+                                   reinterpret_cast<void*>(this),
+                                   reinterpret_cast<void*>(handle));
+          // so we can't deref it
+          // XXX this breaks things? presumably it's faster to just avoid
+          // derefing rather than incrementing the count, so maybe try to sort
+          // out why?
+          // handle = nullptr;
+          this->cache_->Ref(handle);
+          return &unpinner;
+        };
+
+        get_context->set_table_pinner(&table_pinner);
+      }
       s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      if (handle != nullptr) {
+        get_context->clear_table_pinner();
+      }
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       // Couldn't find Table in cache but treat as kFound if no_io set
@@ -465,6 +493,7 @@ Status TableCache::Get(const ReadOptions& options,
 #endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
+    // XXX need to hold onto this with the pinning
     ReleaseHandle(handle);
   }
   return s;

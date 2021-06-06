@@ -1798,6 +1798,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    // XXX somehow we have to make sure our SuperVersion is retained (elide
+    // ReturnAndCleanupSuperVersion call)
+    // ... maybe not, possibly just holding onto the last table reader cache
+    // entry (the tablereader holds the open file)
+    // ... sometimes the Version holds the table readers, so we either need to
+    // hold the SuperVersion or the Version?
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,

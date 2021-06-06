@@ -1847,6 +1847,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   return s;
 }
 
+namespace {
+void Unref(void* version, void* /* unused */) {
+  reinterpret_cast<Version*>(version)->Unref();
+}
+}  // anonymous namespace
+
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -1889,6 +1895,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     pinned_iters_mgr.StartPinning();
   }
 
+  // XXX we've already got an open TableReader in
+  // storage_info_.files_.$i.fd.table_reader
   FilePicker fp(
       storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
@@ -1905,6 +1913,28 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       sample_file_read_inc(f->file_metadata);
     }
 
+    // XXX is the table reader buried in here null?
+    // f->file_metadata->fd
+    // XXX this should be calling Unref on a cache entry it finds
+    Cleanable unpinner;
+    std::function<Cleanable*()> table_pinner = [&]() -> Cleanable* {
+      Ref();
+      unpinner.RegisterCleanup(&ROCKSDB_NAMESPACE::Unref,
+                               reinterpret_cast<void*>(this), nullptr);
+      return &unpinner;
+    };
+
+    bool version_has_table_reader =
+        f->file_metadata->fd.table_reader != nullptr;
+
+    if (version_has_table_reader) {
+      // the table_reader is owned by this version (or SuperVersion? I'm
+      // guessing these files can be used by multiple versions, since they are
+      // immutable). We can ensure this lives by holding a ref to this
+      // version.
+      get_context.set_table_pinner(&table_pinner);
+    }
+
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
@@ -1916,6 +1946,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
         fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
+
+    if (version_has_table_reader) {
+      get_context.clear_table_pinner();
+    }
+
     // TODO: examine the behavior for corrupted key
     if (timer_enabled) {
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
