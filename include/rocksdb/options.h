@@ -1797,6 +1797,11 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+
+  // statistics is used to collect DB operation metrics, the metrics won't be
+  // returned to CompactionService primary host, to collect that, the user needs
+  // to set it here.
+  std::shared_ptr<Statistics> statistics = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
