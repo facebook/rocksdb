@@ -282,7 +282,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         range_del_agg_.get(), nullptr /* blob_file_builder */,
         true /*allow_data_in_errors*/, std::move(compaction), filter,
         &shutting_down_, /*preserve_deletes_seqnum=*/0,
-        /*manual_compaction_paused=*/nullptr, /*info_log=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, /*info_log=*/nullptr,
         full_history_ts_low));
   }
 

@@ -1656,6 +1656,9 @@ struct CompactRangeOptions {
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
   Slice* full_history_ts_low = nullptr;
+
+  // Allows cancellation of an in-progress manual compaction.
+  std::atomic<bool>* canceled = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

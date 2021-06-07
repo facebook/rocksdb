@@ -313,9 +313,10 @@ CompactionJob::CompactionJob(
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
-    const std::string& db_session_id, std::string full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback)
+    const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
+    const std::string& db_id, const std::string& db_session_id,
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -339,6 +340,7 @@ CompactionJob::CompactionJob(
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
+      manual_compaction_canceled_(manual_compaction_canceled),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       db_directory_(db_directory),
       blob_output_directory_(blob_output_directory),
@@ -1172,8 +1174,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_, manual_compaction_paused_, db_options_.info_log,
-      full_history_ts_low));
+      preserve_deletes_seqnum_, manual_compaction_paused_,
+      manual_compaction_canceled_, db_options_.info_log, full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1317,8 +1319,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = Status::ShutdownInProgress("Database shutdown");
   }
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
-      (manual_compaction_paused_ &&
-       manual_compaction_paused_->load(std::memory_order_relaxed) > 0)) {
+      ((manual_compaction_paused_ &&
+        manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
+       (manual_compaction_canceled_ &&
+        manual_compaction_canceled_->load(std::memory_order_relaxed)))) {
     status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {
@@ -2126,7 +2130,7 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
           compaction->mutable_cf_options()->paranoid_file_checks,
           compaction->mutable_cf_options()->report_bg_io_stats, dbname,
           &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-          nullptr, db_id, db_session_id,
+          nullptr, nullptr, db_id, db_session_id,
           compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(output_path),
       compaction_input_(compaction_service_input),

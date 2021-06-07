@@ -81,6 +81,7 @@ class CompactionJob {
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<int>* manual_compaction_paused = nullptr,
+      const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
@@ -185,6 +186,7 @@ class CompactionJob {
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
+  const std::atomic<bool>* manual_compaction_canceled_;
   const SequenceNumber preserve_deletes_seqnum_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
