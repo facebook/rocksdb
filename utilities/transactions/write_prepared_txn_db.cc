@@ -508,9 +508,6 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                         prev_max, max_evicted_seq);
       AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
-    // After each eviction from commit cache, check if the commit entry should
-    // be kept around because it overlaps with a live snapshot.
-    CheckAgainstSnapshots(evicted);
     if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
       WriteLock wl(&prepared_mutex_);
       for (auto dp : delayed_prepared_) {
@@ -526,6 +523,9 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
         }
       }
     }
+    // After each eviction from commit cache, check if the commit entry should
+    // be kept around because it overlaps with a live snapshot.
+    CheckAgainstSnapshots(evicted);
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
