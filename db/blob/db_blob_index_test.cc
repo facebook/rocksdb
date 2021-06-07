@@ -469,9 +469,9 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
       /*01*/ {"Put", "Merge", "Merge", "Merge"},
       /*02*/ {"Put"}};
 
-  auto get_key = [](int index) { return ("key" + std::to_string(index)); };
+  auto get_key = [](size_t index) { return ("key" + std::to_string(index)); };
 
-  auto get_value = [&](int index, size_t version) {
+  auto get_value = [&](size_t index, size_t version) {
     return get_key(index) + "_value" + ToString(version);
   };
 
@@ -487,7 +487,7 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
     }
   };
 
-  auto verify = [&](int index, Status expected_status,
+  auto verify = [&](size_t index, Status expected_status,
                     const Slice& expected_value) {
     // Seek
     {
@@ -560,10 +560,12 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   Status expected_status;
   verify(1, expected_status, expected_value);
 
+#ifndef ROCKSDB_LITE
   // Test DBIter::FindValueForCurrentKeyUsingSeek flow.
   ASSERT_OK(dbfull()->SetOptions(cfh(),
                                  {{"max_sequential_skip_in_iterations", "0"}}));
   verify(1, expected_status, expected_value);
+#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

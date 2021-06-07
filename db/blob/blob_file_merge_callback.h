@@ -17,8 +17,7 @@ class BlobFileMergeCallback {
       : version_(version), read_options_(read_options) {}
 
   Status OnBlobFileMergeBegin(const Slice& user_key, const Slice& blob_index,
-                              Slice& blob_value, bool* is_blob_index,
-                              PinnableSlice* pinnable_val);
+                              PinnableSlice* blob_value, bool* is_blob_index);
 
  private:
   Version* version_;

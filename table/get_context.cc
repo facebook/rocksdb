@@ -276,11 +276,12 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // API and the current value should be part of
             // merge_context_->operand_list
             if (is_blob_index_ != nullptr && *is_blob_index_) {
-              Slice blob_value;
-              if (GetBlobValue(value, blob_value) == false) {
+              PinnableSlice pin_val;
+              if (GetBlobValue(value, &pin_val) == false) {
                 return false;
               }
-              push_operand(blob_value, value_pinner);
+              Slice blob_value(pin_val);
+              push_operand(blob_value, nullptr);
             } else {
               push_operand(value, value_pinner);
             }
@@ -288,16 +289,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           if (is_blob_index_ != nullptr && *is_blob_index_) {
-            Slice blob_value;
-            if (GetBlobValue(value, blob_value) == false) {
+            PinnableSlice pin_val;
+            if (GetBlobValue(value, &pin_val) == false) {
               return false;
             }
+            Slice blob_value(pin_val);
             Merge(&blob_value);
             if (do_merge_ == false) {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
               // merge_context_->operand_list
-              push_operand(blob_value, value_pinner);
+              push_operand(blob_value, nullptr);
             }
           } else {
             Merge(&value);
@@ -372,9 +374,10 @@ void GetContext::Merge(const Slice* value) {
   }
 }
 
-bool GetContext::GetBlobValue(const Slice& blob_index, Slice& blob_value) {
+bool GetContext::GetBlobValue(const Slice& blob_index,
+                              PinnableSlice* blob_value) {
   Status status = blob_file_merge_callback_->OnBlobFileMergeBegin(
-      user_key_, blob_index, blob_value, is_blob_index_, pinnable_val_);
+      user_key_, blob_index, blob_value, is_blob_index_);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
       MarkKeyMayExist();

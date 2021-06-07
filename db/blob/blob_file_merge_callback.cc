@@ -9,23 +9,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status BlobFileMergeCallback::OnBlobFileMergeBegin(
-    const Slice& user_key, const Slice& blob_index, Slice& blob_value,
-    bool* is_blob_index, PinnableSlice* pinnable_val) {
+Status BlobFileMergeCallback::OnBlobFileMergeBegin(const Slice& user_key,
+                                                   const Slice& blob_index,
+                                                   PinnableSlice* blob_value,
+                                                   bool* is_blob_index) {
   Status s;
-
   if (is_blob_index) {
-    if (pinnable_val == nullptr) {
-      pinnable_val = new PinnableSlice();
-    }
     constexpr uint64_t* bytes_read = nullptr;
-    s = version_->GetBlob(read_options_, user_key, blob_index, pinnable_val,
+    s = version_->GetBlob(read_options_, user_key, blob_index, blob_value,
                           bytes_read);
-    if (s.ok()) {
-      blob_value = static_cast<Slice>(*pinnable_val);
-    }
   }
-
   return s;
 }
 

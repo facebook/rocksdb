@@ -177,7 +177,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
-  bool GetBlobValue(const Slice& blob_index, Slice& blob_value);
+  bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
