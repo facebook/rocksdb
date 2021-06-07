@@ -104,7 +104,7 @@ class CompactionIterator {
     explicit RealCompaction(const Compaction* compaction)
         : compaction_(compaction) {
       assert(compaction_);
-      assert(compaction_->immutable_cf_options());
+      assert(compaction_->immutable_options());
       assert(compaction_->mutable_cf_options());
     }
 
@@ -126,11 +126,11 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_cf_options()->allow_ingest_behind;
+      return compaction_->immutable_options()->allow_ingest_behind;
     }
 
     bool preserve_deletes() const override {
-      return compaction_->immutable_cf_options()->preserve_deletes;
+      return compaction_->immutable_options()->preserve_deletes;
     }
 
     bool enable_blob_garbage_collection() const override {
