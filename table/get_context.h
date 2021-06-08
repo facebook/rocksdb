@@ -169,6 +169,16 @@ class GetContext {
 
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
+  void set_table_pinner(std::function<Cleanable*()>* pinner) {
+    table_pinner_ = pinner;
+  }
+
+  bool can_pin_table() { return table_pinner_ != nullptr; }
+
+  void clear_table_pinner() { table_pinner_ = nullptr; }
+
+  Cleanable* pin_table() { return (*table_pinner_)(); }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -200,6 +210,8 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
+
+  std::function<Cleanable*()>* table_pinner_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

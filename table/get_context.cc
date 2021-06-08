@@ -65,7 +65,8 @@ GetContext::GetContext(
       callback_(callback),
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
-      tracing_get_id_(tracing_get_id) {
+      tracing_get_id_(tracing_get_id),
+      table_pinner_(nullptr) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }

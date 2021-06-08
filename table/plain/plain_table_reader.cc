@@ -616,8 +616,14 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
       bool dont_care __attribute__((__unused__));
+      // XXX found_value contains a pointer into the mmapped region XXX
+      Cleanable* cleanable = dummy_cleanable_.get();
+      if (cleanable == nullptr  // not immortal
+          && get_context->can_pin_table() && file_info_.is_mmap_mode) {
+        cleanable = get_context->pin_table();
+      }
       if (!get_context->SaveValue(found_key, found_value, &dont_care,
-                                  dummy_cleanable_.get())) {
+                                  cleanable)) {
         break;
       }
     }
