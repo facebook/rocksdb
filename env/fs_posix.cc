@@ -909,7 +909,7 @@ class PosixFileSystem : public FileSystem {
       return IOError("While doing statvfs", fname, errno);
     }
 
-    *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
+    *free_space = ((uint64_t)sbuf.f_bsize * (geteuid() ? sbuf.f_bavail : sbuf.f_bfree));
     return IOStatus::OK();
   }
 
