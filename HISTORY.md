@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.21.1 (2021-06-08)
+### Bug Fixes
+* Fixed a performance bug in background gathering of block cache entry statistics, that could consume a lot of CPU when there are many column families with a shared block cache.
+
 ## 6.21.0 (2021-05-21)
 ### Bug Fixes
 * Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
