@@ -537,6 +537,8 @@ Status InternalStats::CollectCacheEntryStats() {
     std::shared_ptr<Collector> collector;
     Status s = Collector::GetShared(block_cache, clock_, &collector);
     if (s.ok()) {
+      // TODO: use a max age like stats_dump_period_sec / 2, but it's
+      // difficult to access that setting from here with just cfd_
       collector->GetStats(&cache_entry_stats);
     } else {
       // Block cache likely under pressure. Scanning could make it worse,
