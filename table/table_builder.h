@@ -38,12 +38,14 @@ struct TableReaderOptions {
                      bool _force_direct_prefetch = false, int _level = -1,
                      BlockCacheTracer* const _block_cache_tracer = nullptr,
                      size_t _max_file_size_for_l0_meta_pin = 0,
-                     const std::string& _db_session_id = "")
-      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
-                           _internal_comparator, _skip_filters, _immortal,
-                           _force_direct_prefetch, _level,
-                           0 /* _largest_seqno */, _block_cache_tracer,
-                           _max_file_size_for_l0_meta_pin, _db_session_id) {}
+                     const std::string& _cur_db_session_id = "",
+                     uint64_t _cur_file_num = 0)
+      : TableReaderOptions(
+            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
+            _skip_filters, _immortal, _force_direct_prefetch, _level,
+            0 /* _largest_seqno */, _block_cache_tracer,
+            _max_file_size_for_l0_meta_pin, _cur_db_session_id, _cur_file_num) {
+  }
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableOptions& _ioptions,
@@ -55,7 +57,8 @@ struct TableReaderOptions {
                      SequenceNumber _largest_seqno,
                      BlockCacheTracer* const _block_cache_tracer,
                      size_t _max_file_size_for_l0_meta_pin,
-                     const std::string& _db_session_id)
+                     const std::string& _cur_db_session_id,
+                     uint64_t _cur_file_num)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -67,7 +70,8 @@ struct TableReaderOptions {
         largest_seqno(_largest_seqno),
         block_cache_tracer(_block_cache_tracer),
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
-        db_session_id(_db_session_id) {}
+        cur_db_session_id(_cur_db_session_id),
+        cur_file_num(_cur_file_num) {}
 
   const ImmutableOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -91,7 +95,9 @@ struct TableReaderOptions {
   // unknown).
   const size_t max_file_size_for_l0_meta_pin;
 
-  std::string db_session_id;
+  std::string cur_db_session_id;
+
+  uint64_t cur_file_num;
 };
 
 struct TableBuilderOptions {
@@ -107,7 +113,7 @@ struct TableBuilderOptions {
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0)
+      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
@@ -124,7 +130,8 @@ struct TableBuilderOptions {
         db_session_id(_db_session_id),
         level_at_creation(_level),
         is_bottommost(_is_bottommost),
-        reason(_reason) {}
+        reason(_reason),
+        cur_file_num(_cur_file_num) {}
 
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
@@ -138,7 +145,7 @@ struct TableBuilderOptions {
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0)
+      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
       : TableBuilderOptions(_ioptions, _moptions, _internal_comparator,
                             IntTblPropCollectorFactoryRange(
                                 _int_tbl_prop_collector_factories->begin(),
@@ -147,7 +154,7 @@ struct TableBuilderOptions {
                             _column_family_id, _column_family_name, _level,
                             _is_bottommost, _reason, _creation_time,
                             _oldest_key_time, _file_creation_time, _db_id,
-                            _db_session_id, _target_file_size) {}
+                            _db_session_id, _target_file_size, _cur_file_num) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
@@ -173,6 +180,7 @@ struct TableBuilderOptions {
   // want to skip filters, that should be (for example) null filter_policy
   // in the table options of the ioptions.table_factory
   bool skip_filters = false;
+  const uint64_t cur_file_num;
 };
 
 // TableBuilder provides the interface used to build a Table

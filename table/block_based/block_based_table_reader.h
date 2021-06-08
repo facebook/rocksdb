@@ -100,7 +100,8 @@ class BlockBasedTable : public TableReader {
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr,
                      size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& db_session_id = "");
+                     const std::string& db_session_id = "",
+                     uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -447,31 +448,33 @@ class BlockBasedTable : public TableReader {
       bool use_cache, bool prefetch, bool pin,
       BlockCacheLookupContext* lookup_context);
 
-  static void SetupCacheKeyPrefix(Rep* rep, const std::string& db_session_id);
+  static void SetupCacheKeyPrefix(Rep* rep, const std::string& db_session_id,
+                                  uint64_t cur_file_num);
 
   // Generate a cache key prefix from the file
   template <typename TCache, typename TFile>
   static void GenerateCachePrefix(TCache* cc, TFile* file, char* buffer,
                                   size_t* size,
-                                  const std::string& db_session_id) {
+                                  const std::string& db_session_id,
+                                  uint64_t cur_file_num) {
     if (cc != nullptr && cc->IsSecondaryCacheEnabled() &&
         db_session_id.size() != 0) {
       // db_session_id is 20 bytes as defined.
       assert(db_session_id.size() == 20);
       memcpy(buffer, db_session_id.c_str(), 20);
-      char* end = EncodeVarint64(buffer + 20, cc->NewId());
+      char* end = EncodeVarint64(buffer + 20, cur_file_num);
       // kMaxVarint64Length is 10 therefore, the prefix is at most 30 bytes.
       *size = static_cast<size_t>(end - buffer);
-      return;
-    }
-    // generate an id from the file
-    *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+    } else {
+      // generate an id from the file
+      *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 
-    // If the prefix wasn't generated or was too long,
-    // create one from the cache.
-    if (cc != nullptr && *size == 0) {
-      char* end = EncodeVarint64(buffer, cc->NewId());
-      *size = static_cast<size_t>(end - buffer);
+      // If the prefix wasn't generated or was too long,
+      // create one from the cache.
+      if (cc != nullptr && *size == 0) {
+        char* end = EncodeVarint64(buffer, cc->NewId());
+        *size = static_cast<size_t>(end - buffer);
+      }
     }
   }
 

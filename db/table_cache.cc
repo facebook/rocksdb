@@ -135,11 +135,11 @@ Status TableCache::GetTableReader(
             file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
         ro,
-        TableReaderOptions(ioptions_, prefix_extractor, file_options,
-                           internal_comparator, skip_filters, immortal_tables_,
-                           false /* force_direct_prefetch */, level,
-                           fd.largest_seqno, block_cache_tracer_,
-                           max_file_size_for_l0_meta_pin, db_session_id_),
+        TableReaderOptions(
+            ioptions_, prefix_extractor, file_options, internal_comparator,
+            skip_filters, immortal_tables_, false /* force_direct_prefetch */,
+            level, fd.largest_seqno, block_cache_tracer_,
+            max_file_size_for_l0_meta_pin, db_session_id_, fd.GetNumber()),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

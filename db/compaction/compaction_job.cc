@@ -1953,7 +1953,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
       oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
-      db_session_id_, sub_compact->compaction->max_output_file_size());
+      db_session_id_, sub_compact->compaction->max_output_file_size(),
+      file_number);
   sub_compact->builder.reset(
       NewTableBuilder(tboptions, sub_compact->outfile.get()));
   LogFlush(db_options_.info_log);

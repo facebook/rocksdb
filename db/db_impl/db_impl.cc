@@ -252,13 +252,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
-  std::string db_session_id;
-  GetDbSessionId(db_session_id);
+  assert(!db_session_id_.empty());
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_session_id));
+                                 io_tracer_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
