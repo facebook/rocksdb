@@ -81,6 +81,9 @@ class Customizable : public Configurable {
   // potential names (e.g. "PosixEnv", "DefaultEnv") may also wish to override
   // this method.
   //
+  // Note that IsInstanceOf only uses the "is-a" relationship and not "has-a".
+  // Wrapped classes that have an Inner "has-a" should not be returned.
+  //
   // @param name The name of the instance to find.
   // Returns true if the class is an instance of the input name.
   virtual bool IsInstanceOf(const std::string& name) const {
@@ -88,14 +91,19 @@ class Customizable : public Configurable {
   }
 
   // Returns the named instance of the Customizable as a T*, or nullptr if not
-  // found. This method uses IsInstanceOf to find the appropriate class instance
-  // and then casts it to the expected return type.
+  // found. This method uses IsInstanceOf/Inner to find the appropriate class
+  // instance and then casts it to the expected return type.
   template <typename T>
   const T* CheckedCast() const {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<const T*>(this);
     } else {
-      return nullptr;
+      const auto inner = Inner();
+      if (inner != nullptr) {
+        return inner->CheckedCast<T>();
+      } else {
+        return nullptr;
+      }
     }
   }
 
@@ -104,7 +112,12 @@ class Customizable : public Configurable {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<T*>(this);
     } else {
-      return nullptr;
+      auto inner = const_cast<Customizable*>(Inner());
+      if (inner != nullptr) {
+        return inner->CheckedCast<T>();
+      } else {
+        return nullptr;
+      }
     }
   }
 
@@ -124,8 +137,13 @@ class Customizable : public Configurable {
   // @see Configurable::GetOption for more details
   Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
-
 #endif  // ROCKSDB_LITE
+
+  // Returns the inner class when a Customizable implements a has-a (wrapped)
+  // relationship.  Derived classes that implement a has-a must override this
+  // method in order to get CheckedCast to function properly.
+  virtual const Customizable* Inner() const { return nullptr; }
+
  protected:
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
