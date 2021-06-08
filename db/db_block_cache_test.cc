@@ -930,9 +930,9 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ++iterations_tested;
 
       Options options = CurrentOptions();
+      SetTimeElapseOnlySleepOnReopen(&options);
       options.create_if_missing = true;
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-      options.stats_dump_period_sec = 0;
       options.max_open_files = 13;
       options.table_cache_numshardbits = 0;
 
@@ -972,12 +972,21 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       expected[static_cast<size_t>(CacheEntryRole::kMisc)] = 1;
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
 
+      std::array<size_t, kNumCacheEntryRoles> prev_expected = expected;
+
       // First access only filters
       ASSERT_EQ("NOT_FOUND", Get("different from any key added"));
       expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)] += 2;
       if (partition) {
         expected[static_cast<size_t>(CacheEntryRole::kFilterMetaBlock)] += 2;
       }
+      // Within some time window, we will get cached entry stats
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      // Not enough to force a miss
+      env_->MockSleepForSeconds(10);
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      // Enough to force a miss
+      env_->MockSleepForSeconds(1000);
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
 
       // Now access index and data block
@@ -988,6 +997,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      env_->MockSleepForSeconds(1000);
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
 
       // The same for other file
@@ -998,6 +1008,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      env_->MockSleepForSeconds(1000);
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
 
       // Also check the GetProperty interface
