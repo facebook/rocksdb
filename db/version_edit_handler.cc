@@ -909,7 +909,15 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
       fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
     }
     assert(cfd->current());
-    fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
+
+    // Print out DebugStrings. Null characters are replaced with whitespaces.
+    for (const char& x : cfd->current()->DebugString(hex_)) {
+      if (x == '\0') {
+        fputc(' ', stdout);
+      } else {
+        fputc(x, stdout);
+      }
+    }
   }
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64

@@ -473,6 +473,31 @@ class LDBTestCase(unittest.TestCase):
                              expected_pattern, unexpected=False,
                              isPattern=True)
 
+        # Check if null characters doesn't infer with output format.
+        self.assertRunOK("put a1 b1", "OK")
+        self.assertRunOK("put a2 b2", "OK")
+        self.assertRunOK("put --hex 0x12000DA0 0x80C0000B", "OK")
+        self.assertRunOK("put --hex 0xb000000b 0xc000000c", "OK")
+        self.assertRunOK("put --hex 0xa000000a 0xf000000f", "OK")
+        self.assertRunOK("put a3 b3", "OK")
+        self.assertRunOK("put a4 b4", "OK")
+
+        # Regex pattern of manifest_dump verbose.
+        # Note that the key/values can include non-alphanumerical symbols.
+        subpat = num + ":" + num + "\[[^\0]+ seq:[0-9]+, type:[0-9]+ .. [^\0]+ seq:[0-9]+, type:[0-9]+\]"
+        manifest_verbose_regex = "Processing .*MANIFEST.*\n"
+        manifest_verbose_regex += "(VersionEdit {([^}]+)}\n)+"
+        manifest_verbose_regex += "(.*\n){3}"
+        manifest_verbose_regex += "(--- level \d+ --- version\# \d+ ---\n( "+subpat+"\n)*){64}"
+        manifest_verbose_regex += "next_file_number.*\n"
+        manifest_verbose_regex += "Processing .*MANIFEST.*done"
+        expected_verbose_pattern = re.compile(manifest_verbose_regex)
+        # Test manifest_dump verbose when keys and values contain null characters
+        cmd_verbose = "manifest_dump --verbose --db=%s" %dbPath
+        self.assertRunOKFull(cmd_verbose , expected_verbose_pattern,
+                             unexpected=False, isPattern=True)
+
+
     def testGetProperty(self):
         print("Running testGetProperty...")
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)

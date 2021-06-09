@@ -12,7 +12,6 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 struct FileMetaData;
@@ -285,9 +284,23 @@ class DumpManifestHandler : public VersionEditHandler {
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+      // Print out DebugStrings. Null characters are replaced with whitespaces.
+      for (const char& x : edit.DebugString(hex_)) {
+        if (x == '\0') {
+          fputc(' ', stdout);
+        } else {
+          fputc(x, stdout);
+        }
+      }
     } else if (json_) {
-      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+      // Print out DebugStrings. Null characters are replaced with whitespaces.
+      for (const char& x : edit.DebugJSON(count_, hex_)) {
+        if (x == '\0') {
+          fputc(' ', stdout);
+        } else {
+          fputc(x, stdout);
+        }
+      }
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);
