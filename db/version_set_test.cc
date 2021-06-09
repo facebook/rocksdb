@@ -705,7 +705,7 @@ class VersionSetTestBase {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
-    EXPECT_OK(Env::CreateFromSystem(ConfigOptions(), &env_, &env_guard_));
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
     if (env_ == Env::Default() && getenv("MEM_ENV")) {
       env_guard_.reset(NewMemEnv(Env::Default()));
       env_ = env_guard_.get();

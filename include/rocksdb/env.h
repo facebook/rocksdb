@@ -195,12 +195,15 @@ class Env {
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& value, Env** result,
                                  std::shared_ptr<Env>* guard);
-  static Status CreateFromFlags(const ConfigOptions& options,
-                                const std::string& env_uri,
-                                const std::string& fs_uri, Env** result,
-                                std::shared_ptr<Env>* guard);
-  static Status CreateFromSystem(const ConfigOptions& options, Env** result,
-                                 std::shared_ptr<Env>* guard);
+
+  // Loads the environment specified by the env and fs uri.
+  // If both are specified, an error is returned.
+  // Otherwise, the environment is created by loading (via CreateFromString)
+  // the appropriate env/fs from the corresponding values.
+  static Status CreateFromUri(const ConfigOptions& options,
+                              const std::string& env_uri,
+                              const std::string& fs_uri, Env** result,
+                              std::shared_ptr<Env>* guard);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

@@ -39,7 +39,8 @@ class SstFileReaderTest : public testing::Test {
     sst_name_ = test::PerThreadDBPath("sst_file");
 
     Env* base_env = Env::Default();
-    EXPECT_OK(Env::CreateFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = base_env;
     options_.env = env_;

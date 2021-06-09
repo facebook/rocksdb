@@ -75,8 +75,8 @@ int db_stress_tool(int argc, char** argv) {
   if (!FLAGS_hdfs.empty()) {
     raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
   } else {
-    Status s = Env::CreateFromFlags(ConfigOptions(), FLAGS_env_uri,
-                                    FLAGS_fs_uri, &raw_env, &env_guard);
+    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                  &raw_env, &env_guard);
     if (!s.ok()) {
       fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
               s.ToString().c_str());

@@ -83,8 +83,8 @@ std::vector<Env*> GetCustomEnvs() {
     if (uri != nullptr) {
       static std::shared_ptr<Env> env_guard;
       static Env* custom_env;
-      Status s = Env::CreateFromFlags(ConfigOptions(), uri, "", &custom_env,
-                                      &env_guard);
+      Status s =
+          Env::CreateFromUri(ConfigOptions(), uri, "", &custom_env, &env_guard);
       if (s.ok()) {
         res.emplace_back(custom_env);
       }
@@ -93,8 +93,8 @@ std::vector<Env*> GetCustomEnvs() {
     if (uri != nullptr) {
       static std::shared_ptr<Env> fs_env_guard;
       static Env* fs_env;
-      Status s = Env::CreateFromFlags(ConfigOptions(), "", uri, &fs_env,
-                                      &fs_env_guard);
+      Status s =
+          Env::CreateFromUri(ConfigOptions(), "", uri, &fs_env, &fs_env_guard);
       if (s.ok()) {
         res.emplace_back(fs_env);
       }

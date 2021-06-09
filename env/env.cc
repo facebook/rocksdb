@@ -646,25 +646,9 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   return s;
 }
 
-Status Env::CreateFromSystem(const ConfigOptions& config_options, Env** result,
-                             std::shared_ptr<Env>* guard) {
-  const char* env_uri = getenv("TEST_ENV_URI");
-  const char* fs_uri = getenv("TEST_FS_URI");
-  if (env_uri || fs_uri) {
-    return CreateFromFlags(config_options, (env_uri != nullptr) ? env_uri : "",
-                           (fs_uri != nullptr) ? fs_uri : "", result, guard);
-  } else {
-    // Neither specified.  Use the default
-    *result = config_options.env;
-    guard->reset();
-    return Status::OK();
-  }
-}
-
-Status Env::CreateFromFlags(const ConfigOptions& config_options,
-                            const std::string& env_uri,
-                            const std::string& fs_uri, Env** result,
-                            std::shared_ptr<Env>* guard) {
+Status Env::CreateFromUri(const ConfigOptions& config_options,
+                          const std::string& env_uri, const std::string& fs_uri,
+                          Env** result, std::shared_ptr<Env>* guard) {
   *result = config_options.env;
   if (env_uri.empty() && fs_uri.empty()) {
     // Neither specified.  Use the default

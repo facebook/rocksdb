@@ -60,7 +60,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
   ConfigOptions config_options;
-  EXPECT_OK(Env::CreateFromSystem(config_options, &base_env, &env_guard_));
+  EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
     mem_env_ = new MockEnv(base_env);

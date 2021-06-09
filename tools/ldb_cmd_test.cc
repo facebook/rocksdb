@@ -33,7 +33,7 @@ class LdbCmdTest : public testing::Test {
 
   Env* TryLoadCustomOrDefaultEnv() {
     Env* env = Env::Default();
-    EXPECT_OK(Env::CreateFromSystem(ConfigOptions(), &env, &env_guard_));
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env, &env_guard_));
     return env;
   }
 

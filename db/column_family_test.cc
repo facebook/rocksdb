@@ -56,8 +56,8 @@ class ColumnFamilyTestBase : public testing::Test {
  public:
   explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
     Env* base_env = Env::Default();
-    Status s = Env::CreateFromSystem(ConfigOptions(), &base_env, &env_guard_);
-    EXPECT_OK(s);
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = new EnvCounter(base_env);
     env_->skip_fsync_ = true;

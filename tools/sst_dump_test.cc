@@ -57,7 +57,7 @@ class SSTDumpToolTest : public testing::Test {
 
  public:
   SSTDumpToolTest() : env_(Env::Default()) {
-    EXPECT_OK(Env::CreateFromSystem(ConfigOptions(), &env_, &env_guard_));
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
     test_dir_ = test::PerThreadDBPath(env_, "sst_dump_test_db");
     Status s = env_->CreateDirIfMissing(test_dir_);
     EXPECT_OK(s);

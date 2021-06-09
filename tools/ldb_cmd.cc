@@ -295,8 +295,8 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::CreateFromFlags(config_options_, env_uri_, fs_uri_, &env,
-                                    &env_guard_);
+    Status s = Env::CreateFromUri(config_options_, env_uri_, fs_uri_, &env,
+                                  &env_guard_);
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
@@ -3188,8 +3188,8 @@ void BackupCommand::DoCommand() {
   Env* custom_env = backup_env_guard_.get();
   if (custom_env == nullptr) {
     Status s =
-        Env::CreateFromFlags(config_options_, backup_env_uri_, backup_fs_uri_,
-                             &custom_env, &backup_env_guard_);
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
     if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
@@ -3233,8 +3233,8 @@ void RestoreCommand::DoCommand() {
   Env* custom_env = backup_env_guard_.get();
   if (custom_env == nullptr) {
     Status s =
-        Env::CreateFromFlags(config_options_, backup_env_uri_, backup_fs_uri_,
-                             &custom_env, &backup_env_guard_);
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
     if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;

@@ -55,7 +55,8 @@ class CorruptionTest : public testing::Test {
     // bug in recovery code. Keep it 4 for now to make the test passes.
     tiny_cache_ = NewLRUCache(100, 4);
     Env* base_env = Env::Default();
-    EXPECT_OK(Env::CreateFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(base_env, nullptr);
     env_ = new test::ErrorEnv(base_env);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
