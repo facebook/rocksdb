@@ -498,7 +498,8 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
     return bg_error;
   }
 
-  if (db_options_.sst_file_manager.get() == nullptr) {
+  if (db_options_.sst_file_manager.get() == nullptr ||
+      db_->env_ == Env::Default()) {
     // We rely on SFM to poll for enough disk space and recover
     *auto_recovery = false;
     return bg_error;
