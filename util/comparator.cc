@@ -26,7 +26,7 @@ namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() { }
-  static const char* kClassName() { return kBytewiseClassName(); }
+  static const char* kClassName() { return "leveldb.BytewiseComparator"; }
   const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {
@@ -145,7 +145,9 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
   ReverseBytewiseComparatorImpl() { }
 
-  static const char* kClassName() { return kReverseBytewiseClassName(); }
+  static const char* kClassName() {
+    return "rocksdb.ReverseBytewiseComparator";
+  }
   const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {

@@ -767,18 +767,19 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 }
 
 TEST_F(LoadCustomizableTest, LoadComparatorTest) {
+  const Comparator* bytewise = BytewiseComparator();
+  const Comparator* reverse = ReverseBytewiseComparator();
+
   const Comparator* result = nullptr;
   ASSERT_NOK(Comparator::CreateFromString(
       config_options_, test::SimpleSuffixReverseComparator::kClassName(),
       &result));
-  ASSERT_OK(Comparator::CreateFromString(
-      config_options_, Comparator::kBytewiseClassName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), Comparator::kBytewiseClassName());
-  ASSERT_OK(Comparator::CreateFromString(
-      config_options_, Comparator::kReverseBytewiseClassName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), Comparator::kReverseBytewiseClassName());
+  ASSERT_OK(
+      Comparator::CreateFromString(config_options_, bytewise->Name(), &result));
+  ASSERT_EQ(result, bytewise);
+  ASSERT_OK(
+      Comparator::CreateFromString(config_options_, reverse->Name(), &result));
+  ASSERT_EQ(result, reverse);
 
   if (RegisterTests("Test")) {
     ASSERT_OK(Comparator::CreateFromString(

@@ -42,12 +42,6 @@ class Comparator : public Customizable {
                                  const std::string& id,
                                  const Comparator** comp);
   static const char* Type() { return "Comparator"; }
-  static const char* kBytewiseClassName() {
-    return "leveldb.BytewiseComparator";
-  }
-  static const char* kReverseBytewiseClassName() {
-    return "rocksdb.ReverseBytewiseComparator";
-  }
 
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
