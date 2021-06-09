@@ -17,7 +17,6 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
