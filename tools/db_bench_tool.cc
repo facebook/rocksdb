@@ -7666,7 +7666,7 @@ int db_bench_tool(int argc, char** argv) {
       exit(1);
     }
   } else if (FLAGS_simulate_hybrid_fs_file != "") {
-    //**TODO: Make the siimulated fs something that can be loaded
+    //**TODO: Make the simulate fs something that can be loaded
     // from the ObjectRegistry...
     static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
         NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(

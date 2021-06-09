@@ -352,7 +352,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     Status s = Env::CreateFromUri(config_options, env_uri, fs_uri, &options.env,
                                   &env_guard);
     if (!s.ok()) {
-      fprintf(stderr, "CreateEnv: %s\n", s.ToString().c_str());
+      fprintf(stderr, "CreateEnvFromUri: %s\n", s.ToString().c_str());
       exit(1);
     } else {
       fprintf(stdout, "options.env is %p\n", options.env);
