@@ -12,6 +12,7 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 struct FileMetaData;
