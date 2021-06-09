@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "compaction/compaction.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
-#include "db/blob/blob_file_merge_callback.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/internal_stats.h"
@@ -1876,8 +1876,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   // need to provide it here.
   bool is_blob_index = false;
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
-  std::unique_ptr<BlobFileMergeCallback> blob_file_merge_callback(
-      new BlobFileMergeCallback(this, read_options));
+  BlobFetcher blob_fetcher(this, read_options);
 
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
@@ -1885,7 +1884,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
-      tracing_get_id, std::move(blob_file_merge_callback));
+      tracing_get_id, &blob_fetcher);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -2034,10 +2033,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
   autovector<GetContext, 16> get_ctx;
-
+  BlobFetcher blob_fetcher(this, read_options);
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
-    std::unique_ptr<BlobFileMergeCallback> blob_file_merge_callback(
-        new BlobFileMergeCallback(this, read_options));
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
@@ -2045,8 +2042,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq, clock_,
         nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
-        &iter->is_blob_index, tracing_mget_id,
-        std::move(blob_file_merge_callback));
+        &iter->is_blob_index, tracing_mget_id, &blob_fetcher);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any

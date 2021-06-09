@@ -11,13 +11,13 @@
 namespace ROCKSDB_NAMESPACE {
 class Version;
 
-class BlobFileMergeCallback {
+class BlobFetcher {
  public:
-  BlobFileMergeCallback(Version* version, ReadOptions read_options)
+  BlobFetcher(Version* version, const ReadOptions& read_options)
       : version_(version), read_options_(read_options) {}
 
-  Status OnBlobFileMergeBegin(const Slice& user_key, const Slice& blob_index,
-                              PinnableSlice* blob_value, bool* is_blob_index);
+  Status FetchBlob(const Slice& user_key, const Slice& blob_index,
+                   PinnableSlice* blob_value);
 
  private:
   Version* version_;

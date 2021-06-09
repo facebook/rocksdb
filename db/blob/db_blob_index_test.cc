@@ -475,8 +475,7 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
     return get_key(index) + "_value" + ToString(version);
   };
 
-  auto check_iterator = [&](std::unique_ptr<Iterator>&& iterator,
-                            Status expected_status,
+  auto check_iterator = [&](Iterator* iterator, Status expected_status,
                             const Slice& expected_value) {
     ASSERT_EQ(expected_status, iterator->status());
     if (expected_status.ok()) {
@@ -492,45 +491,41 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
     // Seek
     {
       Iterator* iterator = db_->NewIterator(ReadOptions());
-      std::unique_ptr<Iterator> iterator_guard(iterator);
-      ASSERT_OK(iterator_guard->status());
-      ASSERT_OK(iterator_guard->Refresh());
-      iterator_guard->Seek(get_key(index));
-      check_iterator(std::move(iterator_guard), expected_status,
-                     expected_value);
+      ASSERT_OK(iterator->status());
+      ASSERT_OK(iterator->Refresh());
+      iterator->Seek(get_key(index));
+      check_iterator(iterator, expected_status, expected_value);
+      delete iterator;
     }
     // Next
     {
       Iterator* iterator = db_->NewIterator(ReadOptions());
-      std::unique_ptr<Iterator> iterator_guard(iterator);
-      ASSERT_OK(iterator_guard->Refresh());
-      iterator_guard->Seek(get_key(index - 1));
-      ASSERT_TRUE(iterator_guard->Valid());
-      ASSERT_OK(iterator_guard->status());
-      iterator_guard->Next();
-      check_iterator(std::move(iterator_guard), expected_status,
-                     expected_value);
+      ASSERT_OK(iterator->Refresh());
+      iterator->Seek(get_key(index - 1));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_OK(iterator->status());
+      iterator->Next();
+      check_iterator(iterator, expected_status, expected_value);
+      delete iterator;
     }
     // SeekForPrev
     {
       Iterator* iterator = db_->NewIterator(ReadOptions());
-      std::unique_ptr<Iterator> iterator_guard(iterator);
-      ASSERT_OK(iterator_guard->status());
-      ASSERT_OK(iterator_guard->Refresh());
-      iterator_guard->SeekForPrev(get_key(index));
-      check_iterator(std::move(iterator_guard), expected_status,
-                     expected_value);
+      ASSERT_OK(iterator->status());
+      ASSERT_OK(iterator->Refresh());
+      iterator->SeekForPrev(get_key(index));
+      check_iterator(iterator, expected_status, expected_value);
+      delete iterator;
     }
     // Prev
     {
       Iterator* iterator = db_->NewIterator(ReadOptions());
-      std::unique_ptr<Iterator> iterator_guard(iterator);
-      iterator_guard->Seek(get_key(index + 1));
-      ASSERT_TRUE(iterator_guard->Valid());
-      ASSERT_OK(iterator_guard->status());
-      iterator_guard->Prev();
-      check_iterator(std::move(iterator_guard), expected_status,
-                     expected_value);
+      iterator->Seek(get_key(index + 1));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_OK(iterator->status());
+      iterator->Prev();
+      check_iterator(iterator, expected_status, expected_value);
+      delete iterator;
     }
   };
 
