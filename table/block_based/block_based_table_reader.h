@@ -457,21 +457,25 @@ class BlockBasedTable : public TableReader {
                                   size_t* size,
                                   const std::string& db_session_id,
                                   uint64_t cur_file_num) {
-    if (cc != nullptr && cc->IsSecondaryCacheEnabled() &&
-        db_session_id.size() != 0) {
-      // db_session_id is 20 bytes as defined.
-      assert(db_session_id.size() == 20);
-      memcpy(buffer, db_session_id.c_str(), 20);
-      char* end = EncodeVarint64(buffer + 20, cur_file_num);
-      // kMaxVarint64Length is 10 therefore, the prefix is at most 30 bytes.
-      *size = static_cast<size_t>(end - buffer);
-    } else {
-      // generate an id from the file
-      *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+    // generate an id from the file
+    *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 
-      // If the prefix wasn't generated or was too long,
-      // create one from the cache.
-      if (cc != nullptr && *size == 0) {
+    // If the prefix wasn't generated or was too long,
+    // create one based on the DbSessionId and curent file number if they
+    // are set. Otherwise, created from NewId()
+    if (cc != nullptr && *size == 0) {
+      if (db_session_id.size() == 20) {
+        // db_session_id is 20 bytes as defined.
+        memcpy(buffer, db_session_id.c_str(), 20);
+        char* end;
+        if (cur_file_num != 0) {
+          end = EncodeVarint64(buffer + 20, cur_file_num);
+        } else {
+          end = EncodeVarint64(buffer + 20, cc->NewId());
+        }
+        // kMaxVarint64Length is 10 therefore, the prefix is at most 30 bytes.
+        *size = static_cast<size_t>(end - buffer);
+      } else {
         char* end = EncodeVarint64(buffer, cc->NewId());
         *size = static_cast<size_t>(end - buffer);
       }

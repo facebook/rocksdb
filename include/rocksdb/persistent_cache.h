@@ -62,8 +62,6 @@ class PersistentCache {
   // the client will allocate a new id at startup and prepend the id to its
   // cache keys.
   virtual uint64_t NewId() = 0;
-
-  virtual bool IsSecondaryCacheEnabled() { return false; }
 };
 
 // Factor method to create a new persistent cache

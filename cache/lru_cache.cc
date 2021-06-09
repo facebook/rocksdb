@@ -591,9 +591,6 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
-  if (secondary_cache) {
-    is_secondary_cache_enabled_ = true;
-  }
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i]) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
