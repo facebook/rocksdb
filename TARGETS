@@ -1052,6 +1052,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "clipping_iterator_test",
+        "db/compaction/clipping_iterator_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "coding_test",
         "util/coding_test.cc",
         "parallel",
