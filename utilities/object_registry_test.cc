@@ -6,6 +6,8 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/object_registry.h"
+
+#include "rocksdb/utilities/plugin.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -85,23 +87,26 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   ASSERT_NE(registry->NewObject<Env>("test-global", &guard, &msg), nullptr);
 }
 
-TEST_F(EnvRegistryTest, CheckShared) {
-  std::shared_ptr<Env> shared;
-  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("shared");
-  registry->AddLibrary(library);
-  library->Register<Env>(
+static int RegisterTestUnguarded(ObjectLibrary& library,
+                                 const std::string& /*arg*/) {
+  library.Register<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
+  library.Register<Env>(
       "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
         guard->reset(new EnvWrapper(Env::Default()));
         return guard->get();
       });
+  return 2;
+}
+
+TEST_F(EnvRegistryTest, CheckShared) {
+  std::shared_ptr<Env> shared;
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  registry->AddLibrary("shared", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -113,20 +118,7 @@ TEST_F(EnvRegistryTest, CheckShared) {
 TEST_F(EnvRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("static");
-  registry->AddLibrary(library);
-  library->Register<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  registry->AddLibrary("static", RegisterTestUnguarded, "");
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -138,20 +130,7 @@ TEST_F(EnvRegistryTest, CheckStatic) {
 TEST_F(EnvRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("unique");
-  registry->AddLibrary(library);
-  library->Register<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  registry->AddLibrary("unique", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);
@@ -205,6 +184,67 @@ TEST_F(EnvRegistryTest, TestRegistryParents) {
   ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
 }
+
+class PluginRegistryTest : public testing::Test {
+ public:
+};
+
+static int test_ValidPlugin(PluginProperties* props, size_t /*size*/,
+                            std::string* /*errmsg*/) {
+  props->name = "Valid";
+  props->registrar = RegisterTestUnguarded;
+  return 0;
+}
+
+static int test_OlderPlugin(PluginProperties* props, size_t /*size*/,
+                            std::string* /*errmsg*/) {
+  props->name = "Older";
+  props->registrar = RegisterTestUnguarded;
+  props->rocksdb_version.major = ROCKSDB_MAJOR - 1;
+  return 0;
+}
+
+static int test_NewerPlugin(PluginProperties* props, size_t /*size*/,
+                            std::string* /*errmsg*/) {
+  props->name = "Newer";
+  props->registrar = RegisterTestUnguarded;
+  props->rocksdb_version.major = ROCKSDB_MAJOR + 1;
+  return 0;
+}
+
+static int test_MinorPlugin(PluginProperties* props, size_t /*size*/,
+                            std::string* /*errmsg*/) {
+  props->name = "Minor";
+  props->registrar = RegisterTestUnguarded;
+  props->rocksdb_version.minor = ROCKSDB_MINOR + 1;
+  return 0;
+}
+
+static int test_MissingPlugin(PluginProperties* props, size_t /*size*/,
+                              std::string* /*errmsg*/) {
+  props->name = "Missing";
+  props->registrar = nullptr;
+  return 0;
+}
+
+static int test_FailedPlugin(PluginProperties* props, size_t /*size*/,
+                             std::string* errmsg) {
+  props->name = "Failed";
+  *errmsg = "Invalid plugin";
+  return -1;
+}
+
+TEST_F(PluginRegistryTest, Register) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  ASSERT_NOK(registry->RegisterPlugin(test_OlderPlugin));
+  ASSERT_NOK(registry->RegisterPlugin(test_NewerPlugin));
+  ASSERT_NOK(registry->RegisterPlugin(test_MinorPlugin));
+  ASSERT_NOK(registry->RegisterPlugin(test_FailedPlugin));
+  ASSERT_NOK(registry->RegisterPlugin(test_MissingPlugin));
+
+  ASSERT_OK(registry->RegisterPlugin(test_ValidPlugin));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

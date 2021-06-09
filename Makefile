@@ -248,6 +248,9 @@ ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk
 include $(ROCKSDB_PLUGIN_MKS)
 ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
 ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
+ROCKSDB_PLUGIN_EXTERNS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach func, $($(plugin)_FUNC),  int $(func)(ROCKSDB_NAMESPACE::PluginProperties*, size_t, std::string*);))
+ROCKSDB_PLUGIN_BUILTINS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach func, $($(plugin)_FUNC),  $(func), ))
+
 PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 
 export JAVAC_ARGS
@@ -649,7 +652,7 @@ else
 	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
 	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 endif
-gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ util/build_version.cc.in
+gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ -e s/@ROCKSDB_PLUGIN_BUILTINS@/'$(ROCKSDB_PLUGIN_BUILTINS)'/ -e s/@ROCKSDB_PLUGIN_EXTERNS@/"$(ROCKSDB_PLUGIN_EXTERNS)"/ util/build_version.cc.in
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built

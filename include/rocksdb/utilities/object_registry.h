@@ -18,6 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 class Logger;
 class ObjectLibrary;
+struct PluginProperties;
 
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
@@ -33,6 +34,8 @@ using FactoryFunc =
 // The RegistrarFunc should return the number of objects loaded into this
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
+
+using PluginFunc = std::function<int(PluginProperties*, size_t, std::string*)>;
 
 class ObjectLibrary {
  public:
@@ -236,10 +239,16 @@ class ObjectRegistry {
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
+  // Invokes the input function to retrieve the properties for this plugin.
+  // On success, registers the retrieved properties with this registry.
+  Status RegisterPlugin(const PluginFunc& func);
+
+  // Checks that the input properties are valid and, if so,
+  // registers the plugin with this ObjectRegistry
+  Status RegisterPlugin(const PluginProperties& plugin);
+
  private:
-  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.push_back(library);
-  }
+  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
 
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
                                         const std::string& name) const;
@@ -248,6 +257,8 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::vector<std::string> plugins_;
+  static std::vector<PluginFunc> builtins_;
   std::shared_ptr<ObjectRegistry> parent_;
 };
 }  // namespace ROCKSDB_NAMESPACE

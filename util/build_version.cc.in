@@ -3,6 +3,8 @@
 #include <memory>
 
 #include "rocksdb/version.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/plugin.h"
 #include "util/string_util.h"
 
 // The build script may replace these values with real values based
@@ -19,6 +21,16 @@ static const std::string rocksdb_build_date = "rocksdb_build_date:@GIT_DATE@";
 // Use the time the build was created.
 static const std::string rocksdb_build_date = "rocksdb_build_date:@BUILD_DATE@";
 #endif
+
+#ifndef ROCKSDB_LITE
+extern "C" {
+@ROCKSDB_PLUGIN_EXTERNS@
+} // extern "C"
+
+std::vector<ROCKSDB_NAMESPACE::PluginFunc> ROCKSDB_NAMESPACE::ObjectRegistry::builtins_ = {
+  @ROCKSDB_PLUGIN_BUILTINS@                                                                        
+};
+#endif //ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 static void AddProperty(std::unordered_map<std::string, std::string> *props, const std::string& name) {
@@ -46,14 +58,34 @@ const std::unordered_map<std::string, std::string>& GetRocksBuildProperties() {
   return *props;
 }
 
-std::string GetRocksVersionAsString(bool with_patch) {
-  std::string version = ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR);
-  if (with_patch) {
-    return version + "." + ToString(ROCKSDB_PATCH);
+int RocksVersion::Compare(const RocksVersion& other) const {
+  if (major < other.major) {
+    return -1;
+  } else if (major > other.major) {
+    return 1;
+  } else if (minor < other.minor) {
+    return -1;
+  } else if (minor > other.minor) {
+    return 1;
   } else {
-    return version;
+    return 0;
   }
 }
+  
+std::string RocksVersion::AsString(bool with_patch) const {
+  std::string version = ToString(major) + "." + ToString(minor);
+   if (with_patch) {
+    return version + "." + ToString(patch);
+   } else {
+     return version;
+   }
+ }
+   
+std::string GetRocksVersionAsString(bool with_patch) {
+  return RocksVersion().AsString(with_patch);
+}
+  
+
   
 std::string GetRocksBuildInfoAsString(const std::string& program, bool verbose) {
   std::string info = program + " (RocksDB) " + GetRocksVersionAsString(true);

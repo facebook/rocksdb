@@ -7,6 +7,8 @@
 
 #include "logging/logging.h"
 #include "rocksdb/env.h"
+#include "rocksdb/utilities/plugin.h"
+#include "rocksdb/version.h"
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
@@ -42,17 +44,20 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
 }
 
 void ObjectLibrary::Dump(Logger *logger) const {
-  for (const auto &iter : entries_) {
-    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
-                     iter.first.c_str());
-    bool printed_one = false;
-    for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                       e->Name().c_str());
-      printed_one = true;
+  if (logger != nullptr && !entries_.empty()) {
+    ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
+    for (const auto &iter : entries_) {
+      ROCKS_LOG_HEADER(logger, "       Factories for type[%s] ",
+                       iter.first.c_str());
+      bool printed_one = false;
+      for (const auto &e : iter.second) {
+        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
+                         e->Name().c_str());
+        printed_one = true;
+      }
+      ROCKS_LOG_HEADER(logger, "\n");
     }
   }
-  ROCKS_LOG_HEADER(logger, "\n");
 }
 
 // Returns the Default singleton instance of the ObjectLibrary
@@ -61,6 +66,16 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   static std::shared_ptr<ObjectLibrary> instance =
       std::make_shared<ObjectLibrary>("default");
   return instance;
+}
+
+ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary> &library) {
+  libraries_.push_back(library);
+  for (const auto &b : builtins_) {
+    Status s = RegisterPlugin(b);
+    if (!s.ok()) {
+      // TODO: What are we going to do with failed compile-time plugins?
+    }
+  }
 }
 
 std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
@@ -97,13 +112,51 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {
-  for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
-    iter->get()->Dump(logger);
-  }
-  if (parent_ != nullptr) {
-    parent_->Dump(logger);
+  if (logger != nullptr) {
+    if (!plugins_.empty()) {
+      ROCKS_LOG_HEADER(logger, "    Registered Plugins:");
+      bool printed_one = false;
+      for (const auto &plugin : plugins_) {
+        ROCKS_LOG_HEADER(logger, "%s%s", (printed_one) ? ", " : " ",
+                         plugin.c_str());
+        printed_one = true;
+      }
+      ROCKS_LOG_HEADER(logger, "\n");
+    }
+
+    for (const auto &lib : libraries_) {
+      lib->Dump(logger);
+    }
+    if (parent_ != nullptr) {
+      parent_->Dump(logger);
+    }
   }
 }
 
+Status ObjectRegistry::RegisterPlugin(const PluginFunc &plugin_func) {
+  PluginProperties properties;
+  std::string errmsg;
+  int code = plugin_func(&properties, sizeof(properties), &errmsg);
+  if (code != 0) {  // TODO: Perhaps use different codes?
+    return Status::InvalidArgument(errmsg);
+  } else {
+    return RegisterPlugin(properties);
+  }
+}
+
+Status ObjectRegistry::RegisterPlugin(const PluginProperties &properties) {
+  static RocksVersion version;
+  if (version.Compare(properties.rocksdb_version) != 0) {
+    return Status::InvalidArgument("Unsupported plugin version: ",
+                                   properties.rocksdb_version.AsString(false));
+  } else if (properties.registrar != nullptr) {
+    AddLibrary(properties.name, properties.registrar, properties.name);
+    plugins_.push_back(properties.name);
+    return Status::OK();
+  } else {
+    return Status::InvalidArgument("Plugin Missing Registrar Function: ",
+                                   properties.name);
+  }
+}
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

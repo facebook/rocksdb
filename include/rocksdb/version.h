@@ -21,6 +21,15 @@
 #define __ROCKSDB_PATCH__ ROCKSDB_PATCH
 
 namespace ROCKSDB_NAMESPACE {
+struct RocksVersion {
+  uint8_t major = ROCKSDB_MAJOR;
+  uint8_t minor = ROCKSDB_MINOR;
+  uint8_t patch = ROCKSDB_PATCH;
+
+  int Compare(const RocksVersion& other) const;
+  std::string AsString(bool with_patch = true) const;
+};
+
 // Returns a set of properties indicating how/when/where this version of RocksDB
 // was created.
 const std::unordered_map<std::string, std::string>& GetRocksBuildProperties();
