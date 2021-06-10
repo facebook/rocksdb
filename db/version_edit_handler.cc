@@ -910,14 +910,9 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     }
     assert(cfd->current());
 
-    // Print out DebugStrings. Null characters are replaced with whitespaces.
-    for (const char& x : cfd->current()->DebugString(hex_)) {
-      if (x == '\0') {
-        fputc(' ', stdout);
-      } else {
-        fputc(x, stdout);
-      }
-    }
+    // Print out DebugStrings. Can include non-terminating null characters.
+    fwrite(cfd->current()->DebugString(hex_).c_str(), sizeof(char),
+           cfd->current()->DebugString(hex_).size(), stdout);
   }
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64

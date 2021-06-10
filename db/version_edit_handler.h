@@ -285,23 +285,13 @@ class DumpManifestHandler : public VersionEditHandler {
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      // Print out DebugStrings. Null characters are replaced with whitespaces.
-      for (const char& x : edit.DebugString(hex_)) {
-        if (x == '\0') {
-          fputc(' ', stdout);
-        } else {
-          fputc(x, stdout);
-        }
-      }
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).c_str(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
-      // Print out DebugStrings. Null characters are replaced with whitespaces.
-      for (const char& x : edit.DebugJSON(count_, hex_)) {
-        if (x == '\0') {
-          fputc(' ', stdout);
-        } else {
-          fputc(x, stdout);
-        }
-      }
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).c_str(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);

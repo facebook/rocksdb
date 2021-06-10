@@ -482,19 +482,14 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put a3 b3", "OK")
         self.assertRunOK("put a4 b4", "OK")
 
-        # Regex pattern of manifest_dump verbose.
-        # Note that the key/values can include non-alphanumerical symbols.
-        subpat = num + ":" + num + "\[[^\0]+ seq:[0-9]+, type:[0-9]+ .. [^\0]+ seq:[0-9]+, type:[0-9]+\]"
-        manifest_verbose_regex = "Processing .*MANIFEST.*\n"
-        manifest_verbose_regex += "(VersionEdit {([^}]+)}\n)+"
-        manifest_verbose_regex += "(.*\n){3}"
-        manifest_verbose_regex += "(--- level \d+ --- version\# \d+ ---\n( "+subpat+"\n)*){64}"
-        manifest_verbose_regex += "next_file_number.*\n"
-        manifest_verbose_regex += "Processing .*MANIFEST.*done"
-        expected_verbose_pattern = re.compile(manifest_verbose_regex)
-        # Test manifest_dump verbose when keys and values contain null characters
-        cmd_verbose = "manifest_dump --verbose --db=%s" %dbPath
-        self.assertRunOKFull(cmd_verbose , expected_verbose_pattern,
+        # Verifies that all "levels" are printed out.
+        # There should be 66 mentions of levels.
+        expected_verbose_output = re.compile("66")
+        # Test manifest_dump verbose and count within the
+        # Terminal how many levels are printed out.
+        cmd_verbose = "manifest_dump --verbose --db=%s | grep -c -E 'level'" %dbPath
+
+        self.assertRunOKFull(cmd_verbose , expected_verbose_output,
                              unexpected=False, isPattern=True)
 
 
