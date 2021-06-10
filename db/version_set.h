@@ -935,7 +935,8 @@ class VersionSet {
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
-             const std::shared_ptr<IOTracer>& io_tracer);
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const std::string& db_session_id);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1395,6 +1396,8 @@ class VersionSet {
   IOStatus io_status_;
 
   std::shared_ptr<IOTracer> io_tracer_;
+
+  std::string db_session_id_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
