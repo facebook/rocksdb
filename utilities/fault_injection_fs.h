@@ -145,6 +145,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   }
   bool use_direct_io() const override { return target_->use_direct_io(); }
 
+  size_t GetUniqueId(char* id, size_t max_size) const override;
+
  private:
   std::unique_ptr<FSRandomAccessFile> target_;
   FaultInjectionTestFS* fs_;
@@ -178,7 +180,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         write_error_rand_(0),
         write_error_one_in_(0),
         metadata_write_error_one_in_(0),
-        ingest_data_corruption_before_write_(false) {}
+        ingest_data_corruption_before_write_(false),
+        fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -319,6 +322,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   const ChecksumType& GetChecksumHandoffFuncType() {
     MutexLock l(&mutex_);
     return checksum_handoff_func_tpye_;
+  }
+
+  void SetFailGetUniqueId(bool flag) {
+    MutexLock l(&mutex_);
+    fail_get_file_unique_id_ = flag;
+  }
+
+  bool ShouldFailGetUniqueId() {
+    MutexLock l(&mutex_);
+    return fail_get_file_unique_id_;
   }
 
   // Specify what the operation, so we can inject the right type of error
@@ -484,6 +497,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   std::vector<FileType> write_error_allowed_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;
+  bool fail_get_file_unique_id_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

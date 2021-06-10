@@ -12,7 +12,7 @@
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
-  return 1;
+  return 0;
 }
 #else
 
