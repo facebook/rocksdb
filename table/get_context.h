@@ -105,8 +105,7 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0,
-             BlobFetcher* blob_file_merge_callback = nullptr);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -116,8 +115,7 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0,
-             BlobFetcher* blob_file_merge_callback = nullptr);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
 
   GetContext() = delete;
 

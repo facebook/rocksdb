@@ -12,11 +12,10 @@ namespace ROCKSDB_NAMESPACE {
 Status BlobFetcher::FetchBlob(const Slice& user_key, const Slice& blob_index,
                               PinnableSlice* blob_value) {
   Status s;
-  if (version_) {
-    constexpr uint64_t* bytes_read = nullptr;
-    s = version_->GetBlob(read_options_, user_key, blob_index, blob_value,
-                          bytes_read);
-  }
+  assert(version_);
+  constexpr uint64_t* bytes_read = nullptr;
+  s = version_->GetBlob(read_options_, user_key, blob_index, blob_value,
+                        bytes_read);
   return s;
 }
 
