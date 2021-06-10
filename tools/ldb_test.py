@@ -486,7 +486,12 @@ class LDBTestCase(unittest.TestCase):
         # There should be 66 mentions of levels.
         expected_verbose_output = re.compile("matched")
         # Test manifest_dump verbose and verify that key 0x7200004f
-        # is present. Note that 0x72=r and 0x4f=O, hence the regex \'r.{2}O\'
+        # is present. Note that we are forced to use grep here because
+        # an output with a non-terminating null character in it isn't piped
+        # correctly through the Python subprocess object.
+        # Also note that 0x72=r and 0x4f=O, hence the regex \'r.{2}O\'
+        # (we cannot use null character in the subprocess input either,
+        # so we have to use '.{2}')
         cmd_verbose = "manifest_dump --verbose --db=%s | grep -aq $'\'r.{2}O\'' && echo 'matched' || echo 'not matched'" %dbPath
 
         self.assertRunOKFull(cmd_verbose , expected_verbose_output,
