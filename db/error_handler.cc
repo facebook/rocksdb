@@ -418,15 +418,18 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                           &bg_err, db_mutex_, &auto_recovery);
     recover_context_ = context;
     return bg_error_;
-  } else if (bg_io_err.GetScope() ==
-                 IOStatus::IOErrorScope::kIOErrorScopeFile ||
-             bg_io_err.GetRetryable()) {
+  } else if (bg_io_err.subcode() != IOStatus::SubCode::kNoSpace &&
+             (bg_io_err.GetScope() ==
+                  IOStatus::IOErrorScope::kIOErrorScopeFile ||
+              bg_io_err.GetRetryable())) {
     // Second, check if the error is a retryable IO error (file scope IO error
     // is also treated as retryable IO error in RocksDB write path). if it is
     // retryable error and its severity is higher than bg_error_, overwrite the
     // bg_error_ with new error. In current stage, for retryable IO error of
     // compaction, treat it as soft error. In other cases, treat the retryable
-    // IO error as hard error.
+    // IO error as hard error. Note that, all the NoSpace error should be
+    // handled by the SstFileManager::StartErrorRecovery(). Therefore, no matter
+    // it is retryable or file scope, this logic will be bypassed.
     bool auto_recovery = false;
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &new_bg_io_err, db_mutex_,
@@ -498,8 +501,7 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
     return bg_error;
   }
 
-  if (db_options_.sst_file_manager.get() == nullptr ||
-      db_->env_ == Env::Default()) {
+  if (db_options_.sst_file_manager.get() == nullptr) {
     // We rely on SFM to poll for enough disk space and recover
     *auto_recovery = false;
     return bg_error;
