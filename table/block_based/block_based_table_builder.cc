@@ -505,9 +505,12 @@ struct BlockBasedTableBuilder::Rep {
           use_delta_encoding_for_index_values, p_index_builder_));
     }
 
-    for (auto& collector_factories : *tbo.int_tbl_prop_collector_factories) {
+    const auto& factory_range = tbo.int_tbl_prop_collector_factories;
+    for (auto it = factory_range.first; it != factory_range.second; ++it) {
+      assert(*it);
+
       table_properties_collectors.emplace_back(
-          collector_factories->CreateIntTblPropCollector(column_family_id));
+          (*it)->CreateIntTblPropCollector(column_family_id));
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -870,7 +873,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
         table_options.block_cache_compressed.get(), file->writable_file(),
         &rep_->compressed_cache_key_prefix[0],
-        &rep_->compressed_cache_key_prefix_size);
+        &rep_->compressed_cache_key_prefix_size, tbo.db_session_id,
+        tbo.cur_file_num);
   }
 
   if (rep_->IsParallelCompressionEnabled()) {
@@ -1419,9 +1423,11 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
   BlockHandle filter_block_handle;
-  bool empty_filter_block = (rep_->filter_builder == nullptr ||
-                             rep_->filter_builder->NumAdded() == 0);
+  bool empty_filter_block =
+      (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty());
   if (ok() && !empty_filter_block) {
+    rep_->props.num_filter_entries +=
+        rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =

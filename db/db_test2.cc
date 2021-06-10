@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
@@ -3201,6 +3202,180 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, CancelManualCompaction1) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  int run_manual_compactions = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Setup a callback to disable compactions after a couple of levels are
+  // compacted
+  int compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1",
+      [&](void* /*arg*/) { ++compactions_run; });
+
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Since compactions are disabled, we shouldn't start compacting.
+  // E.g. we should call the compaction function exactly one time.
+  ASSERT_EQ(compactions_run, 0);
+  ASSERT_EQ(run_manual_compactions, 0);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void* /*arg*/) {
+        ++compactions_run;
+        // After 3 compactions disable
+        if (compactions_run == 3) {
+          compact_options.canceled->store(true, std::memory_order_release);
+        }
+      });
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(compactions_run, 3);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+
+  // Compactions should work again if we re-enable them..
+  compact_options.canceled->store(false, std::memory_order_relaxed);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, CancelManualCompaction2) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+  compact_options.max_subcompactions = 1;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  int compactions_run = 0;
+  std::atomic<int> kv_compactions{0};
+  int compactions_stopped_at = 0;
+  int kv_compactions_stopped_at = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void* /*arg*/) {
+        ++compactions_run;
+        // After 3 compactions disable
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator:ProcessKV", [&](void* /*arg*/) {
+        int kv_compactions_run =
+            kv_compactions.fetch_add(1, std::memory_order_release);
+        if (kv_compactions_run == 5) {
+          compact_options.canceled->store(true, std::memory_order_release);
+          kv_compactions_stopped_at = kv_compactions_run;
+          compactions_stopped_at = compactions_run;
+        }
+      });
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  // NOTE: as we set compact_options.max_subcompacitons = 1, and store true to
+  // the canceled variable from the single compacting thread (via callback),
+  // this value is deterministically kv_compactions_stopped_at + 1.
+  ASSERT_EQ(kv_compactions, kv_compactions_stopped_at + 1);
+  ASSERT_EQ(compactions_run, compactions_stopped_at);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionIterator::ProcessKV");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+
+  // Compactions should work again if we re-enable them..
+  compact_options.canceled->store(false, std::memory_order_relaxed);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();
@@ -4988,7 +5163,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_OK(Put("key", "2"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "3"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "4"));
-  Flush();
+  ASSERT_OK(Flush());
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = 2;
@@ -5531,6 +5706,28 @@ TEST_P(RenameCurrentTest, Compaction) {
   ASSERT_EQ("NOT_FOUND", Get("foo"));
   ASSERT_EQ("d_value", Get("d"));
 }
+
+TEST_F(DBTest2, BottommostTemperature) {
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Reopen(options);
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
@@ -5586,7 +5783,6 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

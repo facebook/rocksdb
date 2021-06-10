@@ -83,6 +83,8 @@ class SimulatedHybridRaf : public FSRandomAccessFileWrapper {
  private:
   std::shared_ptr<RateLimiter> rate_limiter_;
   Temperature temperature_;
+
+  void RequestRateLimit(int64_t num_requests) const;
 };
 }  // namespace ROCKSDB_NAMESPACE
 

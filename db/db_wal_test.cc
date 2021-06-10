@@ -1262,10 +1262,11 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(
-        test->dbname_, &db_options, file_options, table_cache.get(),
-        &write_buffer_manager, &write_controller,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
+                                  table_cache.get(), &write_buffer_manager,
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr,
+                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -2000,6 +2001,61 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   reopen_thread.join();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
+  constexpr size_t kKB = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  if (mem_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
+    return;
+  }
+  if (!IsFallocateSupported()) {
+    return;
+  }
+
+  // create DB and close with file truncate disabled
+  std::atomic_bool enable_truncate{false};
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixWritableFile::Close", [&](void* arg) {
+        if (!enable_truncate) {
+          *(reinterpret_cast<size_t*>(arg)) = 0;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  ASSERT_OK(Put("foo", "v1"));
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  auto& file_before = log_files_before[0];
+  ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
+  // The log file has preallocated space.
+  auto db_size = GetAllocatedFileSize(dbname_ + file_before->PathName());
+  ASSERT_GE(db_size, preallocated_size);
+  Close();
+
+  // enable truncate and open DB as readonly, the file should not be truncated
+  // and DB size is not changed.
+  enable_truncate = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+  VectorLogPtr log_files_after;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
+  ASSERT_EQ(1, log_files_after.size());
+  ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
+  ASSERT_EQ(log_files_after[0]->PathName(), file_before->PathName());
+  // The preallocated space should NOT be truncated.
+  // the DB size is almost the same.
+  ASSERT_NEAR(GetAllocatedFileSize(dbname_ + file_before->PathName()), db_size,
+              db_size / 100);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX

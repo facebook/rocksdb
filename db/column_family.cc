@@ -109,8 +109,9 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
 
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories) {
+    IntTblPropCollectorFactories* int_tbl_prop_collector_factories) {
+  assert(int_tbl_prop_collector_factories);
+
   auto& collector_factories = ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {
@@ -503,7 +504,8 @@ ColumnFamilyData::ColumnFamilyData(
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const FileOptions& file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer,
+    const std::string& db_session_id)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -561,7 +563,8 @@ ColumnFamilyData::ColumnFamilyData(
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, ioptions_.clock, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
-                                      block_cache_tracer, io_tracer));
+                                      block_cache_tracer, io_tracer,
+                                      db_session_id));
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
@@ -1450,12 +1453,13 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  WriteBufferManager* _write_buffer_manager,
                                  WriteController* _write_controller,
                                  BlockCacheTracer* const block_cache_tracer,
-                                 const std::shared_ptr<IOTracer>& io_tracer)
+                                 const std::shared_ptr<IOTracer>& io_tracer,
+                                 const std::string& db_session_id)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, file_options, nullptr,
-          block_cache_tracer, io_tracer)),
+          block_cache_tracer, io_tracer, db_session_id)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -1464,7 +1468,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       write_buffer_manager_(_write_buffer_manager),
       write_controller_(_write_controller),
       block_cache_tracer_(block_cache_tracer),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      db_session_id_(db_session_id) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1530,7 +1535,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      *db_options_, file_options_, this, block_cache_tracer_, io_tracer_);
+      *db_options_, file_options_, this, block_cache_tracer_, io_tracer_,
+      db_session_id_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

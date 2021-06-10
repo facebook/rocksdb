@@ -132,6 +132,10 @@ class Status {
   };
 
   Status(const Status& s, Severity sev);
+
+  Status(Code _code, SubCode _subcode, Severity _sev, const Slice& msg)
+      : Status(_code, _subcode, msg, "", _sev) {}
+
   Severity severity() const {
     MarkChecked();
     return sev_;
@@ -463,7 +467,8 @@ class Status {
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 
-  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
+  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
+         Severity sev = kNoError);
   Status(Code _code, const Slice& msg, const Slice& msg2)
       : Status(_code, kNone, msg, msg2) {}
 

@@ -239,6 +239,16 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // Open DB and run the compaction.
+  // It's a read-only operation, the result won't be installed to the DB, it
+  // will be output to the `output_directory`. The API should only be used with
+  // `options.CompactionService` to run compaction triggered by
+  // `CompactionService`.
+  static Status OpenAndCompact(
+      const std::string& name, const std::string& output_directory,
+      const std::string& input, std::string* output,
+      const CompactionServiceOptionsOverride& override_options);
+
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -763,6 +773,10 @@ class DB {
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
 
+    //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
+    //      map with statistics on block cache usage.
+    static const std::string kBlockCacheEntryStats;
+
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
     static const std::string kNumImmutableMemTable;
@@ -1082,6 +1096,8 @@ class DB {
   // and the data is rearranged to reduce the cost of operations
   // needed to access the data.  This operation should typically only
   // be invoked by users who understand the underlying implementation.
+  // This call blocks until the operation completes successfully, fails,
+  // or is aborted (Status::Incomplete). See DisableManualCompaction.
   //
   // begin==nullptr is treated as a key before all keys in the database.
   // end==nullptr is treated as a key after all keys in the database.
@@ -1136,9 +1152,9 @@ class DB {
       const std::unordered_map<std::string, std::string>& new_options) = 0;
 
   // CompactFiles() inputs a list of files specified by file numbers and
-  // compacts them to the specified level. Note that the behavior is different
-  // from CompactRange() in that CompactFiles() performs the compaction job
-  // using the CURRENT thread.
+  // compacts them to the specified level. A small difference compared to
+  // CompactRange() is that CompactFiles() performs the compaction job
+  // using the CURRENT thread, so is not considered a "background" job.
   //
   // @see GetDataBaseMetaData
   // @see GetColumnFamilyMetaData
@@ -1181,12 +1197,15 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
   // After this function call, CompactRange() or CompactFiles() will not
-  // run compactions and fail. The function will wait for all outstanding
-  // manual compactions to finish before returning
+  // run compactions and fail. Calling this function will tell outstanding
+  // manual compactions to abort and will wait for them to finish or abort
+  // before returning.
   virtual void DisableManualCompaction() = 0;
   // Re-enable CompactRange() and ComapctFiles() that are disabled by
-  // DisableManualCompaction(). In debug mode, it might hit assertion if
-  // no DisableManualCompaction() was previously called.
+  // DisableManualCompaction(). This function must be called as many times
+  // as DisableManualCompaction() has been called in order to re-enable
+  // manual compactions, and must not be called more times than
+  // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
 
   // Number of levels used for this DB.

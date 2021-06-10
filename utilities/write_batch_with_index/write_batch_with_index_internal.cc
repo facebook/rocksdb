@@ -621,8 +621,7 @@ WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
 Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              const Slice* value,
                                              const MergeContext& context,
-                                             std::string* result,
-                                             Slice* result_operand) const {
+                                             std::string* result) const {
   if (column_family_ != nullptr) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
     const auto merge_operator = cfh->cfd()->ioptions()->merge_operator.get();
@@ -638,7 +637,7 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       SystemClock* clock = immutable_db_options.clock;
       return MergeHelper::TimedFullMerge(merge_operator, key, value,
                                          context.GetOperands(), result, logger,
-                                         statistics, clock, result_operand);
+                                         statistics, clock);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
@@ -646,12 +645,12 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       SystemClock* clock = env->GetSystemClock().get();
       return MergeHelper::TimedFullMerge(merge_operator, key, value,
                                          context.GetOperands(), result, logger,
-                                         statistics, clock, result_operand);
+                                         statistics, clock);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result,
-          cf_opts->logger, cf_opts->stats, cf_opts->clock, result_operand);
+          cf_opts->logger, cf_opts->stats, cf_opts->clock);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");

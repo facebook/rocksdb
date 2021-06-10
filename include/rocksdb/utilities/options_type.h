@@ -25,6 +25,7 @@ enum class OptionType {
   kInt32T,
   kInt64T,
   kUInt,
+  kUInt8T,
   kUInt32T,
   kUInt64T,
   kSizeT,

@@ -9,7 +9,7 @@
 int main() {
   fprintf(stderr,
           "Please install gflags to run block_cache_trace_analyzer_test\n");
-  return 1;
+  return 0;
 }
 #else
 
