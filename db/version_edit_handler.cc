@@ -911,7 +911,7 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     assert(cfd->current());
 
     // Print out DebugStrings. Can include non-terminating null characters.
-    fwrite(cfd->current()->DebugString(hex_).c_str(), sizeof(char),
+    fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
            cfd->current()->DebugString(hex_).size(), stdout);
   }
   fprintf(stdout,

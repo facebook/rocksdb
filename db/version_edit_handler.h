@@ -286,11 +286,11 @@ class DumpManifestHandler : public VersionEditHandler {
     // Write out each individual edit
     if (verbose_ && !json_) {
       // Print out DebugStrings. Can include non-terminating null characters.
-      fwrite(edit.DebugString(hex_).c_str(), sizeof(char),
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
              edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
       // Print out DebugStrings. Can include non-terminating null characters.
-      fwrite(edit.DebugString(hex_).c_str(), sizeof(char),
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
              edit.DebugString(hex_).size(), stdout);
     }
     ++count_;

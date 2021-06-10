@@ -477,17 +477,17 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put a1 b1", "OK")
         self.assertRunOK("put a2 b2", "OK")
         self.assertRunOK("put --hex 0x12000DA0 0x80C0000B", "OK")
-        self.assertRunOK("put --hex 0xb000000b 0xc000000c", "OK")
+        self.assertRunOK("put --hex 0x7200004f 0x80000004", "OK")
         self.assertRunOK("put --hex 0xa000000a 0xf000000f", "OK")
         self.assertRunOK("put a3 b3", "OK")
         self.assertRunOK("put a4 b4", "OK")
 
         # Verifies that all "levels" are printed out.
         # There should be 66 mentions of levels.
-        expected_verbose_output = re.compile("66")
-        # Test manifest_dump verbose and count within the
-        # Terminal how many levels are printed out.
-        cmd_verbose = "manifest_dump --verbose --db=%s | grep -c -E 'level'" %dbPath
+        expected_verbose_output = re.compile("matched")
+        # Test manifest_dump verbose and verify that key 0x7200004f
+        # is present. Note that 0x72=r and 0x4f=O, hence the regex \'r.{2}O\'
+        cmd_verbose = "manifest_dump --verbose --db=%s | grep -aq $'\'r.{2}O\'' && echo 'matched' || echo 'not matched'" %dbPath
 
         self.assertRunOKFull(cmd_verbose , expected_verbose_output,
                              unexpected=False, isPattern=True)
