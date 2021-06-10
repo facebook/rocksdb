@@ -62,12 +62,21 @@ class CacheEntryStatsCollector {
     uint64_t max_age_micros =
         static_cast<uint64_t>(std::max(maximum_age_in_seconds, 1)) * 1000000U;
 
+    // Also, because scans on very large caches can be as much as 20 seconds,
+    // don't spend more than 1% of time on scans of this block cache.
+    if (last_end_time_micros_ > last_start_time_micros_) {
+      max_age_micros = std::max(max_age_micros, 99 * (last_end_time_micros_ -
+                                                      last_start_time_micros_));
+    }
+
     uint64_t start_time_micros = clock_->NowMicros();
     if ((start_time_micros - last_end_time_micros_) > max_age_micros) {
       last_start_time_micros_ = start_time_micros;
       saved_stats_.BeginCollection(cache_, clock_, start_time_micros);
 
       cache_->ApplyToAllEntries(saved_stats_.GetEntryCallback(), {});
+      TEST_SYNC_POINT_CALLBACK(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries", nullptr);
 
       uint64_t end_time_micros = clock_->NowMicros();
       last_end_time_micros_ = end_time_micros;
@@ -109,7 +118,8 @@ class CacheEntryStatsCollector {
         // usage to go flaky. Fix the problem somehow so we can use an
         // accurate charge.
         size_t charge = 0;
-        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h);
+        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h,
+                                 Cache::Priority::HIGH);
         if (!s.ok()) {
           assert(h == nullptr);
           return s;

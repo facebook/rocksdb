@@ -935,6 +935,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       options.max_open_files = 13;
       options.table_cache_numshardbits = 0;
+      // If this wakes up, it could interfere with test
+      options.stats_dump_period_sec = 0;
 
       BlockBasedTableOptions table_options;
       table_options.block_cache = cache;
@@ -997,8 +999,22 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      // Enough to force a miss
       env_->MockSleepForSeconds(1000);
+      // But inject a simulated long scan so that we need a longer
+      // interval to force a miss next time.
+      SyncPoint::GetInstance()->SetCallBack(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries",
+          [this](void*) {
+            // To spend no more than 1% of time scanning, we would need interval
+            // of at least 10000s
+            env_->MockSleepForSeconds(100);
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      prev_expected = expected;
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
 
       // The same for other file
       ASSERT_EQ("value", Get("zfoo"));
@@ -1008,8 +1024,14 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
+      // Because of the simulated long scan, this is not enough to force
+      // a miss
       env_->MockSleepForSeconds(1000);
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      // But this is enough
+      env_->MockSleepForSeconds(10000);
       EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      prev_expected = expected;
 
       // Also check the GetProperty interface
       std::map<std::string, std::string> values;
@@ -1027,6 +1049,24 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
           values["count.filter-block"]);
       EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
                 values["count.misc"]);
+
+      // With collector pinned in cache, we should be able to hit
+      // even if the cache is full
+      ClearCache(cache.get());
+      Cache::Handle* h = nullptr;
+      ASSERT_OK(cache->Insert("Fill-it-up", nullptr, capacity + 1,
+                              GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
+                              &h, Cache::Priority::HIGH));
+      ASSERT_GT(cache->GetUsage(), cache->GetCapacity());
+      expected = {};
+      expected[static_cast<size_t>(CacheEntryRole::kMisc)]++;
+      // Still able to hit on saved stats
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      // Enough to force a miss
+      env_->MockSleepForSeconds(1000);
+      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+
+      cache->Release(h);
     }
     EXPECT_GE(iterations_tested, 1);
   }

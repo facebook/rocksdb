@@ -529,25 +529,30 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       started_at_(clock->NowMicros()) {}
 
 Status InternalStats::CollectCacheEntryStats() {
-  using Collector = CacheEntryStatsCollector<CacheEntryRoleStats>;
-  Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
-  if (ok) {
-    // Extract or create stats collector.
-    std::shared_ptr<Collector> collector;
-    Status s = Collector::GetShared(block_cache, clock_, &collector);
-    if (s.ok()) {
-      // TODO: use a max age like stats_dump_period_sec / 2, but it's
-      // difficult to access that setting from here with just cfd_
-      collector->GetStats(&cache_entry_stats);
+  // Lazy initialize/reference the collector. It is pinned in cache (through
+  // a shared_ptr) so that it does not get immediately ejected from a full
+  // cache, which would force a re-scan on the next GetStats.
+  if (!cache_entry_stats_collector_) {
+    Cache* block_cache;
+    bool ok = HandleBlockCacheStat(&block_cache);
+    if (ok) {
+      // Extract or create stats collector.
+      Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
+          block_cache, clock_, &cache_entry_stats_collector_);
+      if (!s.ok()) {
+        // Block cache likely under pressure. Scanning could make it worse,
+        // so skip.
+        return s;
+      }
     } else {
-      // Block cache likely under pressure. Scanning could make it worse,
-      // so skip.
+      return Status::NotFound("block cache not configured");
     }
-    return s;
-  } else {
-    return Status::NotFound("block cache not configured");
   }
+  assert(cache_entry_stats_collector_);
+  // TODO: use a max age like stats_dump_period_sec / 2, but it's
+  // difficult to access that setting from here with just cfd_
+  cache_entry_stats_collector_->GetStats(&cache_entry_stats_);
+  return Status::OK();
 }
 
 std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
@@ -642,7 +647,7 @@ bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
   if (!s.ok()) {
     return false;
   }
-  *value = cache_entry_stats.ToString(clock_);
+  *value = cache_entry_stats_.ToString(clock_);
   return true;
 }
 
@@ -652,7 +657,7 @@ bool InternalStats::HandleBlockCacheEntryStatsMap(
   if (!s.ok()) {
     return false;
   }
-  cache_entry_stats.ToMap(values, clock_);
+  cache_entry_stats_.ToMap(values, clock_);
   return true;
 }
 
@@ -1610,7 +1615,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
 
   Status s = CollectCacheEntryStats();
   if (s.ok()) {
-    value->append(cache_entry_stats.ToString(clock_));
+    value->append(cache_entry_stats_.ToString(clock_));
   } else {
     value->append("Block cache: ");
     value->append(s.ToString());

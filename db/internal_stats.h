@@ -23,6 +23,8 @@ class ColumnFamilyData;
 
 namespace ROCKSDB_NAMESPACE {
 
+template <class Stats>
+class CacheEntryStatsCollector;
 class DBImpl;
 class MemTableList;
 
@@ -390,7 +392,7 @@ class InternalStats {
       cf_stats_count_[i] = 0;
       cf_stats_value_[i] = 0;
     }
-    cache_entry_stats.Clear();
+    cache_entry_stats_.Clear();
     for (auto& comp_stat : comp_stats_) {
       comp_stat.Clear();
     }
@@ -467,9 +469,9 @@ class InternalStats {
     Status s = CollectCacheEntryStats();
     if (!s.ok()) {
       assert(false);
-      cache_entry_stats.Clear();
+      cache_entry_stats_.Clear();
     }
-    return cache_entry_stats;
+    return cache_entry_stats_;
   }
 
   // Store a mapping from the user-facing DB::Properties string to our
@@ -499,7 +501,9 @@ class InternalStats {
   // Per-ColumnFamily stats
   uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
   uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
-  CacheEntryRoleStats cache_entry_stats;
+  CacheEntryRoleStats cache_entry_stats_;
+  std::shared_ptr<CacheEntryStatsCollector<CacheEntryRoleStats>>
+      cache_entry_stats_collector_;
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
