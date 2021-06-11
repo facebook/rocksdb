@@ -190,7 +190,7 @@ class Env {
   // @param guard If specified and the loaded environment is not static,
   //      this value will contain the loaded environment (guard.get() ==
   //      result).
-  // @return OK If the enviroment was successfully loaded (and optionally
+  // @return OK If the environment was successfully loaded (and optionally
   // prepared)
   // @return not-OK if the load failed.
   static Status CreateFromString(const ConfigOptions& config_options,
