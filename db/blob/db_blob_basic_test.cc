@@ -310,6 +310,63 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
 }
 
+TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("Key1", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key1", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key1", "v3"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Key1", &value));
+  ASSERT_EQ(Get("Key1"), "v1,v2,v3");
+}
+
+TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
+  constexpr size_t num_keys = 3;
+
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("Key0", "v0_0"));
+  ASSERT_OK(Put("Key1", "v1_0"));
+  ASSERT_OK(Put("Key2", "v2_0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key0", "v0_1"));
+  ASSERT_OK(Merge("Key1", "v1_1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("Key0", "v0_2"));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, num_keys> keys{{"Key0", "Key1", "Key2"}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], "v1_0,v1_1");
+
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v2_0");
+}
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:

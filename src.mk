@@ -6,6 +6,7 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_cache.cc                                    \

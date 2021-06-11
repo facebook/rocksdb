@@ -3,6 +3,8 @@
 ### Behavior Changes
 * Added API comments clarifying safe usage of Disable/EnableManualCompaction and EventListener callbacks for compaction.
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
+### Bug Fixes
+* fs_posix.cc GetFreeSpace() always report disk space available to root even when running as non-root.  Linux defaults often have disk mounts with 5 to 10 percent of total space reserved only for root.  Out of space could result for non-root users.
 
 ## 6.21.0 (2021-05-21)
 ### Bug Fixes

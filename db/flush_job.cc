@@ -412,7 +412,8 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
           0 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,
-          current_time, db_id_, db_session_id_, 0 /* target_file_size */);
+          current_time, db_id_, db_session_id_, 0 /* target_file_size */,
+          meta_.fd.GetNumber());
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,

@@ -873,7 +873,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
         table_options.block_cache_compressed.get(), file->writable_file(),
         &rep_->compressed_cache_key_prefix[0],
-        &rep_->compressed_cache_key_prefix_size);
+        &rep_->compressed_cache_key_prefix_size, tbo.db_session_id,
+        tbo.cur_file_num);
   }
 
   if (rep_->IsParallelCompressionEnabled()) {

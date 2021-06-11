@@ -82,10 +82,11 @@ class CompactionJobTestBase : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_,
-            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
+        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr,
+                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
@@ -269,7 +270,8 @@ class CompactionJobTestBase : public testing::Test {
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 

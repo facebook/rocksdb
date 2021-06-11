@@ -18,6 +18,7 @@
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -216,11 +217,16 @@ class TestSecondaryCache : public SecondaryCache {
 
   void ResetInjectFailure() { inject_failure_ = false; }
 
+  void SetDbSessionId(const std::string& db_session_id) {
+    db_session_id_ = db_session_id;
+  }
+
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
+    assert(IsDbSessionIdAsKeyPrefix(key) == true);
     size_t size;
     char* buf;
     Status s;
@@ -273,6 +279,20 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
+  bool IsDbSessionIdAsKeyPrefix(const Slice& key) {
+    if (db_session_id_.size() == 0) {
+      return true;
+    }
+    if (key.size() < 20) {
+      return false;
+    }
+    std::string s_key = key.ToString();
+    if (s_key.substr(0, 20) != db_session_id_) {
+      return false;
+    }
+    return true;
+  }
+
  private:
   class TestSecondaryCacheHandle : public SecondaryCacheHandle {
    public:
@@ -300,12 +320,19 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_inserts_;
   uint32_t num_lookups_;
   bool inject_failure_;
+  std::string db_session_id_;
 };
 
 class DBSecondaryCacheTest : public DBTestBase {
  public:
   DBSecondaryCacheTest()
-      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {
+    fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+    fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
+  }
+
+  std::shared_ptr<FaultInjectionTestFS> fault_fs_;
+  std::unique_ptr<Env> fault_env_;
 };
 
 class LRUSecondaryCacheTest : public LRUCacheTest {
@@ -586,11 +613,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
 
   // Set the file paranoid check, so after flush, the file will be read
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -679,7 +711,12 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.paranoid_file_checks = true;
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -767,7 +804,13 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   options.create_if_missing = true;
   options.paranoid_file_checks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
+
   DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -814,7 +857,12 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 256;
   for (int i = 0; i < N; i++) {
@@ -859,7 +907,12 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   options.create_if_missing = true;
   options.paranoid_file_checks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
