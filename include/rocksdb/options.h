@@ -20,6 +20,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/data_structure.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -370,8 +371,13 @@ enum class CompactionServiceJobStatus : char {
   kUseLocal,  // TODO: Add support for use local compaction
 };
 
-class CompactionService {
+class CompactionService : public Customizable {
  public:
+  static const char* Type() { return "CompactionService"; }
+
+  // Returns the name of this compaction service.
+  virtual const char* Name() const = 0;
+
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.

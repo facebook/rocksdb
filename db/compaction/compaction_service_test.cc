@@ -16,6 +16,10 @@ class MyTestCompactionService : public CompactionService {
                           std::shared_ptr<FileSystem> fs, Options& options)
       : db_path_(db_path), fs_(fs), options_(options) {}
 
+  static const char* kClassName() { return "MyTestCompactionService"; }
+
+  virtual const char* Name() const override { return kClassName(); }
+
   CompactionServiceJobStatus Start(const std::string& compaction_service_input,
                                    int job_id) override {
     InstrumentedMutexLock l(&mutex_);
