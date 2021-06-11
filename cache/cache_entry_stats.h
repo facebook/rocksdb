@@ -52,21 +52,28 @@ template <class Stats>
 class CacheEntryStatsCollector {
  public:
   // Gathers stats and saves results into `stats`
-  void GetStats(Stats *stats, int maximum_age_in_seconds = 180) {
+  //
+  // Maximum allowed age for a "hit" on saved results is determined by the
+  // two interval parameters. Both set to 0 forces a re-scan. For example
+  // with min_interval_seconds=300 and min_interval_factor=100, if the last
+  // scan took 10s, we would only rescan ("miss") if the age in seconds of
+  // the saved results is > max(300, 100*10).
+  // Justification: scans can vary wildly in duration, e.g. from 0.02 sec
+  // to as much as 20 seconds, so we want to be able to cap the absolute
+  // and relative frequency of scans.
+  void GetStats(Stats *stats, int min_interval_seconds,
+                int min_interval_factor) {
     // Waits for any pending reader or writer (collector)
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Maximum allowed age is nominally given by the parameter, but
-    // to limit the possibility of accidental repeated scans, impose
-    // a minimum TTL of 1 second.
     uint64_t max_age_micros =
-        static_cast<uint64_t>(std::max(maximum_age_in_seconds, 1)) * 1000000U;
+        static_cast<uint64_t>(std::max(min_interval_seconds, 0)) * 1000000U;
 
-    // Also, because scans on very large caches can be as much as 20 seconds,
-    // don't spend more than 1% of time on scans of this block cache.
-    if (last_end_time_micros_ > last_start_time_micros_) {
-      max_age_micros = std::max(max_age_micros, 99 * (last_end_time_micros_ -
-                                                      last_start_time_micros_));
+    if (last_end_time_micros_ > last_start_time_micros_ &&
+        min_interval_factor > 0) {
+      max_age_micros = std::max(
+          max_age_micros, min_interval_factor * (last_end_time_micros_ -
+                                                 last_start_time_micros_));
     }
 
     uint64_t start_time_micros = clock_->NowMicros();

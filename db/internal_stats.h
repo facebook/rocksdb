@@ -465,8 +465,8 @@ class InternalStats {
     return comp_stats_;
   }
 
-  const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats() {
-    Status s = CollectCacheEntryStats();
+  const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats(bool foreground) {
+    Status s = CollectCacheEntryStats(foreground);
     if (!s.ok()) {
       assert(false);
       cache_entry_stats_.Clear();
@@ -494,7 +494,7 @@ class InternalStats {
 
   bool HandleBlockCacheStat(Cache** block_cache);
 
-  Status CollectCacheEntryStats();
+  Status CollectCacheEntryStats(bool foreground);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];

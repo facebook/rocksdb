@@ -528,7 +528,7 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       cfd_(cfd),
       started_at_(clock->NowMicros()) {}
 
-Status InternalStats::CollectCacheEntryStats() {
+Status InternalStats::CollectCacheEntryStats(bool foreground) {
   // Lazy initialize/reference the collector. It is pinned in cache (through
   // a shared_ptr) so that it does not get immediately ejected from a full
   // cache, which would force a re-scan on the next GetStats.
@@ -549,9 +549,15 @@ Status InternalStats::CollectCacheEntryStats() {
     }
   }
   assert(cache_entry_stats_collector_);
-  // TODO: use a max age like stats_dump_period_sec / 2, but it's
-  // difficult to access that setting from here with just cfd_
-  cache_entry_stats_collector_->GetStats(&cache_entry_stats_);
+
+  // For "background" collections, strictly cap the collection time by
+  // expanding effective cache TTL. For foreground, be more aggressive about
+  // getting latest data.
+  int min_interval_seconds = foreground ? 10 : 180;
+  // 1/500 = max of 0.2% of one CPU thread
+  int min_interval_factor = foreground ? 10 : 500;
+  cache_entry_stats_collector_->GetStats(
+      &cache_entry_stats_, min_interval_seconds, min_interval_factor);
   return Status::OK();
 }
 
@@ -643,7 +649,7 @@ void InternalStats::CacheEntryRoleStats::ToMap(
 
 bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
                                                Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
+  Status s = CollectCacheEntryStats(/*foreground*/ true);
   if (!s.ok()) {
     return false;
   }
@@ -653,7 +659,7 @@ bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
 
 bool InternalStats::HandleBlockCacheEntryStatsMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
+  Status s = CollectCacheEntryStats(/*foreground*/ true);
   if (!s.ok()) {
     return false;
   }
@@ -1613,7 +1619,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   cf_stats_snapshot_.comp_stats = compaction_stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
 
-  Status s = CollectCacheEntryStats();
+  // Always treat CFStats context as "background"
+  Status s = CollectCacheEntryStats(/*foreground=*/false);
   if (s.ok()) {
     value->append(cache_entry_stats_.ToString(clock_));
   } else {

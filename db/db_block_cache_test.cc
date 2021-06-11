@@ -152,12 +152,13 @@ class DBBlockCacheTest : public DBTestBase {
   }
 
 #ifndef ROCKSDB_LITE
-  const std::array<size_t, kNumCacheEntryRoles>& GetCacheEntryRoleCounts() {
+  const std::array<size_t, kNumCacheEntryRoles>& GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
     ColumnFamilyHandleImpl* cfh =
         static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
     InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
-    return internal_stats_ptr->TEST_GetCacheEntryRoleStats().entry_counts;
+    return internal_stats_ptr->TEST_GetCacheEntryRoleStats(/*foreground=*/false)
+        .entry_counts;
   }
 #endif  // ROCKSDB_LITE
 };
@@ -972,7 +973,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       std::array<size_t, kNumCacheEntryRoles> expected{};
       // For CacheEntryStatsCollector
       expected[static_cast<size_t>(CacheEntryRole::kMisc)] = 1;
-      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
 
       std::array<size_t, kNumCacheEntryRoles> prev_expected = expected;
 
@@ -983,13 +984,13 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         expected[static_cast<size_t>(CacheEntryRole::kFilterMetaBlock)] += 2;
       }
       // Within some time window, we will get cached entry stats
-      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCountsBg());
       // Not enough to force a miss
-      env_->MockSleepForSeconds(10);
-      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      env_->MockSleepForSeconds(45);
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCountsBg());
       // Enough to force a miss
-      env_->MockSleepForSeconds(1000);
-      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      env_->MockSleepForSeconds(601);
+      EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
 
       // Now access index and data block
       ASSERT_EQ("value", Get("foo"));
@@ -1000,18 +1001,18 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       }
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
       // Enough to force a miss
-      env_->MockSleepForSeconds(1000);
+      env_->MockSleepForSeconds(601);
       // But inject a simulated long scan so that we need a longer
       // interval to force a miss next time.
       SyncPoint::GetInstance()->SetCallBack(
           "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries",
           [this](void*) {
-            // To spend no more than 1% of time scanning, we would need interval
-            // of at least 10000s
-            env_->MockSleepForSeconds(100);
+            // To spend no more than 0.2% of time scanning, we would need
+            // interval of at least 10000s
+            env_->MockSleepForSeconds(20);
           });
       SyncPoint::GetInstance()->EnableProcessing();
-      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
       prev_expected = expected;
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1026,11 +1027,11 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]++;
       // Because of the simulated long scan, this is not enough to force
       // a miss
-      env_->MockSleepForSeconds(1000);
-      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      env_->MockSleepForSeconds(601);
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCountsBg());
       // But this is enough
       env_->MockSleepForSeconds(10000);
-      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
       prev_expected = expected;
 
       // Also check the GetProperty interface
@@ -1047,8 +1048,36 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       EXPECT_EQ(
           ToString(expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)]),
           values["count.filter-block"]);
+      EXPECT_EQ(
+          ToString(
+              prev_expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
+          values["count.write-buffer"]);
       EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
                 values["count.misc"]);
+
+      // Add one for kWriteBuffer
+      {
+        WriteBufferManager wbm(size_t{1} << 20, cache);
+        wbm.ReserveMem(1024);
+        expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]++;
+        // Now we check that the GetProperty interface is more agressive about
+        // re-scanning stats, but not totally aggressive.
+        // Within some time window, we will get cached entry stats
+        env_->MockSleepForSeconds(1);
+        EXPECT_EQ(ToString(prev_expected[static_cast<size_t>(
+                      CacheEntryRole::kWriteBuffer)]),
+                  values["count.write-buffer"]);
+        // Not enough for a "background" miss but enough for a "foreground" miss
+        env_->MockSleepForSeconds(45);
+
+        ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats,
+                                        &values));
+        EXPECT_EQ(
+            ToString(
+                expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
+            values["count.write-buffer"]);
+      }
+      prev_expected = expected;
 
       // With collector pinned in cache, we should be able to hit
       // even if the cache is full
@@ -1061,10 +1090,10 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       expected = {};
       expected[static_cast<size_t>(CacheEntryRole::kMisc)]++;
       // Still able to hit on saved stats
-      EXPECT_EQ(prev_expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(prev_expected, GetCacheEntryRoleCountsBg());
       // Enough to force a miss
       env_->MockSleepForSeconds(1000);
-      EXPECT_EQ(expected, GetCacheEntryRoleCounts());
+      EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
 
       cache->Release(h);
     }
