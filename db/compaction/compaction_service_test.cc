@@ -55,7 +55,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
 
-    Status s = DB::OpenAndCompact(db_path_, db_path_ + "/" + ToString(job_id),
+    Status s = DB::OpenAndCompact(db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
                                   compaction_input, compaction_service_result,
                                   options_override);
     TEST_SYNC_POINT_CALLBACK("MyTestCompactionService::WaitForComplete::End",
