@@ -3173,8 +3173,7 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == "fillsync") {
         if (num_ < 1000) {
-          fprintf(stderr,
-                  "fillsync requires num to be >= 1000\n");
+          fprintf(stderr, "fillsync requires num to be >= 1000\n");
           ErrorExit();
         }
         fresh_db = true;
@@ -3183,8 +3182,7 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == "fill100K") {
         if (num_ < 1000) {
-          fprintf(stderr,
-                  "fill100K requires num to be >= 1000\n");
+          fprintf(stderr, "fill100K requires num to be >= 1000\n");
           ErrorExit();
         }
         fresh_db = true;
