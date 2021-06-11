@@ -3172,11 +3172,21 @@ class Benchmark {
       } else if (name == "overwrite") {
         method = &Benchmark::WriteRandom;
       } else if (name == "fillsync") {
+        if (num_ < 1000) {
+          fprintf(stderr,
+                  "fillsync requires num to be >= 1000\n");
+          ErrorExit();
+        }
         fresh_db = true;
         num_ /= 1000;
         write_options_.sync = true;
         method = &Benchmark::WriteRandom;
       } else if (name == "fill100K") {
+        if (num_ < 1000) {
+          fprintf(stderr,
+                  "fill100K requires num to be >= 1000\n");
+          ErrorExit();
+        }
         fresh_db = true;
         num_ /= 1000;
         value_size = 100 * 1000;
