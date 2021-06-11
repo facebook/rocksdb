@@ -55,9 +55,9 @@ class MyTestCompactionService : public CompactionService {
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
 
-    Status s = DB::OpenAndCompact(db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
-                                  compaction_input, compaction_service_result,
-                                  options_override);
+    Status s = DB::OpenAndCompact(
+        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
+        compaction_input, compaction_service_result, options_override);
     TEST_SYNC_POINT_CALLBACK("MyTestCompactionService::WaitForComplete::End",
                              compaction_service_result);
     compaction_num_.fetch_add(1);
@@ -90,7 +90,8 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 20; i++) {
       for (int j = 0; j < 10; j++) {
         int key_id = i * 10 + j;
-        ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+        ASSERT_OK(
+            Put(Key(key_id), "value" + ROCKSDB_NAMESPACE::ToString(key_id)));
       }
       ASSERT_OK(Flush());
     }
@@ -100,7 +101,8 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 10; i++) {
       for (int j = 0; j < 10; j++) {
         int key_id = i * 20 + j * 2;
-        ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+        ASSERT_OK(Put(Key(key_id),
+                      "value_new" + ROCKSDB_NAMESPACE::ToString(key_id)));
       }
       ASSERT_OK(Flush());
     }
@@ -112,9 +114,9 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 200; i++) {
       auto result = Get(Key(i));
       if (i % 2) {
-        ASSERT_EQ(result, "value" + ToString(i));
+        ASSERT_EQ(result, "value" + ROCKSDB_NAMESPACE::ToString(i));
       } else {
-        ASSERT_EQ(result, "value_new" + ToString(i));
+        ASSERT_EQ(result, "value_new" + ROCKSDB_NAMESPACE::ToString(i));
       }
     }
   }
@@ -131,7 +133,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(
+          Put(Key(key_id), "value" + ROCKSDB_NAMESPACE::ToString(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -139,7 +142,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(
+          Put(Key(key_id), "value_new" + ROCKSDB_NAMESPACE::ToString(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -149,9 +153,9 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + ROCKSDB_NAMESPACE::ToString(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + ROCKSDB_NAMESPACE::ToString(i));
     }
   }
   auto my_cs =
@@ -171,7 +175,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      s = Put(Key(key_id), "value_new" + ToString(key_id));
+      s = Put(Key(key_id), "value_new" + ROCKSDB_NAMESPACE::ToString(key_id));
       if (s.IsAborted()) {
         break;
       }
@@ -329,7 +333,8 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(
+          Put(Key(key_id), "value" + ROCKSDB_NAMESPACE::ToString(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -337,7 +342,8 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(
+          Put(Key(key_id), "value_new" + ROCKSDB_NAMESPACE::ToString(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -351,9 +357,9 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
     if (i > 5 && i <= 105) {
       ASSERT_EQ(result, "NOT_FOUND");
     } else if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + ROCKSDB_NAMESPACE::ToString(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + ROCKSDB_NAMESPACE::ToString(i));
     }
   }
   auto my_cs =
@@ -418,9 +424,9 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + ROCKSDB_NAMESPACE::ToString(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + ROCKSDB_NAMESPACE::ToString(i));
     }
   }
   auto my_cs =
