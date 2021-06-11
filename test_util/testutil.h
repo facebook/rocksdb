@@ -98,10 +98,8 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
 class SimpleSuffixReverseComparator : public Comparator {
  public:
   SimpleSuffixReverseComparator() {}
-
-  virtual const char* Name() const override {
-    return "SimpleSuffixReverseComparator";
-  }
+  static const char* kClassName() { return "SimpleSuffixReverseComparator"; }
+  virtual const char* Name() const override { return kClassName(); }
 
   virtual int Compare(const Slice& a, const Slice& b) const override {
     Slice prefix_a = Slice(a.data(), 8);
