@@ -104,7 +104,7 @@ PlainTableBuilder::PlainTableBuilder(
     ROCKS_LOG_INFO(ioptions_.logger, "db_host_id property will not be set");
   }
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
-                                          ? moptions_.prefix_extractor->Name()
+                                          ? moptions_.prefix_extractor->GetId()
                                           : "nullptr";
 
   std::string val;
