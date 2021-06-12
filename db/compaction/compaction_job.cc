@@ -1099,6 +1099,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (a) concurrent compactions,
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
+
+  // Note: if we're going to support subcompactions for user-defined timestamps,
+  // the timestamp part will have to be stripped from the bounds here.
+  assert((!start && !end) || cfd->user_comparator()->timestamp_size() == 0);
   read_options.iterate_lower_bound = start;
   read_options.iterate_upper_bound = end;
 
