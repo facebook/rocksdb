@@ -193,6 +193,53 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   Destroy(options);
 }
 
+// All the NoSpace IOError will be handled as the regular BG Error no matter the
+// retryable flag is set of not. So the auto resume for retryable IO Error will
+// not be triggered. Also, it is mapped as hard error.
+TEST_F(DBErrorHandlingFSTest, FLushWriteNoSpaceError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.statistics = CreateDBStatistics();
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::NoSpace("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, FLushWriteRetryableError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
