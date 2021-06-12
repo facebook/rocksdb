@@ -46,6 +46,68 @@ TEST(BlobGarbageMeterTest, OneBlobInOut) {
   ASSERT_FALSE(flow.HasGarbage());
 }
 
+TEST(BlobGarbageMeterTest, TwoBlobsEnterOnlyOneLeaves) {
+  BlobGarbageMeter blob_garbage_meter;
+
+  constexpr char user_key[] = "user_key";
+  constexpr uint64_t blob_file_number = 4;
+  constexpr uint64_t garbage_size = 7878;
+
+  {
+    constexpr SequenceNumber seq = 123;
+
+    const InternalKey key(user_key, seq, kTypeBlobIndex);
+    const Slice key_slice = key.Encode();
+
+    constexpr uint64_t offset = 5678;
+    constexpr uint64_t size = 909090;
+    constexpr CompressionType compression_type = kLZ4Compression;
+
+    std::string value;
+    BlobIndex::EncodeBlob(&value, blob_file_number, offset, size,
+                          compression_type);
+
+    const Slice value_slice(value);
+
+    ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+    ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+  }
+
+  {
+    constexpr SequenceNumber seq = 234;
+
+    const InternalKey key(user_key, seq, kTypeBlobIndex);
+    const Slice key_slice = key.Encode();
+
+    constexpr uint64_t offset = 6666;
+    constexpr uint64_t size = garbage_size;
+    constexpr CompressionType compression_type = kNoCompression;
+
+    std::string value;
+    BlobIndex::EncodeBlob(&value, blob_file_number, offset, size,
+                          compression_type);
+
+    const Slice value_slice(value);
+
+    ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+    // Note: no outflow for this blob
+  }
+
+  const auto& flows = blob_garbage_meter.flows();
+  ASSERT_EQ(flows.size(), 1);
+
+  const auto it = flows.begin();
+  ASSERT_EQ(it->first, blob_file_number);
+
+  const auto& flow = it->second;
+  ASSERT_TRUE(flow.IsValid());
+  ASSERT_TRUE(flow.HasGarbage());
+  ASSERT_EQ(flow.GetGarbageCount(), 1);
+  ASSERT_EQ(flow.GetGarbageBytes(),
+            garbage_size + BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                               sizeof(user_key) - 1));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
