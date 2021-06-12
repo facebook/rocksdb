@@ -125,9 +125,9 @@ class BlobCountingIterator : public InternalIterator {
 
  private:
   void UpdateAndCountBlobIfNeeded() {
-    assert(!Valid() || iter_->status().ok());
+    assert(!iter_->Valid() || iter_->status().ok());
 
-    if (!Valid()) {
+    if (!iter_->Valid()) {
       status_ = iter_->status();
       return;
     }
