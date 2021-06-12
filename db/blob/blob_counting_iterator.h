@@ -23,13 +23,7 @@ class BlobCountingIterator : public InternalIterator {
     UpdateAndCountBlobIfNeeded();
   }
 
-  bool Valid() const override {
-    if (!status_.ok()) {
-      return false;
-    }
-
-    return iter_->Valid();
-  }
+  bool Valid() const override { return iter_->Valid() && status_.ok(); }
 
   void SeekToFirst() override {
     iter_->SeekToFirst();
