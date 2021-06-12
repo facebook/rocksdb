@@ -8,7 +8,6 @@
 #include <cassert>
 #include <cstdint>
 #include <unordered_map>
-#include <vector>
 
 #include "db/blob/blob_constants.h"
 #include "db/blob/blob_index.h"
