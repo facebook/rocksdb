@@ -18,7 +18,7 @@ class MyTestCompactionService : public CompactionService {
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
-  virtual const char* Name() const override { return kClassName(); }
+  const char* Name() const override { return kClassName(); }
 
   CompactionServiceJobStatus Start(const std::string& compaction_service_input,
                                    int job_id) override {
