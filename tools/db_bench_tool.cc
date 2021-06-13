@@ -4617,7 +4617,7 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
-    while ( (num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
+    while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
         if (db_.db != nullptr) {
