@@ -157,9 +157,9 @@ DEFINE_string(
     " key order and keep the shape of the LSM tree\n"
     "\toverwrite     -- overwrite N values in random key order in"
     " async mode\n"
-    "\tfillsync      -- write max(1, N/1000) values in random key order in "
+    "\tfillsync      -- write N/1000 values in random key order in "
     "sync mode\n"
-    "\tfill100K      -- write max(1, N/1000) 100K values in random order in"
+    "\tfill100K      -- write N/1000 100K values in random order in"
     " async mode\n"
     "\tdeleteseq     -- delete N keys in sequential order\n"
     "\tdeleterandom  -- delete N keys in random order\n"
@@ -3173,12 +3173,12 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == "fillsync") {
         fresh_db = true;
-        num_ = (num_ >= 1000) ? (num_ / 1000) : 1;
+        num_ /= 1000;
         write_options_.sync = true;
         method = &Benchmark::WriteRandom;
       } else if (name == "fill100K") {
         fresh_db = true;
-        num_ = (num_ >= 1000) ? (num_ / 1000) : 1;
+        num_ /= 1000;
         value_size = 100 * 1000;
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
@@ -4577,10 +4577,15 @@ class Benchmark {
     }
 
     Duration duration(test_duration, max_ops, ops_per_stage);
+    const uint64_t num_per_key_gen = num_ + max_num_range_tombstones_;
     for (size_t i = 0; i < num_key_gens; i++) {
       key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
-                                         num_ + max_num_range_tombstones_,
+                                         num_per_key_gen,
                                          ops_per_stage));
+    }
+
+    if ( 0 == num_per_key_gen ) {
+        entries_per_batch_ = 0;
     }
 
     if (num_ != FLAGS_num) {
