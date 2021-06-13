@@ -4580,11 +4580,10 @@ class Benchmark {
     const uint64_t num_per_key_gen = num_ + max_num_range_tombstones_;
     for (size_t i = 0; i < num_key_gens; i++) {
       key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
-                                         num_per_key_gen,
-                                         ops_per_stage));
+                                         num_per_key_gen, ops_per_stage));
     }
 
-    if ( 0 == num_per_key_gen ) {
+    if (0 == num_per_key_gen) {
         entries_per_batch_ = 0;
     }
 
