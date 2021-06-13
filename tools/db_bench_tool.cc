@@ -157,9 +157,9 @@ DEFINE_string(
     " key order and keep the shape of the LSM tree\n"
     "\toverwrite     -- overwrite N values in random key order in"
     " async mode\n"
-    "\tfillsync      -- write N/1000 values in random key order in "
+    "\tfillsync      -- write max(1, N/1000) values in random key order in "
     "sync mode\n"
-    "\tfill100K      -- write N/1000 100K values in random order in"
+    "\tfill100K      -- write max(1, N/1000) 100K values in random order in"
     " async mode\n"
     "\tdeleteseq     -- delete N keys in sequential order\n"
     "\tdeleterandom  -- delete N keys in random order\n"
@@ -3172,21 +3172,13 @@ class Benchmark {
       } else if (name == "overwrite") {
         method = &Benchmark::WriteRandom;
       } else if (name == "fillsync") {
-        if (num_ < 1000) {
-          fprintf(stderr, "fillsync requires num to be >= 1000\n");
-          ErrorExit();
-        }
         fresh_db = true;
-        num_ /= 1000;
+        num_ = (num_ >= 1000) ? (num_ / 1000) : 1;
         write_options_.sync = true;
         method = &Benchmark::WriteRandom;
       } else if (name == "fill100K") {
-        if (num_ < 1000) {
-          fprintf(stderr, "fill100K requires num to be >= 1000\n");
-          ErrorExit();
-        }
         fresh_db = true;
-        num_ /= 1000;
+        num_ = (num_ >= 1000) ? (num_ / 1000) : 1;
         value_size = 100 * 1000;
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
