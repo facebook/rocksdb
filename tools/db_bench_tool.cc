@@ -4583,10 +4583,6 @@ class Benchmark {
                                          num_per_key_gen, ops_per_stage));
     }
 
-    if (0 == num_per_key_gen) {
-        entries_per_batch_ = 0;
-    }
-
     if (num_ != FLAGS_num) {
       char msg[100];
       snprintf(msg, sizeof(msg), "(%" PRIu64 " ops)", num_);
@@ -4621,7 +4617,7 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
-    while (!duration.Done(entries_per_batch_)) {
+    while ( (num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
         if (db_.db != nullptr) {
