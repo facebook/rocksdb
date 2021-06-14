@@ -120,7 +120,7 @@ if [ -z "$USE_CLANG" ]; then
   CXX="$GCC_BASE/bin/g++"
   AR="$GCC_BASE/bin/gcc-ar"
 
-  CFLAGS+=" -B$BINUTILS/bin"
+  CFLAGS+=" -B$BINUTILS"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   JEMALLOC=1
@@ -133,7 +133,7 @@ else
 
   KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 
-  CFLAGS+=" -B$BINUTILS/bin -nostdinc -nostdlib"
+  CFLAGS+=" -B$BINUTILS -nostdinc -nostdlib"
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/9.x "
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/9.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
@@ -150,7 +150,7 @@ CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PR
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS $LIBURING_LIBS"
-EXEC_LDFLAGS+=" -B$BINUTILS/bin"
+EXEC_LDFLAGS+=" -B$BINUTILS"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform009/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
 EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform009/lib"
