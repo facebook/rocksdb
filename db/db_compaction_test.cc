@@ -5208,11 +5208,12 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   ASSERT_TRUE(num_compactions.load() == 1);
 
   // split the compaction to 5
-  uint64_t total = (l1_avg_size * 10) + (l2_avg_size * 100);
   int num_split = 5;
-  opts.max_compaction_bytes = total / num_split;
   DestroyAndReopen(opts);
   generate_sst_func();
+  uint64_t total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
+  opts.max_compaction_bytes = total_size / num_split;
+  Reopen(opts);
   num_compactions.store(0);
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_TRUE(num_compactions.load() == num_split);
@@ -5230,8 +5231,9 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   opts.max_compaction_bytes = 0;
   DestroyAndReopen(opts);
   generate_sst_func();
+  total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
   Status s = db_->SetOptions(
-      {{"max_compaction_bytes", std::to_string(total / num_split)}});
+      {{"max_compaction_bytes", std::to_string(total_size / num_split)}});
   ASSERT_OK(s);
 
   num_compactions.store(0);
