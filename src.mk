@@ -90,9 +90,9 @@ LIB_SOURCES =                                                   \
   env/fs_posix.cc                                               \
   env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
+  env/generate_uuid.cc                                          \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
-  env/random_seed.cc                                            \
   file/delete_scheduler.cc                                      \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \

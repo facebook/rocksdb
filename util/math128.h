@@ -147,6 +147,29 @@ inline bool operator>=(const Unsigned128& lhs, const Unsigned128& rhs) {
 inline bool operator<=(const Unsigned128& lhs, const Unsigned128& rhs) {
   return lhs.hi < rhs.hi || (lhs.hi == rhs.hi && lhs.lo <= rhs.lo);
 }
+
+inline Unsigned128 operator+(const Unsigned128& lhs, const Unsigned128& rhs) {
+  uint64_t lo_sum = lhs.lo + rhs.lo;
+  uint64_t hi_sum = lhs.hi + rhs.hi;
+  uint64_t carry = lo_sum < lhs.lo ? 1 : 0;
+  return Unsigned128(lo_sum, hi_sum + carry);
+}
+
+inline Unsigned128& operator+=(Unsigned128& lhs, const Unsigned128& rhs) {
+  lhs = lhs + rhs;
+  return lhs;
+}
+
+inline Unsigned128 operator-(const Unsigned128& v) { return ~v + 1; }
+
+inline Unsigned128 operator-(const Unsigned128& lhs, const Unsigned128& rhs) {
+  return lhs + -rhs;
+}
+
+inline Unsigned128& operator-=(Unsigned128& lhs, const Unsigned128& rhs) {
+  lhs = lhs - rhs;
+  return lhs;
+}
 #endif
 
 inline uint64_t Lower64of128(Unsigned128 v) {
@@ -188,6 +211,59 @@ inline Unsigned128 Multiply64to128(uint64_t a, uint64_t b) {
   tmp += uint64_t{b >> 32} * uint64_t{a >> 32};
   return Unsigned128(lower, tmp);
 #endif
+}
+
+#ifndef HAVE_UINT128_EXTENSION
+
+inline Unsigned128 operator*(const Unsigned128& lhs, const Unsigned128& rhs) {
+  Unsigned128 result = Multiply64to128(lhs.lo, rhs.lo);
+  result.hi += lhs.hi * rhs.lo;
+  result.hi += lhs.lo * rhs.hi;
+  // lhs.hi * rhs.hi is all overflow
+  return result;
+}
+
+inline Unsigned128& operator*=(Unsigned128& lhs, const Unsigned128& rhs) {
+  lhs = lhs * rhs;
+  return lhs;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
+
+namespace std {
+template <>
+struct hash<ROCKSDB_NAMESPACE::Unsigned128> {
+  std::size_t operator()(
+      ROCKSDB_NAMESPACE::Unsigned128 const& u) const noexcept {
+    // Assume suitable distribution already
+    return static_cast<size_t>(ROCKSDB_NAMESPACE::Lower64of128(u) ^
+                               ROCKSDB_NAMESPACE::Upper64of128(u));
+  }
+};
+}  // namespace std
+
+namespace ROCKSDB_NAMESPACE {
+
+#endif  // !HAVE_UINT128_EXTENSION
+
+inline void Multiply128to256(Unsigned128 a, Unsigned128 b,
+                             Unsigned128* product_upper,
+                             Unsigned128* product_lower) {
+  Unsigned128 tmp = Multiply64to128(Lower64of128(a), Lower64of128(b));
+  // Finished with bottom 64, so store it and move on
+  *product_lower = Lower64of128(tmp);
+  tmp >>= 64;
+  // Compute pieces needed for next 64
+  Unsigned128 pr1 = Multiply64to128(Lower64of128(a), Upper64of128(b));
+  Unsigned128 pr2 = Multiply64to128(Upper64of128(a), Lower64of128(b));
+  tmp += Lower64of128(pr1) + Lower64of128(pr2);
+  // Finished with next bottom 64, so store it
+  *product_lower |= (tmp << 64);
+  tmp >>= 64;
+  // Add and compute final pieces
+  tmp += Upper64of128(pr1) + Upper64of128(pr2);
+  tmp += Multiply64to128(Upper64of128(a), Upper64of128(b));
+  *product_upper = tmp;
 }
 
 template <>

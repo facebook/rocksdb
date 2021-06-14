@@ -710,8 +710,8 @@ set(SOURCES
         env/file_system.cc
         env/file_system_tracer.cc
         env/fs_remap.cc
+        env/generate_uuid.cc
         env/mock_env.cc
-        env/random_seed.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
         file/file_util.cc

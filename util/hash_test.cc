@@ -15,6 +15,7 @@
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/math128.h"
+#include "util/random.h"
 
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
@@ -583,6 +584,65 @@ TEST(MathTest, CodingGeneric) {
   EncodeFixedGeneric(out + 1, decoded16);
   EXPECT_EQ(std::string("_12"), std::string(out));
 }
+
+TEST(UniquenessTest, Approaches) {
+  ROCKSDB_NAMESPACE::Random64 r(getpid());
+
+  constexpr uint64_t kMaxIter = 10000;
+  constexpr size_t kSize = size_t{1} << 20;
+  constexpr size_t kMask = kSize - 1;
+
+  enum Approach {
+    kAddition,
+    kXor,
+    kRandom,
+  };
+
+  std::vector<bool> v;
+  for (auto approach : {kAddition, kXor, kRandom}) {
+    uint64_t threshold_total = 0;
+    for (uint64_t iter = 0; iter < kMaxIter; ++iter) {
+      v.assign(kSize, false);
+      for (;;) {
+        // size_t start = static_cast<size_t>(r.Next()) & kMask;
+        constexpr size_t kEvery = 207;
+        constexpr size_t kFactor = kSize / kEvery;
+        size_t start = static_cast<size_t>(r.Next() % kFactor) * kEvery;
+        size_t count;
+        if (approach == kRandom) {
+          count = 1;
+        } else {
+          // count = 85;
+          count = (static_cast<size_t>(r.Next()) & 255) + 85;
+        }
+        for (size_t i = 0; i < count; ++i) {
+          size_t pos;
+          if (approach == kAddition) {
+            pos = (start + i) & kMask;
+          } else {
+            pos = start ^ i;
+          }
+          if (v[pos]) {
+            goto next_iter;
+          }
+          v[pos] = true;
+          ++threshold_total;
+        }
+      }
+    next_iter : {}
+    }
+    const char *name = approach == kAddition ? "addition"
+                       : approach == kXor    ? "xor"
+                                             : "random";
+    fprintf(stderr, "Average threshold with %s: %g / %u\n", name,
+            1.0 * threshold_total / kMaxIter, (unsigned)kSize);
+  }
+}
+// Example output:
+// Average threshold with addition: 13234.9 / 1048576
+// Average threshold with xor: 14149.1 / 1048576
+// Average threshold with random: 1281.73 / 1048576
+// Winner is xor because there's lowest chance of any overlap
 
 int main(int argc, char** argv) {
   fprintf(stderr, "NPHash64 id: %x\n",

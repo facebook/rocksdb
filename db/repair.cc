@@ -62,6 +62,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -71,7 +72,7 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
-#include "env/random_seed.h"
+#include "env/generate_uuid.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -96,7 +97,7 @@ class Repairer {
       : dbname_(dbname),
         env_(db_options.env),
         env_options_(),
-        db_session_id_(GenerateMuid(env_).ToString()),
+        db_session_id_(GenerateMuid().ToString()),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
@@ -111,10 +112,10 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(
-            new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
-                           /*block_cache_tracer=*/nullptr,
-                           /*io_tracer=*/nullptr, db_session_id_)),
+        table_cache_(new TableCache(default_iopts_, env_options_,
+                                    raw_table_cache_.get(),
+                                    /*block_cache_tracer=*/nullptr,
+                                    /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,

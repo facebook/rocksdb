@@ -35,7 +35,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
-#include "util/coding_lean.h"
 #include "util/string_util.h"
 
 // Undefine the functions  windows might use (again)...

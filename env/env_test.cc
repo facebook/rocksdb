@@ -37,6 +37,7 @@
 #endif
 
 #include "env/env_chroot.h"
+#include "env/generate_uuid.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -2487,7 +2488,7 @@ TEST_F(EnvTest, GenerateUniqueId) {
 
 TEST_F(EnvTest, GenerateRfcUuid) {
   struct MyStressTest : public NoDuplicateMiniStressTest<RfcUuid> {
-    RfcUuid Generate() { return env->GenerateRfcUuid(); }
+    RfcUuid Generate() { return GenerateRfcUuid(); }
   };
 
   MyStressTest t;
@@ -2499,11 +2500,20 @@ TEST_F(EnvTest, GenerateRfcUuid) {
 
 TEST_F(EnvTest, GenerateRawUuid) {
   struct MyStressTest : public NoDuplicateMiniStressTest<RawUuid> {
-    RawUuid Generate() { return env->GenerateRawUuid(); }
+    RawUuid Generate() { return GenerateRawUuid(); }
   };
 
-  // TODO: test that each "track" (entropy source) in RawUuidHelper is
-  // sufficient on its own for this test.
+  // TODO: test that each "track" (entropy source) is sufficient on its own
+  // for this test.
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, GenerateRocksMuid) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<RocksMuid> {
+    RocksMuid Generate() { return GenerateMuid(); }
+  };
 
   MyStressTest t;
   t.Run();

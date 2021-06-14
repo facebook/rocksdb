@@ -54,7 +54,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/random_seed.h"
+#include "env/generate_uuid.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -103,7 +103,6 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/uuid_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -3858,7 +3857,7 @@ void DBImpl::SetDbSessionId() {
   // * Save ~ dozen bytes per SST file
   // * Shorter shared backup file names (some platforms have low limits)
   // * Visually distinct from DB id format
-  db_session_id_ = GenerateMuid(env_).ToString();
+  db_session_id_ = GenerateMuid().ToString();
 
   TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
 }
