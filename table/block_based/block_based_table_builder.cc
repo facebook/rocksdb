@@ -1530,7 +1530,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         CompressionOptionsToString(rep_->compression_opts);
     rep_->props.prefix_extractor_name =
         rep_->moptions.prefix_extractor != nullptr
-            ? rep_->moptions.prefix_extractor->GetId()
+            ? rep_->moptions.prefix_extractor->AsString()
             : "nullptr";
     std::string property_collectors_names = "[";
     for (size_t i = 0;

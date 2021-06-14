@@ -132,7 +132,7 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
   }
 
   // prefix_extractor and prefix_extractor_block are both non-empty
-  if (table_properties->prefix_extractor_name != prefix_extractor->GetId()) {
+  if (table_properties->prefix_extractor_name != prefix_extractor->AsString()) {
     return true;
   } else {
     return false;
@@ -2195,7 +2195,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
                             no_io, const_ikey_ptr, get_context, lookup_context);
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name ==
-                 prefix_extractor->GetId() &&
+                 prefix_extractor->AsString() &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts),
@@ -2237,7 +2237,7 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     }
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name ==
-                 prefix_extractor->GetId()) {
+                 prefix_extractor->AsString()) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);

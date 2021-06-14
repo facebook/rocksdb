@@ -216,6 +216,16 @@ Status SliceTransform::CreateFromString(
   return status;
 }
 
+std::string SliceTransform::AsString() const {
+#ifndef ROCKSDB_LITE
+  ConfigOptions config_options;
+  config_options.delimiter = ";";
+  return ToString(config_options);
+#else
+  return GetId();
+#endif // ROCKSDB_LITE
+}
+
 // 2 small internal utility functions, for efficient hex conversions
 // and no need for snprintf, toupper etc...
 // Originally from wdt/util/EncryptionUtils.cpp - for ToString(true)/DecodeHex:

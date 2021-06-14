@@ -227,8 +227,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
-  ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->GetId()),
-            "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -458,8 +457,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
   ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
-  std::string prefix_name(new_cf_opt.prefix_extractor->GetId());
-  ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -2044,8 +2042,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
-  ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->GetId()),
-            "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -2245,8 +2242,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
   ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
-  std::string prefix_name(new_cf_opt.prefix_extractor->GetId());
-  ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,

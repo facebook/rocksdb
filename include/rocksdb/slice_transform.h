@@ -43,6 +43,11 @@ class SliceTransform : public Customizable {
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& id,
                                  std::shared_ptr<const SliceTransform>* result);
+
+  // Returns a string representation of this SliceTransform, representing the ID
+  // and any additional properties
+  std::string AsString() const;
+
   // Extract a prefix from a specified key. This method is called when
   // a key is inserted into the db, and the returned slice is used to
   // create a bloom filter.
