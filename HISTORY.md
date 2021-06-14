@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.21.2 (2021-06-14)
+### Bug Fixes
+* Fixed related but less common performance bugs in background gathering of block cache entry statistics.
+
 ## 6.21.1 (2021-06-08)
 ### Bug Fixes
 * Fixed a performance bug in background gathering of block cache entry statistics, that could consume a lot of CPU when there are many column families with a shared block cache.
