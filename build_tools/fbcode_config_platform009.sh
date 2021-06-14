@@ -154,6 +154,7 @@ EXEC_LDFLAGS+=" -B$BINUTILS"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform009/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
 EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform009/lib"
+EXEC_LDFLAGS+=" -Wl,-rpath=$GCC_BASE/lib64"
 # required by libtbb
 EXEC_LDFLAGS+=" -ldl"
 
