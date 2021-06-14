@@ -670,17 +670,41 @@ Compaction* CompactionPicker::CompactRange(
   // two files overlap.
   if (input_level > 0) {
     const uint64_t limit = mutable_cf_options.max_compaction_bytes;
-    uint64_t total = 0;
+    uint64_t input_level_total = 0;
+    int hint_index = -1;
+    InternalKey* smallest = nullptr;
+    InternalKey* largest = nullptr;
     for (size_t i = 0; i + 1 < inputs.size(); ++i) {
+      if (!smallest) {
+        smallest = &inputs[i]->smallest;
+      }
+      largest = &inputs[i]->largest;
+
       uint64_t s = inputs[i]->compensated_file_size;
-      total += s;
-      if (total >= limit) {
+      uint64_t output_level_total = 0;
+      if (output_level < vstorage->num_non_empty_levels()) {
+        std::vector<FileMetaData*> files;
+        vstorage->GetOverlappingInputsRangeBinarySearch(
+            output_level, smallest, largest, &files, hint_index, &hint_index);
+        for (const auto& file : files) {
+          output_level_total += file->compensated_file_size;
+        }
+      }
+
+      input_level_total += s;
+
+      if (input_level_total + output_level_total >= limit) {
         covering_the_whole_range = false;
+        // still include the current file, so the compaction could be larger
+        // than max_compaction_bytes, which is also to make sure the compaction
+        // can make progress even `max_compaction_bytes` is small (e.g. smaller
+        // than an SST file).
         inputs.files.resize(i + 1);
         break;
       }
     }
   }
+
   assert(compact_range_options.target_path_id <
          static_cast<uint32_t>(ioptions_.cf_paths.size()));
 

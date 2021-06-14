@@ -56,15 +56,11 @@ class CacheEntryStatsCollector {
     // Waits for any pending reader or writer (collector)
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Maximum allowed age is nominally given by the parameter
+    // Maximum allowed age is nominally given by the parameter, but
+    // to limit the possibility of accidental repeated scans, impose
+    // a minimum TTL of 1 second.
     uint64_t max_age_micros =
-        static_cast<uint64_t>(std::min(maximum_age_in_seconds, 0)) * 1000000U;
-    // But we will re-scan more frequently if it means scanning < 1%
-    // of the time and no more than once per second.
-    max_age_micros = std::min(
-        max_age_micros,
-        std::max(uint64_t{1000000},
-                 100U * (last_end_time_micros_ - last_start_time_micros_)));
+        static_cast<uint64_t>(std::max(maximum_age_in_seconds, 1)) * 1000000U;
 
     uint64_t start_time_micros = clock_->NowMicros();
     if ((start_time_micros - last_end_time_micros_) > max_age_micros) {

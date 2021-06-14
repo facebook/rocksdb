@@ -1454,15 +1454,16 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     Status status;
     bool done;
-    bool in_progress;            // compaction request being processed?
-    bool incomplete;             // only part of requested range compacted
-    bool exclusive;              // current behavior of only one manual
-    bool disallow_trivial_move;  // Force actual compaction to run
-    const InternalKey* begin;    // nullptr means beginning of key range
-    const InternalKey* end;      // nullptr means end of key range
-    InternalKey* manual_end;     // how far we are compacting
-    InternalKey tmp_storage;     // Used to keep track of compaction progress
-    InternalKey tmp_storage1;    // Used to keep track of compaction progress
+    bool in_progress;             // compaction request being processed?
+    bool incomplete;              // only part of requested range compacted
+    bool exclusive;               // current behavior of only one manual
+    bool disallow_trivial_move;   // Force actual compaction to run
+    const InternalKey* begin;     // nullptr means beginning of key range
+    const InternalKey* end;       // nullptr means end of key range
+    InternalKey* manual_end;      // how far we are compacting
+    InternalKey tmp_storage;      // Used to keep track of compaction progress
+    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    std::atomic<bool>* canceled;  // Compaction canceled by the user?
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.

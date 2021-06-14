@@ -563,6 +563,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
+
+  // Note: the subcompaction boundary picking logic does not currently guarantee
+  // that all user keys that differ only by timestamp get processed by the same
+  // subcompaction.
+  if (cfd_->user_comparator()->timestamp_size() > 0) {
+    return false;
+  }
+
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
            !IsOutputLevelEmpty();

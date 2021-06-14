@@ -45,6 +45,7 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : CompactionIterator(
@@ -55,7 +56,8 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
-          manual_compaction_paused, info_log, full_history_ts_low) {}
+          manual_compaction_paused, manual_compaction_canceled, info_log,
+          full_history_ts_low) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -70,6 +72,7 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : input_(
@@ -91,6 +94,7 @@ CompactionIterator::CompactionIterator(
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
+      manual_compaction_canceled_(manual_compaction_canceled),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),

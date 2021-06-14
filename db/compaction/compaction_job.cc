@@ -23,6 +23,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
 #include "db/builder.h"
+#include "db/compaction/clipping_iterator.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -313,9 +314,10 @@ CompactionJob::CompactionJob(
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
-    const std::string& db_session_id, std::string full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback)
+    const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
+    const std::string& db_id, const std::string& db_session_id,
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -339,6 +341,7 @@ CompactionJob::CompactionJob(
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
+      manual_compaction_canceled_(manual_compaction_canceled),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       db_directory_(db_directory),
       blob_output_directory_(blob_output_directory),
@@ -1084,6 +1087,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
                                              existing_snapshots_);
+
+  const Slice* const start = sub_compact->start;
+  const Slice* const end = sub_compact->end;
+
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
@@ -1093,11 +1100,42 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
 
+  // Note: if we're going to support subcompactions for user-defined timestamps,
+  // the timestamp part will have to be stripped from the bounds here.
+  assert((!start && !end) || cfd->user_comparator()->timestamp_size() == 0);
+  read_options.iterate_lower_bound = start;
+  read_options.iterate_upper_bound = end;
+
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
-  std::unique_ptr<InternalIterator> input(
+  std::unique_ptr<InternalIterator> raw_input(
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
+  InternalIterator* input = raw_input.get();
+
+  IterKey start_ikey;
+  IterKey end_ikey;
+  Slice start_slice;
+  Slice end_slice;
+
+  if (start) {
+    start_ikey.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    start_slice = start_ikey.GetInternalKey();
+  }
+  if (end) {
+    end_ikey.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
+    end_slice = end_ikey.GetInternalKey();
+  }
+
+  std::unique_ptr<InternalIterator> clip;
+  if (start || end) {
+    clip.reset(new ClippingIterator(
+        raw_input.get(), start ? &start_slice : nullptr,
+        end ? &end_slice : nullptr, &cfd->internal_comparator()));
+    input = clip.get();
+  }
+
+  input->SeekToFirst();
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -1152,28 +1190,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       reinterpret_cast<void*>(
           const_cast<std::atomic<int>*>(manual_compaction_paused_)));
 
-  Slice* start = sub_compact->start;
-  Slice* end = sub_compact->end;
-  if (start != nullptr) {
-    IterKey start_iter;
-    start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-    input->Seek(start_iter.GetInternalKey());
-  } else {
-    input->SeekToFirst();
-  }
-
   Status status;
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
   sub_compact->c_iter.reset(new CompactionIterator(
-      input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
+      input, cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_, manual_compaction_paused_, db_options_.info_log,
-      full_history_ts_low));
+      preserve_deletes_seqnum_, manual_compaction_paused_,
+      manual_compaction_canceled_, db_options_.info_log, full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1197,12 +1225,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     const Slice& key = c_iter->key();
     const Slice& value = c_iter->value();
 
-    // If an end key (exclusive) is specified, check if the current key is
-    // >= than it and exit if it is because the iterator is out of its range
-    if (end != nullptr &&
-        cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
-      break;
-    }
+    assert(!end ||
+           cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
+
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {
       RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
@@ -1317,8 +1342,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = Status::ShutdownInProgress("Database shutdown");
   }
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
-      (manual_compaction_paused_ &&
-       manual_compaction_paused_->load(std::memory_order_relaxed) > 0)) {
+      ((manual_compaction_paused_ &&
+        manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
+       (manual_compaction_canceled_ &&
+        manual_compaction_canceled_->load(std::memory_order_relaxed)))) {
     status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {
@@ -1387,7 +1414,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
   sub_compact->c_iter.reset();
-  input.reset();
+  clip.reset();
+  raw_input.reset();
   sub_compact->status = status;
 }
 
@@ -1929,7 +1957,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
       oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
-      db_session_id_, sub_compact->compaction->max_output_file_size());
+      db_session_id_, sub_compact->compaction->max_output_file_size(),
+      file_number);
   sub_compact->builder.reset(
       NewTableBuilder(tboptions, sub_compact->outfile.get()));
   LogFlush(db_options_.info_log);
@@ -2126,7 +2155,7 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
           compaction->mutable_cf_options()->paranoid_file_checks,
           compaction->mutable_cf_options()->report_bg_io_stats, dbname,
           &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-          nullptr, db_id, db_session_id,
+          nullptr, nullptr, db_id, db_session_id,
           compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(output_path),
       compaction_input_(compaction_service_input),

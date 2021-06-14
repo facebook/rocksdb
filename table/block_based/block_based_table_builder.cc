@@ -873,7 +873,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
         table_options.block_cache_compressed.get(), file->writable_file(),
         &rep_->compressed_cache_key_prefix[0],
-        &rep_->compressed_cache_key_prefix_size);
+        &rep_->compressed_cache_key_prefix_size, tbo.db_session_id,
+        tbo.cur_file_num);
   }
 
   if (rep_->IsParallelCompressionEnabled()) {
@@ -1422,9 +1423,11 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
   BlockHandle filter_block_handle;
-  bool empty_filter_block = (rep_->filter_builder == nullptr ||
-                             rep_->filter_builder->NumAdded() == 0);
+  bool empty_filter_block =
+      (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty());
   if (ok() && !empty_filter_block) {
+    rep_->props.num_filter_entries +=
+        rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =
