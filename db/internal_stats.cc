@@ -528,26 +528,37 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       cfd_(cfd),
       started_at_(clock->NowMicros()) {}
 
-Status InternalStats::CollectCacheEntryStats() {
-  using Collector = CacheEntryStatsCollector<CacheEntryRoleStats>;
-  Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
-  if (ok) {
-    // Extract or create stats collector.
-    std::shared_ptr<Collector> collector;
-    Status s = Collector::GetShared(block_cache, clock_, &collector);
-    if (s.ok()) {
-      // TODO: use a max age like stats_dump_period_sec / 2, but it's
-      // difficult to access that setting from here with just cfd_
-      collector->GetStats(&cache_entry_stats);
+Status InternalStats::CollectCacheEntryStats(bool foreground) {
+  // Lazy initialize/reference the collector. It is pinned in cache (through
+  // a shared_ptr) so that it does not get immediately ejected from a full
+  // cache, which would force a re-scan on the next GetStats.
+  if (!cache_entry_stats_collector_) {
+    Cache* block_cache;
+    bool ok = HandleBlockCacheStat(&block_cache);
+    if (ok) {
+      // Extract or create stats collector.
+      Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
+          block_cache, clock_, &cache_entry_stats_collector_);
+      if (!s.ok()) {
+        // Block cache likely under pressure. Scanning could make it worse,
+        // so skip.
+        return s;
+      }
     } else {
-      // Block cache likely under pressure. Scanning could make it worse,
-      // so skip.
+      return Status::NotFound("block cache not configured");
     }
-    return s;
-  } else {
-    return Status::NotFound("block cache not configured");
   }
+  assert(cache_entry_stats_collector_);
+
+  // For "background" collections, strictly cap the collection time by
+  // expanding effective cache TTL. For foreground, be more aggressive about
+  // getting latest data.
+  int min_interval_seconds = foreground ? 10 : 180;
+  // 1/500 = max of 0.2% of one CPU thread
+  int min_interval_factor = foreground ? 10 : 500;
+  cache_entry_stats_collector_->GetStats(
+      &cache_entry_stats_, min_interval_seconds, min_interval_factor);
+  return Status::OK();
 }
 
 std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
@@ -638,21 +649,21 @@ void InternalStats::CacheEntryRoleStats::ToMap(
 
 bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
                                                Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
+  Status s = CollectCacheEntryStats(/*foreground*/ true);
   if (!s.ok()) {
     return false;
   }
-  *value = cache_entry_stats.ToString(clock_);
+  *value = cache_entry_stats_.ToString(clock_);
   return true;
 }
 
 bool InternalStats::HandleBlockCacheEntryStatsMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
+  Status s = CollectCacheEntryStats(/*foreground*/ true);
   if (!s.ok()) {
     return false;
   }
-  cache_entry_stats.ToMap(values, clock_);
+  cache_entry_stats_.ToMap(values, clock_);
   return true;
 }
 
@@ -1608,9 +1619,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   cf_stats_snapshot_.comp_stats = compaction_stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
 
-  Status s = CollectCacheEntryStats();
+  // Always treat CFStats context as "background"
+  Status s = CollectCacheEntryStats(/*foreground=*/false);
   if (s.ok()) {
-    value->append(cache_entry_stats.ToString(clock_));
+    value->append(cache_entry_stats_.ToString(clock_));
   } else {
     value->append("Block cache: ");
     value->append(s.ToString());
