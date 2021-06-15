@@ -257,13 +257,10 @@ Status BuildTable(
       tp = builder->GetTableProperties(); // refresh now that builder is finished
       if (memtable_data_bytes != nullptr && memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();
-        *memtable_data_bytes =  ci_stats.total_input_raw_key_bytes
-                              + ci_stats.total_input_raw_value_bytes;
-        *memtable_garbage_bytes =   (*memtable_data_bytes)
-                                  - (tp.raw_key_size + tp.raw_value_size);
-        // *raw_bytes_written = builder->RawDataSize();
-        // const TableProperties& tp = builder->GetTableProperties();
-        // *raw_bytes_written = tp.raw_key_size + tp.raw_value_size;
+        *memtable_data_bytes = ci_stats.total_input_raw_key_bytes +
+                               ci_stats.total_input_raw_value_bytes;
+        *memtable_garbage_bytes =
+            (*memtable_data_bytes) - (tp.raw_key_size + tp.raw_value_size);
       }
       if (table_properties) {
         *table_properties = tp;

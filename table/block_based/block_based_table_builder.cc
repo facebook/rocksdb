@@ -1894,8 +1894,6 @@ bool BlockBasedTableBuilder::IsEmpty() const {
 
 uint64_t BlockBasedTableBuilder::FileSize() const { return rep_->offset; }
 
-uint64_t BlockBasedTableBuilder::RawDataSize() const { return (rep_->compressible_input_data_bytes+rep_->uncompressible_input_data_bytes); }
-
 uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
   if (rep_->IsParallelCompressionEnabled()) {
     // Use compression ratio so far and inflight raw bytes to estimate

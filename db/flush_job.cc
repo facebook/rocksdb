@@ -441,11 +441,10 @@ Status FlushJob::WriteLevel0Table() {
       }
       if (tboptions.reason == TableFileCreationReason::kFlush) {
         // RecordTick(stats_, MEMTABLE_GARBAGE_BYTES,
-        //             total_data_size-(table_properties_.raw_key_size + table_properties_.raw_value_size));
-        RecordTick(stats_, MEMTABLE_DATA_BYTES,
-                        memtable_data_bytes);
-        RecordTick(stats_, MEMTABLE_GARBAGE_BYTES,
-                        memtable_garbage_bytes);
+        //             total_data_size-(table_properties_.raw_key_size +
+        //             table_properties_.raw_value_size));
+        RecordTick(stats_, MEMTABLE_DATA_BYTES, memtable_data_bytes);
+        RecordTick(stats_, MEMTABLE_GARBAGE_BYTES, memtable_garbage_bytes);
       }
       LogFlush(db_options_.info_log);
     }
