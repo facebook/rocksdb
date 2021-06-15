@@ -9,6 +9,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
+#include "test_util/testharness.h"
 
 using namespace ROCKSDB_NAMESPACE;
 
@@ -77,64 +78,91 @@ int main() {
   // }
 
   // Put multiple times the same key-values.
-  // The raw data size in the memtable is defined
-  // in db/memtable.cc (MemTable::Add) as the variable:
+  // The encoded length of a db entry in the memtable is
+  // defined in db/memtable.cc (MemTable::Add) as the variable:
   // encoded_len=  VarintLength(internal_key_size)  --> = log_256(internal_key). Min # of bytes
   //                                                       necessary to store internal_key_size.
   //             + internal_key_size                --> = actual key string, (size key_size: w/o term null char)
   //                                                      + 8 bytes for fixed uint64 "seq number + insertion type"
   //             + VarintLength(val_size)           --> = min # of bytes to store val_size
   //             + val_size                         --> = actual value string
-  // For us, "key1" = size 4, "value1" = size 6
-  // And therefore encoded_len = 1 + 12 + 1 + 6 = 20 bytes per entry.
-  // ===> 2,560,000 * 20 = 51,200,000 raw bytes. (compare this is memtable_garbage_bytes)
-  // Additional info leads us to 25 bytes per entry.
-  size_t NUM_ENTRIES = 2560000;
-  for(size_t i=0; i<NUM_ENTRIES; i++){
-    s = db->Put(WriteOptions(), "key1", "value1");
+  // For example, in our situation, "key1" : size 4, "value1" : size 6
+  // (the terminating null characters are not copied over to the memtable).
+  // And therefore encoded_len = 1 + (4+8) + 1 + 6 = 20 bytes per entry.
+  // However in terms of raw data contained in the memtable, and written
+  // over to the SSTable, we only count internal_key_size and val_size,
+  // because this is the only raw chunk of bytes that contains everything
+  // necessary to reconstruct a user entry: sequence number, insertion type, key, and value.
+
+  // To test the relevance of our Memtable garbage statistics,
+  // namely MEMTABLE_DATA_BYTES and MEMTABLE_GARBAGE_BYTES,
+  // we insert 3 distinct K-V pairs NUM_REPEAT times.
+  // I chose NUM_REPEAT=20,000 such that no automatic flush is
+  // triggered (the number of bytes in the memtable is therefore
+  // well below any meaningful heuristic for a memtable of size 64MB).
+  // As a result, since each K-V pair is inserted as a payload
+  // of 18 meaningful bytes (sequence number, insertion type,
+  // key, and value = (8) + 4 + 6 = 18), MEMTABLE_DATA_BYTES
+  // should be equal to 20,000 * 3 * 18 = 1,080,000 bytes
+  // and MEMTABLE_GARBAGE_BYTES = MEMTABLE_DATA_BYTES - (3*18)
+  //                            = 1,079,946 bytes.
+
+  const size_t NUM_REPEAT = 20000;
+  const char KEY1[] = "key1";
+  const char KEY2[] = "key2";
+  const char KEY3[] = "key3";
+  const char VALUE1[] = "value1";
+  const char VALUE2[] = "value2";
+  const char VALUE3[] = "value3";
+  const uint64_t USEFUL_PAYLOAD_BYTES =  strlen(KEY1) + strlen(VALUE1)
+                                       + strlen(KEY2) + strlen(VALUE2)
+                                       + strlen(KEY3) + strlen(VALUE3)
+                                       + 3 * sizeof(uint64_t);
+  const uint64_t EXPECTED_MEMTABLE_DATA_BYTES = NUM_REPEAT * USEFUL_PAYLOAD_BYTES;
+  const uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES = (NUM_REPEAT-1) * USEFUL_PAYLOAD_BYTES;
+
+  // Insertion of of K-V pairs, multiple times.
+  for(size_t i=0; i<NUM_REPEAT; i++){
+    s = db->Put(WriteOptions(), KEY1, VALUE1);
+    assert(s.ok());
+    s = db->Put(WriteOptions(), KEY2, VALUE2);
+    assert(s.ok());
+    s = db->Put(WriteOptions(), KEY3, VALUE3);
     assert(s.ok());
   }
 
+  // We assert that the K-V pairs have been successfully inserted.
   std::string value;
-  s = db->Get(ReadOptions(), "key1", &value);
+  s = db->Get(ReadOptions(), KEY1, &value);
   assert(s.ok());
-  assert(value == "value1");
+  assert(value == VALUE1);
+  s = db->Get(ReadOptions(), KEY2, &value);
+  assert(s.ok());
+  assert(value == VALUE2);
+  s = db->Get(ReadOptions(), KEY3, &value);
+  assert(s.ok());
+  assert(value == VALUE3);
 
-  // Force any remaining flush.
+  // Force flush to SST. Increments the statistics counter.
   if (db != nullptr) {
     FlushOptions flush_opt;
     flush_opt.wait = true; // function returns once the flush is over.
     s = db->Flush(flush_opt);
+    assert(s.ok());
   }
 
-  std::string flushed, unflushed;
-  if (!db->GetProperty(ROCKSDB_NAMESPACE::DB::Properties::kCurSizeActiveMemTable, &unflushed)) {
-    unflushed = "(failed)";
-  }
-  if (!db->GetProperty(ROCKSDB_NAMESPACE::DB::Properties::kNumImmutableMemTableFlushed, &flushed)) {
-    flushed = "(failed)";
-  }
   uint64_t bytes_written = options.statistics->getTickerCount(BYTES_WRITTEN);
   uint64_t flush_write_bytes = options.statistics->getTickerCount(FLUSH_WRITE_BYTES);
   uint64_t mdb = options.statistics->getTickerCount(MEMTABLE_DATA_BYTES);
   uint64_t mgb = options.statistics->getTickerCount(MEMTABLE_GARBAGE_BYTES);
 
-  printf("Memtables yet to be flushed: %s, already flushed: %s\n", unflushed.c_str(), flushed.c_str());
   printf("Bytes written: %zu\n",bytes_written);
   printf("Flush write bytes: %zu\n",flush_write_bytes);
   printf("Memtable data bytes: %zu.\n",mdb);
   printf("Memtable garbage bytes: %zu.\n",mgb);
+  EXPECT_EQ(mdb, EXPECTED_MEMTABLE_DATA_BYTES);
+  EXPECT_EQ(mgb, EXPECTED_MEMTABLE_GARBAGE_BYTES);
 
-  // // atomically apply a set of updates
-  // {
-  //   WriteBatch batch;
-  //   batch.Delete("key1");
-  //   batch.Put("key2", value);
-  //   s = db->Write(WriteOptions(), &batch);
-  // }
-
-  // s = db->Get(ReadOptions(), "key1", &value);
-  // assert(s.IsNotFound());
   delete db;
 
   return 0;
