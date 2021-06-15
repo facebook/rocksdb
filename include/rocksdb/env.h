@@ -64,6 +64,7 @@ class ThreadStatusUpdater;
 struct ThreadStatus;
 class FileSystem;
 class SystemClock;
+struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -169,11 +170,43 @@ class Env {
   static const char* Type() { return "Environment"; }
 
   // Loads the environment specified by the input value into the result
+  // The CreateFromString alternative should be used; this method may be
+  // deprecated in a future release.
   static Status LoadEnv(const std::string& value, Env** result);
 
   // Loads the environment specified by the input value into the result
+  // The CreateFromString alternative should be used; this method may be
+  // deprecated in a future release.
   static Status LoadEnv(const std::string& value, Env** result,
                         std::shared_ptr<Env>* guard);
+
+  // Loads the environment specified by the input value into the result
+  // @see Customizable for a more detailed description of the parameters and
+  // return codes
+  //
+  // @param config_options Controls how the environment is loaded.
+  // @param value the name and associated properties for the environment.
+  // @param result On success, the environment that was loaded.
+  // @param guard If specified and the loaded environment is not static,
+  //      this value will contain the loaded environment (guard.get() ==
+  //      result).
+  // @return OK If the environment was successfully loaded (and optionally
+  // prepared)
+  // @return not-OK if the load failed.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value, Env** result);
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value, Env** result,
+                                 std::shared_ptr<Env>* guard);
+
+  // Loads the environment specified by the env and fs uri.
+  // If both are specified, an error is returned.
+  // Otherwise, the environment is created by loading (via CreateFromString)
+  // the appropriate env/fs from the corresponding values.
+  static Status CreateFromUri(const ConfigOptions& options,
+                              const std::string& env_uri,
+                              const std::string& fs_uri, Env** result,
+                              std::shared_ptr<Env>* guard);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

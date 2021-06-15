@@ -585,5 +585,21 @@ void DeleteDir(Env* env, const std::string& dirname) {
   TryDeleteDir(env, dirname).PermitUncheckedError();
 }
 
+Status CreateEnvFromSystem(const ConfigOptions& config_options, Env** result,
+                           std::shared_ptr<Env>* guard) {
+  const char* env_uri = getenv("TEST_ENV_URI");
+  const char* fs_uri = getenv("TEST_FS_URI");
+  if (env_uri || fs_uri) {
+    return Env::CreateFromUri(config_options,
+                              (env_uri != nullptr) ? env_uri : "",
+                              (fs_uri != nullptr) ? fs_uri : "", result, guard);
+  } else {
+    // Neither specified.  Use the default
+    *result = config_options.env;
+    guard->reset();
+    return Status::OK();
+  }
+}
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
