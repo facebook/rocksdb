@@ -1128,7 +1128,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   // inserted to the block cache. Thefore, block_1 is evicted from block
   // cache and successfully inserted to the secondary cache. Here are 2
   // lookups in the secondary cache for block_1 and block_2.
-  ASSERT_EQ(secondary_cache->num_inserts(), 0);
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 8u);
 
   cache->SetCapacity(0);
