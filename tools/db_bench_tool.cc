@@ -3452,7 +3452,6 @@ class Benchmark {
           Stats stats = RunBenchmark(num_threads, name, method);
           combined_stats.AddStats(stats);
         }
-        Flush();
         if (num_repeat > 1) {
           combined_stats.Report(name);
         }

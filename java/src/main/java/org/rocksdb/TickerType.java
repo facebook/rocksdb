@@ -753,9 +753,9 @@ public enum TickerType {
     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
 
     /**
-     * Raw bytes of data present on memtable at flush time.
+     * Bytes of raw data present on memtable at flush time.
      */
-    MEMTABLE_DATA_BYTES((byte) -0x1C)
+    MEMTABLE_DATA_BYTES((byte) -0x1C),
     /**
      * Outdated bytes of data present on memtable at flush time.
      */
