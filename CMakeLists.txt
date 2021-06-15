@@ -628,6 +628,7 @@ set(SOURCES
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
+        db/blob/blob_fetcher.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
@@ -1133,6 +1134,7 @@ if(WITH_TESTS)
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
+        db/compaction/clipping_iterator_test.cc
         db/compaction/compaction_job_stats_test.cc
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc

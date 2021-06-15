@@ -255,7 +255,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
       cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
       TableFileCreationReason::kMisc, 0 /* creation_time */,
       0 /* oldest_key_time */, 0 /* file_creation_time */,
-      "SST Writer" /* db_id */, db_session_id, 0 /* target_file_size */);
+      "SST Writer" /* db_id */, db_session_id, 0 /* target_file_size */, 0);
   // XXX: when we can remove skip_filters from the SstFileWriter public API
   // we can remove it from TableBuilderOptions.
   table_builder_options.skip_filters = r->skip_filters;
