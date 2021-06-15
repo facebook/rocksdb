@@ -21,17 +21,37 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
+  if (FLAGS_bloom_bits < 0) {
+    return BlockBasedTableOptions().filter_policy;
+  }
+  const FilterPolicy* new_policy;
+  if (FLAGS_use_ribbon_filter) {
+    // Old and new API should be same
+    if (std::random_device()() & 1) {
+      new_policy = NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits);
+    } else {
+      new_policy = NewRibbonFilterPolicy(FLAGS_bloom_bits);
+    }
+  } else {
+    if (FLAGS_use_block_based_filter) {
+      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
+    } else {
+      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
+    }
+  }
+  return std::shared_ptr<const FilterPolicy>(new_policy);
+}
+
+}  // namespace
+
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
-      filter_policy_(
-          FLAGS_bloom_bits >= 0
-              ? FLAGS_use_ribbon_filter
-                    ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
-                    : FLAGS_use_block_based_filter
-                          ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
-                          : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
-              : nullptr),
+      filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
