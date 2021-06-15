@@ -177,9 +177,11 @@ IOStatus WritableFileWriter::Append(const Slice& data,
   if (use_direct_io() || (buf_.Capacity() - buf_.CurrentSize()) >= left) {
     if ((buf_.Capacity() - buf_.CurrentSize()) >= left) {
       size_t appended = buf_.Append(src, left);
+      if (appended != left) {
+        s = IOStatus::Corruption("Write buffer append failure");
+      }
       buffered_data_crc32c_checksum_ = crc32c::Crc32cCombine(
-          buffered_data_crc32c_checksum_, crc32c_checksum, left);
-      assert(appended == left);
+          buffered_data_crc32c_checksum_, crc32c_checksum, appended);
     } else {
       while (left > 0) {
         size_t appended = buf_.Append(src, left);
