@@ -461,6 +461,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->next = e->prev = nullptr;
       e->SetPriority(priority);
       memcpy(e->key_data, key.data(), key.size());
+      e->value = nullptr;
       e->sec_handle = secondary_handle.release();
 
       if (wait) {
@@ -670,8 +671,7 @@ const CacheShard* LRUCache::GetShard(uint32_t shard) const {
 }
 
 void* LRUCache::Value(Handle* handle) {
-  const LRUHandle* lru_handle = reinterpret_cast<const LRUHandle*>(handle);
-  return !lru_handle->IsPending() ? lru_handle->value : nullptr;
+  return reinterpret_cast<const LRUHandle*>(handle)->value;
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {

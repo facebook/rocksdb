@@ -49,17 +49,19 @@ namespace ROCKSDB_NAMESPACE {
 // (to move into state 3).
 
 struct LRUHandle {
-  union {
-    void* value;
-    SecondaryCacheResultHandle* sec_handle;
-  };
+  void* value;
   union Info {
     Info() {}
     ~Info() {}
     Cache::DeleterFn deleter;
     const ShardedCache::CacheItemHelper* helper;
   } info_;
-  LRUHandle* next_hash;
+  // An entry is not added to the LRUHandleTable until the secondary cache
+  // lookup is complete, so its safe to have this union.
+  union {
+    LRUHandle* next_hash;
+    SecondaryCacheResultHandle* sec_handle;
+  };
   LRUHandle* next;
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
