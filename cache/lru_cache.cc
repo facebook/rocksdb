@@ -393,11 +393,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   // strict_capacity_limit_ is true. In such a case, we don't want
   // InsertItem() to free the handle, since the item is already in memory
   // and the caller will most likely just read from disk if we erase it here.
-  Status s;
   if (e->value) {
     Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
-    ;
-    s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
+    Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
     if (s.ok()) {
       // InsertItem would have taken a reference on the item, so decrement it
       // here as we expect the caller to already hold a reference

@@ -1059,7 +1059,7 @@ TEST_F(LRUSecondaryCacheTest, BasicWaitAllTest) {
   }
   // Force all entries to be evicted to the secondary cache
   cache->SetCapacity(0);
-  ASSERT_EQ(secondary_cache->num_inserts(), 32);
+  ASSERT_EQ(secondary_cache->num_inserts(), 32u);
   cache->SetCapacity(32 * 1024);
 
   secondary_cache->SetResultMap(
