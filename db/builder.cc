@@ -69,7 +69,8 @@ Status BuildTable(
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries) {
+    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
+    uint64_t* raw_bytes_written) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -246,6 +247,9 @@ Status BuildTable(
     }
     if (io_status->ok()) {
       *io_status = builder->io_status();
+    }
+    if (raw_bytes_written != nullptr) {
+      *raw_bytes_written = builder->RawDataSize();
     }
 
     if (s.ok() && !empty) {

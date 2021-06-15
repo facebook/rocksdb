@@ -1621,6 +1621,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "memtable_garbage_test",
+        "util/memtable_garbage_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "histogram_test",
         "monitoring/histogram_test.cc",
         "parallel",

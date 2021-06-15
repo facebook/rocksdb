@@ -66,6 +66,7 @@ extern Status BuildTable(
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,
     BlobFileCompletionCallback* blob_callback = nullptr,
-    uint64_t* num_input_entries = nullptr);
+    uint64_t* num_input_entries = nullptr,
+    uint64_t* raw_bytes_written = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

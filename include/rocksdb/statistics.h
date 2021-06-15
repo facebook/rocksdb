@@ -204,6 +204,7 @@ enum Tickers : uint32_t {
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
   FLUSH_WRITE_BYTES,    // Bytes written during flush
+  MEMTABLE_GARBAGE_BYTES,    // Outdated bytes present on memtable during flush.
 
   // Compaction read and write statistics broken down by CompactionReason
   COMPACT_READ_BYTES_MARKED,

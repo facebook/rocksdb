@@ -81,6 +81,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  // Size of the data contained in the file generated so far, before compression.
+  uint64_t RawDataSize() const override;
+
   // Estimated size of the file generated so far. This is used when
   // FileSize() cannot estimate final SST size, e.g. parallel compression
   // is enabled.

@@ -229,6 +229,9 @@ class TableBuilder {
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
 
+  // Size of the data in the file generated so far, before compression.
+  virtual uint64_t RawDataSize() const { return FileSize(); };
+
   // Estimated size of the file generated so far. This is used when
   // FileSize() cannot estimate final SST size, e.g. parallel compression
   // is enabled.
