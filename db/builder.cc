@@ -70,7 +70,7 @@ Status BuildTable(
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
-    uint64_t* raw_bytes_written) {
+    uint64_t* memtable_data_bytes, uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -248,9 +248,6 @@ Status BuildTable(
     if (io_status->ok()) {
       *io_status = builder->io_status();
     }
-    if (raw_bytes_written != nullptr) {
-      *raw_bytes_written = builder->RawDataSize();
-    }
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
@@ -258,6 +255,16 @@ Status BuildTable(
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
+      if (memtable_data_bytes != nullptr && memtable_garbage_bytes != nullptr) {
+        const CompactionIterationStats& ci_stats = c_iter.iter_stats();
+        *memtable_data_bytes =  ci_stats.total_input_raw_key_bytes
+                              + ci_stats.total_input_raw_value_bytes;
+        *memtable_garbage_bytes =   (*memtable_data_bytes)
+                                  - (tp.raw_key_size + tp.raw_value_size);
+        // *raw_bytes_written = builder->RawDataSize();
+        // const TableProperties& tp = builder->GetTableProperties();
+        // *raw_bytes_written = tp.raw_key_size + tp.raw_value_size;
+      }
       if (table_properties) {
         *table_properties = tp;
       }

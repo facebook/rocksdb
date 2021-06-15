@@ -752,11 +752,14 @@ public enum TickerType {
     ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x1A),
     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
 
-
     /**
-     * Outdated bytes present on memtable during flush.
+     * Raw bytes of data present on memtable at flush time.
      */
-    MEMTABLE_GARBAGE_BYTES((byte) -0x1C),
+    MEMTABLE_DATA_BYTES((byte) -0x1C)
+    /**
+     * Outdated bytes of data present on memtable at flush time.
+     */
+    MEMTABLE_GARBAGE_BYTES((byte) -0x1D),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
