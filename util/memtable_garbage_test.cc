@@ -14,7 +14,7 @@
 using namespace ROCKSDB_NAMESPACE;
 
 #if defined(OS_WIN)
-std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_simple_example";
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_memtable_garbage_test";
 #else
 std::string kDBPath = "/tmp/rocksdb_memtable_garbage_test";
 #endif
