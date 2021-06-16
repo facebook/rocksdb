@@ -69,10 +69,6 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
       source "$PWD/build_tools/fbcode_config_platform007.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
       source "$PWD/build_tools/fbcode_config_platform009.sh"
-    elif [ -z "$USE_CLANG" ]; then
-        # Still use platform007 for gcc by default for build break on
-        # some hosts.
-      source "$PWD/build_tools/fbcode_config_platform007.sh"
     else
       source "$PWD/build_tools/fbcode_config_platform009.sh"
     fi

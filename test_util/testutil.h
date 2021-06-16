@@ -865,5 +865,9 @@ Status TryDeleteDir(Env* env, const std::string& dirname);
 // Delete a directory if it exists
 void DeleteDir(Env* env, const std::string& dirname);
 
+// Creates an Env from the system environment by looking at the system
+// environment variables.
+Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
+                           std::shared_ptr<Env>* guard);
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

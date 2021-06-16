@@ -907,13 +907,6 @@ Status DBImpl::GetStatsHistory(
 void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:1");
 #ifndef ROCKSDB_LITE
-  const DBPropertyInfo* cf_property_info =
-      GetPropertyInfo(DB::Properties::kCFStats);
-  assert(cf_property_info != nullptr);
-  const DBPropertyInfo* db_property_info =
-      GetPropertyInfo(DB::Properties::kDBStats);
-  assert(db_property_info != nullptr);
-
   std::string stats;
   if (shutdown_initiated_) {
     return;
@@ -921,18 +914,29 @@ void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
-    default_cf_internal_stats_->GetStringProperty(
-        *db_property_info, DB::Properties::kDBStats, &stats);
+    const std::string* property = &DB::Properties::kDBStats;
+    const DBPropertyInfo* property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
+    default_cf_internal_stats_->GetStringProperty(*property_info, *property,
+                                                  &stats);
+
+    property = &DB::Properties::kCFStatsNoFileHistogram;
+    property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
+        cfd->internal_stats()->GetStringProperty(*property_info, *property,
+                                                 &stats);
       }
     }
+
+    property = &DB::Properties::kCFFileHistogram;
+    property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
+        cfd->internal_stats()->GetStringProperty(*property_info, *property,
+                                                 &stats);
       }
     }
   }

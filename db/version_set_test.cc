@@ -11,6 +11,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
@@ -704,15 +705,10 @@ class VersionSetTestBase {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &env_, &env_guard_);
-      EXPECT_OK(s);
-    } else if (getenv("MEM_ENV")) {
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
+    if (env_ == Env::Default() && getenv("MEM_ENV")) {
       env_guard_.reset(NewMemEnv(Env::Default()));
       env_ = env_guard_.get();
-    } else {
-      env_ = Env::Default();
     }
     EXPECT_NE(nullptr, env_);
 
