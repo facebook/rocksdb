@@ -507,7 +507,8 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 
 class InnerCustomizable : public Customizable {
  public:
-  InnerCustomizable(const std::shared_ptr<Customizable>& w) : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
+      : inner_(w) {}
   static const char* kClassName() { return "Inner"; }
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
@@ -526,7 +527,7 @@ class InnerCustomizable : public Customizable {
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
-  WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
+  explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
@@ -534,7 +535,7 @@ class WrappedCustomizable1 : public InnerCustomizable {
 
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
-  WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
+  explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
