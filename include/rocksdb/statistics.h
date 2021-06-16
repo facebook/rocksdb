@@ -204,9 +204,6 @@ enum Tickers : uint32_t {
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
   FLUSH_WRITE_BYTES,    // Bytes written during flush
-  MEMTABLE_DATA_BYTES,  // Raw bytes of data present on memtable at flush time.
-  MEMTABLE_GARBAGE_BYTES,  // Outdated bytes of data present on memtable at
-                           // flush time.
 
   // Compaction read and write statistics broken down by CompactionReason
   COMPACT_READ_BYTES_MARKED,
@@ -385,6 +382,12 @@ enum Tickers : uint32_t {
   ERROR_HANDLER_AUTORESUME_COUNT,
   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+
+  // Statistics for memtable garbage collection:
+  // Raw bytes of data present on memtable at flush time.
+  MEMTABLE_DATA_BYTES,
+  // Outdated bytes of data present on memtable at flush time.
+  MEMTABLE_GARBAGE_BYTES,
 
   TICKER_ENUM_MAX
 };
