@@ -287,16 +287,6 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   return nullptr;
 }
 
-static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
-  return composite_env.get();
-}
-
-static Env* GetCompositeBackupEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_backup_env = NewCompositeEnv(fs);
-  return composite_backup_env.get();
-}
-
 /* Run the command, and return the execute result. */
 void LDBCommand::Run() {
   if (!exec_state_.IsNotStarted()) {
@@ -305,33 +295,13 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-
-    if (!env_uri_.empty() && !fs_uri_.empty()) {
-      std::string err =
-          "Error: you may not specity both "
-          "fs_uri and fs_env.";
-      fprintf(stderr, "%s\n", err.c_str());
-      exec_state_ = LDBCommandExecuteResult::Failed(err);
+    Status s = Env::CreateFromUri(config_options_, env_uri_, fs_uri_, &env,
+                                  &env_guard_);
+    if (!s.ok()) {
+      fprintf(stderr, "%s\n", s.ToString().c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    if (!env_uri_.empty()) {
-      Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-      if (!s.ok() && !s.IsNotFound()) {
-        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
-        return;
-      }
-    } else if (!fs_uri_.empty()) {
-      std::shared_ptr<FileSystem> fs;
-      Status s = FileSystem::Load(fs_uri_, &fs);
-      if (fs == nullptr) {
-        fprintf(stderr, "error: %s\n", s.ToString().c_str());
-        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
-        return;
-      }
-      env = GetCompositeEnv(fs);
-    }
-
     options_.env = env;
   }
 
@@ -3218,19 +3188,17 @@ void BackupCommand::DoCommand() {
   }
   fprintf(stdout, "open db OK\n");
 
-  Env* custom_env = nullptr;
-  if (!backup_fs_uri_.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(backup_fs_uri_, &fs);
-    if (fs == nullptr) {
+  Env* custom_env = backup_env_guard_.get();
+  if (custom_env == nullptr) {
+    Status s =
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
+    if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    custom_env = GetCompositeBackupEnv(fs);
-  } else {
-    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-    assert(custom_env != nullptr);
   }
+  assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
@@ -3265,19 +3233,17 @@ void RestoreCommand::Help(std::string& ret) {
 }
 
 void RestoreCommand::DoCommand() {
-  Env* custom_env = nullptr;
-  if (!backup_fs_uri_.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(backup_fs_uri_, &fs);
-    if (fs == nullptr) {
+  Env* custom_env = backup_env_guard_.get();
+  if (custom_env == nullptr) {
+    Status s =
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
+    if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    custom_env = GetCompositeBackupEnv(fs);
-  } else {
-    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-    assert(custom_env != nullptr);
   }
+  assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;

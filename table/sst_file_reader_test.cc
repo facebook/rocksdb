@@ -5,11 +5,13 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/sst_file_reader.h"
+
 #include <cinttypes>
 
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
@@ -37,14 +39,8 @@ class SstFileReaderTest : public testing::Test {
     sst_name_ = test::PerThreadDBPath("sst_file");
 
     Env* base_env = Env::Default();
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if(test_env_uri) {
-      Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-      base_env = test_env;
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = base_env;
     options_.env = env_;

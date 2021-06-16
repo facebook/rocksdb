@@ -140,11 +140,15 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
 // and a number of wrapper implementations.
 class DB {
  public:
-  // Open the database with the specified "name".
+  // Open the database with the specified "name" for reads and writes.
   // Stores a pointer to a heap-allocated database in *dbptr and returns
   // OK on success.
-  // Stores nullptr in *dbptr and returns a non-OK status on error.
-  // Caller should delete *dbptr when it is no longer needed.
+  // Stores nullptr in *dbptr and returns a non-OK status on error, including
+  // if the DB is already open (read-write) by another DB object. (This
+  // guarantee depends on options.env->LockFile(), which might not provide
+  // this guarantee in a custom Env implementation.)
+  //
+  // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
@@ -152,6 +156,12 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -164,6 +174,12 @@ class DB {
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
   // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.

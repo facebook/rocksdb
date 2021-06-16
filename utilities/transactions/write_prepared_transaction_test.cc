@@ -2587,7 +2587,6 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
@@ -2607,13 +2606,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
   // Add a flush to avoid compaction to fallback to trivial move.
 
-  // The callback might be called twice, record the calling state to
-  // prevent double calling.
-  bool callback_finished = false;
   auto callback = [&](void*) {
-    if (callback_finished) {
-      return;
-    }
     // Release snapshot1 after CompactionIterator init.
     // CompactionIterator need to figure out the earliest snapshot
     // that can see key1:value1_2 is kMaxSequenceNumber, not
@@ -2622,7 +2615,6 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
     // Add some keys to advance max_evicted_seq.
     ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
     ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
-    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
@@ -2644,7 +2636,6 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
@@ -2695,7 +2686,6 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // commit cache size = 2
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   // Add a dummy key to evict v2 commit cache, but keep v1 commit cache.
@@ -2725,18 +2715,11 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   add_dummy();
   auto* s2 = db->GetSnapshot();
 
-  // The callback might be called twice, record the calling state to
-  // prevent double calling.
-  bool callback_finished = false;
   auto callback = [&](void*) {
-    if (callback_finished) {
-      return;
-    }
     db->ReleaseSnapshot(s1);
     // Add some dummy entries to trigger s1 being cleanup from old_commit_map.
     add_dummy();
     add_dummy();
-    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
@@ -2754,7 +2737,6 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
-  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
