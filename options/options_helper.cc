@@ -576,12 +576,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
-    case OptionType::kMemTableRepFactory: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<MemTableRepFactory>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kMergeOperator: {
       const auto* ptr =
           static_cast<const std::shared_ptr<MergeOperator>*>(opt_address);

@@ -24,7 +24,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -189,7 +188,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
         num_entries_flush_);
   }
-  virtual const char* Name() const override { return "SkipListFactory"; }
+  virtual const char* Name() const override { return "SpecialSkipListFactory"; }
 
   bool IsInsertConcurrentlySupported() const override {
     return factory_.IsInsertConcurrentlySupported();

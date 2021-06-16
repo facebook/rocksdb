@@ -1096,14 +1096,14 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
 
   ASSERT_OK(GetMemTableRepFactoryFromString("skip_list", &new_mem_factory));
   ASSERT_OK(GetMemTableRepFactoryFromString("skip_list:16", &new_mem_factory));
-  ASSERT_EQ(std::string(new_mem_factory->Name()), "SkipListFactory");
+  ASSERT_STREQ(new_mem_factory->Name(), "SkipListFactory");
   ASSERT_NOK(GetMemTableRepFactoryFromString("skip_list:16:invalid_opt",
                                              &new_mem_factory));
 
   ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash", &new_mem_factory));
   ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash:1000",
                                             &new_mem_factory));
-  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashSkipListRepFactory");
+  ASSERT_STREQ(new_mem_factory->Name(), "HashSkipListRepFactory");
   ASSERT_NOK(GetMemTableRepFactoryFromString("prefix_hash:1000:invalid_opt",
                                              &new_mem_factory));
 
