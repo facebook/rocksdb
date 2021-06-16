@@ -3,25 +3,41 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <cstdio>
-#include <string>
+#include "db/db_test_util.h"
 
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "test_util/testharness.h"
+namespace ROCKSDB_NAMESPACE {
 
-using namespace ROCKSDB_NAMESPACE;
+// ======= General Information ======= (from GitHub Wiki).
+// There are three scenarios where memtable flush can be triggered:
+//
+// 1 - Memtable size exceeds ColumnFamilyOptions::write_buffer_size
+//     after a write.
+// 2 - Total memtable size across all column families exceeds
+// DBOptions::db_write_buffer_size,
+//     or DBOptions::write_buffer_manager signals a flush. In this scenario
+//     the largest memtable will be flushed.
+// 3 - Total WAL file size exceeds DBOptions::max_total_wal_size.
+//     In this scenario the memtable with the oldest data will be flushed,
+//     in order to allow the WAL file with data from this memtable to be
+//     purged.
+//
+// As a result, a memtable can be flushed before it is full. This is one
+// reason the generated SST file can be smaller than the corresponding
+// memtable. Compression is another factor to make SST file smaller than
+// corresponding memtable, since data in memtable is uncompressed.
 
-#if defined(OS_WIN)
-std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_memtable_garbage_test";
-#else
-std::string kDBPath = "/tmp/rocksdb_memtable_garbage_test";
-#endif
+class MemtableGarbageTest
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  MemtableGarbageTest() : DBTestBase("/memtable_garbage_test", true) {}
+};
 
-int main() {
-  DB* db;
-  Options options;
+INSTANTIATE_TEST_CASE_P(MemtableGarbageTest, MemtableGarbageTest,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
+TEST_P(MemtableGarbageTest, Basic) {
+  Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();
 
   // Record all statistics.
@@ -47,28 +63,7 @@ int main() {
   // Enforce size of a single MemTable to 64MB. (64<<6)
   options.write_buffer_size = 67108864;
 
-  // ======= General Information ======= (from GitHub Wiki).
-  // There are three scenarios where memtable flush can be triggered:
-  //
-  // 1 - Memtable size exceeds ColumnFamilyOptions::write_buffer_size
-  //     after a write.
-  // 2 - Total memtable size across all column families exceeds
-  // DBOptions::db_write_buffer_size,
-  //     or DBOptions::write_buffer_manager signals a flush. In this scenario
-  //     the largest memtable will be flushed.
-  // 3 - Total WAL file size exceeds DBOptions::max_total_wal_size.
-  //     In this scenario the memtable with the oldest data will be flushed,
-  //     in order to allow the WAL file with data from this memtable to be
-  //     purged.
-  //
-  // As a result, a memtable can be flushed before it is full. This is one
-  // reason the generated SST file can be smaller than the corresponding
-  // memtable. Compression is another factor to make SST file smaller than
-  // corresponding memtable, since data in memtable is uncompressed.
-
-  // open DB
-  Status s = DB::Open(options, kDBPath, &db);
-  assert(s.ok());
+  ASSERT_OK(TryReopen(options));
 
   // Put multiple times the same key-values.
   // The encoded length of a db entry in the memtable is
@@ -124,32 +119,24 @@ int main() {
 
   // Insertion of of K-V pairs, multiple times.
   for (size_t i = 0; i < NUM_REPEAT; i++) {
-    s = db->Put(WriteOptions(), KEY1, VALUE1);
-    assert(s.ok());
-    s = db->Put(WriteOptions(), KEY2, VALUE2);
-    assert(s.ok());
-    s = db->Put(WriteOptions(), KEY3, VALUE3);
-    assert(s.ok());
+    ASSERT_OK(db_->Put(WriteOptions(), KEY1, VALUE1));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY2, VALUE2));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY3, VALUE3));
   }
-
   // We assert that the K-V pairs have been successfully inserted.
   std::string value;
-  s = db->Get(ReadOptions(), KEY1, &value);
-  assert(s.ok());
-  assert(value == VALUE1);
-  s = db->Get(ReadOptions(), KEY2, &value);
-  assert(s.ok());
-  assert(value == VALUE2);
-  s = db->Get(ReadOptions(), KEY3, &value);
-  assert(s.ok());
-  assert(value == VALUE3);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY1, &value));
+  ASSERT_EQ(value, VALUE1);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY2, &value));
+  ASSERT_EQ(value, VALUE2);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY3, &value));
+  ASSERT_EQ(value, VALUE3);
 
   // Force flush to SST. Increments the statistics counter.
-  if (db != nullptr) {
+  if (db_ != nullptr) {
     FlushOptions flush_opt;
     flush_opt.wait = true;  // function returns once the flush is over.
-    s = db->Flush(flush_opt);
-    assert(s.ok());
+    ASSERT_OK(db_->Flush(flush_opt));
   }
 
   // Collect statistics.
@@ -161,7 +148,12 @@ int main() {
   EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_DATA_BYTES);
   EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES);
 
-  delete db;
+  Close();
+}
 
-  return 0;
+}  // namespace ROCKSDB_NAMESPACE
+
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
