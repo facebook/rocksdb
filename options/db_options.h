@@ -75,6 +75,7 @@ struct ImmutableDBOptions {
   WalFilter* wal_filter;
 #endif  // ROCKSDB_LITE
   bool fail_if_options_file_error;
+  bool use_options_file;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;

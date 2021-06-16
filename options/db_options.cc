@@ -284,6 +284,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, fail_if_options_file_error),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"use_options_file",
+         {offsetof(struct ImmutableDBOptions, use_options_file),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"enable_pipelined_write",
          {offsetof(struct ImmutableDBOptions, enable_pipelined_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -554,6 +558,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_filter(options.wal_filter),
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
+      use_options_file(options.use_options_file),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
