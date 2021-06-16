@@ -2554,7 +2554,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 }  // anonymous namespace
 
 void VersionStorageInfo::ComputeCompactionScore(
-    const ImmutableOptions& immutable_cf_options,
+    const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
@@ -2606,7 +2606,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         if (mutable_cf_options.ttl > 0) {
           score = std::max(
               static_cast<double>(GetExpiredTtlFilesCount(
-                  immutable_cf_options, mutable_cf_options, files_[level])),
+                  immutable_options, mutable_cf_options, files_[level])),
               score);
         }
 
@@ -2618,7 +2618,7 @@ void VersionStorageInfo::ComputeCompactionScore(
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
           uint64_t l0_target_size = mutable_cf_options.max_bytes_for_level_base;
-          if (immutable_cf_options.level_compaction_dynamic_level_bytes &&
+          if (immutable_options.level_compaction_dynamic_level_bytes &&
               level_multiplier_ != 0.0) {
             // Prevent L0 to Lbase fanout from growing larger than
             // `level_multiplier_`. This prevents us from getting stuck picking
@@ -2666,11 +2666,11 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
+    ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   }
   if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
-        immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
+        immutable_options, mutable_cf_options.periodic_compaction_seconds);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
