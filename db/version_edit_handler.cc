@@ -909,7 +909,10 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
       fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
     }
     assert(cfd->current());
-    fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
+
+    // Print out DebugStrings. Can include non-terminating null characters.
+    fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
+           cfd->current()->DebugString(hex_).size(), stdout);
   }
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64

@@ -532,7 +532,8 @@ class ColumnFamilyData {
                    const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
-                   const std::shared_ptr<IOTracer>& io_tracer);
+                   const std::shared_ptr<IOTracer>& io_tracer,
+                   const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -668,7 +669,8 @@ class ColumnFamilySet {
                   WriteBufferManager* _write_buffer_manager,
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
-                  const std::shared_ptr<IOTracer>& io_tracer);
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const std::string& db_session_id);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -733,6 +735,7 @@ class ColumnFamilySet {
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::string db_session_id_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access

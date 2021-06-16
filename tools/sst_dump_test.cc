@@ -10,11 +10,12 @@
 #ifndef ROCKSDB_LITE
 
 #include <stdint.h>
-#include "rocksdb/sst_dump_tool.h"
 
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/sst_dump_tool.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
@@ -56,10 +57,7 @@ class SSTDumpToolTest : public testing::Test {
 
  public:
   SSTDumpToolTest() : env_(Env::Default()) {
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Env::LoadEnv(test_env_uri, &env_, &env_guard_);
-    }
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
     test_dir_ = test::PerThreadDBPath(env_, "sst_dump_test_db");
     Status s = env_->CreateDirIfMissing(test_dir_);
     EXPECT_OK(s);

@@ -16,6 +16,7 @@
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -582,11 +583,18 @@ Status Env::NewLogger(const std::string& fname,
 }
 
 Status Env::LoadEnv(const std::string& value, Env** result) {
+  return CreateFromString(ConfigOptions(), value, result);
+}
+
+Status Env::CreateFromString(const ConfigOptions& config_options,
+                             const std::string& value, Env** result) {
   Env* env = *result;
   Status s;
 #ifndef ROCKSDB_LITE
+  (void)config_options;
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
 #else
+  (void)config_options;
   s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   if (s.ok()) {
@@ -597,18 +605,29 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 
 Status Env::LoadEnv(const std::string& value, Env** result,
                     std::shared_ptr<Env>* guard) {
+  return CreateFromString(ConfigOptions(), value, result, guard);
+}
+
+Status Env::CreateFromString(const ConfigOptions& config_options,
+                             const std::string& value, Env** result,
+                             std::shared_ptr<Env>* guard) {
   assert(result);
+  if (value.empty()) {
+    *result = Env::Default();
+    return Status::OK();
+  }
   Status s;
 #ifndef ROCKSDB_LITE
   Env* env = nullptr;
   std::unique_ptr<Env> uniq_guard;
   std::string err_msg;
   assert(guard != nullptr);
+  (void)config_options;
   env = ObjectRegistry::NewInstance()->NewObject<Env>(value, &uniq_guard,
                                                       &err_msg);
   if (!env) {
-    s = Status::NotFound(std::string("Cannot load ") + Env::Type() + ": " +
-                         value);
+    s = Status::NotSupported(std::string("Cannot load ") + Env::Type() + ": " +
+                             value);
     env = Env::Default();
   }
   if (s.ok() && uniq_guard) {
@@ -618,11 +637,36 @@ Status Env::LoadEnv(const std::string& value, Env** result,
     *result = env;
   }
 #else
+  (void)config_options;
   (void)result;
   (void)guard;
   s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   return s;
+}
+
+Status Env::CreateFromUri(const ConfigOptions& config_options,
+                          const std::string& env_uri, const std::string& fs_uri,
+                          Env** result, std::shared_ptr<Env>* guard) {
+  *result = config_options.env;
+  if (env_uri.empty() && fs_uri.empty()) {
+    // Neither specified.  Use the default
+    guard->reset();
+    return Status::OK();
+  } else if (!env_uri.empty() && !fs_uri.empty()) {
+    // Both specified.  Cannot choose.  Return Invalid
+    return Status::InvalidArgument("cannot specify both fs_uri and env_uri");
+  } else if (fs_uri.empty()) {  // Only have an ENV URI.  Create an Env from it
+    return CreateFromString(config_options, env_uri, result, guard);
+  } else {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::CreateFromString(config_options, fs_uri, &fs);
+    if (s.ok()) {
+      guard->reset(new CompositeEnvWrapper(*result, fs));
+      *result = guard->get();
+    }
+    return s;
+  }
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {

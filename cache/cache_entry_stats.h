@@ -52,19 +52,29 @@ template <class Stats>
 class CacheEntryStatsCollector {
  public:
   // Gathers stats and saves results into `stats`
-  void GetStats(Stats *stats, int maximum_age_in_seconds = 180) {
+  //
+  // Maximum allowed age for a "hit" on saved results is determined by the
+  // two interval parameters. Both set to 0 forces a re-scan. For example
+  // with min_interval_seconds=300 and min_interval_factor=100, if the last
+  // scan took 10s, we would only rescan ("miss") if the age in seconds of
+  // the saved results is > max(300, 100*10).
+  // Justification: scans can vary wildly in duration, e.g. from 0.02 sec
+  // to as much as 20 seconds, so we want to be able to cap the absolute
+  // and relative frequency of scans.
+  void GetStats(Stats *stats, int min_interval_seconds,
+                int min_interval_factor) {
     // Waits for any pending reader or writer (collector)
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Maximum allowed age is nominally given by the parameter
     uint64_t max_age_micros =
-        static_cast<uint64_t>(std::min(maximum_age_in_seconds, 0)) * 1000000U;
-    // But we will re-scan more frequently if it means scanning < 1%
-    // of the time and no more than once per second.
-    max_age_micros = std::min(
-        max_age_micros,
-        std::max(uint64_t{1000000},
-                 100U * (last_end_time_micros_ - last_start_time_micros_)));
+        static_cast<uint64_t>(std::max(min_interval_seconds, 0)) * 1000000U;
+
+    if (last_end_time_micros_ > last_start_time_micros_ &&
+        min_interval_factor > 0) {
+      max_age_micros = std::max(
+          max_age_micros, min_interval_factor * (last_end_time_micros_ -
+                                                 last_start_time_micros_));
+    }
 
     uint64_t start_time_micros = clock_->NowMicros();
     if ((start_time_micros - last_end_time_micros_) > max_age_micros) {
@@ -72,6 +82,8 @@ class CacheEntryStatsCollector {
       saved_stats_.BeginCollection(cache_, clock_, start_time_micros);
 
       cache_->ApplyToAllEntries(saved_stats_.GetEntryCallback(), {});
+      TEST_SYNC_POINT_CALLBACK(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries", nullptr);
 
       uint64_t end_time_micros = clock_->NowMicros();
       last_end_time_micros_ = end_time_micros;
@@ -113,7 +125,8 @@ class CacheEntryStatsCollector {
         // usage to go flaky. Fix the problem somehow so we can use an
         // accurate charge.
         size_t charge = 0;
-        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h);
+        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h,
+                                 Cache::Priority::HIGH);
         if (!s.ok()) {
           assert(h == nullptr);
           return s;
