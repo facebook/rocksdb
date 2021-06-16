@@ -263,8 +263,6 @@ Status MemTableRepFactory::CreateFromString(
     (*result)->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
   }
 #endif
-  if (opt_map.empty()) {
-  }
   if (value.empty()) {
     // No Id and no options.  Clear the object
     result->reset();
@@ -283,21 +281,11 @@ Status MemTableRepFactory::CreateFromString(
                opts_list[0] == SkipListFactory::kClassName()) {
       // Expecting format
       // skip_list:<lookahead>
-      if (2 == len) {
+      if (opts_list.size() == 2) {
         size_t lookahead = ParseSizeT(opts_list[1]);
         result->reset(new SkipListFactory(lookahead));
-      } else if (1 == len) {
+      } else {
         result->reset(new SkipListFactory());
-      }
-    } else if (opts_list[0] == "vector" ||
-               opts_list[0] == VectorRepFactory::kClassName()) {
-      // Expecting format
-      // vector:<count>
-      if (2 == len) {
-        size_t count = ParseSizeT(opts_list[1]);
-        result->reset(new VectorRepFactory(count));
-      } else if (1 == len) {
-        result->reset(new VectorRepFactory());
       }
     } else if (opts_list[0] == "cuckoo") {
       status = Status::NotSupported(
@@ -362,5 +350,5 @@ const std::string PlainTablePropertyNames::kBloomVersion =
 const std::string PlainTablePropertyNames::kNumBloomBlocks =
     "rocksdb.plain.table.bloom.numblocks";
 
-}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
+}  // namespace ROCKSDB_NAMESPACE
