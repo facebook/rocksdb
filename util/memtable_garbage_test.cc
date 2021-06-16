@@ -16,14 +16,14 @@ using namespace ROCKSDB_NAMESPACE;
 #if defined(OS_WIN)
 std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_simple_example";
 #else
-// std::string kDBPath = "/tmp/rocksdb_memtable_garbage_test";
-std::string kDBPath = "./rocksdb_memtable_garbage_test";
+std::string kDBPath = "/tmp/rocksdb_memtable_garbage_test";
 #endif
 
 int main() {
   DB* db;
   Options options;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = CreateDBStatistics();
+
   // Record all statistics.
   options.statistics->set_stats_level(StatsLevel::kAll);
 
@@ -32,7 +32,7 @@ int main() {
 
   // Useful for now as we are trying to compare uncompressed data savings on
   // flush().
-  options.compression = rocksdb::kNoCompression;
+  options.compression = kNoCompression;
 
   // Prevent memtable in place updates. Should already be disabled
   // (from Wiki:
