@@ -1720,7 +1720,7 @@ ROCKS_TESTS = [
     ],
     [
         "memtable_garbage_test",
-        "util/memtable_garbage_test.cc",
+        "memtable/memtable_garbage_test.cc",
         "parallel",
         [],
         [],

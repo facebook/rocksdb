@@ -479,6 +479,7 @@ TEST_MAIN_SOURCES =                                                     \
   memory/arena_test.cc                                                  \
   memory/memkind_kmem_allocator_test.cc                                 \
   memtable/inlineskiplist_test.cc                                       \
+  memtable/memtable_garbage_test.cc                                         \
   memtable/skiplist_test.cc                                             \
   memtable/write_buffer_manager_test.cc                                 \
   monitoring/histogram_test.cc                                          \
@@ -521,7 +522,6 @@ TEST_MAIN_SOURCES =                                                     \
   util/file_reader_writer_test.cc                                       \
   util/hash_test.cc                                                     \
   util/heap_test.cc                                                     \
-  util/memtable_garbage_test.cc                                         \
   util/random_test.cc                                                   \
   util/rate_limiter_test.cc                                             \
   util/repeatable_thread_test.cc                                        \
