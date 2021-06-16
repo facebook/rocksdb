@@ -34,8 +34,6 @@ class MemtableGarbageTest : public DBTestBase {
   MemtableGarbageTest() : DBTestBase("/memtable_garbage_test", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(MemtableGarbageTest, MemtableGarbageTest);
-
 TEST_F(MemtableGarbageTest, Basic) {
   Options options = CurrentOptions();
 
@@ -58,11 +56,11 @@ TEST_F(MemtableGarbageTest, Basic) {
   // (from Wiki:
   //  In place updates can be enabled by toggling on the bool
   //  inplace_update_support flag. However, this flag is by default set to
-  false
-      //  because this thread-safe in-place update support is not compatible
-      //  with concurrent memtable writes. Note that the bool
-      //  allow_concurrent_memtable_write is set to true by default )
-      options.inplace_update_support = false;
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
@@ -74,53 +72,53 @@ TEST_F(MemtableGarbageTest, Basic) {
   // The encoded length of a db entry in the memtable is
   // defined in db/memtable.cc (MemTable::Add) as the variable:
   // encoded_len=  VarintLength(internal_key_size)  --> =
-  log_256(internal_key).
-      // Min # of bytes
-      //                                                       necessary to
-      //                                                       store
-      //                                                       internal_key_size.
-      //             + internal_key_size                --> = actual key string,
-      //             (size key_size: w/o term null char)
-      //                                                      + 8 bytes for
-      //                                                      fixed uint64 "seq
-      //                                                      number
-      +
-      //                                                      insertion type"
-      //             + VarintLength(val_size)           --> = min # of bytes to
-      //             store val_size
-      //             + val_size                         --> = actual value
-      //             string
-      // For example, in our situation, "key1" : size 4, "value1" : size 6
-      // (the terminating null characters are not copied over to the memtable).
-      // And therefore encoded_len = 1 + (4+8) + 1 + 6 = 20 bytes per entry.
-      // However in terms of raw data contained in the memtable, and written
-      // over to the SSTable, we only count internal_key_size and val_size,
-      // because this is the only raw chunk of bytes that contains everything
-      // necessary to reconstruct a user entry: sequence number, insertion type,
-      // key, and value.
+  // log_256(internal_key).
+  // Min # of bytes
+  //                                                       necessary to
+  //                                                       store
+  //                                                       internal_key_size.
+  //             + internal_key_size                --> = actual key string,
+  //             (size key_size: w/o term null char)
+  //                                                      + 8 bytes for
+  //                                                      fixed uint64 "seq
+  //                                                      number
+  // +
+  //                                                      insertion type"
+  //             + VarintLength(val_size)           --> = min # of bytes to
+  //             store val_size
+  //             + val_size                         --> = actual value
+  //             string
+  // For example, in our situation, "key1" : size 4, "value1" : size 6
+  // (the terminating null characters are not copied over to the memtable).
+  // And therefore encoded_len = 1 + (4+8) + 1 + 6 = 20 bytes per entry.
+  // However in terms of raw data contained in the memtable, and written
+  // over to the SSTable, we only count internal_key_size and val_size,
+  // because this is the only raw chunk of bytes that contains everything
+  // necessary to reconstruct a user entry: sequence number, insertion type,
+  // key, and value.
 
-      // To test the relevance of our Memtable garbage statistics,
-      // namely MEMTABLE_DATA_BYTES and MEMTABLE_GARBAGE_BYTES,
-      // we insert K-V pairs with 3 distinct keys (of length 4),
-      // and random values of arbitrary length RAND_VALUES_LENGTH,
-      // and we repeat this step NUM_REPEAT times total.
-      // At the end, we insert 3 final K-V pairs with the same 3 keys
-      // and known values (these will be the final values, of length 6).
-      // I chose NUM_REPEAT=2,000 such that no automatic flush is
-      // triggered (the number of bytes in the memtable is therefore
-      // well below any meaningful heuristic for a memtable of size 64MB).
-      // As a result, since each K-V pair is inserted as a payload
-      // of N meaningful bytes (sequence number, insertion type,
-      // key, and value = 8 + 4 + RAND_VALUE_LENGTH),
-      // MEMTABLE_GARBAGE_BYTES should be equal to 2,000 * N bytes
-      // and MEMTABLE_DATA_BYTES = MEMTABLE_GARBAGE_BYTES + (3*(8 + 4 + 6))
-      bytes.
-      // For RAND_VALUE_LENGTH = 172 (arbitrary value), we expect:
-      //      N = 8 + 4 + 172 = 184 bytes
-      //      MEMTABLE_GARBAGE_BYTES = 2,000 * 184 = 368,000 bytes.
-      //      MEMTABLE_DATA_BYTES = 368,000 + 3*18 = 368,054 bytes.
+  // To test the relevance of our Memtable garbage statistics,
+  // namely MEMTABLE_DATA_BYTES and MEMTABLE_GARBAGE_BYTES,
+  // we insert K-V pairs with 3 distinct keys (of length 4),
+  // and random values of arbitrary length RAND_VALUES_LENGTH,
+  // and we repeat this step NUM_REPEAT times total.
+  // At the end, we insert 3 final K-V pairs with the same 3 keys
+  // and known values (these will be the final values, of length 6).
+  // I chose NUM_REPEAT=2,000 such that no automatic flush is
+  // triggered (the number of bytes in the memtable is therefore
+  // well below any meaningful heuristic for a memtable of size 64MB).
+  // As a result, since each K-V pair is inserted as a payload
+  // of N meaningful bytes (sequence number, insertion type,
+  // key, and value = 8 + 4 + RAND_VALUE_LENGTH),
+  // MEMTABLE_GARBAGE_BYTES should be equal to 2,000 * N bytes
+  // and MEMTABLE_DATA_BYTES = MEMTABLE_GARBAGE_BYTES + (3*(8 + 4 + 6))
+  // bytes.
+  // For RAND_VALUE_LENGTH = 172 (arbitrary value), we expect:
+  //      N = 8 + 4 + 172 = 184 bytes
+  //      MEMTABLE_GARBAGE_BYTES = 2,000 * 184 = 368,000 bytes.
+  //      MEMTABLE_DATA_BYTES = 368,000 + 3*18 = 368,054 bytes.
 
-      const size_t NUM_REPEAT = 2000;
+  const size_t NUM_REPEAT = 2000;
   const size_t RAND_VALUES_LENGTH = 172;
   const std::string KEY1 = "key1";
   const std::string KEY2 = "key2";
