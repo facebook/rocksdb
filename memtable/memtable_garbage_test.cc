@@ -36,6 +36,7 @@ class MemtableGarbageTest
 INSTANTIATE_TEST_CASE_P(MemtableGarbageTest, MemtableGarbageTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
+
 TEST_P(MemtableGarbageTest, Basic) {
   Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();
@@ -109,6 +110,128 @@ TEST_P(MemtableGarbageTest, Basic) {
   const char VALUE1[] = "value1";
   const char VALUE2[] = "value2";
   const char VALUE3[] = "value3";
+  const uint64_t USEFUL_PAYLOAD_BYTES =
+      strlen(KEY1) + strlen(VALUE1) + strlen(KEY2) + strlen(VALUE2) +
+      strlen(KEY3) + strlen(VALUE3) + 3 * sizeof(uint64_t);
+  const uint64_t EXPECTED_MEMTABLE_DATA_BYTES =
+      NUM_REPEAT * USEFUL_PAYLOAD_BYTES;
+  const uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES =
+      (NUM_REPEAT - 1) * USEFUL_PAYLOAD_BYTES;
+
+  // Insertion of of K-V pairs, multiple times.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), KEY1, VALUE1));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY2, VALUE2));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY3, VALUE3));
+  }
+  // We assert that the K-V pairs have been successfully inserted.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), KEY1, &value));
+  ASSERT_EQ(value, VALUE1);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY2, &value));
+  ASSERT_EQ(value, VALUE2);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY3, &value));
+  ASSERT_EQ(value, VALUE3);
+
+  // Force flush to SST. Increments the statistics counter.
+  if (db_ != nullptr) {
+    FlushOptions flush_opt;
+    flush_opt.wait = true;  // function returns once the flush is over.
+    ASSERT_OK(db_->Flush(flush_opt));
+  }
+
+  // Collect statistics.
+  uint64_t mem_data_bytes =
+      options.statistics->getTickerCount(MEMTABLE_DATA_BYTES);
+  uint64_t mem_garbage_bytes =
+      options.statistics->getTickerCount(MEMTABLE_GARBAGE_BYTES);
+
+  EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_DATA_BYTES);
+  EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES);
+
+  Close();
+}
+
+TEST_P(MemtableGarbageTest, DifferentKeyValuePairs) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 67108864;
+
+  ASSERT_OK(TryReopen(options));
+
+  const size_t NUM_REPEAT = 20000;
+  const char KEY1[] = "spinosaurus1";
+  const char KEY2[] = "velociraptor2";
+  const char KEY3[] = "diplodocus3";
+  const char VALUE1[] = "albertosaurus1";
+  const char VALUE2[] = "deinonychus2";
+  const char VALUE3[] = "brachiosaurus3";
+  const uint64_t USEFUL_PAYLOAD_BYTES =
+      strlen(KEY1) + strlen(VALUE1) + strlen(KEY2) + strlen(VALUE2) +
+      strlen(KEY3) + strlen(VALUE3) + 3 * sizeof(uint64_t);
+  const uint64_t EXPECTED_MEMTABLE_DATA_BYTES =
+      NUM_REPEAT * USEFUL_PAYLOAD_BYTES;
+  const uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES =
+      (NUM_REPEAT - 1) * USEFUL_PAYLOAD_BYTES;
+
+  // Insertion of of K-V pairs, multiple times.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), KEY1, VALUE1));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY2, VALUE2));
+    ASSERT_OK(db_->Put(WriteOptions(), KEY3, VALUE3));
+  }
+  // We assert that the K-V pairs have been successfully inserted.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), KEY1, &value));
+  ASSERT_EQ(value, VALUE1);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY2, &value));
+  ASSERT_EQ(value, VALUE2);
+  ASSERT_OK(db_->Get(ReadOptions(), KEY3, &value));
+  ASSERT_EQ(value, VALUE3);
+
+  // Force flush to SST. Increments the statistics counter.
+  if (db_ != nullptr) {
+    FlushOptions flush_opt;
+    flush_opt.wait = true;  // function returns once the flush is over.
+    ASSERT_OK(db_->Flush(flush_opt));
+  }
+
+  // Collect statistics.
+  uint64_t mem_data_bytes =
+      options.statistics->getTickerCount(MEMTABLE_DATA_BYTES);
+  uint64_t mem_garbage_bytes =
+      options.statistics->getTickerCount(MEMTABLE_GARBAGE_BYTES);
+
+  EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_DATA_BYTES);
+  EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES);
+
+  Close();
+}
+
+TEST_P(MemtableGarbageTest, DifferentKeyValuePairsAndNumRepeat) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 67108864;
+
+  ASSERT_OK(TryReopen(options));
+
+  const size_t NUM_REPEAT = 100000;
+  const char KEY1[] = "aNdRoMeDa123";
+  const char KEY2[] = "AqUaRiUs456";
+  const char KEY3[] = "cAsSiOpEiA789";
+  const char VALUE1[] = "CyGnUs321";
+  const char VALUE2[] = "hErCuLeS654";
+  const char VALUE3[] = "OrIoN987";
   const uint64_t USEFUL_PAYLOAD_BYTES =
       strlen(KEY1) + strlen(VALUE1) + strlen(KEY2) + strlen(VALUE2) +
       strlen(KEY3) + strlen(VALUE3) + 3 * sizeof(uint64_t);
