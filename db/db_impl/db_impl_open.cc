@@ -1294,7 +1294,7 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
     }
     // Not a critical error if fail to truncate.
     if (!truncate_status.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Failed to truncate log #%" PRIu64 ": %s", wal_number,
                      truncate_status.ToString().c_str());
     }
