@@ -58,6 +58,11 @@ class DBLiveFileMetadataDumperCommand : public LDBCommand {
   static void Help(std::string& ret);
 
   virtual void DoCommand() override;
+
+ private:
+  bool sort_by_filename_;
+
+  static const std::string ARG_SORT_BY_FILENAME;
 };
 
 class DBDumperCommand : public LDBCommand {
