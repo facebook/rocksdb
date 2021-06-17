@@ -475,7 +475,16 @@ struct BlockBasedTableOptions {
   // Right now, this is enabled only for flush for data blocks. We plan to
   // expand this option to cover compactions in the future and for other types
   // of blocks.
-  bool prepopulate_block_cache = false;
+  enum class PrepopulateBlockCache : char {
+    // Disable prepopulate block cache.
+    kDisable,
+    // Prepopulate data blocks during flush only. Plan to extend it to all block
+    // types.
+    kFlushOnly,
+  };
+
+  PrepopulateBlockCache prepopulate_block_cache =
+      PrepopulateBlockCache::kDisable;
 };
 
 // Table Properties that are specific to block-based table properties.

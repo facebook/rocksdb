@@ -181,7 +181,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "enable_index_compression=false;"
       "block_align=true;"
       "max_auto_readahead_size=0;"
-      "prepopulate_block_cache=false",
+      "prepopulate_block_cache=kDisable",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,

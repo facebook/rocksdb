@@ -1247,7 +1247,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
-      if (is_data_block && r->table_options.prepopulate_block_cache) {
+      if (is_data_block &&
+          r->table_options.prepopulate_block_cache ==
+              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
         if (type == kNoCompression) {
           s = InsertBlockInCache(block_contents, handle);
         } else if (raw_block_contents != nullptr) {

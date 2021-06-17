@@ -213,6 +213,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct MetadataCacheOptions, unpartitioned_pinning),
              &pinning_tier_type_string_map)}};
 
+static std::unordered_map<std::string,
+                          BlockBasedTableOptions::PrepopulateBlockCache>
+    block_base_table_prepopulate_block_cache_string_map = {
+        {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
+        {"kFlushOnly",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+
 #endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -417,9 +424,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"prepopulate_block_cache",
-         {offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::Enum<BlockBasedTableOptions::PrepopulateBlockCache>(
+             offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
+             &block_base_table_prepopulate_block_cache_string_map)},
 
 #endif  // ROCKSDB_LITE
 };
@@ -684,7 +691,7 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
            table_options_.max_auto_readahead_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  prepopulate_block_cache: %d\n",
-           table_options_.prepopulate_block_cache);
+           static_cast<int>(table_options_.prepopulate_block_cache));
   ret.append(buffer);
   return ret;
 }
