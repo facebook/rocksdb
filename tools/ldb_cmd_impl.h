@@ -46,11 +46,11 @@ class DBFileDumperCommand : public LDBCommand {
   virtual void DoCommand() override;
 };
 
-class DBLiveFileMetadataDumperCommand : public LDBCommand {
+class DBLiveFilesMetadataDumperCommand : public LDBCommand {
  public:
   static std::string Name() { return "list_live_files_metadata"; }
 
-  DBLiveFileMetadataDumperCommand(
+  DBLiveFilesMetadataDumperCommand(
       const std::vector<std::string>& params,
       const std::map<std::string, std::string>& options,
       const std::vector<std::string>& flags);

@@ -435,6 +435,7 @@ class LDBTestCase(unittest.TestCase):
         # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
 
+<<<<<<< HEAD
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
             data = tmp.read()
@@ -452,6 +453,41 @@ class LDBTestCase(unittest.TestCase):
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
 
+=======
+    def listLiveFilesMetadata(self, params, dumpFile):
+        return 0 == run_err_null("./ldb list_live_files_metadata %s > %s" % (
+            params, dumpFile))
+
+    def testListLiveFilesMetadata(self):
+        print("Running testListLiveFilesMetadata...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put x1 y1 --create_if_missing", "OK")
+        self.assertRunOK("put x2 y2", "OK")
+
+        # Compare the SST filename and the level of list_live_files_metadata
+        # with the data collected from dump_live_files.
+        dumpFilePath1 = os.path.join(self.TMP_DIR, "dump1")
+        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath1))
+        dumpFilePath2 = os.path.join(self.TMP_DIR, "dump2")
+        self.assertTrue(self.listLiveFilesMetadata("--sort_by_filename --db=%s" % dbPath, dumpFilePath2))
+
+        # Collect SST filename annd level from dump_live_files
+        with open(dumpFilePath1, "r") as tmp:
+            data = tmp.read()
+            filename1 = re.findall(r".*\d+\.sst",data)[0]
+            level1 = re.findall(r"level:\d+",data)[0].split(':')[1]
+
+        # Collect SST filename annd level from list_live_files_metadata
+        with open(dumpFilePath2, "r") as tmp:
+            data = tmp.read()
+            filename2 = re.findall(r".*\d+\.sst",data)[0]
+            level2 = re.findall(r"level \d+",data)[0].split(' ')[1]
+
+        # Assert equality between filenames and levels.
+        self.assertEqual(filename1,filename2)
+        self.assertEqual(level1,level2)
+>>>>>>> 91dc44e06 (Added unit test of list_live_files_metadata)
 
     def getManifests(self, directory):
         return glob.glob(directory + "/MANIFEST-*")
