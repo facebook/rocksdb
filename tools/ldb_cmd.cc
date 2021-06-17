@@ -3400,15 +3400,22 @@ void DBFileDumperCommand::DoCommand() {
   }
 }
 
+const std::string DBLiveFileMetadataDumperCommand::ARG_SORT_BY_FILENAME =
+    "sort_by_filename";
+
 DBLiveFileMetadataDumperCommand::DBLiveFileMetadataDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_SORT_BY_FILENAME})) {
+  sort_by_filename_ = IsFlagPresent(flags, ARG_SORT_BY_FILENAME);
+}
 
 void DBLiveFileMetadataDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBLiveFileMetadataDumperCommand::Name());
+  ret.append(" [--" + ARG_SORT_BY_FILENAME + "] ");
   ret.append("\n");
 }
 
@@ -3423,50 +3430,67 @@ void DBLiveFileMetadataDumperCommand::DoCommand() {
 
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
-
-  std::map<std::string, std::map<int, std::vector<std::string>>>
-      filesPerLevelPerCf;
-  for (auto& fileMetadata : metadata) {
-    std::string cf = fileMetadata.column_family_name;
-    int level = fileMetadata.level;
-    if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
-      filesPerLevelPerCf[cf] = std::map<int, std::vector<std::string>>();
+  if (sort_by_filename_) {
+    std::sort(metadata.begin(), metadata.end(),
+              [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
+                std::string aFilename = a.db_path + a.name;
+                std::string bFilename = b.db_path + b.name;
+                return aFilename.compare(bFilename);
+              });
+    for (auto& fileMetadata : metadata) {
+      std::string filename = fileMetadata.db_path + fileMetadata.name;
+      std::string cf = fileMetadata.column_family_name;
+      int level = fileMetadata.level;
+      std::cout << fileMetadata.db_path + fileMetadata.name << " : level "
+                << level << ", column family '" << cf << "'" << std::endl;
     }
-    if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
-      filesPerLevelPerCf[cf][level] = std::vector<std::string>();
-    }
-    std::string filename = fileMetadata.db_path + fileMetadata.name;
-    filesPerLevelPerCf[cf][level].push_back(filename);
-  }
-  // For each column family,
-  // iterate through the levels and print out the live SST file names.
-  for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
-       it++) {
-    // it->first: Column Family name (string)
-    // it->second: map[level]={SST files...}.
-    std::cout << "===== Column Family: " << it->first << " =====" << std::endl;
-
-    // For simplicity, create reference to the inner map (level={live SST
-    // files}).
-    std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
-    int maxLevel = filesPerLevel.rbegin()->first;
-
-    // Even if the first few levels are empty, they are printed out.
-    for (int level = 0; level <= maxLevel; level++) {
-      std::cout << "---------- level " << level << " ----------" << std::endl;
-      if (filesPerLevel.find(level) != filesPerLevel.end()) {
-        std::vector<std::string>& fileList = filesPerLevel[level];
-
-        // Locally sort by filename for better information display.
-        std::sort(fileList.begin(), fileList.end());
-        for (const std::string& filename : fileList) {
-          std::cout << filename << std::endl;
-        }
+  } else {
+    std::map<std::string, std::map<int, std::vector<std::string>>>
+        filesPerLevelPerCf;
+    // Collect live files metadata.
+    // Store filenames into a 2D map, that will automatically
+    // sort by column family (first key) and by level (second key).
+    for (auto& fileMetadata : metadata) {
+      std::string cf = fileMetadata.column_family_name;
+      int level = fileMetadata.level;
+      if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
+        filesPerLevelPerCf[cf] = std::map<int, std::vector<std::string>>();
       }
+      if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
+        filesPerLevelPerCf[cf][level] = std::vector<std::string>();
+      }
+      std::string filename = fileMetadata.db_path + fileMetadata.name;
+      filesPerLevelPerCf[cf][level].push_back(filename);
     }
-  }
+    // For each column family,
+    // iterate through the levels and print out the live SST file names.
+    for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
+         it++) {
+      // it->first: Column Family name (string)
+      // it->second: map[level]={SST files...}.
+      std::cout << "===== Column Family: " << it->first
+                << " =====" << std::endl;
 
-  std::cout << std::endl;
+      // For simplicity, create reference to the inner map (level={live SST
+      // files}).
+      std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
+      int maxLevel = filesPerLevel.rbegin()->first;
+
+      // Even if the first few levels are empty, they are printed out.
+      for (int level = 0; level <= maxLevel; level++) {
+        std::cout << "---------- level " << level << " ----------" << std::endl;
+        if (filesPerLevel.find(level) != filesPerLevel.end()) {
+          std::vector<std::string>& fileList = filesPerLevel[level];
+
+          // Locally sort by filename for better information display.
+          std::sort(fileList.begin(), fileList.end());
+          for (const std::string& filename : fileList) {
+            std::cout << filename << std::endl;
+          }
+        }
+      }  // End of for-loop over levels.
+    }    // End of for-loop over filesPerLevelPerCf.
+  }      // End of else ("not sort_by_filename").
 }
 
 void WriteExternalSstFilesCommand::Help(std::string& ret) {
