@@ -104,10 +104,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
     {FLUSH_WRITE_BYTES, "rocksdb.flush.write.bytes"},
-    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
-     "rocksdb.memtable.payload.bytes.at.flush"},
-    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
-     "rocksdb.memtable.garbage.bytes.at.flush"},
     {COMPACT_READ_BYTES_MARKED, "rocksdb.compact.read.marked.bytes"},
     {COMPACT_READ_BYTES_PERIODIC, "rocksdb.compact.read.periodic.bytes"},
     {COMPACT_READ_BYTES_TTL, "rocksdb.compact.read.ttl.bytes"},
@@ -205,6 +201,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.error.handler.autoresume.retry.total.count"},
     {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
      "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
