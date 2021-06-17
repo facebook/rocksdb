@@ -435,7 +435,6 @@ class LDBTestCase(unittest.TestCase):
         # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
 
-<<<<<<< HEAD
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
             data = tmp.read()
@@ -453,7 +452,6 @@ class LDBTestCase(unittest.TestCase):
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
 
-=======
     def listLiveFilesMetadata(self, params, dumpFile):
         return 0 == run_err_null("./ldb list_live_files_metadata %s > %s" % (
             params, dumpFile))
@@ -487,7 +485,6 @@ class LDBTestCase(unittest.TestCase):
         # Assert equality between filenames and levels.
         self.assertEqual(filename1,filename2)
         self.assertEqual(level1,level2)
->>>>>>> 91dc44e06 (Added unit test of list_live_files_metadata)
 
         # Create multiple column families and compare the output
         # of list_live_files_metadata with dump_live_files once again.
