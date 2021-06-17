@@ -55,6 +55,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
   std::vector<std::string> keys, values;
   keys.reserve(num_unfragmented_tombstones_);
   values.reserve(num_unfragmented_tombstones_);
+  // Reset the counter to zero for the next iteration over keys.
+  total_tombstone_payload_bytes_ = 0;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
     total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
