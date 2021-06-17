@@ -754,6 +754,9 @@ public enum TickerType {
 
     /**
      * Bytes of raw data (payload) found on memtable at flush time.
+     * Contains the sum of garbage payload (bytes that are discarded
+     * at flush time) and useful payload (bytes of data that will
+     * eventually be written to SSTable).
      */
     MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x1C),
     /**

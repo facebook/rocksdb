@@ -268,7 +268,7 @@ Status BuildTable(
             (tp.raw_key_size + tp.raw_value_size);
         // Prevent underflow, which may still happen at this point
         // since we only support inserts, deletes, and deleteRanges.
-        if (total_payload_bytes_written < total_payload_bytes) {
+        if (total_payload_bytes_written <= total_payload_bytes) {
           *memtable_payload_bytes = total_payload_bytes;
           *memtable_garbage_bytes =
               total_payload_bytes - total_payload_bytes_written;
