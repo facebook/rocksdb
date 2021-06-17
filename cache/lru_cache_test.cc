@@ -1090,12 +1090,10 @@ TEST_F(LRUSecondaryCacheTest, BasicWaitAllTest) {
   secondary_cache.reset();
 }
 
-// In this test, the block cache size is set to 6100, after insert 6 KV-pairs
-// and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta
-// blocks. block_1 size is 4096 and block_2 size is 2056. The total size
-// of the meta blocks are about 900 to 1000. Therefore, we can successfully
-// insert and cache block_1 in the block cache (this is the different place
-// from TestSecondaryCacheCorrectness1)
+// In this test, we have one KV pair per data block. We indirectly determine
+// the cache key associated with each data block (and thus each KV) by using
+// a sync point callback in TestSecondaryCache::Lookup. We then control the
+// lookup result by setting the ResultMap.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   LRUCacheOptions opts(1 << 20, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
@@ -1122,12 +1120,9 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
-  // SST file. Meta blocks are always cached in the block cache and they
-  // will not be evicted. When block_2 is cache miss and read out, it is
-  // inserted to the block cache. Thefore, block_1 is evicted from block
-  // cache and successfully inserted to the secondary cache. Here are 2
-  // lookups in the secondary cache for block_1 and block_2.
+  // After Flush is successful, RocksDB does the paranoid check for the new
+  // SST file. This will try to lookup all data blocks in the secondary
+  // cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 8u);
 

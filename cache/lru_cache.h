@@ -175,10 +175,10 @@ struct LRUHandle {
     } else if (IsSecondaryCacheCompatible()) {
       if (IsPending()) {
         assert(sec_handle != nullptr);
-        SecondaryCacheResultHandle* s_handle = sec_handle;
-        s_handle->Wait();
-        value = s_handle->Value();
-        delete s_handle;
+        SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
+        tmp_sec_handle->Wait();
+        value = tmp_sec_handle->Value();
+        delete tmp_sec_handle;
       }
       if (value) {
         (*info_.helper->del_cb)(key(), value);
@@ -351,8 +351,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                 Cache::Handle** handle, Cache::Priority priority);
   // Promote an item looked up from the secondary cache to the LRU cache. The
   // item is only inserted into the hash table and not the LRU list, and only
-  // if the cache is not at full capacity. The caller should hold a reference
-  // on the LRUHandle.
+  // if the cache is not at full capacity, as is the case during Insert.  The
+  // caller should hold a reference on the LRUHandle. When the caller releases
+  // the last reference, the item is added to the LRU list.
+  // The item is promoted to the high pri or low pri pool as specified by the
+  // caller in Lookup.
   void Promote(LRUHandle* e);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
