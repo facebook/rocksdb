@@ -1750,9 +1750,6 @@ write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRA
 heap_test: $(OBJ_DIR)/util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
-memtable_garbage_test: $(OBJ_DIR)/memtable/memtable_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

@@ -72,6 +72,10 @@ struct FragmentedRangeTombstoneList {
     return num_unfragmented_tombstones_;
   }
 
+  uint64_t total_tombstone_payload_bytes() const {
+    return total_tombstone_payload_bytes_;
+  }
+
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
   // "fragment" the tombstones into non-overlapping pieces, and store them in
@@ -87,6 +91,7 @@ struct FragmentedRangeTombstoneList {
   std::list<std::string> pinned_slices_;
   PinnedIteratorsManager pinned_iters_mgr_;
   uint64_t num_unfragmented_tombstones_;
+  uint64_t total_tombstone_payload_bytes_;
 };
 
 // FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
@@ -187,6 +192,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   uint64_t num_unfragmented_tombstones() const {
     return tombstones_->num_unfragmented_tombstones();
+  }
+  uint64_t total_tombstone_payload_bytes() const {
+    return tombstones_->total_tombstone_payload_bytes();
   }
 
  private:

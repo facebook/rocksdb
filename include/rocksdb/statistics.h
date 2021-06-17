@@ -384,10 +384,10 @@ enum Tickers : uint32_t {
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
 
   // Statistics for memtable garbage collection:
-  // Raw bytes of data present on memtable at flush time.
-  MEMTABLE_DATA_BYTES,
+  // Raw bytes of data (payload) present on memtable at flush time.
+  MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
   // Outdated bytes of data present on memtable at flush time.
-  MEMTABLE_GARBAGE_BYTES,
+  MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
 
   TICKER_ENUM_MAX
 };
