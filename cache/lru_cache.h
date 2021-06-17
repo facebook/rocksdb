@@ -341,9 +341,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
  private:
   friend class LRUCache;
-  // Insert an item into the hash table and, if handle is null, into the LRU
-  // list. Older items are evicted as necessary. If the cache is full and
-  // free_handle_on_fail is true, the item is deleted and handle is set to.
+  // Insert an item into the hash table and, if handle is null, insert into
+  // the LRU list. Older items are evicted as necessary. If the cache is full
+  // and free_handle_on_fail is true, the item is deleted and handle is set to.
   Status InsertItem(LRUHandle* item, Cache::Handle** handle,
                     bool free_handle_on_fail);
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,

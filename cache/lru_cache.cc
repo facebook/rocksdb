@@ -463,13 +463,13 @@ Cache::Handle* LRUCacheShard::Lookup(
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
+      e->Ref();
 
       if (wait) {
         Promote(e);
-        if (e->value) {
-          e->Ref();
-        } else {
+        if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed
+          e->Unref();
           e->Free();
           e = nullptr;
         }
@@ -477,7 +477,6 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure
         e->SetIncomplete(true);
-        e->Ref();
       }
     }
   }
@@ -600,6 +599,7 @@ bool LRUCacheShard::IsReady(Cache::Handle* handle) {
   bool ready = true;
   if (e->IsPending()) {
     assert(secondary_cache_);
+    assert(e->sec_handle);
     if (e->sec_handle->IsReady()) {
       Promote(e);
     } else {
