@@ -288,13 +288,13 @@ struct BlockBasedTableOptions {
   // incompatible with block-based filters.
   bool partition_filters = false;
 
-  // EXPERIMENTAL Option to generate Bloom filters that minimize memory
+  // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
   //
   // When false, malloc_usable_size is not available, or format_version < 5,
   // filters are generated without regard to internal fragmentation when
   // loaded into memory (historical behavior). When true (and
-  // malloc_usable_size is available and format_version >= 5), then Bloom
+  // malloc_usable_size is available and format_version >= 5), then
   // filters are generated to "round up" and "round down" their sizes to
   // minimize internal fragmentation when loaded into memory, assuming the
   // reading DB has the same memory allocation characteristics as the
@@ -313,7 +313,8 @@ struct BlockBasedTableOptions {
   // NOTE: Because some memory counted by block cache might be unmapped pages
   // within internal fragmentation, this option can increase observed RSS
   // memory usage. With cache_index_and_filter_blocks=true, this option makes
-  // the block cache better at using space it is allowed.
+  // the block cache better at using space it is allowed. (These issues
+  // should not arise with partitioned filters.)
   //
   // NOTE: Do not set to true if you do not trust malloc_usable_size. With
   // this option, RocksDB might access an allocated memory object beyond its
