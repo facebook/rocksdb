@@ -370,6 +370,13 @@ class HashSkipListRepFactory : public MemTableRepFactory {
 
   virtual const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "HashSkipListRepFactory"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "prefix_hash") {
+      return true;
+    } else {
+      return MemTableRepFactory::IsInstanceOf(name);
+    }
+  }
 
  private:
   HashSkipListRepOptions options_;

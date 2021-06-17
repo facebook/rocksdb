@@ -715,6 +715,13 @@ static int RegisterTestObjects(ObjectLibrary& library,
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
       });
+  library.Register<MemTableRepFactory>(
+      "SpecialSkipListFactory",
+      [](const std::string& /*uri*/, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(test::NewSpecialSkipListFactory(2));
+        return guard->get();
+      });
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
@@ -788,6 +795,23 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(),
                  test::SimpleSuffixReverseComparator::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
+  std::unique_ptr<MemTableRepFactory> result;
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options_, "SpecialSkipListFactory", &result));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options_, SkipListFactory::kClassName(), &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(SkipListFactory::kClassName()));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemTableRepFactory::CreateFromString(
+        config_options_, "SpecialSkipListFactory", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "SpecialSkipListFactory");
   }
 }
 

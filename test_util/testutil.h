@@ -826,6 +826,10 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   std::string name_;
 };
 
+// The factory for the hacky skip list mem table that triggers flush after
+// number of entries exceeds a threshold.
+extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
+
 extern const Comparator* ComparatorWithU64Ts();
 
 CompressionType RandomCompressionType(Random* rnd);

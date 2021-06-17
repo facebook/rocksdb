@@ -11,6 +11,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -844,7 +845,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -899,7 +900,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   CreateAndReopenWithCF({kCFName1}, options);
 
   Options options1;
@@ -963,7 +964,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;

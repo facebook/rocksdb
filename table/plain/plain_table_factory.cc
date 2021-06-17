@@ -233,7 +233,7 @@ Status GetMemTableRepFactoryFromString(
     const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* result) {
   ConfigOptions config_options;
   config_options.ignore_unsupported_options = false;
-
+  config_options.ignore_unknown_options = false;
   return MemTableRepFactory::CreateFromString(config_options, opts_str, result);
 }
 
@@ -247,7 +247,6 @@ Status MemTableRepFactory::CreateFromString(
   });
 #endif  // ROCKSDB_LITE
   std::string id;
-  Status s;
   std::unordered_map<std::string, std::string> opt_map;
   Status status =
       ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
@@ -305,7 +304,7 @@ Status MemTableRepFactory::CreateFromString(
     status = ConfigurableHelper::ConfigureNewObject(
         config_options, result->get(), id, curr_opts, opt_map);
   }
-  return s;
+  return status;
 }
 
 #ifndef ROCKSDB_LITE
