@@ -247,10 +247,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new DBFileDumperCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
                                    parsed_params.flags);
-  } else if (parsed_params.cmd == DBLiveFileMetadataDumperCommand::Name()) {
-    return new DBLiveFileMetadataDumperCommand(parsed_params.cmd_params,
-                                               parsed_params.option_map,
-                                               parsed_params.flags);
+  } else if (parsed_params.cmd == DBLiveFilesMetadataDumperCommand::Name()) {
+    return new DBLiveFilesMetadataDumperCommand(parsed_params.cmd_params,
+                                                parsed_params.option_map,
+                                                parsed_params.flags);
   } else if (parsed_params.cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
@@ -3391,10 +3391,10 @@ void DBFileDumperCommand::DoCommand() {
   }
 }
 
-const std::string DBLiveFileMetadataDumperCommand::ARG_SORT_BY_FILENAME =
+const std::string DBLiveFilesMetadataDumperCommand::ARG_SORT_BY_FILENAME =
     "sort_by_filename";
 
-DBLiveFileMetadataDumperCommand::DBLiveFileMetadataDumperCommand(
+DBLiveFilesMetadataDumperCommand::DBLiveFilesMetadataDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
@@ -3403,14 +3403,14 @@ DBLiveFileMetadataDumperCommand::DBLiveFileMetadataDumperCommand(
   sort_by_filename_ = IsFlagPresent(flags, ARG_SORT_BY_FILENAME);
 }
 
-void DBLiveFileMetadataDumperCommand::Help(std::string& ret) {
+void DBLiveFilesMetadataDumperCommand::Help(std::string& ret) {
   ret.append("  ");
-  ret.append(DBLiveFileMetadataDumperCommand::Name());
+  ret.append(DBLiveFilesMetadataDumperCommand::Name());
   ret.append(" [--" + ARG_SORT_BY_FILENAME + "] ");
   ret.append("\n");
 }
 
-void DBLiveFileMetadataDumperCommand::DoCommand() {
+void DBLiveFilesMetadataDumperCommand::DoCommand() {
   if (!db_) {
     assert(GetExecuteState().IsFailed());
     return;
@@ -3418,7 +3418,7 @@ void DBLiveFileMetadataDumperCommand::DoCommand() {
   Status s;
 
   std::cout << "Live SST Files:" << std::endl;
-
+  std::cout << "==============================" << std::endl;
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   if (sort_by_filename_) {
@@ -3482,6 +3482,7 @@ void DBLiveFileMetadataDumperCommand::DoCommand() {
       }  // End of for-loop over levels.
     }    // End of for-loop over filesPerLevelPerCf.
   }      // End of else ("not sort_by_filename").
+  std::cout << "------------------------------" << std::endl;
 }
 
 void WriteExternalSstFilesCommand::Help(std::string& ret) {
