@@ -505,6 +505,70 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+class InnerCustomizable : public Customizable {
+ public:
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
+      : inner_(w) {}
+  static const char* kClassName() { return "Inner"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return Customizable::IsInstanceOf(name);
+    }
+  }
+
+ protected:
+  const Customizable* Inner() const override { return inner_.get(); }
+
+ private:
+  std::shared_ptr<Customizable> inner_;
+};
+
+class WrappedCustomizable1 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped1"; }
+};
+
+class WrappedCustomizable2 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped2"; }
+};
+
+TEST_F(CustomizableTest, WrappedInnerTest) {
+  std::shared_ptr<TestCustomizable> ac =
+      std::make_shared<TestCustomizable>("A");
+
+  ASSERT_TRUE(ac->IsInstanceOf("A"));
+  ASSERT_TRUE(ac->IsInstanceOf("TestCustomizable"));
+  ASSERT_EQ(ac->CheckedCast<TestCustomizable>(), ac.get());
+  ASSERT_EQ(ac->CheckedCast<InnerCustomizable>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable1>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable2>(), nullptr);
+  std::shared_ptr<Customizable> wc1 =
+      std::make_shared<WrappedCustomizable1>(ac);
+
+  ASSERT_TRUE(wc1->IsInstanceOf(WrappedCustomizable1::kClassName()));
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable2>(), nullptr);
+  ASSERT_EQ(wc1->CheckedCast<InnerCustomizable>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<TestCustomizable>(), ac.get());
+
+  std::shared_ptr<Customizable> wc2 =
+      std::make_shared<WrappedCustomizable2>(wc1);
+  ASSERT_TRUE(wc2->IsInstanceOf(WrappedCustomizable2::kClassName()));
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable2>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
 class ShallowCustomizable : public Customizable {
  public:
   ShallowCustomizable() {
