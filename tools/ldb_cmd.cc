@@ -247,6 +247,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new DBFileDumperCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
                                    parsed_params.flags);
+  } else if (parsed_params.cmd == DBLiveFileMetadataDumperCommand::Name()) {
+    return new DBLiveFileMetadataDumperCommand(parsed_params.cmd_params,
+                                               parsed_params.option_map,
+                                               parsed_params.flags);
   } else if (parsed_params.cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
@@ -3394,6 +3398,75 @@ void DBFileDumperCommand::DoCommand() {
                   &exec_state_);
     }
   }
+}
+
+DBLiveFileMetadataDumperCommand::DBLiveFileMetadataDumperCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+
+void DBLiveFileMetadataDumperCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(DBLiveFileMetadataDumperCommand::Name());
+  ret.append("\n");
+}
+
+void DBLiveFileMetadataDumperCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status s;
+
+  std::cout << "Live SST Files:" << std::endl;
+
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+
+  std::map<std::string, std::map<int, std::vector<std::string>>>
+      filesPerLevelPerCf;
+  for (auto& fileMetadata : metadata) {
+    std::string cf = fileMetadata.column_family_name;
+    int level = fileMetadata.level;
+    if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
+      filesPerLevelPerCf[cf] = std::map<int, std::vector<std::string>>();
+    }
+    if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
+      filesPerLevelPerCf[cf][level] = std::vector<std::string>();
+    }
+    std::string filename = fileMetadata.db_path + fileMetadata.name;
+    filesPerLevelPerCf[cf][level].push_back(filename);
+  }
+  // For each column family,
+  // iterate through the levels and print out the live SST file names.
+  for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
+       it++) {
+    // it->first: Column Family name (string)
+    // it->second: map[level]={SST files...}.
+    std::cout << "===== Column Family: " << it->first << " =====" << std::endl;
+
+    // For simplicity, create reference to the inner map (level={live SST
+    // files}).
+    std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
+    int maxLevel = filesPerLevel.rbegin()->first;
+
+    // Even if the first few levels are empty, they are printed out.
+    for (int level = 0; level <= maxLevel; level++) {
+      std::cout << "---------- level " << level << " ----------" << std::endl;
+      if (filesPerLevel.find(level) != filesPerLevel.end()) {
+        std::vector<std::string>& fileList = filesPerLevel[level];
+
+        // Locally sort by filename for better information display.
+        std::sort(fileList.begin(), fileList.end());
+        for (const std::string& filename : fileList) {
+          std::cout << filename << std::endl;
+        }
+      }
+    }
+  }
+
+  std::cout << std::endl;
 }
 
 void WriteExternalSstFilesCommand::Help(std::string& ret) {
