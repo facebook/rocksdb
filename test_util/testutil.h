@@ -27,6 +27,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
+class MemTableRepFactory;
 class Random;
 class SequentialFile;
 class SequentialFileReader;
