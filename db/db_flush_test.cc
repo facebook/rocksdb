@@ -285,7 +285,8 @@ TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-// The following 3 tests are designed for testing garbage statistics at flush time.
+// The following 3 tests are designed for testing garbage statistics at flush
+// time.
 //
 // ======= General Information ======= (from GitHub Wiki).
 // There are three scenarios where memtable flush can be triggered:
@@ -383,9 +384,9 @@ TEST_F(DBFlushTest, StatisticsGarbageBasic) {
   // of N meaningful bytes (sequence number, insertion type,
   // key, and value = 8 + 4 + RAND_VALUE_LENGTH),
   // MEMTABLE_GARBAGE_BYTES_AT_FLUSH should be equal to 2,000 * N bytes
-  // and MEMTABLE_PAYLAOD_BYTES_AT_FLUSH = MEMTABLE_GARBAGE_BYTES_AT_FLUSH + (3*(8 + 4 + 6))
-  // bytes.
-  // For RAND_VALUE_LENGTH = 172 (arbitrary value), we expect:
+  // and MEMTABLE_PAYLAOD_BYTES_AT_FLUSH = MEMTABLE_GARBAGE_BYTES_AT_FLUSH +
+  // (3*(8 + 4 + 6)) bytes. For RAND_VALUE_LENGTH = 172 (arbitrary value), we
+  // expect:
   //      N = 8 + 4 + 172 = 184 bytes
   //      MEMTABLE_GARBAGE_BYTES_AT_FLUSH = 2,000 * 184 = 368,000 bytes.
   //      MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = 368,000 + 3*18 = 368,054 bytes.
@@ -421,7 +422,8 @@ TEST_F(DBFlushTest, StatisticsGarbageBasic) {
 
   // The memtable data bytes includes the "garbage"
   // bytes along with the useful payload.
-  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
 
   ASSERT_OK(Put(KEY1, VALUE1));
   ASSERT_OK(Put(KEY2, VALUE2));
@@ -429,9 +431,8 @@ TEST_F(DBFlushTest, StatisticsGarbageBasic) {
 
   // Add useful payload to the memtable data bytes:
   EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
-                KEY1.size() + VALUE1.size() + KEY2.size()
-              + VALUE2.size() + KEY3.size() + VALUE3.size()
-              + 3 * sizeof(uint64_t);
+      KEY1.size() + VALUE1.size() + KEY2.size() + VALUE2.size() + KEY3.size() +
+      VALUE3.size() + 3 * sizeof(uint64_t);
 
   // We assert that the last K-V pairs have been successfully inserted,
   // and that the valid values are VALUE1, VALUE2, VALUE3.
@@ -447,7 +448,8 @@ TEST_F(DBFlushTest, StatisticsGarbageBasic) {
   ASSERT_OK(Flush());
 
   // Collect statistics.
-  uint64_t mem_data_bytes = TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
   uint64_t mem_garbage_bytes =
       TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
 
@@ -508,7 +510,8 @@ TEST_F(DBFlushTest, StatisticsGarbageInsertAndDeletes) {
 
   // The memtable data bytes includes the "garbage"
   // bytes along with the useful payload.
-  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
 
   // Note : one set of delete for KEY1, KEY2, KEY3 is written to
   // SSTable to propagate the delete operations to K-V pairs
@@ -536,7 +539,8 @@ TEST_F(DBFlushTest, StatisticsGarbageInsertAndDeletes) {
   ASSERT_OK(Flush());
 
   // Collect statistics.
-  uint64_t mem_data_bytes = TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
   uint64_t mem_garbage_bytes =
       TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
 
@@ -588,26 +592,30 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
         KEY2.size() + p_v2.size() + sizeof(uint64_t);
     EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
         KEY3.size() + p_v3.size() + sizeof(uint64_t);
-    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1, KEY2));
-    // Note: DeleteRange have an exclusive upper bound, e.g. here: [KEY2,KEY3) is deleted.
-    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2, KEY3));
-    // Delete ranges are stored as a regular K-V pair, with key=STARTKEY, value=ENDKEY.
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY2));
+    // Note: DeleteRange have an exclusive upper bound, e.g. here: [KEY2,KEY3)
+    // is deleted.
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2,
+                               KEY3));
+    // Delete ranges are stored as a regular K-V pair, with key=STARTKEY,
+    // value=ENDKEY.
     EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
-          (KEY1.size() + KEY2.size() + sizeof(uint64_t))
-        + (KEY2.size() + KEY3.size() + sizeof(uint64_t));
+        (KEY1.size() + KEY2.size() + sizeof(uint64_t)) +
+        (KEY2.size() + KEY3.size() + sizeof(uint64_t));
   }
 
   // The memtable data bytes includes the "garbage"
   // bytes along with the useful payload.
-  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
 
-  // Note : one set of deleteRange for (KEY1, KEY2) and (KEY2, KEY3) is written to
-  // SSTable to propagate the deleteRange operations to K-V pairs
-  // that could have been inserted into the database during past Flush
-  // opeartions.
+  // Note : one set of deleteRange for (KEY1, KEY2) and (KEY2, KEY3) is written
+  // to SSTable to propagate the deleteRange operations to K-V pairs that could
+  // have been inserted into the database during past Flush opeartions.
   EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH -=
-          (KEY1.size() + KEY2.size() + sizeof(uint64_t))
-        + (KEY2.size() + KEY3.size() + sizeof(uint64_t));
+      (KEY1.size() + KEY2.size() + sizeof(uint64_t)) +
+      (KEY2.size() + KEY3.size() + sizeof(uint64_t));
 
   // Overwrite KEY3 with known value (VALUE3)
   // Note that during the whole time KEY3 has never been deleted
@@ -617,13 +625,15 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
       KEY3.size() + VALUE3.size() + sizeof(uint64_t);
 
   // Additional useful paylaod.
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY4, KEY5));
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY5, KEY6));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY4, KEY5));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY5, KEY6));
 
   // Add useful payload to the memtable data bytes:
   EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
-          (KEY4.size() + KEY5.size() + sizeof(uint64_t))
-        + (KEY5.size() + KEY6.size() + sizeof(uint64_t));
+      (KEY4.size() + KEY5.size() + sizeof(uint64_t)) +
+      (KEY5.size() + KEY6.size() + sizeof(uint64_t));
 
   // We assert that the K-V pairs have been successfully deleted.
   PinnableSlice value;
@@ -637,7 +647,8 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   ASSERT_OK(Flush());
 
   // Collect statistics.
-  uint64_t mem_data_bytes = TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
   uint64_t mem_garbage_bytes =
       TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
 

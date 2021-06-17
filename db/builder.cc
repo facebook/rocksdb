@@ -258,17 +258,20 @@ Status BuildTable(
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
-      if (memtable_payload_bytes != nullptr && memtable_garbage_bytes != nullptr) {
+      if (memtable_payload_bytes != nullptr &&
+          memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();
         uint64_t total_payload_bytes = ci_stats.total_input_raw_key_bytes +
-                                       ci_stats.total_input_raw_value_bytes
-                                       + total_tombstone_payload_bytes;
-        uint64_t total_payload_bytes_written = (tp.raw_key_size + tp.raw_value_size);
+                                       ci_stats.total_input_raw_value_bytes +
+                                       total_tombstone_payload_bytes;
+        uint64_t total_payload_bytes_written =
+            (tp.raw_key_size + tp.raw_value_size);
         // Prevent underflow, which may still happen at this point
         // since we only support inserts, deletes, and deleteRanges.
-        if (total_payload_bytes_written < total_payload_bytes){
+        if (total_payload_bytes_written < total_payload_bytes) {
           *memtable_payload_bytes = total_payload_bytes;
-          *memtable_garbage_bytes = total_payload_bytes - total_payload_bytes_written;
+          *memtable_garbage_bytes =
+              total_payload_bytes - total_payload_bytes_written;
         } else {
           *memtable_payload_bytes = 0;
           *memtable_garbage_bytes = 0;

@@ -31,8 +31,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
   total_tombstone_payload_bytes_ = 0;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next(), num_unfragmented_tombstones_++) {
-    total_tombstone_payload_bytes_ +=  unfragmented_tombstones->key().size()
-                                     + unfragmented_tombstones->value().size();
+    total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
+                                      unfragmented_tombstones->value().size();
     if (num_unfragmented_tombstones_ > 0 &&
         icmp.Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
       is_sorted = false;
@@ -57,8 +57,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
   values.reserve(num_unfragmented_tombstones_);
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
-    total_tombstone_payload_bytes_ +=  unfragmented_tombstones->key().size()
-                                     + unfragmented_tombstones->value().size();
+    total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
+                                      unfragmented_tombstones->value().size();
     keys.emplace_back(unfragmented_tombstones->key().data(),
                       unfragmented_tombstones->key().size());
     values.emplace_back(unfragmented_tombstones->value().data(),
