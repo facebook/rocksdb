@@ -223,9 +223,9 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
-  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableOptions* immutable_cf_options() const {
+  const ImmutableOptions* immutable_options() const {
     return &immutable_options_;
   }
 

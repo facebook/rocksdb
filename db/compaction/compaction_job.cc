@@ -553,9 +553,10 @@ void CompactionJob::GenSubcompactionBoundaries() {
   int base_level = v->storage_info()->base_level();
   uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
       sum / min_file_fill_percent /
-      MaxFileSizeForLevel(*(c->mutable_cf_options()), out_lvl,
-          c->immutable_cf_options()->compaction_style, base_level,
-          c->immutable_cf_options()->level_compaction_dynamic_level_bytes)));
+      MaxFileSizeForLevel(
+          *(c->mutable_cf_options()), out_lvl,
+          c->immutable_options()->compaction_style, base_level,
+          c->immutable_options()->level_compaction_dynamic_level_bytes)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(c->max_subcompactions()),
@@ -754,7 +755,7 @@ Status CompactionJob::Run() {
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.outputs) {
       auto fn =
-          TableFileName(state.compaction->immutable_cf_options()->cf_paths,
+          TableFileName(state.compaction->immutable_options()->cf_paths,
                         output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
       tp[fn] = output.table_properties;
     }
@@ -1017,7 +1018,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   for (const auto& file : compaction_result.output_files) {
     uint64_t file_num = versions_->NewFileNumber();
     auto src_file = compaction_result.output_path + "/" + file.file_name;
-    auto tgt_file = TableFileName(compaction->immutable_cf_options()->cf_paths,
+    auto tgt_file = TableFileName(compaction->immutable_options()->cf_paths,
                                   file_num, compaction->output_path_id());
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
@@ -1176,7 +1177,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
           ? new BlobFileBuilder(versions_, fs_.get(),
-                                sub_compact->compaction->immutable_cf_options(),
+                                sub_compact->compaction->immutable_options(),
                                 mutable_cf_options, &file_options_, job_id_,
                                 cfd->GetID(), cfd->GetName(),
                                 Env::IOPriority::IO_LOW, write_hint_,
@@ -1698,7 +1699,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
     std::string fname =
-        TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
+        TableFileName(sub_compact->compaction->immutable_options()->cf_paths,
                       meta->fd.GetNumber(), meta->fd.GetPathId());
 
     // TODO(AR) it is not clear if there are any larger implications if
@@ -1942,7 +1943,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
-      sub_compact->compaction->immutable_cf_options()->listeners;
+      sub_compact->compaction->immutable_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, db_options_.clock,
       io_tracer_, db_options_.stats, listeners,
@@ -2124,7 +2125,7 @@ void CompactionJob::LogCompaction() {
 }
 
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {
-  return TableFileName(compact_->compaction->immutable_cf_options()->cf_paths,
+  return TableFileName(compact_->compaction->immutable_options()->cf_paths,
                        file_number, compact_->compaction->output_path_id());
 }
 
