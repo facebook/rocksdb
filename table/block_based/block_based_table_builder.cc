@@ -1030,13 +1030,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     return;
   }
 
-  if (is_data_block && r->table_options.prepopulate_block_cache) {
-    handle->set_offset(r->get_offset());
-    handle->set_size(block_contents.size());
-    InsertBlockInCache(raw_block_contents, kNoCompression, handle);
-  }
-
-  WriteRawBlock(block_contents, type, handle, is_data_block);
+  WriteRawBlock(block_contents, type, handle, is_data_block,
+                &raw_block_contents);
   r->compressed_output.clear();
   if (is_data_block) {
     if (r->filter_builder != nullptr) {
@@ -1194,7 +1189,8 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
-                                           bool is_data_block) {
+                                           bool is_data_block,
+                                           const Slice* raw_block_contents) {
   Rep* r = rep_;
   Status s = Status::OK();
   IOStatus io_s = IOStatus::OK();
@@ -1251,6 +1247,18 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
+      if (is_data_block && r->table_options.prepopulate_block_cache) {
+        if (type == kNoCompression) {
+          s = InsertBlockInCache(block_contents, handle);
+        } else if (raw_block_contents != nullptr) {
+          s = InsertBlockInCache(*raw_block_contents, handle);
+        }
+        if (!s.ok()) {
+          r->SetStatus(s);
+        }
+      }
+      // TODO:: Should InsertBlockInCompressedCache take into account error from
+      // InsertBlockInCache or ignore and overwrite it.
       s = InsertBlockInCompressedCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
@@ -1319,15 +1327,9 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
 
     r->pc_rep->file_size_estimator.SetCurrBlockRawSize(block_rep->data->size());
 
-    if (r->table_options.prepopulate_block_cache) {
-      r->pending_handle.set_offset(r->get_offset());
-      r->pending_handle.set_size(block_rep->compressed_contents.size());
-      InsertBlockInCache(block_rep->contents, kNoCompression,
-                         &r->pending_handle);
-    }
-
     WriteRawBlock(block_rep->compressed_contents, block_rep->compression_type,
-                  &r->pending_handle, true /* is_data_block*/);
+                  &r->pending_handle, true /* is_data_block*/,
+                  &block_rep->contents);
     if (!ok()) {
       break;
     }
@@ -1457,12 +1459,11 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 }
 
 Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
-                                                  const CompressionType type,
                                                   const BlockHandle* handle) {
   // Uncompressed regular block cache
   Cache* block_cache = rep_->table_options.block_cache.get();
   Status s;
-  if (type == kNoCompression && block_cache != nullptr) {
+  if (block_cache != nullptr) {
     size_t size = block_contents.size();
     auto buf = AllocateBlock(size, block_cache->memory_allocator());
     memcpy(buf.get(), block_contents.data(), size);
