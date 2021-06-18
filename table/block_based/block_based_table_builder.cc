@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cache/cache_entry_roles.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
 #include "memory/memory_allocator.h"
@@ -312,7 +313,10 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-
+  bool buffer_exceeds_global_memory_limit;
+  // TODO-t CacheRep is the refactored CacheRep class from WriteBufferManager
+  // TODO-t figure out a better name for cache_rep in the context of this class
+  CacheRep* cache_rep;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
@@ -444,6 +448,12 @@ struct BlockBasedTableBuilder::Rep {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
     }
+    // TODO figure out c++ member initialization syntax
+    buffer_exceeds_global_memory_limit = false;
+    cache_rep = (table_options.block_cache != nullptr
+                     ? new CacheRep(table_options.block_cache.get())
+                     : nullptr);
+
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -897,9 +907,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       r->first_key_in_next_block = &key;
       Flush();
 
-      if (r->state == Rep::State::kBuffered && r->buffer_limit != 0 &&
-          r->data_begin_offset > r->buffer_limit) {
-        EnterUnbuffered();
+      if (r->state == Rep::State::kBuffered) {
+        if ((r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit) ||
+            r->buffer_exceeds_global_memory_limit) {
+          EnterUnbuffered();
+        }
       }
 
       // Add item to index block.
@@ -1001,6 +1013,7 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
     assert(block_type == BlockType::kData);
     rep_->data_block_buffers.emplace_back(std::move(raw_block_contents));
     rep_->data_begin_offset += rep_->data_block_buffers.back().size();
+    ReserveLastBufferedDataBlockMemInCache();
     return;
   }
   WriteBlock(raw_block_contents, handle, block_type);
@@ -1910,10 +1923,76 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
                                         r->pending_handle);
       }
     }
-
+    // TODO: figure out when we can ensure all the buffered data blocks are
+    // flushed and call this function
+    // TODO: figure out what is the right status message for successfully
+    // flushing all the buffered data blocks
+    if (ok()) {
+      FreeAllBufferedDataBlocksMemFromCache();
+    }
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();
+  r->buffer_exceeds_global_memory_limit = false;
+}
+
+// TODO figure out a better name for this function to reflect what it does in
+// the context of this class
+void BlockBasedTableBuilder::ReserveLastBufferedDataBlockMemInCache() {
+  // TODO-t figure out a better way to represent there is no need to reserve mem
+  // due to no cache
+  CacheRep* cache_rep = rep_->cache_rep;
+  if (cache_rep == nullptr) {
+    return;
+  }
+
+  // TODO figure out whether lock is needed for the cache
+
+  size_t kSizeDummyEntry = rep_->data_block_buffers.back().size();
+  Cache::Handle* handle = nullptr;
+  // TODO-l learn how cache key works
+  // TODO-l learn how (dummy) entries are deleted in cache
+  Status status = cache_rep->cache_->Insert(
+      cache_rep->GetNextCacheKey(), nullptr, kSizeDummyEntry,
+      GetNoopDeleterForRole<
+          CacheEntryRole::kCompressionDictionaryBuildingBuffer>(),
+      &handle);
+  // TODO figure out if we still need to push back a handle when insertion fails
+  cache_rep->dummy_handles_.push_back(handle);
+
+  // TODO-q ask about how to identify the specific insertion error due to cache
+  // full other than comparing the full msg string
+  // TODO figure out if there is any other insertion error we need to pay
+  // attention to
+  if (status.IsIncomplete()) {
+    rep_->buffer_exceeds_global_memory_limit = true;
+  }
+}
+
+// TODO figure out a better name for this function to reflect what it does in
+// the context of this class
+void BlockBasedTableBuilder::FreeAllBufferedDataBlocksMemFromCache() {
+  // TODO-t figure out a better way to represent there is no need to free mem
+  // due to no cache
+  CacheRep* cache_rep = rep_->cache_rep;
+  if (cache_rep == nullptr) {
+    return;
+  }
+
+  // TODO figure out whether lock is needed for the cache
+
+  // TODO figure out c++ syntax for referencing the same object for
+  // cache_rep->dummy_handles_
+  while (!cache_rep->dummy_handles_.empty()) {
+    // TODO figure out c++ syntax for temporary variable inside the loop
+    auto* handle = cache_rep->dummy_handles_.back();
+    // TODO figure out a better way to handle empty handle/represent there is no
+    // need to release the handle if it is null
+    if (handle != nullptr) {
+      cache_rep->cache_->Release(handle, true);
+    }
+    cache_rep->dummy_handles_.pop_back();
+  }
 }
 
 Status BlockBasedTableBuilder::Finish() {

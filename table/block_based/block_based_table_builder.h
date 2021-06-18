@@ -101,6 +101,10 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
+  void ReserveLastBufferedDataBlockMemInCache();
+
+  void FreeAllBufferedDataBlocksMemFromCache();
+
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
