@@ -116,6 +116,8 @@ TEST(BlobGarbageMeterTest, MeasureGarbage) {
 
     ASSERT_TRUE(flow.IsValid());
     ASSERT_TRUE(flow.HasGarbage());
+    ASSERT_EQ(flow.GetGarbageCount(), expected_in_count - expected_out_count);
+    ASSERT_EQ(flow.GetGarbageBytes(), expected_in_bytes - expected_out_bytes);
   }
 }
 
