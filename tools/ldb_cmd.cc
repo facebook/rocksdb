@@ -3423,9 +3423,9 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   if (sort_by_filename_) {
     std::sort(metadata.begin(), metadata.end(),
               [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
-                std::string aFilename = a.db_path + a.name;
-                std::string bFilename = b.db_path + b.name;
-                return aFilename.compare(bFilename);
+                std::string aName = a.db_path + a.name;
+                std::string bName = b.db_path + b.name;
+                return (aName.compare(bName) < 0);
               });
     for (auto& fileMetadata : metadata) {
       std::string filename = fileMetadata.db_path + fileMetadata.name;
