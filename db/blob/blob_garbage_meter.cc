@@ -58,7 +58,9 @@ Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
 Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
                                uint64_t* blob_file_number, uint64_t* bytes) {
   assert(blob_file_number);
+  assert(*blob_file_number == kInvalidBlobFileNumber);
   assert(bytes);
+  assert(*bytes == 0);
 
   ParsedInternalKey ikey;
 
