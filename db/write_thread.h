@@ -129,7 +129,7 @@ class WriteThread {
     WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;
-    Status callback_status;   // status returned by callback->Callback()
+    Status callback_status;  // status returned by callback->Callback()
 
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
@@ -246,7 +246,7 @@ class WriteThread {
     std::condition_variable& StateCV() {
       assert(made_waitable);
       return *static_cast<std::condition_variable*>(
-                 static_cast<void*>(&state_cv_bytes));
+          static_cast<void*>(&state_cv_bytes));
     }
   };
 
@@ -310,8 +310,8 @@ class WriteThread {
   // the next leader if needed.
   void ExitAsMemTableWriter(Writer* self, WriteGroup& write_group);
 
-  // Causes JoinBatchGroup to return STATE_PARALLEL_MEMTABLE_WRITER for all of the
-  // non-leader members of this write batch group.  Sets Writer::sequence
+  // Causes JoinBatchGroup to return STATE_PARALLEL_MEMTABLE_WRITER for all of
+  // the non-leader members of this write batch group.  Sets Writer::sequence
   // before waking them up.
   //
   // WriteGroup* write_group: Extra state used to coordinate the parallel add
