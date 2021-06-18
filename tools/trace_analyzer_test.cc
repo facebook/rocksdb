@@ -92,6 +92,13 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_GE(ss.size(), 0);
     ASSERT_OK(ss[0]);
     ASSERT_NOK(ss[2]);
+    std::vector<ColumnFamilyHandle*> cfs(2, db_->DefaultColumnFamily());
+    std::vector<PinnableSlice> values2(keys.size());
+    db_->MultiGet(ro, 2, cfs.data(), keys.data(), values2.data(), ss.data(),
+                  false);
+    ASSERT_OK(ss[0]);
+    db_->MultiGet(ro, db_->DefaultColumnFamily(), 2, keys.data() + 3,
+                  values2.data(), ss.data(), false);
     ASSERT_OK(db_->Get(ro, "a", &value));
 
     single_iter = db_->NewIterator(ro);

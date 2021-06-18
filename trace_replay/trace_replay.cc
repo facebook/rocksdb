@@ -343,9 +343,42 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
   return WriteTrace(trace);
 }
 
-Status Tracer::MultiGet(const std::vector<ColumnFamilyHandle*>& column_family,
+Status Tracer::MultiGet(const size_t num_keys,
+                        ColumnFamilyHandle** column_families,
+                        const Slice* keys) {
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  std::vector<ColumnFamilyHandle*> v_column_families;
+  std::vector<Slice> v_keys;
+  v_column_families.resize(num_keys);
+  v_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    v_column_families[i] = column_families[i];
+    v_keys[i] = keys[i];
+  }
+  return MultiGet(v_column_families, v_keys);
+}
+
+Status Tracer::MultiGet(const size_t num_keys,
+                        ColumnFamilyHandle* column_family, const Slice* keys) {
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> v_keys;
+  column_families.resize(num_keys);
+  v_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    column_families[i] = column_family;
+    v_keys[i] = keys[i];
+  }
+  return MultiGet(column_families, v_keys);
+}
+
+Status Tracer::MultiGet(const std::vector<ColumnFamilyHandle*>& column_families,
                         const std::vector<Slice>& keys) {
-  if (column_family.size() != keys.size()) {
+  if (column_families.size() != keys.size()) {
     return Status::Corruption("the CFs size and keys size does not match!");
   }
   TraceType trace_type = kTraceMultiGet;
@@ -368,9 +401,9 @@ Status Tracer::MultiGet(const std::vector<ColumnFamilyHandle*>& column_family,
   std::string cfids_payload;
   std::string keys_payload;
   for (uint32_t i = 0; i < multiget_size; i++) {
-    assert(i < column_family.size());
+    assert(i < column_families.size());
     assert(i < keys.size());
-    PutFixed32(&cfids_payload, column_family[i]->GetID());
+    PutFixed32(&cfids_payload, column_families[i]->GetID());
     PutLengthPrefixedSlice(&keys_payload, keys[i]);
   }
   // Encode the Get struct members into payload. Make sure add them in order.

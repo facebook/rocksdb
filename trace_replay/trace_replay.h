@@ -182,6 +182,13 @@ class Tracer {
                              const Slice& lower_bound, const Slice upper_bound);
 
   // Trace MultiGet
+
+  Status MultiGet(const size_t num_keys, ColumnFamilyHandle** column_families,
+                  const Slice* keys);
+
+  Status MultiGet(const size_t num_keys, ColumnFamilyHandle* column_family,
+                  const Slice* keys);
+
   Status MultiGet(const std::vector<ColumnFamilyHandle*>& column_family,
                   const std::vector<Slice>& keys);
 
