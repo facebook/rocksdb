@@ -49,6 +49,9 @@ class BlobGarbageMeter {
       assert(IsValid());
     }
 
+    const BlobStats& GetInFlow() const { return in_flow_; }
+    const BlobStats& GetOutFlow() const { return out_flow_; }
+
     bool IsValid() const {
       return in_flow_.GetCount() >= out_flow_.GetCount() &&
              in_flow_.GetBytes() >= out_flow_.GetBytes();
