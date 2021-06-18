@@ -17,8 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class BlobFileGarbage;
-
 class BlobGarbageMeter {
  public:
   class BlobStats {
