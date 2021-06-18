@@ -15,23 +15,23 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct BlobDescriptor {
-  std::string user_key;
-  uint64_t blob_file_number;
-  uint64_t offset;
-  uint64_t size;
-  CompressionType compression_type;
-  bool has_in_flow;
-  bool has_out_flow;
-
-  uint64_t GetExpectedBytes() const {
-    return size +
-           BlobLogRecord::CalculateAdjustmentForRecordHeader(user_key.size());
-  }
-};
-
 TEST(BlobGarbageMeterTest, MeasureGarbage) {
   BlobGarbageMeter blob_garbage_meter;
+
+  struct BlobDescriptor {
+    std::string user_key;
+    uint64_t blob_file_number;
+    uint64_t offset;
+    uint64_t size;
+    CompressionType compression_type;
+    bool has_in_flow;
+    bool has_out_flow;
+
+    uint64_t GetExpectedBytes() const {
+      return size +
+             BlobLogRecord::CalculateAdjustmentForRecordHeader(user_key.size());
+    }
+  };
 
   // Note: blob file 4 has the same inflow and outflow and hence no additional
   // garbage. Blob file 5 has less outflow than inflow and thus it does have
