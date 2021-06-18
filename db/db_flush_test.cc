@@ -658,6 +658,51 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
+TEST_F(DBFlushTest, PurgeBasic) {
+  Options options = CurrentOptions();
+
+  // The following options are used to enforce several values that
+  // may already exist as default values to make this test resilient
+  // to default value updates in the future.
+  options.statistics = CreateDBStatistics();
+
+  // Record all statistics.
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+
+  // Useful for now as we are trying to compare uncompressed data savings on
+  // flush().
+  options.compression = kNoCompression;
+
+  // Prevent memtable in place updates. Should already be disabled
+  // (from Wiki:
+  //  In place updates can be enabled by toggling on the bool
+  //  inplace_update_support flag. However, this flag is by default set to
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+
+  ASSERT_OK(TryReopen(options));
+
+  std::string KEY1 = "IamKey1";
+  std::string KEY2 = "IamKey2";
+  std::string VALUE1 = "IamValue1";
+  std::string VALUE2 = "IamValue2";
+  ASSERT_OK(Put(KEY1, VALUE1));
+  ASSERT_OK(Put(KEY2, VALUE2));
+
+  Close();
+}
+
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
