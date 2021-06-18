@@ -1028,10 +1028,10 @@ TEST_F(DBTest, FailMoreDbPaths) {
 }
 
 void CheckColumnFamilyMeta(
-    const ColumnFamilyMetaData& cf_meta,
+    const ColumnFamilyMetaData& cf_meta, const std::string& cf_name,
     const std::vector<std::vector<FileMetaData>>& files_by_level,
     uint64_t start_time, uint64_t end_time) {
-  ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
+  ASSERT_EQ(cf_meta.name, cf_name);
   ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
 
   uint64_t cf_size = 0;
@@ -1129,7 +1129,6 @@ TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.enable_blob_files = true;
 
   int64_t temp_time = 0;
   options.env->GetCurrentTime(&temp_time);
@@ -1166,10 +1165,63 @@ TEST_F(DBTest, MetaDataTest) {
 
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
+  CheckColumnFamilyMeta(cf_meta, kDefaultColumnFamilyName, files_by_level,
+                        start_time, end_time);
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
   CheckLiveFilesMeta(live_file_meta, files_by_level);
+}
+
+TEST_F(DBTest, AllMetaDataTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  int64_t temp_time = 0;
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t start_time = static_cast<uint64_t>(temp_time);
+
+  Random rnd(301);
+  for (int cf = 0; cf < 2; cf++) {
+    int key_index = 0;
+    for (int i = 0; i < 100; ++i) {
+      // Add a single blob reference to each file
+      std::string blob_index;
+      BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
+                            /* offset */ 1234, /* size */ 5678, kNoCompression);
+
+      WriteBatch batch;
+      ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, cf, Key(key_index),
+                                                 blob_index));
+      ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
+      ++key_index;
+
+      // Fill up the rest of the file with random values.
+      GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+
+      Flush();
+    }
+  }
+
+  std::vector<ColumnFamilyMetaData> all_meta;
+  db_->GetAllColumnFamilyMetaData(&all_meta);
+
+  std::vector<std::vector<FileMetaData>> default_files_by_level;
+  std::vector<std::vector<FileMetaData>> pikachu_files_by_level;
+  dbfull()->TEST_GetFilesMetaData(handles_[0], &default_files_by_level);
+  dbfull()->TEST_GetFilesMetaData(handles_[1], &pikachu_files_by_level);
+
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t end_time = static_cast<uint64_t>(temp_time);
+
+  ASSERT_EQ(all_meta.size(), 2);
+  CheckColumnFamilyMeta(all_meta[0], "default", default_files_by_level,
+                        start_time, end_time);
+  CheckColumnFamilyMeta(all_meta[1], "pikachu", pikachu_files_by_level,
+                        start_time, end_time);
 }
 
 namespace {
@@ -2402,8 +2454,8 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
   ASSERT_EQ(bmd.garbage_blob_count, 0);
   ASSERT_EQ(bmd.garbage_blob_bytes, 0);
-  ASSERT_EQ(bmd.checksum_method, "CRC32");
-  ASSERT_EQ(bmd.checksum_value, "3d87ff57");
+  ASSERT_EQ(bmd.checksum_method, checksum_method);
+  ASSERT_EQ(bmd.checksum_value, checksum_value);
 }
 #endif
 

@@ -3743,6 +3743,20 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
+void DBImpl::GetAllColumnFamilyMetaData(
+    std::vector<ColumnFamilyMetaData>* metadata) {
+  for (auto cfd : *(versions_->GetColumnFamilySet())) {
+    auto* sv = GetAndRefSuperVersion(cfd);
+    {
+      InstrumentedMutexLock l(&mutex_);
+      ColumnFamilyMetaData cf_meta;
+      metadata->emplace_back();
+      sv->current->GetColumnFamilyMetaData(&metadata->back());
+    }
+    ReturnAndCleanupSuperVersion(cfd, sv);
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::CheckConsistency() {

@@ -14,7 +14,6 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct BlobMetaData;
 
 // SharedBlobFileMetaData represents the immutable part of blob files' metadata,
 // like the blob file number, total number and size of blobs, or checksum

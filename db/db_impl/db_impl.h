@@ -400,11 +400,12 @@ class DBImpl : public DB {
       FileChecksumList* checksum_list) override;
 
   // Obtains the meta data of the specified column family of the DB.
-  // Status::NotFound() will be returned if the current DB does not have
-  // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* metadata) override;
+
+  void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* metadata) override;
 
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;

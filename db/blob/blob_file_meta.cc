@@ -9,8 +9,6 @@
 #include <sstream>
 
 #include "db/blob/blob_log_format.h"
-#include "file/filename.h"
-#include "rocksdb/metadata.h"
 
 namespace ROCKSDB_NAMESPACE {
 uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
