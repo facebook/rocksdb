@@ -3427,7 +3427,6 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   Status s;
 
   std::cout << "Live SST Files:" << std::endl;
-  std::cout << "==============================" << std::endl;
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   if (sort_by_filename_) {
