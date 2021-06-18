@@ -259,12 +259,9 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
   }
 }
 
-void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
-                                                  GetContext* get_context,
-                                                  size_t usage,
-                                                  bool redundant) const {
-  Statistics* const statistics = rep_->ioptions.stats;
-
+void BlockBasedTable::UpdateCacheInsertionMetrics(
+    BlockType block_type, GetContext* get_context, size_t usage, bool redundant,
+    Statistics* const statistics) {
   // TODO: introduce perf counters for block cache insertions
   if (get_context) {
     ++get_context->get_context_stats_.num_cache_add;
@@ -1206,7 +1203,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
                               cache_handle);
 
         UpdateCacheInsertionMetrics(block_type, get_context, charge,
-                                    s.IsOkOverwritten());
+                                    s.IsOkOverwritten(), rep_->ioptions.stats);
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       }
@@ -1313,7 +1310,7 @@ Status BlockBasedTable::PutDataBlockToCache(
                                    cache_handle);
 
       UpdateCacheInsertionMetrics(block_type, get_context, charge,
-                                  s.IsOkOverwritten());
+                                  s.IsOkOverwritten(), rep_->ioptions.stats);
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
     }

@@ -217,6 +217,11 @@ class BlockBasedTable : public TableReader {
                            size_t cache_key_prefix_size,
                            const BlockHandle& handle, char* cache_key);
 
+  static void UpdateCacheInsertionMetrics(BlockType block_type,
+                                          GetContext* get_context, size_t usage,
+                                          bool redundant,
+                                          Statistics* const statistics);
+
   // Retrieve all key value pairs from data blocks in the table.
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
@@ -267,9 +272,7 @@ class BlockBasedTable : public TableReader {
                              size_t usage) const;
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
-  void UpdateCacheInsertionMetrics(BlockType block_type,
-                                   GetContext* get_context, size_t usage,
-                                   bool redundant) const;
+
   Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                    BlockType block_type,
                                    GetContext* get_context,

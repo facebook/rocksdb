@@ -557,6 +557,10 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_int64(prepopulate_block_cache, 0,
+             "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
+             "to insert during flush");
+
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "
             "instead of kDataBlockBinarySearch. "
@@ -3998,6 +4002,21 @@ class Benchmark {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
+          block_based_options.prepopulate_block_cache;
+      switch (FLAGS_prepopulate_block_cache) {
+        case 0:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kDisable;
+          break;
+        case 1:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+          break;
+        default:
+          fprintf(stderr, "Unknown prepopulate block cache mode\n");
+      }
+      block_based_options.prepopulate_block_cache = prepopulate_block_cache;
       if (FLAGS_use_data_block_hash_index) {
         block_based_options.data_block_index_type =
             ROCKSDB_NAMESPACE::BlockBasedTableOptions::kDataBlockBinaryAndHash;
