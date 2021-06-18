@@ -36,7 +36,7 @@ class WriteThread {
     // non-parallel informs a follower that its writes have been committed
     // (-> STATE_COMPLETED), or when a leader that has chosen to perform
     // updates in parallel and needs this Writer to apply its batch (->
-    // STATE_PARALLEL_FOLLOWER).
+    // STATE_PARALLEL_MEMTABLE_WRITER).
     STATE_INIT = 1,
 
     // The state used to inform a waiting Writer that it has become the
@@ -273,7 +273,7 @@ class WriteThread {
   // STATE_GROUP_LEADER.  If w has been made part of a sequential batch
   // group and the leader has performed the write, returns STATE_DONE.
   // If w has been made part of a parallel batch group and is responsible
-  // for updating the memtable, returns STATE_PARALLEL_FOLLOWER.
+  // for updating the memtable, returns STATE_PARALLEL_MEMTABLE_WRITER.
   //
   // The db mutex SHOULD NOT be held when calling this function, because
   // it will block.
@@ -310,7 +310,7 @@ class WriteThread {
   // the next leader if needed.
   void ExitAsMemTableWriter(Writer* self, WriteGroup& write_group);
 
-  // Causes JoinBatchGroup to return STATE_PARALLEL_FOLLOWER for all of the
+  // Causes JoinBatchGroup to return STATE_PARALLEL_MEMTABLE_WRITER for all of the
   // non-leader members of this write batch group.  Sets Writer::sequence
   // before waking them up.
   //
