@@ -119,6 +119,73 @@ TEST(BlobGarbageMeterTest, MeasureGarbage) {
   }
 }
 
+TEST(BlobGarbageMeterTest, PlainValue) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  const InternalKey key(user_key, seq, kTypeValue);
+  const Slice key_slice = key.Encode();
+
+  constexpr char value[] = "value";
+  const Slice value_slice(value);
+
+  BlobGarbageMeter blob_garbage_meter;
+
+  ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+  ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+  ASSERT_TRUE(blob_garbage_meter.flows().empty());
+}
+
+TEST(BlobGarbageMeterTest, CorruptInternalKey) {
+  constexpr char corrupt_key[] = "i_am_corrupt";
+  const Slice key_slice(corrupt_key);
+
+  constexpr char value[] = "value";
+  const Slice value_slice(value);
+
+  BlobGarbageMeter blob_garbage_meter;
+
+  ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+  ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+}
+
+TEST(BlobGarbageMeterTest, CorruptBlobIndex) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
+  const Slice key_slice = key.Encode();
+
+  constexpr char value[] = "i_am_not_a_blob_index";
+  const Slice value_slice(value);
+
+  BlobGarbageMeter blob_garbage_meter;
+
+  ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+  ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+}
+
+TEST(BlobGarbageMeterTest, InlinedTTLBlobIndex) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
+  const Slice key_slice = key.Encode();
+
+  constexpr uint64_t expiration = 1234567890;
+  constexpr char inlined_value[] = "inlined";
+
+  std::string value;
+  BlobIndex::EncodeInlinedTTL(&value, expiration, inlined_value);
+
+  const Slice value_slice(value);
+
+  BlobGarbageMeter blob_garbage_meter;
+
+  ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
+  ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
