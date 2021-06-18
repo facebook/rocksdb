@@ -2569,8 +2569,16 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             // nothing to read from disk.
             if (results.back().GetCacheHandle()) {
               results.back().UpdateCachedValue();
+              // Its possible the cache lookup returned a non-null handle,
+              // but the lookup actually failed to produce a valid value
+              if (results.back().GetValue() == nullptr) {
+                block_handles.emplace_back(handle);
+                total_len += block_size(handle);
+              }
             }
-            block_handles.emplace_back(BlockHandle::NullBlockHandle());
+            if (results.back().GetValue() != nullptr) {
+              block_handles.emplace_back(BlockHandle::NullBlockHandle());
+            }
           } else {
             // We have to wait for the asynchronous cache lookup to finish,
             // and then we may have to read the block from disk anyway
