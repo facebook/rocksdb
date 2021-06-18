@@ -42,6 +42,9 @@ Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
     return Status::OK();
   }
 
+  // Note: in order to measure the amount of additional garbage, we only need to
+  // track the outflow for preexisting files, i.e. those that also had inflow.
+  // (Newly written files would only have outflow.)
   auto it = flows_.find(blob_file_number);
   if (it == flows_.end()) {
     return Status::OK();
