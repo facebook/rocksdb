@@ -1880,6 +1880,16 @@ std::vector<Status> DBImpl::MultiGet(
   }
 #endif  // NDEBUG
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(column_family, keys).PermitUncheckedError();
+    }
+  }
+
   SequenceNumber consistent_seqnum;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
@@ -2191,6 +2201,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   }
 #endif  // NDEBUG
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(num_keys, column_families, keys).PermitUncheckedError();
+    }
+  }
+
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
@@ -2353,6 +2373,15 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(num_keys, column_family, keys).PermitUncheckedError();
+    }
+  }
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
