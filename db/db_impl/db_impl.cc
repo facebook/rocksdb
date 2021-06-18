@@ -1880,6 +1880,16 @@ std::vector<Status> DBImpl::MultiGet(
   }
 #endif  // NDEBUG
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(column_family, keys).PermitUncheckedError();
+    }
+  }
+
   SequenceNumber consistent_seqnum;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(

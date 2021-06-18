@@ -81,8 +81,19 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(batch.SingleDelete("d"));
     ASSERT_OK(batch.DeleteRange("e", "f"));
     ASSERT_OK(db_->Write(wo, &batch));
-
+    std::vector<Slice> keys;
+    keys.push_back("a");
+    keys.push_back("b");
+    keys.push_back("df");
+    keys.push_back("gege");
+    keys.push_back("hjhjhj");
+    std::vector<std::string> values;
+    std::vector<Status> ss = db_->MultiGet(ro, keys, &values);
+    ASSERT_GE(ss.size(), 0);
+    ASSERT_OK(ss[0]);
+    ASSERT_NOK(ss[2]);
     ASSERT_OK(db_->Get(ro, "a", &value));
+
     single_iter = db_->NewIterator(ro);
     single_iter->Seek("a");
     ASSERT_OK(single_iter->status());
