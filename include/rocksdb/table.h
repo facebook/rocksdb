@@ -470,7 +470,7 @@ struct BlockBasedTableOptions {
   // additional IO is incurred to read this data back into memory again, which
   // is avoided by enabling this option. This further helps if the workload
   // exhibits high temporal locality, where most of the reads go to recently
-  // written data.
+  // written data. This also helps in case of Distributed FileSystem.
   //
   // Right now, this is enabled only for flush for data blocks. We plan to
   // expand this option to cover compactions in the future and for other types

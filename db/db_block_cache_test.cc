@@ -244,7 +244,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
@@ -456,6 +456,33 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
   //           filter_bytes_insert);
 }
+
+#if (defined OS_LINUX || defined OS_WIN)
+TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 25, 0, false);
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.prepopulate_block_cache =
+      BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+  for (size_t i = 1; i <= kNumBlocks; i++) {
+    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+
+    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
+  }
+}
+#endif
 
 namespace {
 
