@@ -296,7 +296,8 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
       table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
                              UncompressionDict::GetEmptyDict(), filter_block,
                              BlockType::kFilter, get_context, lookup_context,
-                             /* for_compaction */ false, /* use_cache */ true);
+                             /* for_compaction */ false, /* use_cache */ true,
+                             /* wait_for_cache */ true);
 
   return s;
 }
@@ -490,8 +491,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        &block, BlockType::kFilter, nullptr /* get_context */, &lookup_context,
-        nullptr /* contents */);
+        /* wait */ true, &block, BlockType::kFilter, nullptr /* get_context */,
+        &lookup_context, nullptr /* contents */);
     if (!s.ok()) {
       return s;
     }

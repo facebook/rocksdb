@@ -274,7 +274,7 @@ class BlockBasedTable : public TableReader {
                               GetContext* get_context) const;
 
   Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
-                                   BlockType block_type,
+                                   BlockType block_type, const bool wait,
                                    GetContext* get_context,
                                    const Cache::CacheItemHelper* cache_helper,
                                    const Cache::CreateCallback& create_cb,
@@ -300,9 +300,9 @@ class BlockBasedTable : public TableReader {
   Status MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
-      GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents) const;
+      const bool wait, CachableEntry<TBlocklike>* block_entry,
+      BlockType block_type, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context, BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -314,7 +314,8 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-                       bool for_compaction, bool use_cache) const;
+                       bool for_compaction, bool use_cache,
+                       bool wait_for_cache) const;
 
   void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,
@@ -354,7 +355,7 @@ class BlockBasedTable : public TableReader {
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, CachableEntry<TBlocklike>* block,
       const UncompressionDict& uncompression_dict, BlockType block_type,
-      GetContext* get_context) const;
+      const bool wait, GetContext* get_context) const;
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then

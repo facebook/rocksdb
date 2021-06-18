@@ -56,7 +56,12 @@ struct LRUHandle {
     Cache::DeleterFn deleter;
     const ShardedCache::CacheItemHelper* helper;
   } info_;
-  LRUHandle* next_hash;
+  // An entry is not added to the LRUHandleTable until the secondary cache
+  // lookup is complete, so its safe to have this union.
+  union {
+    LRUHandle* next_hash;
+    SecondaryCacheResultHandle* sec_handle;
+  };
   LRUHandle* next;
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
@@ -168,7 +173,16 @@ struct LRUHandle {
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {
-      (*info_.helper->del_cb)(key(), value);
+      if (IsPending()) {
+        assert(sec_handle != nullptr);
+        SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
+        tmp_sec_handle->Wait();
+        value = tmp_sec_handle->Value();
+        delete tmp_sec_handle;
+      }
+      if (value) {
+        (*info_.helper->del_cb)(key(), value);
+      }
     }
     delete[] reinterpret_cast<char*>(this);
   }
@@ -293,7 +307,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                        bool force_erase) override {
     return Release(handle, force_erase);
   }
-  virtual bool IsReady(Cache::Handle* /*handle*/) override { return true; }
+  virtual bool IsReady(Cache::Handle* /*handle*/) override;
   virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
@@ -326,10 +340,23 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   double GetHighPriPoolRatio();
 
  private:
-  Status InsertItem(LRUHandle* item, Cache::Handle** handle);
+  friend class LRUCache;
+  // Insert an item into the hash table and, if handle is null, insert into
+  // the LRU list. Older items are evicted as necessary. If the cache is full
+  // and free_handle_on_fail is true, the item is deleted and handle is set to.
+  Status InsertItem(LRUHandle* item, Cache::Handle** handle,
+                    bool free_handle_on_fail);
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 DeleterFn deleter, const Cache::CacheItemHelper* helper,
                 Cache::Handle** handle, Cache::Priority priority);
+  // Promote an item looked up from the secondary cache to the LRU cache. The
+  // item is only inserted into the hash table and not the LRU list, and only
+  // if the cache is not at full capacity, as is the case during Insert.  The
+  // caller should hold a reference on the LRUHandle. When the caller releases
+  // the last reference, the item is added to the LRU list.
+  // The item is promoted to the high pri or low pri pool as specified by the
+  // caller in Lookup.
+  void Promote(LRUHandle* e);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -416,7 +443,7 @@ class LRUCache
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
-  virtual void WaitAll(std::vector<Handle*>& /*handles*/) override {}
+  virtual void WaitAll(std::vector<Handle*>& handles) override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
@@ -426,6 +453,7 @@ class LRUCache
  private:
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
+  std::shared_ptr<SecondaryCache> secondary_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
