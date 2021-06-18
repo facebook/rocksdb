@@ -69,7 +69,8 @@ Status BuildTable(
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries) {
+    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
+    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -89,9 +90,12 @@ Status BuildTable(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots));
   uint64_t num_unfragmented_tombstones = 0;
+  uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
     num_unfragmented_tombstones +=
         range_del_iter->num_unfragmented_tombstones();
+    total_tombstone_payload_bytes +=
+        range_del_iter->total_tombstone_payload_bytes();
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
@@ -254,6 +258,25 @@ Status BuildTable(
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
+      if (memtable_payload_bytes != nullptr &&
+          memtable_garbage_bytes != nullptr) {
+        const CompactionIterationStats& ci_stats = c_iter.iter_stats();
+        uint64_t total_payload_bytes = ci_stats.total_input_raw_key_bytes +
+                                       ci_stats.total_input_raw_value_bytes +
+                                       total_tombstone_payload_bytes;
+        uint64_t total_payload_bytes_written =
+            (tp.raw_key_size + tp.raw_value_size);
+        // Prevent underflow, which may still happen at this point
+        // since we only support inserts, deletes, and deleteRanges.
+        if (total_payload_bytes_written <= total_payload_bytes) {
+          *memtable_payload_bytes = total_payload_bytes;
+          *memtable_garbage_bytes =
+              total_payload_bytes - total_payload_bytes_written;
+        } else {
+          *memtable_payload_bytes = 0;
+          *memtable_garbage_bytes = 0;
+        }
+      }
       if (table_properties) {
         *table_properties = tp;
       }

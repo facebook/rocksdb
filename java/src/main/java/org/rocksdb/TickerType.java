@@ -752,6 +752,18 @@ public enum TickerType {
     ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x1A),
     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
 
+    /**
+     * Bytes of raw data (payload) found on memtable at flush time.
+     * Contains the sum of garbage payload (bytes that are discarded
+     * at flush time) and useful payload (bytes of data that will
+     * eventually be written to SSTable).
+     */
+    MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x1C),
+    /**
+     * Outdated bytes of data present on memtable at flush time.
+     */
+    MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
