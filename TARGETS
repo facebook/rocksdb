@@ -909,6 +909,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "blob_counting_iterator_test",
+        "db/blob/blob_counting_iterator_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "blob_db_test",
         "utilities/blob_db/blob_db_test.cc",
         "parallel",
