@@ -101,6 +101,10 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Next();
   ASSERT_FALSE(blob_counter.Valid());
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 1,
+              first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 1,
+              second_expected_bytes);
 
   // Do it again using NextAndGetResult
   blob_counter.SeekToFirst();
@@ -142,6 +146,10 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
     IterateResult result;
     ASSERT_FALSE(blob_counter.NextAndGetResult(&result));
     ASSERT_FALSE(blob_counter.Valid());
+    CheckInFlow(blob_garbage_meter, first_blob_file_number, 2,
+                2 * first_expected_bytes);
+    CheckInFlow(blob_garbage_meter, second_blob_file_number, 2,
+                2 * second_expected_bytes);
   }
 
   // Call SeekToLast and iterate backward
@@ -174,8 +182,80 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Prev();
   ASSERT_FALSE(blob_counter.Valid());
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 3,
+              3 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 3,
+              3 * second_expected_bytes);
 
-  // Call Seek/SeekForPrev for all keys
+  // Call Seek for all keys (plus one that's greater than all of them)
+  blob_counter.Seek(keys[0]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[0]);
+  ASSERT_EQ(blob_counter.value(), values[0]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
+              4 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 3,
+              3 * second_expected_bytes);
+
+  blob_counter.Seek(keys[1]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[1]);
+  ASSERT_EQ(blob_counter.value(), values[1]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
+              4 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
+              4 * second_expected_bytes);
+
+  blob_counter.Seek(keys[2]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[2]);
+  ASSERT_EQ(blob_counter.value(), values[2]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
+              4 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
+              4 * second_expected_bytes);
+
+  blob_counter.Seek("zzz");
+  ASSERT_FALSE(blob_counter.Valid());
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
+              4 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
+              4 * second_expected_bytes);
+
+  // Call SeekForPrev for all keys (plus one that's less than all of them)
+  blob_counter.SeekForPrev("aaa");
+  ASSERT_FALSE(blob_counter.Valid());
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
+              4 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
+              4 * second_expected_bytes);
+
+  blob_counter.SeekForPrev(keys[0]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[0]);
+  ASSERT_EQ(blob_counter.value(), values[0]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 5,
+              5 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
+              4 * second_expected_bytes);
+
+  blob_counter.SeekForPrev(keys[1]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[1]);
+  ASSERT_EQ(blob_counter.value(), values[1]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 5,
+              5 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 5,
+              5 * second_expected_bytes);
+
+  blob_counter.SeekForPrev(keys[2]);
+  ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_EQ(blob_counter.key(), keys[2]);
+  ASSERT_EQ(blob_counter.value(), values[2]);
+  CheckInFlow(blob_garbage_meter, first_blob_file_number, 5,
+              5 * first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 5,
+              5 * second_expected_bytes);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
