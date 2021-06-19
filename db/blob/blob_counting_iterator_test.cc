@@ -76,6 +76,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   // Call SeekToFirst and iterate forward
   blob_counter.SeekToFirst();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[0]);
   ASSERT_EQ(blob_counter.user_key(), user_key0);
   ASSERT_EQ(blob_counter.value(), values[0]);
@@ -84,6 +85,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Next();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[1]);
   ASSERT_EQ(blob_counter.user_key(), user_key1);
   ASSERT_EQ(blob_counter.value(), values[1]);
@@ -94,6 +96,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Next();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[2]);
   ASSERT_EQ(blob_counter.user_key(), user_key2);
   ASSERT_EQ(blob_counter.value(), values[2]);
@@ -104,6 +107,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Next();
   ASSERT_FALSE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   CheckInFlow(blob_garbage_meter, first_blob_file_number, 1,
               first_expected_bytes);
   CheckInFlow(blob_garbage_meter, second_blob_file_number, 1,
@@ -112,6 +116,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   // Do it again using NextAndGetResult
   blob_counter.SeekToFirst();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[0]);
   ASSERT_EQ(blob_counter.user_key(), user_key0);
   ASSERT_EQ(blob_counter.value(), values[0]);
@@ -126,6 +131,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
     ASSERT_EQ(result.key, keys[1]);
     ASSERT_EQ(blob_counter.user_key(), user_key1);
     ASSERT_TRUE(blob_counter.Valid());
+    ASSERT_OK(blob_counter.status());
     ASSERT_EQ(blob_counter.key(), keys[1]);
     ASSERT_EQ(blob_counter.value(), values[1]);
     CheckInFlow(blob_garbage_meter, first_blob_file_number, 2,
@@ -140,6 +146,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
     ASSERT_EQ(result.key, keys[2]);
     ASSERT_EQ(blob_counter.user_key(), user_key2);
     ASSERT_TRUE(blob_counter.Valid());
+    ASSERT_OK(blob_counter.status());
     ASSERT_EQ(blob_counter.key(), keys[2]);
     ASSERT_EQ(blob_counter.value(), values[2]);
     CheckInFlow(blob_garbage_meter, first_blob_file_number, 2,
@@ -152,6 +159,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
     IterateResult result;
     ASSERT_FALSE(blob_counter.NextAndGetResult(&result));
     ASSERT_FALSE(blob_counter.Valid());
+    ASSERT_OK(blob_counter.status());
     CheckInFlow(blob_garbage_meter, first_blob_file_number, 2,
                 2 * first_expected_bytes);
     CheckInFlow(blob_garbage_meter, second_blob_file_number, 2,
@@ -161,6 +169,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   // Call SeekToLast and iterate backward
   blob_counter.SeekToLast();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[2]);
   ASSERT_EQ(blob_counter.user_key(), user_key2);
   ASSERT_EQ(blob_counter.value(), values[2]);
@@ -171,6 +180,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Prev();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[1]);
   ASSERT_EQ(blob_counter.user_key(), user_key1);
   ASSERT_EQ(blob_counter.value(), values[1]);
@@ -181,6 +191,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Prev();
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[0]);
   ASSERT_EQ(blob_counter.user_key(), user_key0);
   ASSERT_EQ(blob_counter.value(), values[0]);
@@ -191,6 +202,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Prev();
   ASSERT_FALSE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   CheckInFlow(blob_garbage_meter, first_blob_file_number, 3,
               3 * first_expected_bytes);
   CheckInFlow(blob_garbage_meter, second_blob_file_number, 3,
@@ -199,6 +211,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   // Call Seek for all keys (plus one that's greater than all of them)
   blob_counter.Seek(keys[0]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[0]);
   ASSERT_EQ(blob_counter.user_key(), user_key0);
   ASSERT_EQ(blob_counter.value(), values[0]);
@@ -209,6 +222,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Seek(keys[1]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[1]);
   ASSERT_EQ(blob_counter.user_key(), user_key1);
   ASSERT_EQ(blob_counter.value(), values[1]);
@@ -219,6 +233,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Seek(keys[2]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[2]);
   ASSERT_EQ(blob_counter.user_key(), user_key2);
   ASSERT_EQ(blob_counter.value(), values[2]);
@@ -229,6 +244,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.Seek("zzz");
   ASSERT_FALSE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
               4 * first_expected_bytes);
   CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
@@ -237,6 +253,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   // Call SeekForPrev for all keys (plus one that's less than all of them)
   blob_counter.SeekForPrev("aaa");
   ASSERT_FALSE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   CheckInFlow(blob_garbage_meter, first_blob_file_number, 4,
               4 * first_expected_bytes);
   CheckInFlow(blob_garbage_meter, second_blob_file_number, 4,
@@ -244,6 +261,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.SeekForPrev(keys[0]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[0]);
   ASSERT_EQ(blob_counter.user_key(), user_key0);
   ASSERT_EQ(blob_counter.value(), values[0]);
@@ -254,6 +272,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.SeekForPrev(keys[1]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[1]);
   ASSERT_EQ(blob_counter.user_key(), user_key1);
   ASSERT_EQ(blob_counter.value(), values[1]);
@@ -264,6 +283,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   blob_counter.SeekForPrev(keys[2]);
   ASSERT_TRUE(blob_counter.Valid());
+  ASSERT_OK(blob_counter.status());
   ASSERT_EQ(blob_counter.key(), keys[2]);
   ASSERT_EQ(blob_counter.user_key(), user_key2);
   ASSERT_EQ(blob_counter.value(), values[2]);
