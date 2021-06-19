@@ -293,6 +293,23 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
               5 * second_expected_bytes);
 }
 
+TEST(BlobCountingIteratorTest, CorruptBlobIndex) {
+  const std::vector<std::string> keys{
+      test::KeyStr("user_key", 1, kTypeBlobIndex)};
+  const std::vector<std::string> values{"i_am_not_a_blob_index"};
+
+  assert(keys.size() == values.size());
+
+  test::VectorIterator input(keys, values);
+  BlobGarbageMeter blob_garbage_meter;
+
+  BlobCountingIterator blob_counter(&input, &blob_garbage_meter);
+
+  blob_counter.SeekToFirst();
+  ASSERT_FALSE(blob_counter.Valid());
+  ASSERT_NOK(blob_counter.status());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
