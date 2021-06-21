@@ -2575,8 +2575,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             }
             block_handles.emplace_back(BlockHandle::NullBlockHandle());
           } else {
-            // We have to wait for the asynchronous cache lookup to finish,
-            // and then we may have to read the block from disk anyway
+            // We have to wait for the cache lookup to finish in the
+            // background, and then we may have to read the block from disk
+            // anyway
             assert(results.back().GetCacheHandle());
             wait_for_cache_results = true;
             block_handles.emplace_back(handle);
