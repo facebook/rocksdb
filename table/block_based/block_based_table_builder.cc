@@ -450,9 +450,9 @@ struct BlockBasedTableBuilder::Rep {
     }
     // TODO figure out c++ member initialization syntax
     buffer_exceeds_global_memory_limit = false;
-    cache_rep = (table_options.block_cache != nullptr
-                     ? new CacheRep(table_options.block_cache.get())
-                     : nullptr);
+    cache_rep = (table_options_.no_block_cache
+                     ? nullptr)
+                     : new CacheRep(table_options.block_cache.get());
 
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
