@@ -3617,6 +3617,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
   MoveFilesToLevel(1);
   ASSERT_OK(Put(Key(kMaxKey), Key(kMaxKey)));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  // test DeleteFilesInRange() deletes the files already picked for compaction
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifestStart",
         "BackgroundCallCompaction:0"},
@@ -3624,15 +3625,13 @@ TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
         "VersionSet::LogAndApply:WriteManifestDone"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
+  // release snapshot which mark bottommost file for compaction
   db_->ReleaseSnapshot(snapshot);
   std::string begin_string = Key(0);
   std::string end_string = Key(kMaxKey + 1);
   Slice begin(begin_string);
   Slice end(end_string);
-  std::cout << "JJJ2: start delete" << std::endl;
   ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
-  std::cout << "JJJ3: end delete" << std::endl;
-  std::cout << FilesPerLevel() << std::endl;
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -3684,7 +3683,6 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // compactions should be triggered, which reduce the size of each bottom-level
   // file without changing file count.
   db_->ReleaseSnapshot(snapshot);
-  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
   ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {

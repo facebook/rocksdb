@@ -1788,7 +1788,6 @@ Status CompactionJob::InstallCompactionResults(
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact_.
-  fprintf(stdout, "JJJ9: check file for consistency\n");
   if (!versions_->VerifyCompactionFileConsistency(compaction)) {
     Compaction::InputLevelSummaryBuffer inputs_summary;
 
