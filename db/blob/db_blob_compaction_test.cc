@@ -317,6 +317,7 @@ TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
     ASSERT_EQ(Get(key), "NOT_FOUND");
   }
 
+  // Make sure SkipUntil was performed using iteration rather than Seek
   ASSERT_EQ(process_in_flow_called, keys.size());
 
   Close();
