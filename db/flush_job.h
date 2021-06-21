@@ -75,7 +75,8 @@ class FlushJob {
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
-           BlobFileCompletionCallback* blob_callback = nullptr);
+           BlobFileCompletionCallback* blob_callback = nullptr, DB* db = nullptr,
+           FlushScheduler* const flush_scheduler = nullptr);
 
   ~FlushJob();
 
@@ -101,6 +102,23 @@ class FlushJob {
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+  Status MemFlush(const std::string& dbname, VersionSet* versions,
+                  const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
+                  const FileOptions& file_options, TableCache* table_cache,
+                  InternalIterator* iter,
+                  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+                      range_del_iters,
+                  FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
+                  std::vector<SequenceNumber> snapshots,
+                  SequenceNumber earliest_write_conflict_snapshot,
+                  SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
+                  InternalStats* internal_stats, IOStatus* io_status,
+                  const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+                  int job_id, const Env::IOPriority io_priority,
+                  TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
+                  const std::string* full_history_ts_low,
+                  BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
+                  uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes);
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE
@@ -168,6 +186,8 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+  DB* db_;
+  FlushScheduler* flush_scheduler_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -689,7 +689,7 @@ TEST_F(DBFlushTest, PurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 64 << 20;
-
+  options.experimental_allow_memtable_purge=true;
   ASSERT_OK(TryReopen(options));
 
   std::string KEY1 = "IamKey1";
@@ -698,6 +698,7 @@ TEST_F(DBFlushTest, PurgeBasic) {
   std::string VALUE2 = "IamValue2";
   ASSERT_OK(Put(KEY1, VALUE1));
   ASSERT_OK(Put(KEY2, VALUE2));
+  ASSERT_OK(Flush());
 
   Close();
 }

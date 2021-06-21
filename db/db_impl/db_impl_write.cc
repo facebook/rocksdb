@@ -1933,6 +1933,29 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
+  if (immutable_db_options_.experimental_allow_memtable_purge){
+    uint64_t total_num_entries = 0, total_num_deletes = 0;
+    uint64_t total_data_size = 0;
+    size_t total_memory_usage = 0;
+    MemTable* m = cfd->mem();
+    total_num_entries = m->num_entries();
+    total_num_deletes = m->num_deletes();
+    total_data_size = m->get_data_size();
+    total_memory_usage = m->ApproximateMemoryUsage();
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    Arena arena;
+    std::vector<InternalIterator*> memtables(1,m->NewIterator(ro, &arena));
+    // InternalIterator* it = m->NewIterator(ro, &arena);
+    std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
+    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    if (range_del_iter != nullptr) {
+      range_del_iters.emplace_back(range_del_iter);
+    }
+    ScopedArenaIterator iter(
+        NewMergingIterator(&cfd->internal_comparator(), &memtables[0],
+                            static_cast<int>(memtables.size()), &arena));
+  }
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);

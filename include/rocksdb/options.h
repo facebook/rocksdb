@@ -778,6 +778,10 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
+  // If true, allows for memtable purge instead of flush to storage.
+  // (experimental).
+  bool experimental_allow_memtable_purge = false;
+
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
   //
