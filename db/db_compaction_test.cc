@@ -3600,6 +3600,42 @@ TEST_F(DBCompactionTest, CompactFilesOverlapInL0Bug) {
   ASSERT_EQ("new_val", Get(Key(0)));
 }
 
+TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  const Snapshot* snapshot = nullptr;
+  const int kMaxKey = 10;
+
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+    ASSERT_OK(Delete(Key(i)));
+    if (!snapshot) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put(Key(kMaxKey), Key(kMaxKey)));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"VersionSet::LogAndApply:WriteManifestStart",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCompaction:Finish",
+        "VersionSet::LogAndApply:WriteManifestDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  db_->ReleaseSnapshot(snapshot);
+  std::string begin_string = Key(0);
+  std::string end_string = Key(kMaxKey + 1);
+  Slice begin(begin_string);
+  Slice end(end_string);
+  std::cout << "JJJ2: start delete" << std::endl;
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  std::cout << "JJJ3: end delete" << std::endl;
+  std::cout << FilesPerLevel() << std::endl;
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // bottom-level files may contain deletions due to snapshots protecting the
   // deleted keys. Once the snapshot is released, we should see files with many
@@ -3648,6 +3684,7 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // compactions should be triggered, which reduce the size of each bottom-level
   // file without changing file count.
   db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
   ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
