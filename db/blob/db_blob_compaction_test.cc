@@ -152,6 +152,31 @@ class AlwaysKeepFilter : public CompactionFilter {
     return CompactionFilter::Decision::kKeep;
   }
 };
+
+class SkipUntilFilter : public CompactionFilter {
+ public:
+  explicit SkipUntilFilter(std::string skip_until)
+      : skip_until_(std::move(skip_until)) {}
+
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.skip.until";
+  }
+
+  CompactionFilter::Decision FilterV2(int /* level */, const Slice& /* key */,
+                                      ValueType /* value_type */,
+                                      const Slice& /* existing_value */,
+                                      std::string* /* new_value */,
+                                      std::string* skip_until) const override {
+    assert(skip_until);
+    *skip_until = skip_until_;
+
+    return CompactionFilter::Decision::kRemoveAndSkipUntil;
+  }
+
+ private:
+  std::string skip_until_;
+};
+
 }  // anonymous namespace
 
 class DBBlobBadCompactionFilterTest
@@ -250,6 +275,49 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
   ASSERT_GT(compaction_stats[1].bytes_written_blob, 0);
 #endif  // ROCKSDB_LITE
+
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new SkipUntilFilter("z"));
+  options.compaction_filter = compaction_filter_guard.get();
+
+  DestroyAndReopen(options);
+
+  const std::vector<std::string> keys{"a", "b", "c"};
+  const std::vector<std::string> values{"a_value", "b_value", "c_value"};
+  assert(keys.size() == values.size());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  ASSERT_OK(Flush());
+
+  int process_in_flow_called = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobCountingIterator::UpdateAndCountBlobIfNeeded:ProcessInFlow",
+      [&process_in_flow_called](void* /* arg */) { ++process_in_flow_called; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /* begin */ nullptr,
+                              /* end */ nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (const auto& key : keys) {
+    ASSERT_EQ(Get(key), "NOT_FOUND");
+  }
+
+  ASSERT_EQ(process_in_flow_called, keys.size());
 
   Close();
 }
