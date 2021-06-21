@@ -151,7 +151,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd);
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
-
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       port::kMaxUint64 /* memtable_id */, file_options_for_compaction_,
@@ -162,7 +161,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
       io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow(),
-      &blob_callback_);
+      &blob_callback_, this, &flush_scheduler_);
   FileMetaData file_meta;
 
 #ifndef ROCKSDB_LITE
