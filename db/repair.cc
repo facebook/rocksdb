@@ -109,14 +109,20 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(
-            default_iopts_, env_options_, raw_table_cache_.get(),
-            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
+        table_cache_(
+            // TODO: db_session_id for TableCache should be initialized after
+            // db_session_id_ is set.
+            new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
+                           /*block_cache_tracer=*/nullptr,
+                           /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
+        // TODO: db_session_id for VersionSet should be initialized after
+        // db_session_id_ is set and use it for initialization.
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_,
-              /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr),
+              /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+              /*db_session_id*/ ""),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -448,7 +454,8 @@ class Repairer {
           -1 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kRecovery, current_time,
           0 /* oldest_key_time */, 0 /* file_creation_time */,
-          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/);
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
+          meta.fd.GetNumber());
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           env_options_, table_cache_.get(), iter.get(),

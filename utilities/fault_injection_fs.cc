@@ -299,6 +299,14 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
+size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
+  if (fs_->ShouldFailGetUniqueId()) {
+    return 0;
+  } else {
+    return target_->GetUniqueId(id, max_size);
+  }
+}
+
 IOStatus FaultInjectionTestFS::NewDirectory(
     const std::string& name, const IOOptions& options,
     std::unique_ptr<FSDirectory>* result, IODebugContext* dbg) {

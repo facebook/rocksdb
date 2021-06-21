@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -269,7 +270,7 @@ class Configurable {
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
-  bool prepared_;
+  std::atomic<bool> prepared_;
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the

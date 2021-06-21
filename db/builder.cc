@@ -191,7 +191,8 @@ Status BuildTable(
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-        db_options.info_log, full_history_ts_low);
+        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
+        full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
