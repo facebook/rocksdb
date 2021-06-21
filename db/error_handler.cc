@@ -605,7 +605,12 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // can generate background errors should be the flush operations
   recovery_error_ = Status::OK();
   recovery_error_.PermitUncheckedError();
-  Status s = db_->ResumeImpl(recover_context_);
+  Status s;
+  if (db_) {
+    s = db_->ResumeImpl(recover_context_);
+  } else {
+    return bg_error_;
+  }
   if (s.ok()) {
     soft_error_no_bg_work_ = false;
   } else {
