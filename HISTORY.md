@@ -3,6 +3,9 @@
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
 
+### Bug Fixes
+* Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
+
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
 * Added two additional tickers, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH and MEMTABLE_GARBAGE_BYTES_AT_FLUSH. These stats can be used to estimate the ratio of "garbage" (outdated) bytes in the memtable that are discarded at flush time.
