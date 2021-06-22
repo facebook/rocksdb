@@ -3709,6 +3709,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           deleted_files.insert(level_file);
           level_file->being_compacted = true;
         }
+        vstorage->ComputeCompactionScore(*cfd->ioptions(),
+                                         *cfd->GetLatestMutableCFOptions());
       }
     }
     if (edit.GetDeletedFiles().empty()) {
