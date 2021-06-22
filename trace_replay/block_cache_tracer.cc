@@ -127,7 +127,22 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   if (BlockCacheTraceHelper::IsGetOrMultiGet(record.caller)) {
     PutFixed64(&trace.payload, record.get_id);
     trace.payload.push_back(record.get_from_user_specified_snapshot);
-    PutLengthPrefixedSlice(&trace.payload, referenced_key);
+    Slice rk = referenced_key;
+    std::string rkStorage;
+    if ((trace_options_.filter & kTraceFilterReferencedKey) != 0) {
+      ParsedInternalKey pk;
+      Status st = ParseInternalKey(rk, &pk);
+      if (!st.ok()) {
+        return st;
+      }
+      if (pk.user_key.size() > 4) {
+        // first 4 is TableId
+        pk.user_key = Slice(pk.user_key.data(), 4);
+      }
+      AppendInternalKey(&rkStorage, pk);
+      rk = rkStorage;
+    }
+    PutLengthPrefixedSlice(&trace.payload, rk);
   }
   if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record.block_type,
                                                         record.caller)) {

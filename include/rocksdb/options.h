@@ -1641,7 +1641,9 @@ enum TraceFilterType : uint64_t {
   // Do not trace the get operations
   kTraceFilterGet = 0x1 << 0,
   // Do not trace the write operations
-  kTraceFilterWrite = 0x1 << 1
+  kTraceFilterWrite = 0x1 << 1,
+  // Do not include user data in the referenced_key in block cache traces
+  kTraceFilterReferencedKey = 0x1 << 2
 };
 
 // TraceOptions is used for StartTrace

@@ -870,6 +870,8 @@ DEFINE_int32(trace_replay_fast_forward, 1,
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
+DEFINE_bool(block_cache_trace_filter_referenced_key, false,
+            "If true, block cache trace will not include referenced_key");
 DEFINE_int64(
     block_cache_trace_max_trace_file_size_in_bytes,
     uint64_t{64} * 1024 * 1024 * 1024,
@@ -3305,6 +3307,9 @@ class Benchmark {
               FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
           block_cache_trace_options_.sampling_frequency =
               FLAGS_block_cache_trace_sampling_frequency;
+          if (FLAGS_block_cache_trace_filter_referenced_key) {
+            block_cache_trace_options_.filter |= kTraceFilterReferencedKey;
+          }
           std::unique_ptr<TraceWriter> block_cache_trace_writer;
           Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
                                         FLAGS_block_cache_trace_file,
