@@ -1755,6 +1755,7 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
   total_num_deletes = m->num_deletes();
   total_data_size = m->get_data_size();
   total_memory_usage = m->ApproximateMemoryUsage();
+  SequenceNumber first_seqno = m->GetEarliestSequenceNumber();
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -1822,10 +1823,20 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
 
     mutex_.AssertHeld();
 
+    // Set earliest sequence number in the new memtable
+    // to be equal to the earliest sequence number of the
+    // memtable being flushed (See later if there is a need
+    // to update this number!).
+    new_mem->SetEarliestSequenceNumber(earliest_seqno);
+    SequenceNumber new_earliest_seqno = kMaxSequenceNumber;
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
+      new_earliest_seqno = ikey.sequence < new_earliest_seqno
+                               ? ikey.sequence
+                               : new_earliest_seqno;
+
       s = new_mem->Add(ikey.sequence, ikey.type, key, value, nullptr /* kv_prot_info ??? */,
                        false /* allow concurrent_memtable_writes_ */, nullptr /*get_post_process_info(m)*/,
                        nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
