@@ -2082,10 +2082,15 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
+  // If MemFlush activated, delete flushed MemTable right away.
   if (immutable_db_options_.experimental_allow_memtable_purge){
     MemFlush(cfd, context, new_mem);
+    cfd->mem()->Unref();
+    (context->memtables_to_free_).push_back(cfd->mem());
+  } else{
+    // Else make the memtable immutable and proceed as usual.
+    cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   }
-  cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
