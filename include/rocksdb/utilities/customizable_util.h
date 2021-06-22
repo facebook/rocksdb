@@ -50,7 +50,7 @@ using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 // The config_options parameter controls the process and how errors are
 // returned. If ignore_unknown_options=true, unknown values are ignored during
 // the configuration. If ignore_unsupported_options=true, unknown instance types
-// are ignored. If invoke_prepare_options=true, the resulting instance wll be
+// are ignored. If invoke_prepare_options=true, the resulting instance will be
 // initialized (via PrepareOptions)
 //
 // @param config_options Controls how the instance is created and errors are
