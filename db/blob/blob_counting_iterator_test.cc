@@ -35,6 +35,8 @@ void CheckInFlow(const BlobGarbageMeter& blob_garbage_meter,
 }
 
 TEST(BlobCountingIteratorTest, CountBlobs) {
+  // Note: the input consists of three key-values: two are blob references to
+  // different blob files, while the third one is a plain value.
   constexpr char user_key0[] = "key0";
   constexpr char user_key1[] = "key1";
   constexpr char user_key2[] = "key2";
