@@ -8,6 +8,7 @@
 * Subcompactions are now disabled when user-defined timestamps are used, since the subcompaction boundary picking logic is currently not timestamp-aware, which could lead to incorrect results when different subcompactions process keys that only differ by timestamp.
 
 ### New Features
+* ldb now has a new feature, `list_live_files_metadata`, which lists all the live SST files, their column families and the LSM level they are located at.
 * Marked the Ribbon filter and optimize_filters_for_memory features as production-ready, each enabling memory savings for Bloom-like filters. Use `NewRibbonFilterPolicy` in place of `NewBloomFilterPolicy` to use Ribbon filters instead of Bloom, or `ribbonfilter` in place of `bloomfilter` in configuration string.
 
 ## 6.21.0 (2021-05-21)
