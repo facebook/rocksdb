@@ -22,7 +22,11 @@ void CheckInFlow(const BlobGarbageMeter& blob_garbage_meter,
   const auto& flows = blob_garbage_meter.flows();
 
   const auto it = flows.find(blob_file_number);
-  ASSERT_NE(it, flows.end());
+  if (it == flows.end()) {
+    ASSERT_EQ(count, 0);
+    ASSERT_EQ(bytes, 0);
+    return;
+  }
 
   const auto& in = it->second.GetInFlow();
 
@@ -82,6 +86,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   ASSERT_EQ(blob_counter.value(), values[0]);
   CheckInFlow(blob_garbage_meter, first_blob_file_number, 1,
               first_expected_bytes);
+  CheckInFlow(blob_garbage_meter, second_blob_file_number, 0, 0);
 
   blob_counter.Next();
   ASSERT_TRUE(blob_counter.Valid());
