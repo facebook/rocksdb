@@ -3600,6 +3600,41 @@ TEST_F(DBCompactionTest, CompactFilesOverlapInL0Bug) {
   ASSERT_EQ("new_val", Get(Key(0)));
 }
 
+TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  const Snapshot* snapshot = nullptr;
+  const int kMaxKey = 10;
+
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+    ASSERT_OK(Delete(Key(i)));
+    if (!snapshot) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put(Key(kMaxKey), Key(kMaxKey)));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  // test DeleteFilesInRange() deletes the files already picked for compaction
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"VersionSet::LogAndApply:WriteManifestStart",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCompaction:Finish",
+        "VersionSet::LogAndApply:WriteManifestDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // release snapshot which mark bottommost file for compaction
+  db_->ReleaseSnapshot(snapshot);
+  std::string begin_string = Key(0);
+  std::string end_string = Key(kMaxKey + 1);
+  Slice begin(begin_string);
+  Slice end(end_string);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // bottom-level files may contain deletions due to snapshots protecting the
   // deleted keys. Once the snapshot is released, we should see files with many

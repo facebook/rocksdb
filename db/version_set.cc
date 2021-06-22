@@ -4092,7 +4092,7 @@ Status VersionSet::ProcessManifestWrites(
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
-
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
