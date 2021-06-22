@@ -3351,7 +3351,18 @@ void DBFileDumperCommand::DoCommand() {
   }
   // remove the trailing '\n'
   manifest_filename.resize(manifest_filename.size() - 1);
-  std::string manifest_filepath = db_->GetName() + "/" + manifest_filename;
+  std::string manifest_filepath = db_->GetName();
+  // Correct concatenation of filepath and filename:
+  // Add slash '/' in between if necessary, or check that
+  // there is no double slashes when concatenation happens.
+  if (manifest_filepath.size() > 0 && manifest_filepath.back() != '/' &&
+      manifest_filename.front() != '/') {
+    manifest_filepath += "/";
+  } else if (manifest_filepath.size() > 0 && manifest_filepath.back() == '/' &&
+             manifest_filename.front() == '/') {
+    manifest_filepath.pop_back();
+  }
+  manifest_filepath += manifest_filename;
   std::cout << manifest_filepath << std::endl;
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
@@ -3361,7 +3372,15 @@ void DBFileDumperCommand::DoCommand() {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + fileMetadata.name;
+    std::string filename = fileMetadata.db_path;
+    if (filename.size() > 0 && filename.back() != '/' &&
+        fileMetadata.name.front() != '/') {
+      filename += "/";
+    } else if (filename.size() > 0 && filename.back() == '/' &&
+               fileMetadata.name.front() == '/') {
+      filename.pop_back();
+    }
+    filename += fileMetadata.name;
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
     DumpSstFile(options_, filename, false, true);
