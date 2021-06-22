@@ -3421,6 +3421,7 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   if (sort_by_filename_) {
+    // Sort metadata vector by filename.
     std::sort(metadata.begin(), metadata.end(),
               [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
                 std::string aName = a.db_path + a.name;
@@ -3428,11 +3429,20 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
                 return (aName.compare(bName) < 0);
               });
     for (auto& fileMetadata : metadata) {
-      std::string filename = fileMetadata.db_path + fileMetadata.name;
+      // The fileMetada.name alwasy starts with "/",
+      // however fileMetada.db_path is the string provided by
+      // the user as an input. Therefore we check if we can
+      // concantenate the two string sdirectly or if we need to
+      // drop a possible extra "/" at the end of fileMetadata.db_path.
+      std::string filename = fileMetadata.db_path;
+      if (filename.size() > 0 && filename.back() == '/') {
+        filename.pop_back();
+      }
+      filename += fileMetadata.name;
       std::string cf = fileMetadata.column_family_name;
       int level = fileMetadata.level;
-      std::cout << fileMetadata.db_path + fileMetadata.name << " : level "
-                << level << ", column family '" << cf << "'" << std::endl;
+      std::cout << filename << " : level " << level << ", column family '" << cf
+                << "'" << std::endl;
     }
   } else {
     std::map<std::string, std::map<int, std::vector<std::string>>>
@@ -3444,12 +3454,23 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
       std::string cf = fileMetadata.column_family_name;
       int level = fileMetadata.level;
       if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
-        filesPerLevelPerCf[cf] = std::map<int, std::vector<std::string>>();
+        filesPerLevelPerCf.emplace(cf,
+                                   std::map<int, std::vector<std::string>>());
       }
       if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
-        filesPerLevelPerCf[cf][level] = std::vector<std::string>();
+        filesPerLevelPerCf[cf].emplace(level, std::vector<std::string>());
       }
-      std::string filename = fileMetadata.db_path + fileMetadata.name;
+
+      // The fileMetada.name alwasy starts with "/",
+      // however fileMetada.db_path is the string provided by
+      // the user as an input. Therefore we check if we can
+      // concantenate the two string sdirectly or if we need to
+      // drop a possible extra "/" at the end of fileMetadata.db_path.
+      std::string filename = fileMetadata.db_path;
+      if (filename.size() > 0 && filename.back() == '/') {
+        filename.pop_back();
+      }
+      filename += fileMetadata.name;
       filesPerLevelPerCf[cf][level].push_back(filename);
     }
     // For each column family,

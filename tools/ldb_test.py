@@ -443,13 +443,13 @@ class LDBTestCase(unittest.TestCase):
         dumpFilePath2 = os.path.join(self.TMP_DIR, "dump2")
         self.assertTrue(self.listLiveFilesMetadata("--sort_by_filename --db=%s" % dbPath, dumpFilePath2))
 
-        # Collect SST filename annd level from dump_live_files
+        # Collect SST filename and level from dump_live_files
         with open(dumpFilePath1, "r") as tmp:
             data = tmp.read()
             filename1 = re.findall(r".*\d+\.sst",data)[0]
             level1 = re.findall(r"level:\d+",data)[0].split(':')[1]
 
-        # Collect SST filename annd level from list_live_files_metadata
+        # Collect SST filename and level from list_live_files_metadata
         with open(dumpFilePath2, "r") as tmp:
             data = tmp.read()
             filename2 = re.findall(r".*\d+\.sst",data)[0]
@@ -458,6 +458,60 @@ class LDBTestCase(unittest.TestCase):
         # Assert equality between filenames and levels.
         self.assertEqual(filename1,filename2)
         self.assertEqual(level1,level2)
+
+        # Create multiple column families and compare the output
+        # of list_live_files_metadata with dump_live_files once again.
+        # Create new CF, and insert data:
+        self.assertRunOK("create_column_family mycol1", "OK")
+        self.assertRunOK("put --column_family=mycol1 v1 v2", "OK")
+        self.assertRunOK("create_column_family mycol2", "OK")
+        self.assertRunOK("put --column_family=mycol2 h1 h2", "OK")
+        self.assertRunOK("put --column_family=mycol2 h3 h4", "OK")
+
+        # Call dump_live_files and list_live_files_metadata
+        # and pipe the output to compare them later.
+        dumpFilePath3 = os.path.join(self.TMP_DIR, "dump3")
+        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath3))
+        dumpFilePath4 = os.path.join(self.TMP_DIR, "dump4")
+        self.assertTrue(self.listLiveFilesMetadata("--sort_by_filename --db=%s" % dbPath, dumpFilePath4))
+
+        # dump_live_files:
+        # parse the output and create a map:
+        # [key: sstFilename]->[value:[LSM level, Column Family Name]]
+        referenceMap = {}
+        with open(dumpFilePath3, "r") as tmp:
+            data = tmp.read()
+            # Note: the following regex are contingent on what the
+            # dump_live_files outputs.
+            namesAndLevels = re.findall(r"\d+.sst level:\d+", data)
+            cfs = re.findall(r"(?<=column family name=)\w+", data)
+            # re.findall should not reorder the data.
+            # Therefore namesAndLevels[i] matches the data from cfs[i].
+            for count, nameAndLevel in enumerate(namesAndLevels):
+                sstFilename = re.findall(r"\d+.sst",nameAndLevel)[0]
+                sstLevel = re.findall(r"(?<=level:)\d+", nameAndLevel)[0]
+                cf = cfs[count]
+                referenceMap[sstFilename] = [sstLevel, cf]
+
+        # list_live_files_metadata:
+        # parse the output and create a map:
+        # [key: sstFilename]->[value:[LSM level, Column Family Name]]
+        testMap = {}
+        with open(dumpFilePath4, "r") as tmp:
+            data = tmp.read()
+            # Since for each SST file, all the information is contained
+            # on one line, the parsing is easy to perform and relies on
+            # the appearance of an "00xxx.sst" pattern.
+            sstLines = re.findall(r".*\d+.sst.*", data)
+            for line in sstLines:
+                sstFilename = re.findall(r"\d+.sst", line)[0]
+                sstLevel = re.findall(r"(?<=level )\d+",line)[0]
+                cf = re.findall(r"(?<=column family \')\w+(?=\')",line)[0]
+                testMap[sstFilename] = [sstLevel, cf]
+
+        # Compare the map obtained from dump_live_files and the map
+        # obtained from list_live_files_metadata. Everything should match.
+        self.assertEqual(referenceMap,testMap)
 
     def getManifests(self, directory):
         return glob.glob(directory + "/MANIFEST-*")
