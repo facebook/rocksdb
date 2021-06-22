@@ -783,6 +783,7 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
       config_options_, TableFactory::kBlockBasedTableName(), &factory));
   ASSERT_NE(factory, nullptr);
   ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
+#ifndef ROCKSDB_LITE
   std::string opts_str = "table_factory=";
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options_, ColumnFamilyOptions(),
@@ -790,17 +791,19 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
   ASSERT_NE(cf_opts.table_factory.get(), nullptr);
   ASSERT_STREQ(cf_opts.table_factory->Name(),
                TableFactory::kBlockBasedTableName());
-
+#endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
     ASSERT_OK(
         TableFactory::CreateFromString(config_options_, "MockTable", &factory));
     ASSERT_NE(factory, nullptr);
     ASSERT_STREQ(factory->Name(), "MockTable");
+#ifndef ROCKSDB_LITE
     ASSERT_OK(
         GetColumnFamilyOptionsFromString(config_options_, ColumnFamilyOptions(),
                                          opts_str + "MockTable", &cf_opts));
     ASSERT_NE(cf_opts.table_factory.get(), nullptr);
     ASSERT_STREQ(cf_opts.table_factory->Name(), "MockTable");
+#endif  // ROCKSDB_LITE
   }
 }
 
@@ -833,7 +836,7 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   std::shared_ptr<TableFactory> table;
   std::shared_ptr<FlushBlockPolicyFactory> result;
   ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
+      config_options_, "TestFlushBlockPolicyFactory", &result));
 
   ASSERT_OK(
       FlushBlockPolicyFactory::CreateFromString(config_options_, "", &result));
@@ -849,7 +852,7 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
       config_options_, FlushBlockBySizePolicyFactory::kClassName(), &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), FlushBlockBySizePolicyFactory::kClassName());
-
+#ifndef ROCKSDB_LITE
   std::string table_opts = "id=BlockBasedTable; flush_block_policy_factory=";
   ASSERT_OK(TableFactory::CreateFromString(
       config_options_,
@@ -859,21 +862,20 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
   ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
                FlushBlockEveryKeyPolicyFactory::kClassName());
-
   if (RegisterTests("Test")) {
     ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-        config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
+        config_options_, "TestFlushBlockPolicyFactory", &result));
     ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), TestFlushBlockPolicyFactory::kClassName());
+    ASSERT_STREQ(result->Name(), "TestFlushBlockPolicyFactory");
     ASSERT_OK(TableFactory::CreateFromString(
-        config_options_, table_opts + TestFlushBlockPolicyFactory::kClassName(),
-        &table));
+        config_options_, table_opts + "TestFlushBlockPolicyFactory", &table));
     bbto = table->GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(bbto, nullptr);
     ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
     ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
-                 TestFlushBlockPolicyFactory::kClassName());
+                 "TestFlushBlockPolicyFactory");
   }
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

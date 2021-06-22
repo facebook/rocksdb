@@ -17,10 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Configurable::Configurable()
-  : prepared_(false) {
-}
-  
+Configurable::Configurable() : prepared_(false) {}
+
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {

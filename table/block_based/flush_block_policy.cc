@@ -131,8 +131,7 @@ static bool LoadFlushPolicyFactory(
 }
 
 FlushBlockBySizePolicyFactory::FlushBlockBySizePolicyFactory()
-  : FlushBlockPolicyFactory() {
-}
+    : FlushBlockPolicyFactory() {}
 
 Status FlushBlockPolicyFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
