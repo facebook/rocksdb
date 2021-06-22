@@ -596,15 +596,12 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
 
 bool LRUCacheShard::IsReady(Cache::Handle* handle) {
   LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
+  MutexLock l(&mutex_);
   bool ready = true;
   if (e->IsPending()) {
     assert(secondary_cache_);
     assert(e->sec_handle);
-    if (e->sec_handle->IsReady()) {
-      Promote(e);
-    } else {
-      ready = false;
-    }
+    ready = e->sec_handle->IsReady();
   }
   return ready;
 }

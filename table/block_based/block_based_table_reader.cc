@@ -2564,24 +2564,21 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           s = Status::OK();
         }
         if (s.ok() && !results.back().IsEmpty()) {
-          if (results.back().IsReady()) {
+          // Since we have a valid handle, check the value. If its nullptr,
+          // it means the cache is waiting for the final result and we're
+          // supposed to call WaitAll() to wait for the result.
+          if (results.back().GetValue() != nullptr) {
             // Found it in the cache. Add NULL handle to indicate there is
             // nothing to read from disk.
             if (results.back().GetCacheHandle()) {
               results.back().UpdateCachedValue();
-              // Its possible the cache lookup returned a non-null handle,
-              // but the lookup actually failed to produce a valid value
-              if (results.back().GetValue() == nullptr) {
-                block_handles.emplace_back(handle);
-                total_len += block_size(handle);
-              }
             }
-            if (results.back().GetValue() != nullptr) {
-              block_handles.emplace_back(BlockHandle::NullBlockHandle());
-            }
+            block_handles.emplace_back(BlockHandle::NullBlockHandle());
           } else {
-            // We have to wait for the asynchronous cache lookup to finish,
-            // and then we may have to read the block from disk anyway
+            // We have to wait for the cache lookup to finish in the
+            // background, and then we may have to read the block from disk
+            // anyway
+            assert(results.back().GetCacheHandle());
             wait_for_cache_results = true;
             block_handles.emplace_back(handle);
             cache_handles.emplace_back(results.back().GetCacheHandle());
