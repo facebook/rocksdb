@@ -14,6 +14,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// An internal iterator that passes each key-value encountered to
+// BlobGarbageMeter as inflow in order to measure the total number and size of
+// blobs in the compaction input on a per-blob file basis.
 class BlobCountingIterator : public InternalIterator {
  public:
   BlobCountingIterator(InternalIterator* iter,
