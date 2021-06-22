@@ -161,7 +161,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
       io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow(),
-      &blob_callback_, this, &flush_scheduler_);
+      &blob_callback_);
   FileMetaData file_meta;
 
 #ifndef ROCKSDB_LITE

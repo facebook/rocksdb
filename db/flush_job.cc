@@ -97,8 +97,7 @@ FlushJob::FlushJob(
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback, DB* db,
-    FlushScheduler* const flush_scheduler)
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -130,9 +129,7 @@ FlushJob::FlushJob(
       io_tracer_(io_tracer),
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
-      blob_callback_(blob_callback),
-      db_(db),
-      flush_scheduler_(flush_scheduler) {
+      blob_callback_(blob_callback) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -309,151 +306,6 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-Status FlushJob::MemFlush(const std::string& dbname, VersionSet* versions,
-                          const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
-                          const FileOptions& file_options, TableCache* table_cache,
-                          InternalIterator* iter,
-                          std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
-                              range_del_iters,
-                          FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
-                          std::vector<SequenceNumber> snapshots,
-                          SequenceNumber earliest_write_conflict_snapshot,
-                          SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-                          InternalStats* internal_stats, IOStatus* io_status,
-                          const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
-                          int job_id, const Env::IOPriority io_priority,
-                          TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
-                          const std::string* full_history_ts_low,
-                          BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
-                          uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes){
-  Status s;
-  Env* env = db_options.env;
-  assert(env);
-  (void)dbname;
-  (void)versions;
-  (void)file_options;
-  (void)table_cache;
-  (void)meta;
-  (void)paranoid_file_checks;
-  (void)num_input_entries;
-  (void)memtable_garbage_bytes;
-  (void)memtable_payload_bytes;
-  (void)internal_stats;
-  (void)io_priority;
-  (void)io_status;
-  (void)io_tracer;
-  (void)table_properties;
-  (void)write_hint;
-  (void)blob_callback;
-  (void)event_logger;
-  (void)job_id;
-  (void)blob_file_additions;
-
-  auto& ioptions = tboptions.ioptions;
-  iter->SeekToFirst();
-  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
-      new CompactionRangeDelAggregator(&tboptions.internal_comparator,
-                                       snapshots));
-  for (auto& range_del_iter : range_del_iters) {
-    range_del_agg->AddTombstones(std::move(range_del_iter));
-  }
-  if (iter->Valid() || !range_del_agg->IsEmpty()) {
-    std::unique_ptr<CompactionFilter> compaction_filter;
-    if (ioptions.compaction_filter_factory != nullptr &&
-        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
-            tboptions.reason)) {
-      CompactionFilter::Context context;
-      context.is_full_compaction = false;
-      context.is_manual_compaction = false;
-      context.column_family_id = tboptions.column_family_id;
-      context.reason = tboptions.reason;
-      compaction_filter =
-          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
-      if (compaction_filter != nullptr &&
-          !compaction_filter->IgnoreSnapshots()) {
-        s.PermitUncheckedError();
-        return Status::NotSupported(
-            "CompactionFilter::IgnoreSnapshots() = false is not supported "
-            "anymore.");
-      }
-    }
-    MergeHelper merge(
-        env, tboptions.internal_comparator.user_comparator(),
-        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
-        true /* internal key corruption is not ok */,
-        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
-    CompactionIterator c_iter(
-        iter, tboptions.internal_comparator.user_comparator(), &merge,
-        kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
-        snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
-        true /* internal key corruption is not ok */, range_del_agg.get(),
-        nullptr, ioptions.allow_data_in_errors,
-        /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
-        full_history_ts_low);
-
-    c_iter.SeekToFirst();
-    if(db_){
-      bool victory=true;
-      (void)victory;
-    }
-    db_mutex_->AssertHeld();
-    MemTable* m = cfd_->mem();
-    for (; c_iter.Valid(); c_iter.Next()) {
-      const Slice& key = c_iter.key();
-      const Slice& value = c_iter.value();
-      const ParsedInternalKey& ikey = c_iter.ikey();
-      s = m->Add(ikey.sequence, ikey.type, key, value, nullptr /* kv_prot_info ??? */,
-                false /* allow concurrent_memtable_writes_ */, nullptr /*get_post_process_info(m)*/,
-                nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
-      if (!s.ok()) {
-        break;
-      }
-      if (m->ShouldScheduleFlush() && m->MarkFlushScheduled()) {
-        // MarkFlushScheduled only returns true if we are the one that
-        // should take action, so no need to dedup further
-        continue;
-        // NEED FOR SCHEDULE WORK????
-        flush_scheduler_->ScheduleWork(cfd_);
-      }
-
-      //           virtual Status Put(const WriteOptions& options,
-      //                             ColumnFamilyHandle* column_family, const Slice& key,
-      //                             const Slice& value) override;
-      // builder->Add(key, value);
-      // meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
-
-      // // TODO(noetzli): Update stats after flush, too.
-      // if (io_priority == Env::IO_HIGH &&
-      //     IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-      //   ThreadStatusUtil::SetThreadOperationProperty(
-      //       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
-      // }
-    // }
-    // if (!s.ok()) {
-    //   c_iter.status().PermitUncheckedError();
-    // } else if (!c_iter.status().ok()) {
-    //   s = c_iter.status();
-    // }
-
-    // if (s.ok()) {
-    //   auto range_del_it = range_del_agg->NewIterator();
-    //   for (range_del_it->SeekToFirst(); range_del_it->Valid();
-    //        range_del_it->Next()) {
-    //     auto tombstone = range_del_it->Tombstone();
-    //     auto kv = tombstone.Serialize();
-    //     builder->Add(kv.first.Encode(), kv.second);
-    //     meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-    //                                    tombstone.seq_,
-    //                                    tboptions.internal_comparator);
-    //   }
-    }
-  }
-  return s;
-}
-
 Status FlushJob::WriteLevel0Table() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
@@ -564,36 +416,15 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,
           current_time, db_id_, db_session_id_, 0 /* target_file_size */,
           meta_.fd.GetNumber());
-      if (db_options_.experimental_allow_memtable_purge){
-        MemTable* cm = cfd_->mem();
-        size_t current_num_entries = cm->num_entries();
-        size_t current_num_deletes = cm->num_deletes();
-        size_t current_data_size = cm->get_data_size();
-        size_t current_memory_usage = cm->ApproximateMemoryUsage();
-        (void) current_num_entries;
-        (void) current_num_deletes;
-        (void) current_data_size;
-        (void) current_memory_usage;
-        s = MemFlush(
-            dbname_, versions_, db_options_, tboptions, file_options_,
-            cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-            &blob_file_additions, existing_snapshots_,
-            earliest_write_conflict_snapshot_, snapshot_checker_,
-            mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-            &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
-            &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-            &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
-      } else {
-        s = BuildTable(
-            dbname_, versions_, db_options_, tboptions, file_options_,
-            cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-            &blob_file_additions, existing_snapshots_,
-            earliest_write_conflict_snapshot_, snapshot_checker_,
-            mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-            &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
-            &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-            &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
-      }
+      s = BuildTable(
+          dbname_, versions_, db_options_, tboptions, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, existing_snapshots_,
+          earliest_write_conflict_snapshot_, snapshot_checker_,
+          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
+          &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
+          &table_properties_, write_hint, full_history_ts_low, blob_callback_,
+          &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

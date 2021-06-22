@@ -1841,6 +1841,7 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
                                ? ikey.sequence
                                : new_earliest_seqno;
 
+      // Should we update "OldestKeyTime" ????
       s = new_mem->Add(ikey.sequence, ikey.type, key, value, nullptr /* kv_prot_info ??? */,
                        false /* allow concurrent_memtable_writes_ */, nullptr /*get_post_process_info(m)*/,
                        nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
