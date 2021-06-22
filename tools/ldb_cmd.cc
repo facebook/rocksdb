@@ -3443,11 +3443,10 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
       // the user as an input. Therefore we check if we can
       // concantenate the two string sdirectly or if we need to
       // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path;
-      if (filename.size() > 0 && filename.back() == '/') {
-        filename.pop_back();
-      }
-      filename += fileMetadata.name;
+      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+      // Drops any repeating '/' character that could happen during
+      // concatenation of db path and file name.
+      filename = NormalizePath(filename);
       std::string cf = fileMetadata.column_family_name;
       int level = fileMetadata.level;
       std::cout << filename << " : level " << level << ", column family '" << cf
@@ -3475,11 +3474,10 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
       // the user as an input. Therefore we check if we can
       // concantenate the two string sdirectly or if we need to
       // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path;
-      if (filename.size() > 0 && filename.back() == '/') {
-        filename.pop_back();
-      }
-      filename += fileMetadata.name;
+      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+      // Drops any repeating '/' character that could happen during
+      // concatenation of db path and file name.
+      filename = NormalizePath(filename);
       filesPerLevelPerCf[cf][level].push_back(filename);
     }
     // For each column family,
