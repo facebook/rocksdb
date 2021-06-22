@@ -3235,7 +3235,7 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     InstrumentedMutexLock l(&mutex_);
     uint64_t value;
     for (auto* cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->initialized()) {
+      if (!cfd->initialized() || cfd->IsDropped()) {
         continue;
       }
       cfd->Ref();
