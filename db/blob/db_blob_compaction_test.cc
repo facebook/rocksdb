@@ -563,6 +563,33 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
     ASSERT_EQ(meta->GetGarbageBlobCount(), 0);
     ASSERT_EQ(meta->GetGarbageBlobBytes(), 0);
   }
+
+  TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "v1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Merge("Key1", "v2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Merge("Key1", "v3"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Key1", &value));
+  ASSERT_EQ(value, "v1,v2,v3");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

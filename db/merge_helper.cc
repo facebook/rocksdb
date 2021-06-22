@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "db/blob/blob_fetcher.h"
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -119,7 +120,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                CompactionRangeDelAggregator* range_del_agg,
                                const SequenceNumber stop_before,
                                const bool at_bottom,
-                               const bool allow_data_in_errors) {
+                               const bool allow_data_in_errors,
+                               BlobFetcher* blob_fetcher) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -203,12 +205,21 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // want. Also if we're in compaction and it's a put, it would be nice to
       // run compaction filter on it.
       const Slice val = iter->value();
+      PinnableSlice blob_value;
       const Slice* val_ptr;
-      if (kTypeValue == ikey.type &&
+      if ((kTypeValue == ikey.type || kTypeBlobIndex == ikey.type) &&
           (range_del_agg == nullptr ||
            !range_del_agg->ShouldDelete(
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
-        val_ptr = &val;
+        if (ikey.type == kTypeBlobIndex) {
+          s = blob_fetcher->FetchBlob(ikey.user_key, val, &blob_value);
+          if (!s.ok()) {
+            return s;
+          }
+          val_ptr = &blob_value;
+        } else {
+          val_ptr = &val;
+        }
       } else {
         val_ptr = nullptr;
       }
@@ -276,8 +287,18 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           assert(pik_status.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
-          merge_context_.PushOperand(
-              value_slice, iter->IsValuePinned() /* operand_pinned */);
+          if (ikey.type == kTypeBlobIndex) {
+            PinnableSlice blob_value;
+            s = blob_fetcher->FetchBlob(ikey.user_key, value_slice,
+                                        &blob_value);
+            if (!s.ok()) {
+              return s;
+            }
+            merge_context_.PushOperand(blob_value, false /* operand_pinned */);
+          } else {
+            merge_context_.PushOperand(
+                value_slice, iter->IsValuePinned() /* operand_pinned */);
+          }
         } else {  // kChangeValue
           // Compaction filter asked us to change the operand from value_slice
           // to compaction_filter_value_.

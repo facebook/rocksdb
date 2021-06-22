@@ -754,13 +754,19 @@ void CompactionIterator::NextFromInput() {
       }
 
       pinned_iters_mgr_.StartPinning();
+      Version* version = nullptr;
+      if (compaction_) {
+        version = compaction_->input_version();
+      }
+      BlobFetcher blob_fetcher(version, ReadOptions());
+
       // We know the merge type entry is not hidden, otherwise we would
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s =
-          merge_helper_->MergeUntil(&input_, range_del_agg_, prev_snapshot,
-                                    bottommost_level_, allow_data_in_errors_);
+      Status s = merge_helper_->MergeUntil(
+          &input_, range_del_agg_, prev_snapshot, bottommost_level_,
+          allow_data_in_errors_, version ? &blob_fetcher : nullptr);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
