@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* ldb now has a new feature, `list_live_files_metadata`, which lists all the live SST files, their column families and the LSM level they are located at.
+
+## 6.22.0 (2021-06-18)
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
 ### New Features
