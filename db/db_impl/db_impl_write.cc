@@ -1755,7 +1755,11 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
   total_num_deletes = m->num_deletes();
   total_data_size = m->get_data_size();
   total_memory_usage = m->ApproximateMemoryUsage();
-  SequenceNumber first_seqno = m->GetEarliestSequenceNumber();
+  (void)total_num_entries;
+  (void)total_num_deletes;
+  (void)total_data_size;
+  (void)total_memory_usage;
+  SequenceNumber earliest_seqno = m->GetEarliestSequenceNumber();
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
