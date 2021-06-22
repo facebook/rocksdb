@@ -3745,15 +3745,13 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
 
 void DBImpl::GetAllColumnFamilyMetaData(
     std::vector<ColumnFamilyMetaData>* metadata) {
+  InstrumentedMutexLock l(&mutex_);
   for (auto cfd : *(versions_->GetColumnFamilySet())) {
-    auto* sv = GetAndRefSuperVersion(cfd);
     {
-      InstrumentedMutexLock l(&mutex_);
       ColumnFamilyMetaData cf_meta;
       metadata->emplace_back();
-      sv->current->GetColumnFamilyMetaData(&metadata->back());
+      cfd->current()->GetColumnFamilyMetaData(&metadata->back());
     }
-    ReturnAndCleanupSuperVersion(cfd, sv);
   }
 }
 

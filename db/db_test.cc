@@ -1125,6 +1125,53 @@ void CheckLiveFilesMeta(
 }
 
 #ifndef ROCKSDB_LITE
+void AddBlobFile(const ColumnFamilyHandle* cfh, uint64_t blob_file_number,
+                 uint64_t total_blob_count, uint64_t total_blob_bytes,
+                 const std::string& checksum_method,
+                 const std::string& checksum_value,
+                 uint64_t garbage_blob_count = 0,
+                 uint64_t garbage_blob_bytes = 0) {
+  ColumnFamilyData* cfd =
+      (static_cast<const ColumnFamilyHandleImpl*>(cfh))->cfd();
+  assert(cfd);
+
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  // Add a live blob file.
+
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+      checksum_value);
+
+  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                       BlobFileMetaData::LinkedSsts(),
+                                       garbage_blob_count, garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
+}
+
+static void CheckBlobMetaData(
+    const BlobMetaData& bmd, uint64_t blob_file_number,
+    uint64_t total_blob_count, uint64_t total_blob_bytes,
+    const std::string& checksum_method, const std::string& checksum_value,
+    uint64_t garbage_blob_count = 0, uint64_t garbage_blob_bytes = 0) {
+  ASSERT_EQ(bmd.blob_file_number, blob_file_number);
+  ASSERT_EQ(bmd.blob_file_name, BlobFileName("", blob_file_number));
+  ASSERT_EQ(bmd.blob_file_size,
+            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
+
+  ASSERT_EQ(bmd.total_blob_count, total_blob_count);
+  ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
+  ASSERT_EQ(bmd.garbage_blob_count, garbage_blob_count);
+  ASSERT_EQ(bmd.garbage_blob_bytes, garbage_blob_bytes);
+  ASSERT_EQ(bmd.checksum_method, checksum_method);
+  ASSERT_EQ(bmd.checksum_value, checksum_value);
+}
+
 TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -1179,31 +1226,21 @@ TEST_F(DBTest, AllMetaDataTest) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "3d87ff57";
+
   int64_t temp_time = 0;
   options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
   uint64_t start_time = static_cast<uint64_t>(temp_time);
 
   Random rnd(301);
   for (int cf = 0; cf < 2; cf++) {
-    int key_index = 0;
-    for (int i = 0; i < 100; ++i) {
-      // Add a single blob reference to each file
-      std::string blob_index;
-      BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
-                            /* offset */ 1234, /* size */ 5678, kNoCompression);
-
-      WriteBatch batch;
-      ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, cf, Key(key_index),
-                                                 blob_index));
-      ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
-
-      ++key_index;
-
-      // Fill up the rest of the file with random values.
-      GenerateNewFile(&rnd, &key_index, /* nowait */ true);
-
-      Flush();
-    }
+    AddBlobFile(handles_[cf], blob_file_number * (cf + 1),
+                total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                checksum_method, checksum_value);
   }
 
   std::vector<ColumnFamilyMetaData> all_meta;
@@ -1218,10 +1255,24 @@ TEST_F(DBTest, AllMetaDataTest) {
   uint64_t end_time = static_cast<uint64_t>(temp_time);
 
   ASSERT_EQ(all_meta.size(), 2);
-  CheckColumnFamilyMeta(all_meta[0], "default", default_files_by_level,
-                        start_time, end_time);
-  CheckColumnFamilyMeta(all_meta[1], "pikachu", pikachu_files_by_level,
-                        start_time, end_time);
+  for (int cf = 0; cf < 2; cf++) {
+    const auto& cfmd = all_meta[cf];
+    if (cf == 0) {
+      CheckColumnFamilyMeta(cfmd, "default", default_files_by_level, start_time,
+                            end_time);
+    } else {
+      CheckColumnFamilyMeta(cfmd, "pikachu", pikachu_files_by_level, start_time,
+                            end_time);
+    }
+    ASSERT_EQ(cfmd.blob_files.size(), 1U);
+    const auto& bmd = cfmd.blob_files[0];
+    ASSERT_EQ(cfmd.blob_file_count, 1U);
+    ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
+    ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+    CheckBlobMetaData(bmd, blob_file_number * (cf + 1),
+                      total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                      checksum_method, checksum_value);
+  }
 }
 
 namespace {
@@ -2397,41 +2448,19 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   Options options = CurrentOptions();
   options.stats_dump_period_sec = 0;
 
-  Reopen(options);
-
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
-  assert(versions);
-  assert(versions->GetColumnFamilySet());
-
-  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
-  assert(cfd);
-
-  Version* const version = cfd->current();
-  assert(version);
-
-  VersionStorageInfo* const storage_info = version->storage_info();
-  assert(storage_info);
-
-  // Add a live blob file.
   constexpr uint64_t blob_file_number = 234;
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
   constexpr char checksum_value[] = "3d87ff57";
-
-  auto shared_meta = SharedBlobFileMetaData::Create(
-      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
-      checksum_value);
-
   constexpr uint64_t garbage_blob_count = 0;
   constexpr uint64_t garbage_blob_bytes = 0;
 
-  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                       BlobFileMetaData::LinkedSsts(),
-                                       garbage_blob_count, garbage_blob_bytes);
+  Reopen(options);
 
-  storage_info->AddBlobFile(std::move(meta));
-
+  AddBlobFile(db_->DefaultColumnFamily(), blob_file_number, total_blob_count,
+              total_blob_bytes, checksum_method, checksum_value,
+              garbage_blob_count, garbage_blob_bytes);
   // Make sure it appears in the results returned by GetLiveFiles.
   uint64_t manifest_size = 0;
   std::vector<std::string> files;
@@ -2445,17 +2474,13 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   db_->GetColumnFamilyMetaData(&cfmd);
   ASSERT_EQ(cfmd.blob_files.size(), 1);
   const BlobMetaData& bmd = cfmd.blob_files[0];
-  ASSERT_EQ(bmd.blob_file_number, blob_file_number);
-  ASSERT_EQ(bmd.blob_file_name, BlobFileName("", blob_file_number));
-  ASSERT_EQ(bmd.blob_file_size,
-            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
 
-  ASSERT_EQ(bmd.total_blob_count, total_blob_count);
-  ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
-  ASSERT_EQ(bmd.garbage_blob_count, 0);
-  ASSERT_EQ(bmd.garbage_blob_bytes, 0);
-  ASSERT_EQ(bmd.checksum_method, checksum_method);
-  ASSERT_EQ(bmd.checksum_value, checksum_value);
+  CheckBlobMetaData(bmd, blob_file_number, total_blob_count, total_blob_bytes,
+                    checksum_method, checksum_value, garbage_blob_count,
+                    garbage_blob_bytes);
+  ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+  ASSERT_EQ(cfmd.blob_file_count, 1U);
+  ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
 }
 #endif
 

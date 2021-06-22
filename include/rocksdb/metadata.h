@@ -37,6 +37,11 @@ struct ColumnFamilyMetaData {
   // The metadata of all levels in this column family.
   std::vector<LevelMetaData> levels;
 
+  // The total size of all blob files
+  uint64_t blob_file_size = 0;
+  // The number of blob files in this column family.
+  size_t blob_file_count = 0;
+  // The name of the column family.
   std::vector<BlobMetaData> blob_files;
 };
 
