@@ -8,6 +8,8 @@
 #include <ostream>
 #include <sstream>
 
+#include "rocksdb/slice.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 std::string SharedBlobFileMetaData::DebugString() const {
@@ -23,7 +25,8 @@ std::ostream& operator<<(std::ostream& os,
      << " total_blob_count: " << shared_meta.GetTotalBlobCount()
      << " total_blob_bytes: " << shared_meta.GetTotalBlobBytes()
      << " checksum_method: " << shared_meta.GetChecksumMethod()
-     << " checksum_value: " << shared_meta.GetChecksumValue();
+     << " checksum_value: "
+     << Slice(shared_meta.GetChecksumValue()).ToString(/* hex */ true);
 
   return os;
 }

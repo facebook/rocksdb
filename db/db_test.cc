@@ -2364,7 +2364,7 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
   auto shared_meta = SharedBlobFileMetaData::Create(
       blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
