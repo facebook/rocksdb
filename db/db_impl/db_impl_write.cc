@@ -1737,6 +1737,97 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 }
 #endif  // ROCKSDB_LITE
 
+Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* new_mem){
+  Status s;
+  uint64_t total_num_entries = 0, total_num_deletes = 0;
+  uint64_t total_data_size = 0;
+  size_t total_memory_usage = 0;
+
+  JobContext job_context(next_job_id_.fetch_add(1), true);
+  std::vector<SequenceNumber> snapshot_seqs;
+  SequenceNumber earliest_write_conflict_snapshot;
+  SnapshotChecker* snapshot_checker;
+  GetSnapshotContext(&job_context, &snapshot_seqs,
+                     &earliest_write_conflict_snapshot, &snapshot_checker);
+
+  MemTable* m = cfd->mem();
+  total_num_entries = m->num_entries();
+  total_num_deletes = m->num_deletes();
+  total_data_size = m->get_data_size();
+  total_memory_usage = m->ApproximateMemoryUsage();
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Arena arena;
+  std::vector<InternalIterator*> memtables(1,m->NewIterator(ro, &arena));
+  // InternalIterator* it = m->NewIterator(ro, &arena);
+  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
+  auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+  if (range_del_iter != nullptr) {
+    range_del_iters.emplace_back(range_del_iter);
+  }
+  ScopedArenaIterator iter(
+      NewMergingIterator(&(cfd->internal_comparator()), &memtables[0],
+                          static_cast<int>(memtables.size()), &arena));
+  auto* ioptions = cfd->ioptions();
+  iter->SeekToFirst();
+
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&(cfd->internal_comparator()),
+                                       snapshot_seqs));
+  for (auto& rd_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(rd_iter));
+  }
+  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions->compaction_filter_factory != nullptr &&
+        ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
+            TableFileCreationReason::kFlush)) {
+      CompactionFilter::Context ctx;
+      ctx.is_full_compaction = false;
+      ctx.is_manual_compaction = false;
+      ctx.column_family_id = cfd->GetID();
+      ctx.reason = TableFileCreationReason::kFlush;
+      compaction_filter =
+          ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s.PermitUncheckedError();
+        return Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+      }
+    }
+    (void)context;
+    (void) new_mem;
+
+    Env* env = immutable_db_options_.env;
+    assert(env);
+    MergeHelper merge(
+        env, (cfd->internal_comparator()).user_comparator(),
+        (ioptions->merge_operator).get(), compaction_filter.get(), ioptions->logger,
+        true /* internal key corruption is not ok */,
+        snapshot_seqs.empty() ? 0 : snapshot_seqs.back(), snapshot_checker);
+    CompactionIterator c_iter(
+        iter.get(), (cfd->internal_comparator()).user_comparator(), &merge,
+        kMaxSequenceNumber, &snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, env, ShouldReportDetailedTime(env, ioptions->stats),
+        true /* internal key corruption is not ok */, range_del_agg.get(),
+        nullptr, ioptions->allow_data_in_errors,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, immutable_db_options_.info_log,
+        &(cfd->GetFullHistoryTsLow()));
+
+    c_iter.SeekToFirst();
+
+  }
+  return s;
+}
+
+
+
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 // REQUIRES: this thread is currently at the front of the 2nd writer queue if
@@ -1934,27 +2025,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
   if (immutable_db_options_.experimental_allow_memtable_purge){
-    uint64_t total_num_entries = 0, total_num_deletes = 0;
-    uint64_t total_data_size = 0;
-    size_t total_memory_usage = 0;
-    MemTable* m = cfd->mem();
-    total_num_entries = m->num_entries();
-    total_num_deletes = m->num_deletes();
-    total_data_size = m->get_data_size();
-    total_memory_usage = m->ApproximateMemoryUsage();
-    ReadOptions ro;
-    ro.total_order_seek = true;
-    Arena arena;
-    std::vector<InternalIterator*> memtables(1,m->NewIterator(ro, &arena));
-    // InternalIterator* it = m->NewIterator(ro, &arena);
-    std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
-    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
-    if (range_del_iter != nullptr) {
-      range_del_iters.emplace_back(range_del_iter);
-    }
-    ScopedArenaIterator iter(
-        NewMergingIterator(&cfd->internal_comparator(), &memtables[0],
-                            static_cast<int>(memtables.size()), &arena));
+    MemFlush(cfd, context, new_mem);
   }
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();

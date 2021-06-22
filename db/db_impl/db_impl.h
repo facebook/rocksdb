@@ -21,6 +21,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -54,6 +55,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
@@ -1606,6 +1608,8 @@ class DBImpl : public DB {
   Status TrimMemtableHistory(WriteContext* context);
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+
+  Status MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* new_mem);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 
