@@ -8,6 +8,8 @@
 #include <cassert>
 
 #include "db/blob/blob_garbage_meter.h"
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
