@@ -423,7 +423,35 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("delete x1", "OK")
         self.assertRunOK("put x3 y3", "OK")
         dumpFilePath = os.path.join(self.TMP_DIR, "dump2")
+
+        # Test that if the user provides a db path that ends with
+        # a slash '/', there is no double (or more!) slashes in the
+        # SST and manifest file names.
+
+        # Add a '/' at the end of dbPath (which normally shouldnt contain any)
+        if dbPath[-1] != "/":
+            dbPath += "/"
+
+        # Call the dump_live_files function with the edited dbPath name.
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+
+        # Investigate the output
+        with open(dumpFilePath, "r") as tmp:
+            data = tmp.read()
+
+        # Check that all the SST filenames have a correct full path (no multiple '/').
+        sstFileList = re.findall(r"%s.*\d+.sst" % dbPath, data)
+        for sstFilename in sstFileList:
+            filenumber = re.findall(r"\d+.sst", sstFilename)[0]
+            self.assertEqual(sstFilename, dbPath+filenumber)
+
+        # Check that all the manifest filenames
+        # have a correct full path (no multiple '/').
+        manifestFileList = re.findall(r"%s.*MANIFEST-\d+" % dbPath, data)
+        for manifestFilename in manifestFileList:
+            filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
+            self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
+
 
     def getManifests(self, directory):
         return glob.glob(directory + "/MANIFEST-*")
