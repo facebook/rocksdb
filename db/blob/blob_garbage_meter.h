@@ -24,6 +24,8 @@ class Slice;
 // file can then be computed by subtracting the outflow from the inflow.
 class BlobGarbageMeter {
  public:
+  // A class to store the number and total size of blobs on a per-blob file
+  // basis.
   class BlobStats {
    public:
     void Add(uint64_t bytes) {
@@ -43,6 +45,8 @@ class BlobGarbageMeter {
     uint64_t bytes_ = 0;
   };
 
+  // A class to keep track of the "inflow" and the "outflow" and to compute the
+  // amount of additional garbage for a given blob file.
   class BlobInOutFlow {
    public:
     void AddInFlow(uint64_t bytes) {
