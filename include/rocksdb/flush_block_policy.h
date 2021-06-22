@@ -54,7 +54,7 @@ class FlushBlockPolicyFactory : public Customizable {
 
 class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
  public:
-  FlushBlockBySizePolicyFactory() {}
+  FlushBlockBySizePolicyFactory();
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "FlushBlockBySizePolicyFactory"; }

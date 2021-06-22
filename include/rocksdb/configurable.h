@@ -56,7 +56,7 @@ class Configurable {
   };
 
  public:
-  Configurable() : prepared_(false) {}
+  Configurable();
   virtual ~Configurable() {}
 
   // Returns the raw pointer of the named options that is used by this

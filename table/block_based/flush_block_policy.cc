@@ -130,6 +130,10 @@ static bool LoadFlushPolicyFactory(
   return true;
 }
 
+FlushBlockBySizePolicyFactory::FlushBlockBySizePolicyFactory()
+  : FlushBlockPolicyFactory() {
+}
+
 Status FlushBlockPolicyFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<FlushBlockPolicyFactory>* factory) {
