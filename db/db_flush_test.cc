@@ -691,6 +691,7 @@ TEST_F(DBFlushTest, PurgeBasic) {
   options.write_buffer_size = 64 << 20;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   options.experimental_allow_memtable_purge=true;
 =======
 
@@ -698,6 +699,9 @@ TEST_F(DBFlushTest, PurgeBasic) {
 =======
   options.experimental_allow_memtable_purge=true;
 >>>>>>> b96834079 (Unfortunately a mega commit: added an experimental_allow_memtable_purge flag, accessible from public API. Created FlushJob::MemFlush function that was supposed to perform the flush from the immutable memtables to the mutable memtable, but risk of deadlock situation, therefore seed of new design where memflush is performed in the DBImpl::SwitchMemtable, which also doesnt conflict with function naming, as it is doing witht he other design since i was modifying the writelevel0 function.)
+=======
+  options.experimental_allow_memtable_purge=true;
+>>>>>>> db5ab6f0adfa57092ac593d69171af3255575d00
   ASSERT_OK(TryReopen(options));
 
   std::string KEY1 = "IamKey1";
@@ -708,12 +712,16 @@ TEST_F(DBFlushTest, PurgeBasic) {
   ASSERT_OK(Put(KEY2, VALUE2));
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   ASSERT_OK(Flush());
 =======
 >>>>>>> c488f7339 (Dummy test for purge.)
 =======
   ASSERT_OK(Flush());
 >>>>>>> b96834079 (Unfortunately a mega commit: added an experimental_allow_memtable_purge flag, accessible from public API. Created FlushJob::MemFlush function that was supposed to perform the flush from the immutable memtables to the mutable memtable, but risk of deadlock situation, therefore seed of new design where memflush is performed in the DBImpl::SwitchMemtable, which also doesnt conflict with function naming, as it is doing witht he other design since i was modifying the writelevel0 function.)
+=======
+  ASSERT_OK(Flush());
+>>>>>>> db5ab6f0adfa57092ac593d69171af3255575d00
 
   Close();
 }
