@@ -3352,6 +3352,11 @@ void DBFileDumperCommand::DoCommand() {
   // remove the trailing '\n'
   manifest_filename.resize(manifest_filename.size() - 1);
   std::string manifest_filepath = db_->GetName() + "/" + manifest_filename;
+  // Correct concatenation of filepath and filename:
+  // Check that there is no double slashes (or more!) when concatenation
+  // happens.
+  manifest_filepath = NormalizePath(manifest_filepath);
+
   std::cout << manifest_filepath << std::endl;
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
@@ -3361,7 +3366,11 @@ void DBFileDumperCommand::DoCommand() {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + fileMetadata.name;
+    std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+    // Correct concatenation of filepath and filename:
+    // Check that there is no double slashes (or more!) when concatenation
+    // happens.
+    filename = NormalizePath(filename);
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
     DumpSstFile(options_, filename, false, true);
