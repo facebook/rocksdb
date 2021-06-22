@@ -1798,7 +1798,6 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
       }
     }
     (void)context;
-    (void) new_mem;
 
     Env* env = immutable_db_options_.env;
     assert(env);
@@ -1821,6 +1820,49 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
 
     c_iter.SeekToFirst();
 
+    mutex_.AssertHeld();
+
+    for (; c_iter.Valid(); c_iter.Next()) {
+      const Slice& key = c_iter.key();
+      const Slice& value = c_iter.value();
+      const ParsedInternalKey& ikey = c_iter.ikey();
+      s = new_mem->Add(ikey.sequence, ikey.type, key, value, nullptr /* kv_prot_info ??? */,
+                       false /* allow concurrent_memtable_writes_ */, nullptr /*get_post_process_info(m)*/,
+                       nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
+      if (!s.ok()) {
+        break;
+      }
+      //           virtual Status Put(const WriteOptions& options,
+      //                             ColumnFamilyHandle* column_family, const Slice& key,
+      //                             const Slice& value) override;
+      // builder->Add(key, value);
+      // meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+
+      // // TODO(noetzli): Update stats after flush, too.
+      // if (io_priority == Env::IO_HIGH &&
+      //     IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+      //   ThreadStatusUtil::SetThreadOperationProperty(
+      //       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+      // }
+    // }
+    // if (!s.ok()) {
+    //   c_iter.status().PermitUncheckedError();
+    // } else if (!c_iter.status().ok()) {
+    //   s = c_iter.status();
+    // }
+
+    // if (s.ok()) {
+    //   auto range_del_it = range_del_agg->NewIterator();
+    //   for (range_del_it->SeekToFirst(); range_del_it->Valid();
+    //        range_del_it->Next()) {
+    //     auto tombstone = range_del_it->Tombstone();
+    //     auto kv = tombstone.Serialize();
+    //     builder->Add(kv.first.Encode(), kv.second);
+    //     meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
+    //                                    tombstone.seq_,
+    //                                    tboptions.internal_comparator);
+    //   }
+    }
   }
   return s;
 }
