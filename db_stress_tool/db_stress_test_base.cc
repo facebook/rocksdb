@@ -2357,10 +2357,10 @@ void StressTest::Open() {
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
        FLAGS_allow_setting_blob_options_dynamically) &&
-      (FLAGS_use_merge || FLAGS_best_efforts_recovery)) {
+      FLAGS_best_efforts_recovery) {
     fprintf(stderr,
-            "Integrated BlobDB is currently incompatible with Merge, "
-            "and best-effort recovery\n");
+            "Integrated BlobDB is currently incompatible with best-effort "
+            "recovery\n");
     exit(1);
   }
 
