@@ -400,6 +400,9 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
     ASSERT_OK(file_writer->Flush());
   }
   ASSERT_OK(file_writer->Close());
+  if (file_options1.rate_limiter != nullptr) {
+    delete file_options1.rate_limiter;
+  }
 
   Destroy(options);
 }

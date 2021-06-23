@@ -215,11 +215,9 @@ class WritableFileWriter {
 
   std::string file_name() const { return file_name_; }
 
-  IOStatus Append(const Slice& data);
-
-  // When this Append API is called, we assume that the crc32c_checksum is the
-  // checksum of the pass-in data. Its correctness will not be checked.
-  IOStatus Append(const Slice& data, uint32_t crc32c_checksum);
+  // When this Append API is called, if the crc32c_checksum is not provided, we
+  // will calculate the checksum internally.
+  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0);
 
   IOStatus Pad(const size_t pad_bytes);
 

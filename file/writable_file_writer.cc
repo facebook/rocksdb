@@ -36,7 +36,8 @@ Status WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
   return s;
 }
 
-IOStatus WritableFileWriter::Append(const Slice& data) {
+IOStatus WritableFileWriter::Append(const Slice& data,
+                                    uint32_t crc32c_checksum) {
   const char* src = data.data();
   size_t left = data.size();
   IOStatus s;
@@ -81,112 +82,54 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
     assert(buf_.CurrentSize() == 0);
   }
 
-  // We never write directly to disk with direct I/O on.
-  // or we simply use it for its original purpose to accumulate many small
-  // chunks
-  if (use_direct_io() || (buf_.Capacity() >= left)) {
-    while (left > 0) {
-      size_t appended = buf_.Append(src, left);
-      if (perform_data_verification_ && buffered_data_with_checksum_) {
-        buffered_data_crc32c_checksum_ =
-            crc32c::Extend(buffered_data_crc32c_checksum_, src, appended);
-      }
-      left -= appended;
-      src += appended;
+  if (perform_data_verification_ && buffered_data_with_checksum_ &&
+      crc32c_checksum != 0) {
+    // Since we want to use the checksum of the input data, we cannot break it
+    // into several pieces. We will only write them in the buffer when buffer
+    // size is enough. Otherwise, we will directly write it down.
+    if (use_direct_io() || (buf_.Capacity() - buf_.CurrentSize()) >= left) {
+      if ((buf_.Capacity() - buf_.CurrentSize()) >= left) {
+        size_t appended = buf_.Append(src, left);
+        if (appended != left) {
+          s = IOStatus::Corruption("Write buffer append failure");
+        }
+        buffered_data_crc32c_checksum_ = crc32c::Crc32cCombine(
+            buffered_data_crc32c_checksum_, crc32c_checksum, appended);
+      } else {
+        while (left > 0) {
+          size_t appended = buf_.Append(src, left);
+          buffered_data_crc32c_checksum_ =
+              crc32c::Extend(buffered_data_crc32c_checksum_, src, appended);
+          left -= appended;
+          src += appended;
 
-      if (left > 0) {
-        s = Flush();
-        if (!s.ok()) {
-          break;
+          if (left > 0) {
+            s = Flush();
+            if (!s.ok()) {
+              break;
+            }
+          }
         }
       }
+    } else {
+      assert(buf_.CurrentSize() == 0);
+      buffered_data_crc32c_checksum_ = crc32c_checksum;
+      s = WriteBufferedWithChecksum(src, left);
     }
   } else {
-    // Writing directly to file bypassing the buffer
-    assert(buf_.CurrentSize() == 0);
-    if (perform_data_verification_ && buffered_data_with_checksum_) {
-      buffered_data_crc32c_checksum_ = crc32c::Value(src, left);
-      s = WriteBufferedWithChecksum(src, left);
-    } else {
-      s = WriteBuffered(src, left);
-    }
-  }
-
-  TEST_KILL_RANDOM("WritableFileWriter::Append:1");
-  if (s.ok()) {
-    filesize_ += data.size();
-  }
-  return s;
-}
-
-IOStatus WritableFileWriter::Append(const Slice& data,
-                                    uint32_t crc32c_checksum) {
-  // id we do not need to perform checksum handoff or this type of file will
-  // calcualte the checksum later after rate-limiter, we will use the legacy
-  // Append.
-  if (!perform_data_verification_ || !buffered_data_with_checksum_) {
-    (void)crc32c_checksum;
-    return Append(data);
-  }
-
-  const char* src = data.data();
-  size_t left = data.size();
-  IOStatus s;
-  pending_sync_ = true;
-
-  // Calculate the checksum of appended data
-  UpdateFileChecksum(data);
-
-  {
-    IOSTATS_TIMER_GUARD(prepare_write_nanos);
-    TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
-    writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left,
-                                 IOOptions(), nullptr);
-  }
-
-  // See whether we need to enlarge the buffer to avoid the flush
-  if (buf_.Capacity() - buf_.CurrentSize() < left) {
-    for (size_t cap = buf_.Capacity();
-         cap < max_buffer_size_;  // There is still room to increase
-         cap *= 2) {
-      // See whether the next available size is large enough.
-      // Buffer will never be increased to more than max_buffer_size_.
-      size_t desired_capacity = std::min(cap * 2, max_buffer_size_);
-      if (desired_capacity - buf_.CurrentSize() >= left ||
-          (use_direct_io() && desired_capacity == max_buffer_size_)) {
-        buf_.AllocateNewBuffer(desired_capacity, true);
-        break;
-      }
-    }
-  }
-
-  // Flush only when buffered I/O
-  if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
-    if (buf_.CurrentSize() > 0) {
-      s = Flush();
-      if (!s.ok()) {
-        return s;
-      }
-    }
-    assert(buf_.CurrentSize() == 0);
-  }
-
-  // Since we want to use the checksum of the input data, we cannot break it
-  // into several pieces. We will only write them in the buffer when buffer size
-  // is enough. Otherwise, we will directly write it down.
-  if (use_direct_io() || (buf_.Capacity() - buf_.CurrentSize()) >= left) {
-    if ((buf_.Capacity() - buf_.CurrentSize()) >= left) {
-      size_t appended = buf_.Append(src, left);
-      if (appended != left) {
-        s = IOStatus::Corruption("Write buffer append failure");
-      }
-      buffered_data_crc32c_checksum_ = crc32c::Crc32cCombine(
-          buffered_data_crc32c_checksum_, crc32c_checksum, appended);
-    } else {
+    // In this case, either we do not need to do the data verification or
+    // caller does not provide the checksum of the data (crc32c_checksum = 0).
+    //
+    // We never write directly to disk with direct I/O on.
+    // or we simply use it for its original purpose to accumulate many small
+    // chunks
+    if (use_direct_io() || (buf_.Capacity() >= left)) {
       while (left > 0) {
         size_t appended = buf_.Append(src, left);
-        buffered_data_crc32c_checksum_ =
-            crc32c::Extend(buffered_data_crc32c_checksum_, src, appended);
+        if (perform_data_verification_ && buffered_data_with_checksum_) {
+          buffered_data_crc32c_checksum_ =
+              crc32c::Extend(buffered_data_crc32c_checksum_, src, appended);
+        }
         left -= appended;
         src += appended;
 
@@ -197,11 +140,16 @@ IOStatus WritableFileWriter::Append(const Slice& data,
           }
         }
       }
+    } else {
+      // Writing directly to file bypassing the buffer
+      assert(buf_.CurrentSize() == 0);
+      if (perform_data_verification_ && buffered_data_with_checksum_) {
+        buffered_data_crc32c_checksum_ = crc32c::Value(src, left);
+        s = WriteBufferedWithChecksum(src, left);
+      } else {
+        s = WriteBuffered(src, left);
+      }
     }
-  } else {
-    assert(buf_.CurrentSize() == 0);
-    buffered_data_crc32c_checksum_ = crc32c_checksum;
-    s = WriteBufferedWithChecksum(src, left);
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1");
@@ -234,9 +182,11 @@ IOStatus WritableFileWriter::Pad(const size_t pad_bytes) {
   }
   pending_sync_ = true;
   filesize_ += pad_bytes;
-  buffered_data_crc32c_checksum_ =
-      crc32c::Extend(buffered_data_crc32c_checksum_,
-                     buf_.BufferStart() + pad_start, pad_bytes);
+  if (perform_data_verification_) {
+    buffered_data_crc32c_checksum_ =
+        crc32c::Extend(buffered_data_crc32c_checksum_,
+                       buf_.BufferStart() + pad_start, pad_bytes);
+  }
   return IOStatus::OK();
 }
 
@@ -578,7 +528,10 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
 
-  // Check how much is allowed
+  // Check how much is allowed. Here, we loop until the rate limiter allows to
+  // write the entire buffer.
+  // TODO: need to be improved since it sort of defeats the purpose of the rate
+  // limiter
   size_t data_size = left;
   if (rate_limiter_ != nullptr) {
     while (data_size > 0) {
@@ -762,7 +715,7 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   // fills out
   size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
-  // Round up, padd, and combine the checksum.
+  // Round up, pad, and combine the checksum.
   size_t last_cur_size = buf_.CurrentSize();
   buf_.PadToAlignmentWith(0);
   size_t padded_size = buf_.CurrentSize() - last_cur_size;
@@ -777,7 +730,10 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
 
-  // Check how much is allowed
+  // Check how much is allowed. Here, we loop until the rate limiter allows to
+  // write the entire buffer.
+  // TODO: need to be improved since it sort of defeats the purpose of the rate
+  // limiter
   size_t data_size = left;
   if (rate_limiter_ != nullptr) {
     while (data_size > 0) {
