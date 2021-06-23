@@ -3748,7 +3748,6 @@ void DBImpl::GetAllColumnFamilyMetaData(
   InstrumentedMutexLock l(&mutex_);
   for (auto cfd : *(versions_->GetColumnFamilySet())) {
     {
-      ColumnFamilyMetaData cf_meta;
       metadata->emplace_back();
       cfd->current()->GetColumnFamilyMetaData(&metadata->back());
     }

@@ -1230,7 +1230,7 @@ TEST_F(DBTest, AllMetaDataTest) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
   int64_t temp_time = 0;
   options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
