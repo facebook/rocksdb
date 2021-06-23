@@ -1784,19 +1784,6 @@ Status CompactionJob::InstallCompactionResults(
   auto* compaction = compact_->compaction;
   assert(compaction);
 
-  // paranoia: verify that the files that we started with
-  // still exist in the current version and in the same original level.
-  // This ensures that a concurrent compaction did not erroneously
-  // pick the same files to compact_.
-  if (!versions_->VerifyCompactionFileConsistency(compaction)) {
-    Compaction::InputLevelSummaryBuffer inputs_summary;
-
-    ROCKS_LOG_ERROR(db_options_.info_log, "[%s] [JOB %d] Compaction %s aborted",
-                    compaction->column_family_data()->GetName().c_str(),
-                    job_id_, compaction->InputLevelSummary(&inputs_summary));
-    return Status::Corruption("Compaction input files inconsistent");
-  }
-
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
     ROCKS_LOG_INFO(db_options_.info_log,
@@ -2219,7 +2206,7 @@ Status CompactionServiceCompactionJob::Run() {
     status = io_s;
   }
   if (status.ok()) {
-    // TODO: Add verify_table() and VerifyCompactionFileConsistency()
+    // TODO: Add verify_table()
   }
 
   // Finish up all book-keeping to unify the subcompaction results
