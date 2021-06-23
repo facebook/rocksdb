@@ -3436,7 +3436,7 @@ void DBImpl::BuildCompactionJobInfo(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, bool fromMemFlush) {
+    const MutableCFOptions& mutable_cf_options, bool fromMemPurge) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -3452,7 +3452,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
     sv_context->NewSuperVersion();
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options,
-                           fromMemFlush);
+                           fromMemPurge);
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

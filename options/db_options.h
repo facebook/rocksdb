@@ -54,7 +54,8 @@ struct ImmutableDBOptions {
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;
-  bool experimental_allow_memtable_purge;
+  bool experimental_allow_mempurge;
+  bool experimental_raise_error_when_flushing;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;

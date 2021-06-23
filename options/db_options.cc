@@ -192,8 +192,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, error_if_exists),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"experimental_allow_memtable_purge",
-         {offsetof(struct ImmutableDBOptions, experimental_allow_memtable_purge),
+        {"experimental_allow_mempurge",
+         {offsetof(struct ImmutableDBOptions, experimental_allow_mempurge),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"experimental_raise_error_when_flushing",
+         {offsetof(struct ImmutableDBOptions,
+                   experimental_raise_error_when_flushing),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"is_fd_close_on_exec",
@@ -545,7 +550,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
-      experimental_allow_memtable_purge(options.experimental_allow_memtable_purge),
+      experimental_allow_mempurge(options.experimental_allow_mempurge),
+      experimental_raise_error_when_flushing(
+          options.experimental_raise_error_when_flushing),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
@@ -679,8 +686,13 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    is_fd_close_on_exec);
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
-  ROCKS_LOG_HEADER(log, "                  Options.experimental_allow_memtable_purge: %d",
-                   experimental_allow_memtable_purge);
+  ROCKS_LOG_HEADER(log,
+                   "                  Options.experimental_allow_mempurge: %d",
+                   experimental_allow_mempurge);
+  ROCKS_LOG_HEADER(
+      log,
+      "                  Options.experimental_raise_error_when_flushing: %d",
+      experimental_raise_error_when_flushing);
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);

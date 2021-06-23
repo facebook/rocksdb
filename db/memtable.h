@@ -364,7 +364,7 @@ class MemTable {
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
   // sequence number will be present in this memtable or a later memtable.
-  // Used only for MemFlush operation
+  // Used only for MemPurge operation
   void SetEarliestSequenceNumber(SequenceNumber earliest_seqno) {
     return earliest_seqno_.store(earliest_seqno, std::memory_order_relaxed);
   }

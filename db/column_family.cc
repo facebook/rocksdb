@@ -443,15 +443,15 @@ bool SuperVersion::Unref() {
   return previous_refs == 1;
 }
 
-void SuperVersion::Cleanup(bool fromMemFlush) {
+void SuperVersion::Cleanup(bool fromMemPurge) {
   assert(refs.load(std::memory_order_relaxed) == 0);
   // Since this SuperVersion is being deleted,
   // decrement reference to immutable MemtableList.
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
-    // In MemFlush, the memtable is not made immutable.
-    if (!fromMemFlush) {
+    // In MemPurge, the memtable is not made immutable.
+    if (!fromMemPurge) {
       auto* memory_usage = current->cfd()->imm()->current_memory_usage();
       assert(*memory_usage >= m->ApproximateMemoryUsage());
       *memory_usage -= m->ApproximateMemoryUsage();
@@ -1265,7 +1265,7 @@ void ColumnFamilyData::InstallSuperVersion(
 
 void ColumnFamilyData::InstallSuperVersion(
     SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
-    const MutableCFOptions& mutable_cf_options, bool fromMemFlush) {
+    const MutableCFOptions& mutable_cf_options, bool fromMemPurge) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
@@ -1295,7 +1295,7 @@ void ColumnFamilyData::InstallSuperVersion(
           new_superversion->write_stall_condition, GetName(), ioptions());
     }
     if (old_superversion->Unref()) {
-      old_superversion->Cleanup(fromMemFlush);
+      old_superversion->Cleanup(fromMemPurge);
       sv_context->superversions_to_free.push_back(old_superversion);
     }
   }

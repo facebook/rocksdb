@@ -1737,7 +1737,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 }
 #endif  // ROCKSDB_LITE
 
-Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* new_mem){
+Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
+                        MemTable* new_mem) {
   Status s;
   uint64_t total_num_entries = 0, total_num_deletes = 0;
   uint64_t total_data_size = 0;
@@ -1875,9 +1876,6 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
   }
   return s;
 }
-
-
-
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
@@ -2053,7 +2051,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       for (auto cf : empty_cfs) {
         if (cf->IsEmpty()) {
           cf->SetLogNumber(logfile_number_);
-          // MEMFLUSH: MAY NEED TO CHANGE THIS ?
+          // MEMPURGE: MAY NEED TO CHANGE THIS ?
           cf->mem()->SetCreationSeq(versions_->LastSequence());
         }  // cf may become non-empty.
       }
@@ -2076,18 +2074,18 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
-  // If MemFlush activated, delete flushed MemTable right away.
-  if (immutable_db_options_.experimental_allow_memtable_purge){
-    // TODO: If MemFlush fails, go back to refgular sotrage flush.
-    MemFlush(cfd, context, new_mem);
+  // If MemPurge activated, delete flushed MemTable right away.
+  if (immutable_db_options_.experimental_allow_mempurge) {
+    // TODO: If MemPurge fails, go back to refgular sotrage flush.
+    MemPurge(cfd, context, new_mem);
     cfd->mem()->Unref();
-  } else{
+  } else {
     // Else make the memtable immutable and proceed as usual.
     cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   }
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  if (immutable_db_options_.experimental_allow_memtable_purge) {
+  if (immutable_db_options_.experimental_allow_mempurge) {
     InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
                                        mutable_cf_options, true);
   } else {

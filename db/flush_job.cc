@@ -361,7 +361,8 @@ Status FlushJob::WriteLevel0Table() {
                          << GetFlushReasonString(cfd_->GetFlushReason());
 
     {
-      if (db_options_.experimental_allow_memtable_purge) {
+      if (db_options_.experimental_raise_error_when_flushing) {
+        assert(false);
         std::string msg =
             "At this point, storage flush operations are forbidden.";
         ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",

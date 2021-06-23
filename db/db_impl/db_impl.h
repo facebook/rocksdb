@@ -1609,7 +1609,8 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
-  Status MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* new_mem);
+  Status MemPurge(ColumnFamilyData* cfd, WriteContext* context,
+                  MemTable* new_mem);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 
@@ -1836,7 +1837,7 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options, bool fromMemFlush = false);
+      const MutableCFOptions& mutable_cf_options, bool fromMemPurge = false);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

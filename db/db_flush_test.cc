@@ -689,7 +689,8 @@ TEST_F(DBFlushTest, PurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 64 << 20;
-  options.experimental_allow_memtable_purge=true;
+  options.experimental_allow_mempurge = true;
+  options.experimental_raise_error_when_flushing = true;
   ASSERT_OK(TryReopen(options));
 
   std::string KEY1 = "IamKey1";
@@ -715,20 +716,20 @@ TEST_F(DBFlushTest, PurgeBasic) {
   ASSERT_OK(Flush());
   ASSERT_NOK(Get(KEY1, &value));
 
-  // Random rnd(301);
-  // const size_t NUM_REPEAT = 20000000;
-  // const size_t RAND_VALUES_LENGTH = 512;
-  // // Insertion of of K-V pairs, multiple times.
-  // // Also insert DeleteRange
-  // for (size_t i = 0; i < NUM_REPEAT; i++) {
-  //   // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
-  //   std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
-  //   std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
-  //   std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
-  //   ASSERT_OK(Put(KEY1, p_v1));
-  //   ASSERT_OK(Put(KEY2, p_v2));
-  //   ASSERT_OK(Put(KEY3, p_v3));
-  // }
+  Random rnd(301);
+  const size_t NUM_REPEAT = 50000;
+  const size_t RAND_VALUES_LENGTH = 512;
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+  }
 
   Close();
 }
