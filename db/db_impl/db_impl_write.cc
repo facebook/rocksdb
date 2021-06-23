@@ -1833,33 +1833,26 @@ Status DBImpl::MemFlush(ColumnFamilyData* cfd, WriteContext* context, MemTable* 
     // to update this number!).
     new_mem->SetEarliestSequenceNumber(earliest_seqno);
     SequenceNumber new_earliest_seqno = kMaxSequenceNumber;
+    SequenceNumber new_first_seqno = kMaxSequenceNumber;
     for (; c_iter.Valid(); c_iter.Next()) {
-      const Slice& key = c_iter.key();
-      const Slice& value = c_iter.value();
-      const ParsedInternalKey& ikey = c_iter.ikey();
+      const ParsedInternalKey ikey = c_iter.ikey();
+      const Slice value = c_iter.value();
       new_earliest_seqno = ikey.sequence < new_earliest_seqno
                                ? ikey.sequence
                                : new_earliest_seqno;
-
+      new_first_seqno =
+          ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
+      new_mem->SetFirstSequenceNumber(new_first_seqno);
       // Should we update "OldestKeyTime" ????
-      s = new_mem->Add(ikey.sequence, ikey.type, key, value, nullptr /* kv_prot_info ??? */,
-                       false /* allow concurrent_memtable_writes_ */, nullptr /*get_post_process_info(m)*/,
-                       nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
+      s = new_mem->Add(
+          ikey.sequence, ikey.type, ikey.user_key, value,
+          nullptr /* kv_prot_info ??? */,
+          false /* allow concurrent_memtable_writes_ */,
+          nullptr /*get_post_process_info(m)*/,
+          nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
       if (!s.ok()) {
         break;
       }
-      //           virtual Status Put(const WriteOptions& options,
-      //                             ColumnFamilyHandle* column_family, const Slice& key,
-      //                             const Slice& value) override;
-      // builder->Add(key, value);
-      // meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
-
-      // // TODO(noetzli): Update stats after flush, too.
-      // if (io_priority == Env::IO_HIGH &&
-      //     IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-      //   ThreadStatusUtil::SetThreadOperationProperty(
-      //       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
-      // }
     // }
     // if (!s.ok()) {
     //   c_iter.status().PermitUncheckedError();
@@ -2060,6 +2053,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       for (auto cf : empty_cfs) {
         if (cf->IsEmpty()) {
           cf->SetLogNumber(logfile_number_);
+          // MEMFLUSH: MAY NEED TO CHANGE THIS ?
           cf->mem()->SetCreationSeq(versions_->LastSequence());
         }  // cf may become non-empty.
       }
@@ -2084,17 +2078,23 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   cfd->mem()->SetNextLogNumber(logfile_number_);
   // If MemFlush activated, delete flushed MemTable right away.
   if (immutable_db_options_.experimental_allow_memtable_purge){
+    // TODO: If MemFlush fails, go back to refgular sotrage flush.
     MemFlush(cfd, context, new_mem);
     cfd->mem()->Unref();
-    (context->memtables_to_free_).push_back(cfd->mem());
   } else{
     // Else make the memtable immutable and proceed as usual.
     cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   }
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options);
+  if (immutable_db_options_.experimental_allow_memtable_purge) {
+    InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                       mutable_cf_options, true);
+  } else {
+    InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                       mutable_cf_options);
+  }
+
 #ifndef ROCKSDB_LITE
   mutex_.Unlock();
   // Notify client that memtable is sealed, now that we have successfully

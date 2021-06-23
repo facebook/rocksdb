@@ -694,11 +694,41 @@ TEST_F(DBFlushTest, PurgeBasic) {
 
   std::string KEY1 = "IamKey1";
   std::string KEY2 = "IamKey2";
+  std::string KEY3 = "IamKey3";
   std::string VALUE1 = "IamValue1";
   std::string VALUE2 = "IamValue2";
   ASSERT_OK(Put(KEY1, VALUE1));
   ASSERT_OK(Put(KEY2, VALUE2));
+  ASSERT_OK(Delete(KEY1));
+  ASSERT_OK(Put(KEY2, VALUE1));
+  ASSERT_OK(Put(KEY1, VALUE2));
   ASSERT_OK(Flush());
+
+  PinnableSlice value;
+  ASSERT_OK(Get(KEY1, &value));
+  ASSERT_EQ(value, VALUE2);
+  ASSERT_OK(Get(KEY2, &value));  // Issues to investigate here
+  ASSERT_EQ(value, VALUE1);
+
+  ASSERT_OK(Delete(KEY1));
+  ASSERT_NOK(Get(KEY1, &value));
+  ASSERT_OK(Flush());
+  ASSERT_NOK(Get(KEY1, &value));
+
+  // Random rnd(301);
+  // const size_t NUM_REPEAT = 20000000;
+  // const size_t RAND_VALUES_LENGTH = 512;
+  // // Insertion of of K-V pairs, multiple times.
+  // // Also insert DeleteRange
+  // for (size_t i = 0; i < NUM_REPEAT; i++) {
+  //   // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+  //   std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+  //   std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+  //   std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+  //   ASSERT_OK(Put(KEY1, p_v1));
+  //   ASSERT_OK(Put(KEY2, p_v2));
+  //   ASSERT_OK(Put(KEY3, p_v3));
+  // }
 
   Close();
 }

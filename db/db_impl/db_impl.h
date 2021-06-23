@@ -1836,7 +1836,7 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options);
+      const MutableCFOptions& mutable_cf_options, bool fromMemFlush = false);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

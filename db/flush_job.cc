@@ -361,6 +361,14 @@ Status FlushJob::WriteLevel0Table() {
                          << GetFlushReasonString(cfd_->GetFlushReason());
 
     {
+      if (db_options_.experimental_allow_memtable_purge) {
+        std::string msg =
+            "At this point, storage flush operations are forbidden.";
+        ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
+                       cfd_->GetName().c_str(), job_context_->job_id,
+                       msg.c_str());
+        s = Status::Corruption(msg);
+      }
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));

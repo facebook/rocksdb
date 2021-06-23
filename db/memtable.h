@@ -341,6 +341,14 @@ class MemTable {
     return first_seqno_.load(std::memory_order_relaxed);
   }
 
+  // Returns the sequence number of the first element that was inserted
+  // into the memtable.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  void SetFirstSequenceNumber(SequenceNumber first_seqno) {
+    return first_seqno_.store(first_seqno, std::memory_order_relaxed);
+  }
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
