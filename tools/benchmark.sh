@@ -59,6 +59,8 @@ num_keys=${NUM_KEYS:-8000000000}
 key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 block_size=${BLOCK_SIZE:-8192}
+enable_blob_files=${ENABLE_BLOB_FILES:0}
+enable_blob_garbage_collection=${ENABLE_BLOB_GARBAGE_COLLECTION:0}
 
 const_params="
   --db=$DB_DIR \
@@ -97,7 +99,10 @@ const_params="
   \
   --memtablerep=skip_list \
   --bloom_bits=10 \
-  --open_files=-1"
+  --open_files=-1
+  \
+  --enable_blob_files=$enable_blob_files \
+  --enable_blob_garbage_collection=$enable_blob_garbage_collection"
 
 l0_config="
   --level0_file_num_compaction_trigger=4 \
@@ -158,10 +163,13 @@ function summarize_result {
   ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
   mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
   lo_wgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $9 }' )
+  lo_wblobgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $22 }' )
   sum_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $9 }' )
+  sum_wblobgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $22 }' )
+  sum_wgb_wblobgb=$( echo "scale=1; $sum_wgb + $sum_wblobgb" | bc ) 
   sum_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.1f", $3 / 1024.0 }' )
-  wamp=$( echo "scale=1; $sum_wgb / $lo_wgb" | bc )
-  wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
+  wamp=$( echo "scale=1; $sum_wgb_wblobgb / ($lo_wgb + $lo_wblobgb)" | bc )
+  wmb_ps=$( echo "scale=1; ( $sum_wgb_wblobgb * 1024.0 ) / $uptime" | bc )
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   p75=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $5 }' )
