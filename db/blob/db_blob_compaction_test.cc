@@ -283,13 +283,12 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
 TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
-  options.create_if_missing = true;
 
   std::unique_ptr<CompactionFilter> compaction_filter_guard(
       new SkipUntilFilter("z"));
   options.compaction_filter = compaction_filter_guard.get();
 
-  DestroyAndReopen(options);
+  Reopen(options);
 
   const std::vector<std::string> keys{"a", "b", "c"};
   const std::vector<std::string> values{"a_value", "b_value", "c_value"};
