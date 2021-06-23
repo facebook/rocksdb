@@ -1533,7 +1533,7 @@ class ReportFileOpEnv : public EnvWrapper {
     }
     return st;
   }
-   
+
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& soptions) override {
@@ -1590,7 +1590,9 @@ class ReportFileOpEnv : public EnvWrapper {
         return Append(data);
       }
 
-      Status Truncate(uint64_t size) override { return target_->Truncate(size); }        
+      Status Truncate(uint64_t size) override {
+        return target_->Truncate(size);
+      }
       Status Close() override {
         Status s = target_->Close();
         if (s.ok()) {
