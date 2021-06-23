@@ -287,18 +287,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           assert(pik_status.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
-          if (ikey.type == kTypeBlobIndex) {
-            PinnableSlice blob_value;
-            s = blob_fetcher->FetchBlob(ikey.user_key, value_slice,
-                                        &blob_value);
-            if (!s.ok()) {
-              return s;
-            }
-            merge_context_.PushOperand(blob_value, false /* operand_pinned */);
-          } else {
-            merge_context_.PushOperand(
-                value_slice, iter->IsValuePinned() /* operand_pinned */);
-          }
+          merge_context_.PushOperand(
+              value_slice, iter->IsValuePinned() /* operand_pinned */);
         } else {  // kChangeValue
           // Compaction filter asked us to change the operand from value_slice
           // to compaction_filter_value_.
