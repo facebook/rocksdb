@@ -6,6 +6,9 @@
 ### Bug Fixes
 * Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
 
+### New Features
+* ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
+
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
 * Added two additional tickers, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH and MEMTABLE_GARBAGE_BYTES_AT_FLUSH. These stats can be used to estimate the ratio of "garbage" (outdated) bytes in the memtable that are discarded at flush time.
