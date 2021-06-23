@@ -1847,33 +1847,48 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
       // Should we update "OldestKeyTime" ????
       s = new_mem->Add(
           ikey.sequence, ikey.type, ikey.user_key, value,
-          nullptr /* kv_prot_info ??? */,
-          false /* allow concurrent_memtable_writes_ */,
-          nullptr /*get_post_process_info(m)*/,
-          nullptr /* hint_per_batch_ ? &GetHintMap()[mem] : nullptr */);
+          nullptr,   // KV protection info set as nullptr since it
+                     // should only be useful for the first add to
+                     // the original memtable.
+          false,     // : allow concurrent_memtable_writes_
+                     // Not seen as necessary for now.
+          nullptr,   // get_post_process_info(m) must be nullptr
+                     // when concurrent_memtable_writes is switched off.
+          nullptr);  // hint, only used when concurrent_memtable_writes_
+                     // is switched on.
       if (!s.ok()) {
         break;
       }
-    // }
-    // if (!s.ok()) {
-    //   c_iter.status().PermitUncheckedError();
-    // } else if (!c_iter.status().ok()) {
-    //   s = c_iter.status();
-    // }
+    }
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        s = new_mem->Add(
+            tombstone.seq_,        // Sequence number
+            kTypeRangeDeletion,    // KV type
+            tombstone.start_key_,  // Key is start key.
+            tombstone.end_key_,    // Value is end key.
+            nullptr,               // KV protection info set as nullptr since it
+                                   // should only be useful for the first add to
+                                   // the original memtable.
+            false,                 // : allow concurrent_memtable_writes_
+                                   // Not seen as necessary for now.
+            nullptr,               // get_post_process_info(m) must be nullptr
+                      // when concurrent_memtable_writes is switched off.
+            nullptr);  // hint, only used when concurrent_memtable_writes_
+                       // is switched on.
 
-    // if (s.ok()) {
-    //   auto range_del_it = range_del_agg->NewIterator();
-    //   for (range_del_it->SeekToFirst(); range_del_it->Valid();
-    //        range_del_it->Next()) {
-    //     auto tombstone = range_del_it->Tombstone();
-    //     auto kv = tombstone.Serialize();
-    //     builder->Add(kv.first.Encode(), kv.second);
-    //     meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-    //                                    tombstone.seq_,
-    //                                    tboptions.internal_comparator);
-    //   }
+        if (!s.ok()) {
+          break;
+        }
+      }
     }
   }
+  // Need a situation for if new_mem needs to be flushed to imm.
+  // Need a situation for if failing to transfer some data (!s.ok)
+  // ->go back to imm.
   return s;
 }
 

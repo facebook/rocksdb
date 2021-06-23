@@ -715,6 +715,8 @@ TEST_F(DBFlushTest, PurgeBasic) {
   ASSERT_NOK(Get(KEY1, &value));
   ASSERT_OK(Flush());
   ASSERT_NOK(Get(KEY1, &value));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1, KEY2));
 
   Random rnd(301);
   const size_t NUM_REPEAT = 50000;
