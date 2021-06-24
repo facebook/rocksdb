@@ -658,7 +658,7 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
-TEST_F(DBFlushTest, PurgeBasic) {
+TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
 
   // The following options are used to enforce several values that
@@ -689,14 +689,19 @@ TEST_F(DBFlushTest, PurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
 
   std::string KEY1 = "IamKey1";
   std::string KEY2 = "IamKey2";
   std::string KEY3 = "IamKey3";
+  std::string KEY4 = "IamKey4";
+  std::string KEY5 = "IamKey5";
   std::string VALUE1 = "IamValue1";
   std::string VALUE2 = "IamValue2";
+
+  // Check simple operations (put-delete).
   ASSERT_OK(Put(KEY1, VALUE1));
   ASSERT_OK(Put(KEY2, VALUE2));
   ASSERT_OK(Delete(KEY1));
@@ -714,40 +719,137 @@ TEST_F(DBFlushTest, PurgeBasic) {
   ASSERT_NOK(Get(KEY1, &value));
   ASSERT_OK(Flush());
   ASSERT_NOK(Get(KEY1, &value));
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1, KEY2));
 
-  Random rnd(301);
-  const size_t NUM_REPEAT = 500;
+  // Heavy overwrite workload,
+  // more than would fit in maximum allowed memtables.
+  Random rnd(719);
+  const size_t NUM_REPEAT = 100000;
   const size_t RAND_VALUES_LENGTH = 512;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5;
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
-    std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
-    std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
-    std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+
     ASSERT_OK(Put(KEY1, p_v1));
     ASSERT_OK(Put(KEY2, p_v2));
     ASSERT_OK(Put(KEY3, p_v3));
-    ASSERT_OK(Delete(KEY2));
-    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
-                               KEY2));
-    ASSERT_OK(Flush());
-    ASSERT_NOK(Get(KEY1, &value));
-    ASSERT_NOK(Get(KEY2, &value));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+    ASSERT_OK(Get(KEY1, &value));
+    ASSERT_EQ(value, p_v1);
+    ASSERT_OK(Get(KEY2, &value));
+    ASSERT_EQ(value, p_v2);
     ASSERT_OK(Get(KEY3, &value));
     ASSERT_EQ(value, p_v3);
+    ASSERT_OK(Get(KEY4, &value));
+    ASSERT_EQ(value, p_v4);
+    ASSERT_OK(Get(KEY5, &value));
+    ASSERT_EQ(value, p_v5);
   }
 
+  // Check that there was at least one mempurge
+  const uint64_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
   // Check that there was no flush to storage.
   const uint64_t EXPECTED_FLUSH_COUNT = 0;
+
+  uint64_t mempurge_count = TestGetTickerCount(options, MEMPURGE_COUNT);
   uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
   EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
 
   Close();
 }
 
+TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  PinnableSlice value;
+
+  Random rnd(117);
+  const size_t NUM_REPEAT = 200;
+  const size_t RAND_VALUES_LENGTH = 512;
+  bool atLeastOneFlush = false;
+  std::string p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3b = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+    ASSERT_OK(Delete(KEY2));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2,
+                               KEY4));
+    ASSERT_OK(Put(KEY3, p_v3b));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY3));
+    ASSERT_OK(Delete(KEY1));
+
+    // Flush (MemPurge) with a probability of 50%.
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(Flush());
+      atLeastOneFlush = true;
+    }
+
+    ASSERT_NOK(Get(KEY1, &value));
+    ASSERT_NOK(Get(KEY2, &value));
+    ASSERT_OK(Get(KEY3, &value));
+    ASSERT_EQ(value, p_v3b);
+    ASSERT_OK(Get(KEY4, &value));
+    ASSERT_EQ(value, p_v4);
+    ASSERT_OK(Get(KEY5, &value));
+    ASSERT_EQ(value, p_v5);
+  }
+
+  // Check that there was at least one mempurge
+  const uint64_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no flush to storage.
+  const uint64_t EXPECTED_FLUSH_COUNT = 0;
+
+  uint64_t mempurge_count = TestGetTickerCount(options, MEMPURGE_COUNT);
+  uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
+
+  if (atLeastOneFlush) {
+    EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  } else {
+    EXPECT_EQ(mempurge_count, EXPECTED_FLUSH_COUNT);
+  }
+  EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
+
+  Close();
+}
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
