@@ -556,7 +556,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                  if (root_comp == nullptr) {
                    root_comp = (*ptr);
                  }
-                 *value = root_comp->Name();
+                 *value = root_comp->ToString(opts);
                }
                return Status::OK();
              },
