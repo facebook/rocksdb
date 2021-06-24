@@ -1455,6 +1455,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 struct ReportFileOpCounters {
   std::atomic<int> open_counter_;
+  std::atomic<int> delete_counter_;
+  std::atomic<int> rename_counter_;
+  std::atomic<int> flush_counter_;
+  std::atomic<int> sync_counter_;
+  std::atomic<int> fsync_counter_;
+  std::atomic<int> close_counter_;
   std::atomic<int> read_counter_;
   std::atomic<int> append_counter_;
   std::atomic<uint64_t> bytes_read_;
@@ -1468,6 +1474,12 @@ class ReportFileOpEnv : public EnvWrapper {
 
   void reset() {
     counters_.open_counter_ = 0;
+    counters_.delete_counter_ = 0;
+    counters_.rename_counter_ = 0;
+    counters_.flush_counter_ = 0;
+    counters_.sync_counter_ = 0;
+    counters_.fsync_counter_ = 0;
+    counters_.close_counter_ = 0;
     counters_.read_counter_ = 0;
     counters_.append_counter_ = 0;
     counters_.bytes_read_ = 0;
@@ -1504,6 +1516,22 @@ class ReportFileOpEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), counters()));
     }
     return s;
+  }
+
+  Status DeleteFile(const std::string& fname) override {
+    Status s = target()->DeleteFile(fname);
+    if (s.ok()) {
+      counters()->delete_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return s;
+  }
+
+  Status RenameFile(const std::string& s, const std::string& t) override {
+    Status st = target()->RenameFile(s, t);
+    if (st.ok()) {
+      counters()->rename_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return st;
   }
 
   Status NewRandomAccessFile(const std::string& f,
@@ -1562,10 +1590,37 @@ class ReportFileOpEnv : public EnvWrapper {
         return Append(data);
       }
 
-      Status Truncate(uint64_t size) override { return target_->Truncate(size); }
-      Status Close() override { return target_->Close(); }
-      Status Flush() override { return target_->Flush(); }
-      Status Sync() override { return target_->Sync(); }
+      Status Truncate(uint64_t size) override {
+        return target_->Truncate(size);
+      }
+      Status Close() override {
+        Status s = target_->Close();
+        if (s.ok()) {
+          counters_->close_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Flush() override {
+        Status s = target_->Flush();
+        if (s.ok()) {
+          counters_->flush_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Sync() override {
+        Status s = target_->Sync();
+        if (s.ok()) {
+          counters_->sync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Fsync() override {
+        Status s = target_->Fsync();
+        if (s.ok()) {
+          counters_->fsync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
     };
 
     Status s = target()->NewWritableFile(f, r, soptions);
@@ -2242,6 +2297,18 @@ class Stats {
       ReportFileOpCounters* counters = env->counters();
       fprintf(stdout, "Num files opened: %d\n",
               counters->open_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files deleted: %d\n",
+              counters->delete_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files renamed: %d\n",
+              counters->rename_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Flush(): %d\n",
+              counters->flush_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Sync(): %d\n",
+              counters->sync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Fsync(): %d\n",
+              counters->fsync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Close(): %d\n",
+              counters->close_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Read(): %d\n",
               counters->read_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Append(): %d\n",
