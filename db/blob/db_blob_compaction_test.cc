@@ -563,8 +563,9 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
     ASSERT_EQ(meta->GetGarbageBlobCount(), 0);
     ASSERT_EQ(meta->GetGarbageBlobBytes(), 0);
   }
+}
 
-  TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
+TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
