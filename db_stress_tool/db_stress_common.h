@@ -262,6 +262,7 @@ DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_string(secondary_cache_uri);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
