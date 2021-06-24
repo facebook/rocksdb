@@ -51,7 +51,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
 }  // namespace
 
 StressTest::StressTest()
-    : cache_(NewCache(FLAGS_cache_size)),
+    : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
@@ -116,7 +116,8 @@ StressTest::~StressTest() {
   delete cmp_db_;
 }
 
-std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
+std::shared_ptr<Cache> StressTest::NewCache(
+    size_t capacity, int32_t num_shard_bits) {
   if (capacity <= 0) {
     return nullptr;
   }
@@ -130,6 +131,7 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
   } else {
     LRUCacheOptions opts;
     opts.capacity = capacity;
+    opts.num_shard_bits = num_shard_bits;
 #ifndef ROCKSDB_LITE
     std::shared_ptr<SecondaryCache> secondary_cache;
     if (!FLAGS_secondary_cache_uri.empty()) {

@@ -131,6 +131,7 @@ DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
+DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
