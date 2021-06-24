@@ -200,9 +200,9 @@ class StressTest {
       const std::vector<int64_t>& rand_keys);
 #endif  // !ROCKSDB_LITE
 
-  void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
+  void VerificationAbort(SharedState* shared, const std::string& msg, Status s) const;
 
-  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+  void VerificationAbort(SharedState* shared, const std::string& msg, int cf,
                          int64_t key) const;
 
   void PrintEnv() const;

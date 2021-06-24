@@ -83,7 +83,7 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
-      std::string full_history_ts_low = "",
+      const std::string& full_history_ts_low = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
 
   virtual ~CompactionJob();
@@ -276,7 +276,7 @@ struct CompactionServiceOutputFile {
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
       const std::string& name, SequenceNumber smallest, SequenceNumber largest,
-      std::string _smallest_internal_key, std::string _largest_internal_key,
+      const std::string& _smallest_internal_key, const std::string& _largest_internal_key,
       uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
       uint64_t _paranoid_hash, bool _marked_for_compaction)
       : file_name(name),

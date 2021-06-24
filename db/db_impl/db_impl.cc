@@ -3552,7 +3552,7 @@ Status DBImpl::GetUpdatesSince(
   return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get());
 }
 
-Status DBImpl::DeleteFile(std::string name) {
+Status DBImpl::DeleteFile(const std::string& name) {
   uint64_t number;
   FileType type;
   WalFileType log_type;

@@ -67,7 +67,7 @@ class ArenaWrappedDBIter : public Iterator {
   Slice timestamp() const override { return db_iter_->timestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
 
-  Status GetProperty(std::string prop_name, std::string* prop) override;
+  Status GetProperty(const std::string& prop_name, std::string* prop) override;
 
   Status Refresh() override;
 

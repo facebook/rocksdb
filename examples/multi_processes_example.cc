@@ -99,7 +99,7 @@ static std::string Key(uint64_t k) {
   return ret;
 }
 
-static uint64_t Key(std::string key) {
+static uint64_t Key(const std::string& key) {
   assert(key.size() == sizeof(uint64_t));
   size_t i = 0, j = key.size() - 1;
   while (i < j) {

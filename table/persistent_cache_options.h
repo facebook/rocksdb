@@ -19,7 +19,7 @@ struct PersistentCacheOptions {
   PersistentCacheOptions() {}
   explicit PersistentCacheOptions(
       const std::shared_ptr<PersistentCache>& _persistent_cache,
-      const std::string _key_prefix, Statistics* const _statistics)
+      const std::string& _key_prefix, Statistics* const _statistics)
       : persistent_cache(_persistent_cache),
         key_prefix(_key_prefix),
         statistics(_statistics) {}

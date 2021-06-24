@@ -220,7 +220,7 @@ int truncate(const char* path, int64_t length) {
   return ROCKSDB_NAMESPACE::port::Truncate(path, length);
 }
 
-int Truncate(std::string path, int64_t len) {
+int Truncate(const std::string& path, int64_t len) {
 
   if (len < 0) {
     errno = EINVAL;

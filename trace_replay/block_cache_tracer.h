@@ -129,8 +129,8 @@ struct BlockCacheTraceRecord {
   BlockCacheTraceRecord() {}
 
   BlockCacheTraceRecord(
-      uint64_t _access_timestamp, std::string _block_key, TraceType _block_type,
-      uint64_t _block_size, uint64_t _cf_id, std::string _cf_name,
+      uint64_t _access_timestamp, const std::string& _block_key, TraceType _block_type,
+      uint64_t _block_size, uint64_t _cf_id, const std::string& _cf_name,
       uint32_t _level, uint64_t _sst_fd_number, TableReaderCaller _caller,
       bool _is_cache_hit, bool _no_insert,
       uint64_t _get_id = BlockCacheTraceHelper::kReservedGetId,

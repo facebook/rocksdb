@@ -99,7 +99,7 @@ struct PersistentRangeTombstone {
   std::string end_key;
   RangeTombstone tombstone;
 
-  PersistentRangeTombstone(std::string start, std::string end,
+  PersistentRangeTombstone(const std::string& start, const std::string& end,
                            SequenceNumber seq)
       : start_key(std::move(start)), end_key(std::move(end)) {
     tombstone = RangeTombstone(start_key, end_key, seq);

@@ -48,7 +48,7 @@ class DBWALTestBase : public DBTestBase {
   }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 
-  uint64_t GetAllocatedFileSize(std::string file_name) {
+  uint64_t GetAllocatedFileSize(const std::string& file_name) {
     struct stat sbuf;
     int err = stat(file_name.c_str(), &sbuf);
     assert(err == 0);

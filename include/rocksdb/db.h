@@ -1402,7 +1402,7 @@ class DB {
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log
-  virtual Status DeleteFile(std::string name) = 0;
+  virtual Status DeleteFile(const std::string& name) = 0;
 
   // Returns a list of all table files with their level, start key
   // and end key

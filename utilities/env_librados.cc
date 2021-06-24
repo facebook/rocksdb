@@ -99,7 +99,7 @@ class LibradosSequentialFile : public SequentialFile {
   std::string _hint;
   int _offset;
 public:
-  LibradosSequentialFile(librados::IoCtx * io_ctx, std::string fid, std::string hint):
+  LibradosSequentialFile(librados::IoCtx * io_ctx, const std::string& fid, const std::string& hint):
     _io_ctx(io_ctx), _fid(fid), _hint(hint), _offset(0) {}
 
   ~LibradosSequentialFile() {}
@@ -183,7 +183,7 @@ class LibradosRandomAccessFile : public RandomAccessFile {
   std::string _fid;
   std::string _hint;
 public:
-  LibradosRandomAccessFile(librados::IoCtx * io_ctx, std::string fid, std::string hint):
+  LibradosRandomAccessFile(librados::IoCtx * io_ctx, const std::string& fid, const std::string& hint):
     _io_ctx(io_ctx), _fid(fid), _hint(hint) {}
 
   ~LibradosRandomAccessFile() {}
@@ -291,8 +291,8 @@ class LibradosWritableFile : public WritableFile {
   }
 
  public:
-  LibradosWritableFile(librados::IoCtx* io_ctx, std::string fid,
-                       std::string hint, const EnvLibrados* const env,
+  LibradosWritableFile(librados::IoCtx* io_ctx, const std::string& fid,
+                       const std::string& hint, const EnvLibrados* const env,
                        const EnvOptions& options)
       : WritableFile(options),
         _io_ctx(io_ctx),
@@ -536,7 +536,7 @@ class LibradosDirectory : public Directory {
   librados::IoCtx * _io_ctx;
   std::string _fid;
 public:
-  explicit LibradosDirectory(librados::IoCtx * io_ctx, std::string fid):
+  explicit LibradosDirectory(librados::IoCtx * io_ctx, const std::string& fid):
     _io_ctx(io_ctx), _fid(fid) {}
 
   // Fsync directory. Can be called concurrently from multiple threads.
@@ -556,7 +556,7 @@ class LibradosFileLock : public FileLock {
 public:
   LibradosFileLock(
     librados::IoCtx * io_ctx,
-    const std::string obj_name):
+    const std::string& obj_name):
     _io_ctx(io_ctx),
     _obj_name(obj_name),
     _lock_name("lock_name"),

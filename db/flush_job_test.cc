@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 // 2. Memtable
 class FlushJobTestBase : public testing::Test {
  protected:
-  FlushJobTestBase(std::string dbname, const Comparator* ucmp)
+  FlushJobTestBase(const std::string& dbname, const Comparator* ucmp)
       : env_(Env::Default()),
         fs_(env_->GetFileSystem()),
         dbname_(std::move(dbname)),
@@ -525,7 +525,7 @@ class FlushJobTimestampTest : public FlushJobTestBase {
       : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
                          test::ComparatorWithU64Ts()) {}
 
-  void AddKeyValueToMemtable(MemTable* memtable, std::string key, uint64_t ts,
+  void AddKeyValueToMemtable(MemTable* memtable, const std::string& key, uint64_t ts,
                              SequenceNumber seq, ValueType value_type,
                              Slice value) {
     std::string key_str(std::move(key));

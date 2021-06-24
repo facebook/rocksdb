@@ -26,8 +26,8 @@ class SharedBlobFileMetaData {
  public:
   static std::shared_ptr<SharedBlobFileMetaData> Create(
       uint64_t blob_file_number, uint64_t total_blob_count,
-      uint64_t total_blob_bytes, std::string checksum_method,
-      std::string checksum_value) {
+      uint64_t total_blob_bytes, const std::string& checksum_method,
+      const std::string& checksum_value) {
     return std::shared_ptr<SharedBlobFileMetaData>(new SharedBlobFileMetaData(
         blob_file_number, total_blob_count, total_blob_bytes,
         std::move(checksum_method), std::move(checksum_value)));
@@ -36,8 +36,8 @@ class SharedBlobFileMetaData {
   template <typename Deleter>
   static std::shared_ptr<SharedBlobFileMetaData> Create(
       uint64_t blob_file_number, uint64_t total_blob_count,
-      uint64_t total_blob_bytes, std::string checksum_method,
-      std::string checksum_value, Deleter deleter) {
+      uint64_t total_blob_bytes, const std::string& checksum_method,
+      const std::string& checksum_value, Deleter deleter) {
     return std::shared_ptr<SharedBlobFileMetaData>(
         new SharedBlobFileMetaData(blob_file_number, total_blob_count,
                                    total_blob_bytes, std::move(checksum_method),
@@ -61,8 +61,8 @@ class SharedBlobFileMetaData {
 
  private:
   SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
-                         uint64_t total_blob_bytes, std::string checksum_method,
-                         std::string checksum_value)
+                         uint64_t total_blob_bytes, const std::string& checksum_method,
+                         const std::string& checksum_value)
       : blob_file_number_(blob_file_number),
         total_blob_count_(total_blob_count),
         total_blob_bytes_(total_blob_bytes),

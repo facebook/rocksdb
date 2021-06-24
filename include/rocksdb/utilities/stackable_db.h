@@ -427,7 +427,7 @@ class StackableDB : public DB {
   // do not plan to maintain it, the contract will likely remain underspecified
   // until its removal. Any user is encouraged to read the implementation
   // carefully and migrate away from it when possible.
-  virtual Status DeleteFile(std::string name) override {
+  virtual Status DeleteFile(const std::string& name) override {
     return db_->DeleteFile(name);
   }
 

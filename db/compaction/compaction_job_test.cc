@@ -71,7 +71,7 @@ void VerifyInitializationOfCompactionJobStats(
 
 class CompactionJobTestBase : public testing::Test {
  protected:
-  CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
+  CompactionJobTestBase(const std::string& dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
       : env_(Env::Default()),
         fs_(env_->GetFileSystem()),

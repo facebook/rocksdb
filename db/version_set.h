@@ -894,7 +894,7 @@ struct ObsoleteFileInfo {
 
 class ObsoleteBlobFileInfo {
  public:
-  ObsoleteBlobFileInfo(uint64_t blob_file_number, std::string path)
+  ObsoleteBlobFileInfo(uint64_t blob_file_number, const std::string& path)
       : blob_file_number_(blob_file_number), path_(std::move(path)) {}
 
   uint64_t GetBlobFileNumber() const { return blob_file_number_; }
@@ -1057,7 +1057,7 @@ class VersionSet {
   Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
 
   // printf contents (for debugging)
-  Status DumpManifest(Options& options, std::string& manifestFileName,
+  Status DumpManifest(Options& options, const std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
 
 #endif  // ROCKSDB_LITE
@@ -1228,7 +1228,7 @@ class VersionSet {
   // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
+  void AddObsoleteBlobFile(uint64_t blob_file_number, const std::string& path) {
     assert(table_cache_);
 
     table_cache_->Erase(GetSlice(&blob_file_number));
@@ -1312,7 +1312,7 @@ class VersionSet {
     std::string full_history_ts_low;
 
     explicit MutableCFState() = default;
-    explicit MutableCFState(uint64_t _log_number, std::string ts_low)
+    explicit MutableCFState(uint64_t _log_number, const std::string& ts_low)
         : log_number(_log_number), full_history_ts_low(std::move(ts_low)) {}
   };
 

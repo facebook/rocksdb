@@ -164,9 +164,9 @@ struct CompressionDict {
 
  public:
 #if ZSTD_VERSION_NUMBER >= 700
-  CompressionDict(std::string dict, CompressionType type, int level) {
+  CompressionDict(const std::string& dict, CompressionType type, int level) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  CompressionDict(std::string dict, CompressionType /*type*/, int /*level*/) {
+  CompressionDict(const std::string& dict, CompressionType /*type*/, int /*level*/) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
     dict_ = std::move(dict);
 #if ZSTD_VERSION_NUMBER >= 700
@@ -238,9 +238,9 @@ struct UncompressionDict {
 #endif  // ROCKSDB_ZSTD_DDICT
 
 #ifdef ROCKSDB_ZSTD_DDICT
-  UncompressionDict(std::string dict, bool using_zstd)
+  UncompressionDict(const std::string& dict, bool using_zstd)
 #else   // ROCKSDB_ZSTD_DDICT
-  UncompressionDict(std::string dict, bool /* using_zstd */)
+  UncompressionDict(const std::string& dict, bool /* using_zstd */)
 #endif  // ROCKSDB_ZSTD_DDICT
       : dict_(std::move(dict)), slice_(dict_) {
 #ifdef ROCKSDB_ZSTD_DDICT

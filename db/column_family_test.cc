@@ -218,7 +218,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
   DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
-  int GetProperty(int cf, std::string property) {
+  int GetProperty(int cf, const std::string& property) {
     std::string value;
     EXPECT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
 #ifndef CYGWIN
@@ -515,7 +515,7 @@ class ColumnFamilyTestBase : public testing::Test {
     ASSERT_OK(destfile->Close());
   }
 
-  int GetSstFileCount(std::string path) {
+  int GetSstFileCount(const std::string& path) {
     std::vector<std::string> files;
     DBTestBase::GetSstFiles(env_, path, &files);
     return static_cast<int>(files.size());

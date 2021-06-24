@@ -632,7 +632,7 @@ class BackupEngineImpl {
     }
 
     CopyOrCreateWorkItem(
-        std::string _src_path, std::string _dst_path, std::string _contents,
+        const std::string& _src_path, const std::string& _dst_path, const std::string& _contents,
         Env* _src_env, Env* _dst_env, EnvOptions _src_env_options, bool _sync,
         RateLimiter* _rate_limiter, uint64_t _size_limit,
         std::function<void()> _progress_callback = []() {},
@@ -691,9 +691,9 @@ class BackupEngineImpl {
 
     BackupAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
                                     bool _shared, bool _needed_to_copy,
-                                    Env* _backup_env, std::string _dst_path_tmp,
-                                    std::string _dst_path,
-                                    std::string _dst_relative)
+                                    Env* _backup_env, const std::string& _dst_path_tmp,
+                                    const std::string& _dst_path,
+                                    const std::string& _dst_relative)
         : result(std::move(_result)),
           shared(_shared),
           needed_to_copy(_needed_to_copy),

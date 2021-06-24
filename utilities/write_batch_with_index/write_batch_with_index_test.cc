@@ -1455,12 +1455,12 @@ TEST_P(WriteBatchWithIndexTest, TestPinnedGetFromBatchAndDB) {
   }
 }
 
-void AssertKey(std::string key, WBWIIterator* iter) {
+void AssertKey(const std::string& key, WBWIIterator* iter) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(key, iter->Entry().key.ToString());
 }
 
-void AssertValue(std::string value, WBWIIterator* iter) {
+void AssertValue(const std::string& value, WBWIIterator* iter) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value, iter->Entry().value.ToString());
 }
@@ -1502,12 +1502,12 @@ TEST_F(WBWIOverwriteTest, MutateWhileIteratingCorrectnessTest) {
   AssertKey("w", iter.get());
 }
 
-void AssertIterKey(std::string key, Iterator* iter) {
+void AssertIterKey(const std::string& key, Iterator* iter) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(key, iter->key().ToString());
 }
 
-void AssertIterValue(std::string value, Iterator* iter) {
+void AssertIterValue(const std::string& value, Iterator* iter) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value, iter->value().ToString());
 }

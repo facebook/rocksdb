@@ -505,7 +505,7 @@ class ColumnFamilyData {
   FSDirectory* GetDataDir(size_t path_id) const;
 
   // full_history_ts_low_ can only increase.
-  void SetFullHistoryTsLow(std::string ts_low) {
+  void SetFullHistoryTsLow(const std::string& ts_low) {
     assert(!ts_low.empty());
     const Comparator* ucmp = user_comparator();
     assert(ucmp);

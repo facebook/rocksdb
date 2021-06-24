@@ -132,7 +132,7 @@ class TestRandomRWFile : public RandomRWFile {
 
 class TestDirectory : public Directory {
  public:
-  explicit TestDirectory(FaultInjectionTestEnv* env, std::string dirname,
+  explicit TestDirectory(FaultInjectionTestEnv* env, const std::string& dirname,
                          Directory* dir)
       : env_(env), dirname_(dirname), dir_(dir) {}
   ~TestDirectory() {}

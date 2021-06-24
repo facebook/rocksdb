@@ -53,7 +53,7 @@ class TraceAnalyzerTest : public testing::Test {
 
   ~TraceAnalyzerTest() override {}
 
-  void GenerateTrace(std::string trace_path) {
+  void GenerateTrace(const std::string& trace_path) {
     Options options;
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreatePutOperator();
@@ -143,7 +143,7 @@ class TraceAnalyzerTest : public testing::Test {
   }
 
   void CheckFileContent(const std::vector<std::string>& cnt,
-                        std::string file_path, bool full_content) {
+                        const std::string& file_path, bool full_content) {
     const auto& fs = env_->GetFileSystem();
     FileOptions fopts(env_options_);
 
@@ -175,7 +175,7 @@ class TraceAnalyzerTest : public testing::Test {
   }
 
   void AnalyzeTrace(std::vector<std::string>& paras_diff,
-                    std::string output_path, std::string trace_path) {
+                    const std::string& output_path, const std::string& trace_path) {
     std::vector<std::string> paras = {"./trace_analyzer",
                                       "-convert_to_human_readable_trace",
                                       "-output_key_stats",

@@ -41,7 +41,7 @@ class BlobDBTest : public testing::Test {
 
   struct BlobIndexVersion {
     BlobIndexVersion() = default;
-    BlobIndexVersion(std::string _user_key, uint64_t _file_number,
+    BlobIndexVersion(const std::string& _user_key, uint64_t _file_number,
                      uint64_t _expiration, SequenceNumber _sequence,
                      ValueType _type)
         : user_key(std::move(_user_key)),

@@ -187,7 +187,7 @@ class TtlTest : public testing::Test {
   }
 
   // Runs a DeleteRange
-  void MakeDeleteRange(std::string start, std::string end,
+  void MakeDeleteRange(const std::string& start, const std::string& end,
                        ColumnFamilyHandle* cf = nullptr) {
     ASSERT_TRUE(db_ttl_);
     static WriteOptions wops;

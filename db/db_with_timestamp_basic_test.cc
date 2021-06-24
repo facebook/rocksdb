@@ -32,7 +32,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     return ret;
   }
 
-  static std::string KeyWithPrefix(std::string prefix, uint64_t k) {
+  static std::string KeyWithPrefix(const std::string& prefix, uint64_t k) {
     std::string ret;
     PutFixed64(&ret, k);
     std::reverse(ret.begin(), ret.end());

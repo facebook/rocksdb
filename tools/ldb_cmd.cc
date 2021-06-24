@@ -86,11 +86,11 @@ const char* LDBCommand::DELIM = " ==> ";
 
 namespace {
 
-void DumpWalFile(Options options, std::string wal_file, bool print_header,
+void DumpWalFile(Options options, const std::string& wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state);
 
-void DumpSstFile(Options options, std::string filename, bool output_hex,
+void DumpSstFile(Options options, const std::string& filename, bool output_hex,
                  bool show_properties);
 };
 
@@ -1063,7 +1063,7 @@ void DBLoaderCommand::DoCommand() {
 
 namespace {
 
-void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
+void DumpManifestFile(Options options, const std::string& file, bool verbose, bool hex,
                       bool json) {
   EnvOptions sopt;
   std::string dbname("dummy");
@@ -2326,7 +2326,7 @@ class InMemoryHandler : public WriteBatch::Handler {
   bool write_after_commit_;
 };
 
-void DumpWalFile(Options options, std::string wal_file, bool print_header,
+void DumpWalFile(Options options, const std::string& wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state) {
   const auto& fs = options.env->GetFileSystem();
@@ -3277,7 +3277,7 @@ void RestoreCommand::DoCommand() {
 
 namespace {
 
-void DumpSstFile(Options options, std::string filename, bool output_hex,
+void DumpSstFile(Options options, const std::string& filename, bool output_hex,
                  bool show_properties) {
   std::string from_key;
   std::string to_key;

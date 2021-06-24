@@ -168,7 +168,7 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Same as for value().
   virtual bool IsValuePinned() const { return false; }
 
-  virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
+  virtual Status GetProperty(const std::string& /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
 

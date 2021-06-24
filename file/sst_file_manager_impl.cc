@@ -452,7 +452,7 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
 }
 
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
-                                  std::string trash_dir,
+                                  const std::string& trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
                                   double max_trash_db_ratio,
@@ -508,7 +508,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
 SstFileManager* NewSstFileManager(Env* /*env*/,
                                   std::shared_ptr<Logger> /*info_log*/,
-                                  std::string /*trash_dir*/,
+                                  const std::string& /*trash_dir*/,
                                   int64_t /*rate_bytes_per_sec*/,
                                   bool /*delete_existing_trash*/,
                                   Status* status, double /*max_trash_db_ratio*/,

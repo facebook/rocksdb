@@ -56,7 +56,7 @@ class FilterByKeyLength : public CompactionFilter {
 
 class BadBlobCompactionFilter : public CompactionFilter {
  public:
-  explicit BadBlobCompactionFilter(std::string prefix,
+  explicit BadBlobCompactionFilter(const std::string& prefix,
                                    CompactionFilter::Decision filter_by_key,
                                    CompactionFilter::Decision filter_v2)
       : prefix_(std::move(prefix)),
@@ -87,7 +87,7 @@ class BadBlobCompactionFilter : public CompactionFilter {
 
 class ValueBlindWriteFilter : public CompactionFilter {
  public:
-  explicit ValueBlindWriteFilter(std::string new_val)
+  explicit ValueBlindWriteFilter(const std::string& new_val)
       : new_value_(std::move(new_val)) {}
   const char* Name() const override {
     return "rocksdb.compaction.filter.blind.write";
@@ -110,7 +110,7 @@ CompactionFilter::Decision ValueBlindWriteFilter::FilterBlobByKey(
 
 class ValueMutationFilter : public CompactionFilter {
  public:
-  explicit ValueMutationFilter(std::string padding)
+  explicit ValueMutationFilter(const std::string& padding)
       : padding_(std::move(padding)) {}
   const char* Name() const override {
     return "rocksdb.compaction.filter.value.mutation";

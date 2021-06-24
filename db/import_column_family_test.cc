@@ -48,7 +48,7 @@ class ImportColumnFamilyTest : public DBTestBase {
     EXPECT_OK(DestroyDir(env_, export_files_dir_));
   }
 
-  LiveFileMetaData LiveFileMetaDataInit(std::string name, std::string path,
+  LiveFileMetaData LiveFileMetaDataInit(const std::string& name, const std::string& path,
                                         int level,
                                         SequenceNumber smallest_seqno,
                                         SequenceNumber largest_seqno) {

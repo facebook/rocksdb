@@ -43,7 +43,7 @@ class CuckooBuilderTest : public testing::Test {
   void CheckFileContents(const std::vector<std::string>& keys,
       const std::vector<std::string>& values,
       const std::vector<uint64_t>& expected_locations,
-      std::string expected_unused_bucket, uint64_t expected_table_size,
+      const std::string& expected_unused_bucket, uint64_t expected_table_size,
       uint32_t expected_num_hash_func, bool expected_is_last_level,
       uint32_t expected_cuckoo_block_size = 1) {
     uint64_t num_deletions = 0;

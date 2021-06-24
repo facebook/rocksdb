@@ -179,7 +179,7 @@ class FileChecksumTestHelper {
   }
 
  public:
-  FileChecksumTestHelper(Options& options, DB* db, std::string db_name)
+  FileChecksumTestHelper(Options& options, DB* db, const std::string& db_name)
       : options_(options), db_(db), dbname_(db_name) {}
   ~FileChecksumTestHelper() {}
 

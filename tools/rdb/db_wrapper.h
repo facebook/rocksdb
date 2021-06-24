@@ -30,7 +30,7 @@ class DBWrapper : public node::ObjectWrap {
                            Handle<Array> array);
     static bool AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
                            Handle<Array> array, DBWrapper* db_wrapper,
-                           std::string cf);
+                           const std::string& cf);
     static Handle<Value> CompactRangeDefault(const v8::Arguments& args);
     static Handle<Value> CompactColumnFamily(const Arguments& args);
     static Handle<Value> CompactOptions(const Arguments& args);
