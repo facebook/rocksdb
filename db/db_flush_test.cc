@@ -690,7 +690,6 @@ TEST_F(DBFlushTest, PurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 64 << 20;
   options.experimental_allow_mempurge = true;
-  options.experimental_raise_error_when_flushing = true;
   ASSERT_OK(TryReopen(options));
 
   std::string KEY1 = "IamKey1";
@@ -719,7 +718,7 @@ TEST_F(DBFlushTest, PurgeBasic) {
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1, KEY2));
 
   Random rnd(301);
-  const size_t NUM_REPEAT = 50000;
+  const size_t NUM_REPEAT = 500;
   const size_t RAND_VALUES_LENGTH = 512;
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
@@ -731,7 +730,20 @@ TEST_F(DBFlushTest, PurgeBasic) {
     ASSERT_OK(Put(KEY1, p_v1));
     ASSERT_OK(Put(KEY2, p_v2));
     ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Delete(KEY2));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY2));
+    ASSERT_OK(Flush());
+    ASSERT_NOK(Get(KEY1, &value));
+    ASSERT_NOK(Get(KEY2, &value));
+    ASSERT_OK(Get(KEY3, &value));
+    ASSERT_EQ(value, p_v3);
   }
+
+  // Check that there was no flush to storage.
+  const uint64_t EXPECTED_FLUSH_COUNT = 0;
+  uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
+  EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
 
   Close();
 }

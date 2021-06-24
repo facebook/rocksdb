@@ -1865,6 +1865,9 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
+        new_first_seqno =
+            tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        new_mem->SetFirstSequenceNumber(new_first_seqno);
         s = new_mem->Add(
             tombstone.seq_,        // Sequence number
             kTypeRangeDeletion,    // KV type
@@ -2066,7 +2069,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       for (auto cf : empty_cfs) {
         if (cf->IsEmpty()) {
           cf->SetLogNumber(logfile_number_);
-          // MEMPURGE: MAY NEED TO CHANGE THIS ?
+          // MEMPURGE: No need to change this, become new adds
+          // should still receive new sequence numbers.
           cf->mem()->SetCreationSeq(versions_->LastSequence());
         }  // cf may become non-empty.
       }
@@ -2089,11 +2093,28 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
-  // If MemPurge activated, delete flushed MemTable right away.
+  // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge) {
-    // TODO: If MemPurge fails, go back to refgular sotrage flush.
-    MemPurge(cfd, context, new_mem);
-    cfd->mem()->Unref();
+    // TODO: If MemPurge fails, go back to refgular storage flush?
+    s = MemPurge(cfd, context, new_mem);
+    if (s.ok()) {
+      RecordTick(stats_, MEMPURGE_COUNT, 1);
+      cfd->mem()->Unref();
+    } else {
+      // If mempurge failed, go back to regular mem->imm->flush workflow.
+      if (new_mem) {
+        delete new_mem;
+      }
+      SuperVersion* new_superversion =
+          context->superversion_context.new_superversion.release();
+      if (new_superversion != nullptr) {
+        delete new_superversion;
+      }
+      SequenceNumber seq = versions_->LastSequence();
+      new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+      context->superversion_context.NewSuperVersion();
+      cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
+    }
   } else {
     // Else make the memtable immutable and proceed as usual.
     cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);

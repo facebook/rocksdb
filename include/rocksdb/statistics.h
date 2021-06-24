@@ -388,6 +388,11 @@ enum Tickers : uint32_t {
   MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
   // Outdated bytes of data present on memtable at flush time.
   MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+  // Counter for how many times the MemPurge operation is performed.
+  MEMPURGE_COUNT,
+  // Counter for how many times the immutable memtable flush operation is
+  // performed.
+  FLUSH_COUNT,
 
   TICKER_ENUM_MAX
 };

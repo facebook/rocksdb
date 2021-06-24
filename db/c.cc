@@ -3033,11 +3033,6 @@ void rocksdb_options_set_experimental_allow_mempurge(rocksdb_options_t* opt,
   opt->rep.experimental_allow_mempurge = v;
 }
 
-void rocksdb_options_set_experimental_raise_error_when_flushing(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.experimental_raise_error_when_flushing = v;
-}
-
 void rocksdb_options_set_access_hint_on_compaction_start(
     rocksdb_options_t* opt, int v) {
   switch(v) {

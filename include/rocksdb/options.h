@@ -781,8 +781,6 @@ struct DBOptions {
   // If true, allows for memtable purge instead of flush to storage.
   // (experimental).
   bool experimental_allow_mempurge = false;
-  // Flag used for testing the new mempurge feature.
-  bool experimental_raise_error_when_flushing = false;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
