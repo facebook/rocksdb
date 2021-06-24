@@ -1795,6 +1795,7 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   std::unordered_set<std::string> a_names;
 
   test::RandomInitCFOptions(&cf_opts, db_opts, &rnd);
+  cf_opts.comparator = ReverseBytewiseComparator();
   auto cf_config = CFOptionsAsConfigurable(cf_opts);
 
   // Get all of the CF Option names (mutable or not)
@@ -1827,6 +1828,8 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   ASSERT_FALSE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
   ASSERT_FALSE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
 
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, ColumnFamilyOptions(),
+                                             opt_str, &cf_opts));
   delete cf_opts.compaction_filter;
 }
 #endif  // !ROCKSDB_LITE

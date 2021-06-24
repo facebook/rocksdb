@@ -539,8 +539,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offset_of(&ImmutableCFOptions::user_comparator),
              OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
              // Serializes a Comparator
-             [](const ConfigOptions& /*opts*/, const std::string&,
-                const void* addr, std::string* value) {
+             [](const ConfigOptions& opts, const std::string&, const void* addr,
+                std::string* value) {
                // it's a const pointer of const Comparator*
                const auto* ptr = static_cast<const Comparator* const*>(addr);
 
@@ -549,6 +549,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // one instead of InternalKeyComparator.
                if (*ptr == nullptr) {
                  *value = kNullptrString;
+               } else if (opts.mutable_options_only) {
+                 *value = "";
                } else {
                  const Comparator* root_comp = (*ptr)->GetRootComparator();
                  if (root_comp == nullptr) {
