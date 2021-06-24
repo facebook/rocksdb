@@ -20,8 +20,10 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_garbage_meter.h"
 #include "db/builder.h"
 #include "db/compaction/clipping_iterator.h"
 #include "db/db_impl/db_impl.h"
@@ -147,6 +149,7 @@ struct CompactionJob::SubcompactionState {
   // State kept for output being generated
   std::vector<Output> outputs;
   std::vector<BlobFileAddition> blob_file_additions;
+  std::unique_ptr<BlobGarbageMeter> blob_garbage_meter;
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
 
@@ -228,6 +231,14 @@ struct CompactionJob::SubcompactionState {
     }
 
     return false;
+  }
+
+  Status ProcessOutFlowIfNeeded(const Slice& key, const Slice& value) {
+    if (!blob_garbage_meter) {
+      return Status::OK();
+    }
+
+    return blob_garbage_meter->ProcessOutFlow(key, value);
   }
 };
 
@@ -1136,6 +1147,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     input = clip.get();
   }
 
+  std::unique_ptr<InternalIterator> blob_counter;
+
+  if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
+    sub_compact->blob_garbage_meter.reset(new BlobGarbageMeter);
+    blob_counter.reset(
+        new BlobCountingIterator(input, sub_compact->blob_garbage_meter.get()));
+    input = blob_counter.get();
+  }
+
   input->SeekToFirst();
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -1244,6 +1264,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       }
     }
     status = sub_compact->AddToBuilder(key, value);
+    if (!status.ok()) {
+      break;
+    }
+
+    status = sub_compact->ProcessOutFlowIfNeeded(key, value);
     if (!status.ok()) {
       break;
     }
@@ -1415,6 +1440,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
   sub_compact->c_iter.reset();
+  blob_counter.reset();
   clip.reset();
   raw_input.reset();
   sub_compact->status = status;
@@ -1799,6 +1825,8 @@ Status CompactionJob::InstallCompactionResults(
   // Add compaction inputs
   compaction->AddInputDeletions(edit);
 
+  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
+
   for (const auto& sub_compact : compact_->sub_compact_states) {
     for (const auto& out : sub_compact.outputs) {
       edit->AddFile(compaction->output_level(), out.meta);
@@ -1807,6 +1835,29 @@ Status CompactionJob::InstallCompactionResults(
     for (const auto& blob : sub_compact.blob_file_additions) {
       edit->AddBlobFile(blob);
     }
+
+    if (sub_compact.blob_garbage_meter) {
+      const auto& flows = sub_compact.blob_garbage_meter->flows();
+
+      for (const auto& pair : flows) {
+        const uint64_t blob_file_number = pair.first;
+        const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
+
+        assert(flow.IsValid());
+        if (flow.HasGarbage()) {
+          blob_total_garbage[blob_file_number].Add(flow.GetGarbageCount(),
+                                                   flow.GetGarbageBytes());
+        }
+      }
+    }
+  }
+
+  for (const auto& pair : blob_total_garbage) {
+    const uint64_t blob_file_number = pair.first;
+    const BlobGarbageMeter::BlobStats& stats = pair.second;
+
+    edit->AddBlobFileGarbage(blob_file_number, stats.GetCount(),
+                             stats.GetBytes());
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
