@@ -5280,10 +5280,30 @@ rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
   return old_txn;
 }
 
+// Write batch into OptimisticTransactionDB
+void rocksdb_optimistictransactiondb_write(
+        rocksdb_optimistictransactiondb_t* otxn_db,
+        const rocksdb_writeoptions_t* options,
+        rocksdb_writebatch_t* batch,
+        char** errptr) {
+  SaveError(errptr, otxn_db->rep->Write(options->rep, &batch->rep));
+}
+
 void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db) {
   delete otxn_db->rep;
   delete otxn_db;
+}
+
+rocksdb_checkpoint_t* rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr) {
+  Checkpoint* checkpoint;
+  if (SaveError(errptr, Checkpoint::Create(otxn_db->rep, &checkpoint))) {
+    return nullptr;
+  }
+  rocksdb_checkpoint_t* result = new rocksdb_checkpoint_t;
+  result->rep = checkpoint;
+  return result;
 }
 
 void rocksdb_free(void* ptr) { free(ptr); }
