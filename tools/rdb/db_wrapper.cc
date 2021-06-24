@@ -25,7 +25,7 @@ bool has_key_for_array(Local<Object> obj, const std::string& key) {
   return obj->Has(String::NewSymbol(key.c_str())) &&
          obj->Get(String::NewSymbol(key.c_str()))->IsArray();
 }
-}
+}  // namespace
 
 using namespace v8;
 

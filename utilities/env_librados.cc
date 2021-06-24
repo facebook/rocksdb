@@ -141,7 +141,7 @@ public:
    }
    LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
    return s;
-  }
+ }
 
   /**
    * @brief skip "n" bytes from the file
@@ -218,7 +218,7 @@ public:
    }
    LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
    return s;
-  }
+ }
 
   /**
    * @brief [brief description]
