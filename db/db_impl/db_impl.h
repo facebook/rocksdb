@@ -1609,8 +1609,7 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
-  Status MemPurge(ColumnFamilyData* cfd, WriteContext* context,
-                  MemTable* new_mem);
+  Status MemPurge(ColumnFamilyData* cfd, MemTable* new_mem);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 

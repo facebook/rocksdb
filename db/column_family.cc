@@ -445,12 +445,16 @@ bool SuperVersion::Unref() {
 
 void SuperVersion::Cleanup(bool fromMemPurge) {
   assert(refs.load(std::memory_order_relaxed) == 0);
-  // Since this SuperVersion is being deleted,
-  // decrement reference to immutable MemtableList.
+  // Since this SuperVersion object is being deleted,
+  // decrement reference to the immutable MemtableList
+  // this SV object was pointing to.
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
     // In MemPurge, the memtable is not made immutable.
+    // Therefore it does not contribute to the imm
+    // memory usage (and actually is not part of
+    // the 'imm' MemtableList at all).
     if (!fromMemPurge) {
       auto* memory_usage = current->cfd()->imm()->current_memory_usage();
       assert(*memory_usage >= m->ApproximateMemoryUsage());

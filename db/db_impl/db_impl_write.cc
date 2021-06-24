@@ -1737,12 +1737,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 }
 #endif  // ROCKSDB_LITE
 
-Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
-                        MemTable* new_mem) {
+Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
   Status s;
-  uint64_t total_num_entries = 0, total_num_deletes = 0;
-  uint64_t total_data_size = 0;
-  size_t total_memory_usage = 0;
 
   JobContext job_context(next_job_id_.fetch_add(1), true);
   std::vector<SequenceNumber> snapshot_seqs;
@@ -1751,21 +1747,17 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
   GetSnapshotContext(&job_context, &snapshot_seqs,
                      &earliest_write_conflict_snapshot, &snapshot_checker);
 
+  // Grab current memtable
   MemTable* m = cfd->mem();
-  total_num_entries = m->num_entries();
-  total_num_deletes = m->num_deletes();
-  total_data_size = m->get_data_size();
-  total_memory_usage = m->ApproximateMemoryUsage();
-  (void)total_num_entries;
-  (void)total_num_deletes;
-  (void)total_data_size;
-  (void)total_memory_usage;
   SequenceNumber earliest_seqno = m->GetEarliestSequenceNumber();
+
+  // Create two iterators, one for the memtable data (contains
+  // info from puts + deletes), and one for the memtable
+  // Range Tombstones (from DeleteRanges).
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
   std::vector<InternalIterator*> memtables(1,m->NewIterator(ro, &arena));
-  // InternalIterator* it = m->NewIterator(ro, &arena);
   std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
   auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
   if (range_del_iter != nullptr) {
@@ -1774,7 +1766,10 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd->internal_comparator()), &memtables[0],
                           static_cast<int>(memtables.size()), &arena));
+
   auto* ioptions = cfd->ioptions();
+
+  // Place iterator at the First (meaning most recent) key node.
   iter->SeekToFirst();
 
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -1783,6 +1778,10 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
   for (auto& rd_iter : range_del_iters) {
     range_del_agg->AddTombstones(std::move(rd_iter));
   }
+
+  // If there is valid data in the memtable,
+  // or at least range tombstones, copy over the info
+  // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
@@ -1803,7 +1802,7 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
             "anymore.");
       }
     }
-    (void)context;
+    // (void)context;
 
     Env* env = immutable_db_options_.env;
     assert(env);
@@ -1835,6 +1834,8 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
     new_mem->SetEarliestSequenceNumber(earliest_seqno);
     SequenceNumber new_earliest_seqno = kMaxSequenceNumber;
     SequenceNumber new_first_seqno = kMaxSequenceNumber;
+
+    // Key transfer
     for (; c_iter.Valid(); c_iter.Next()) {
       const ParsedInternalKey ikey = c_iter.ikey();
       const Slice value = c_iter.value();
@@ -1844,6 +1845,7 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
       new_first_seqno =
           ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
       new_mem->SetFirstSequenceNumber(new_first_seqno);
+
       // Should we update "OldestKeyTime" ????
       s = new_mem->Add(
           ikey.sequence, ikey.type, ikey.user_key, value,
@@ -1860,6 +1862,7 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
         break;
       }
     }
+    // Range tombstone transfer.
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
@@ -1889,9 +1892,10 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, WriteContext* context,
       }
     }
   }
-  // Need a situation for if new_mem needs to be flushed to imm.
-  // Need a situation for if failing to transfer some data (!s.ok)
-  // ->go back to imm.
+  // Note: if the mempurge was ineffective, meaning that there was no
+  // garbage to remove, and this new_mem needs to be flushed again,
+  // the new_mem->Add would have updated the flush status when it
+  // called "UpdateFlushState()" internally at the last Add() call.
   return s;
 }
 
@@ -2095,9 +2099,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   cfd->mem()->SetNextLogNumber(logfile_number_);
   // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge) {
-    // TODO: If MemPurge fails, go back to refgular storage flush?
-    s = MemPurge(cfd, context, new_mem);
+    s = MemPurge(cfd, new_mem);
     if (s.ok()) {
+      // If mempurge worked successfully,
+      // increment counter and decrement current memtable reference.
       RecordTick(stats_, MEMPURGE_COUNT, 1);
       cfd->mem()->Unref();
     } else {
@@ -2121,13 +2126,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  if (immutable_db_options_.experimental_allow_mempurge) {
-    InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                       mutable_cf_options, true);
-  } else {
-    InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                       mutable_cf_options);
-  }
+  InstallSuperVersionAndScheduleWork(
+      cfd, &context->superversion_context, mutable_cf_options,
+      immutable_db_options_.experimental_allow_mempurge
+      // fromMemPurge. Need to be updated when looking
+      // for MemPurge heuristic, meaning the MemPurge
+      // won't always happen even if flag is "true".
+  );
 
 #ifndef ROCKSDB_LITE
   mutex_.Unlock();

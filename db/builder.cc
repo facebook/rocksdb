@@ -204,7 +204,8 @@ Status BuildTable(
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
       // Generate a rolling 64-bit hash of the key and values
-      // Note that here key integrates sequence_number+kType+user key.
+      // Note :
+      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
       s = output_validator.Add(key, value);
       if (!s.ok()) {
         break;
