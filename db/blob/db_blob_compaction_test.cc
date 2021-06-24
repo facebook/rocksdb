@@ -566,30 +566,28 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
 
   TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
   Options options = GetDefaultOptions();
-  options.create_if_missing = true;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.disable_auto_compactions = true;
 
-  DestroyAndReopen(options);
+  Reopen(options);
+  ASSERT_OK(Put("Key1", "v1_1"));
+  ASSERT_OK(Put("Key2", "v2_1"));
+  ASSERT_OK(Flush());
 
-  ASSERT_OK(Put("Key1", "v1"));
+  ASSERT_OK(Merge("Key1", "v1_2"));
+  ASSERT_OK(Merge("Key2", "v2_2"));
   ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(Merge("Key1", "v2"));
+
+  ASSERT_OK(Merge("Key1", "v1_3"));
   ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(Merge("Key1", "v3"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                               /*end=*/nullptr));
-
-  std::string value;
-  ASSERT_OK(db_->Get(ReadOptions(), "Key1", &value));
-  ASSERT_EQ(value, "v1,v2,v3");
+  ASSERT_EQ(Get("Key1"), "v1_1,v1_2,v1_3");
+  ASSERT_EQ(Get("Key2"), "v2_1,v2_2");
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -121,7 +121,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                const SequenceNumber stop_before,
                                const bool at_bottom,
                                const bool allow_data_in_errors,
-                               BlobFetcher* blob_fetcher) {
+                               Version* version) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -212,7 +212,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
            !range_del_agg->ShouldDelete(
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
         if (ikey.type == kTypeBlobIndex) {
-          s = blob_fetcher->FetchBlob(ikey.user_key, val, &blob_value);
+          assert(version);
+          BlobFetcher blob_fetcher(version, ReadOptions());
+          s = blob_fetcher.FetchBlob(ikey.user_key, val, &blob_value);
           if (!s.ok()) {
             return s;
           }
