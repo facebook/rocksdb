@@ -129,8 +129,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
     return cache;
   } else {
     LRUCacheOptions opts;
-    std::shared_ptr<SecondaryCache> secondary_cache;
     opts.capacity = capacity;
+#ifndef ROCKSDB_LITE
+    std::shared_ptr<SecondaryCache> secondary_cache;
     if (!FLAGS_secondary_cache_uri.empty()) {
       Status s = ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
           FLAGS_secondary_cache_uri, &secondary_cache);
@@ -142,6 +143,7 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
       }
       opts.secondary_cache = secondary_cache;
     }
+#endif
     return NewLRUCache(opts);
   }
 }
