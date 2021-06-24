@@ -116,8 +116,8 @@ StressTest::~StressTest() {
   delete cmp_db_;
 }
 
-std::shared_ptr<Cache> StressTest::NewCache(
-    size_t capacity, int32_t num_shard_bits) {
+std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
+                                            int32_t num_shard_bits) {
   if (capacity <= 0) {
     return nullptr;
   }
