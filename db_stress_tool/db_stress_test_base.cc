@@ -391,8 +391,8 @@ void StressTest::VerificationAbort(SharedState* shared, const std::string& msg,
   shared->SetVerificationFailure();
 }
 
-void StressTest::VerificationAbort(SharedState* shared, const std::string& msg, int cf,
-                                   int64_t key) const {
+void StressTest::VerificationAbort(SharedState* shared, const std::string& msg,
+                                   int cf, int64_t key) const {
   auto key_str = Key(key);
   Slice key_slice = key_str;
   fprintf(stderr,

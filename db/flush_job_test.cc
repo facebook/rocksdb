@@ -525,9 +525,9 @@ class FlushJobTimestampTest : public FlushJobTestBase {
       : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
                          test::ComparatorWithU64Ts()) {}
 
-  void AddKeyValueToMemtable(MemTable* memtable, const std::string& key, uint64_t ts,
-                             SequenceNumber seq, ValueType value_type,
-                             Slice value) {
+  void AddKeyValueToMemtable(MemTable* memtable, const std::string& key,
+                             uint64_t ts, SequenceNumber seq,
+                             ValueType value_type, Slice value) {
     std::string key_str(std::move(key));
     PutFixed64(&key_str, ts);
     ASSERT_OK(memtable->Add(seq, value_type, key_str, value,

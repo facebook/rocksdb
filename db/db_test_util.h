@@ -1245,8 +1245,8 @@ class DBTestBase : public testing::Test {
       std::vector<std::pair<std::string, std::string>> true_data);
 
 #ifndef ROCKSDB_LITE
-  uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
-                                              const std::string& column_family_name);
+  uint64_t GetNumberOfSstFilesForColumnFamily(
+      DB* db, const std::string& column_family_name);
 #endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {

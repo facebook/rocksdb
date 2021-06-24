@@ -221,7 +221,6 @@ int truncate(const char* path, int64_t length) {
 }
 
 int Truncate(const std::string& path, int64_t len) {
-
   if (len < 0) {
     errno = EINVAL;
     return -1;

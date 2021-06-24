@@ -274,11 +274,14 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
 
   CompactionServiceOutputFile() = default;
-  CompactionServiceOutputFile(
-      const std::string& name, SequenceNumber smallest, SequenceNumber largest,
-      const std::string& _smallest_internal_key, const std::string& _largest_internal_key,
-      uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _paranoid_hash, bool _marked_for_compaction)
+  CompactionServiceOutputFile(const std::string& name, SequenceNumber smallest,
+                              SequenceNumber largest,
+                              const std::string& _smallest_internal_key,
+                              const std::string& _largest_internal_key,
+                              uint64_t _oldest_ancester_time,
+                              uint64_t _file_creation_time,
+                              uint64_t _paranoid_hash,
+                              bool _marked_for_compaction)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),

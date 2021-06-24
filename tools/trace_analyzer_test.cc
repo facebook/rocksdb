@@ -175,7 +175,8 @@ class TraceAnalyzerTest : public testing::Test {
   }
 
   void AnalyzeTrace(std::vector<std::string>& paras_diff,
-                    const std::string& output_path, const std::string& trace_path) {
+                    const std::string& output_path,
+                    const std::string& trace_path) {
     std::vector<std::string> paras = {"./trace_analyzer",
                                       "-convert_to_human_readable_trace",
                                       "-output_key_stats",

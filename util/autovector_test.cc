@@ -236,7 +236,8 @@ void BenchmarkVectorCreationAndInsertion(
 }
 
 template <class TVector>
-size_t BenchmarkSequenceAccess(const std::string& name, size_t ops, size_t elem_size) {
+size_t BenchmarkSequenceAccess(const std::string& name, size_t ops,
+                               size_t elem_size) {
   TVector v;
   for (const auto& item : GetTestKeys(elem_size)) {
     v.push_back(item);

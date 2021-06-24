@@ -56,12 +56,14 @@ class TestIterator : public InternalIterator {
     Add(argkey, kTypeMerge, argvalue);
   }
 
-  void Add(const std::string& argkey, ValueType type, const std::string& argvalue) {
+  void Add(const std::string& argkey, ValueType type,
+           const std::string& argvalue) {
     Add(argkey, type, argvalue, sequence_number_++);
   }
 
-  void Add(const std::string& argkey, ValueType type, const std::string& argvalue,
-           size_t seq_num, bool update_iter = false) {
+  void Add(const std::string& argkey, ValueType type,
+           const std::string& argvalue, size_t seq_num,
+           bool update_iter = false) {
     valid_ = true;
     ParsedInternalKey internal_key(argkey, seq_num, type);
     data_.push_back(

@@ -99,47 +99,48 @@ class LibradosSequentialFile : public SequentialFile {
   std::string _hint;
   int _offset;
 public:
-  LibradosSequentialFile(librados::IoCtx * io_ctx, const std::string& fid, const std::string& hint):
-    _io_ctx(io_ctx), _fid(fid), _hint(hint), _offset(0) {}
+ LibradosSequentialFile(librados::IoCtx* io_ctx, const std::string& fid,
+                        const std::string& hint)
+     : _io_ctx(io_ctx), _fid(fid), _hint(hint), _offset(0) {}
 
-  ~LibradosSequentialFile() {}
+ ~LibradosSequentialFile() {}
 
-  /**
-   * @brief read file
-   * @details
-   *  Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
-   *  written by this routine.  Sets "*result" to the data that was
-   *  read (including if fewer than "n" bytes were successfully read).
-   *  May set "*result" to point at data in "scratch[0..n-1]", so
-   *  "scratch[0..n-1]" must be live when "*result" is used.
-   *  If an error was encountered, returns a non-OK status.
-   *
-   *  REQUIRES: External synchronization
-   *
-   * @param n [description]
-   * @param result [description]
-   * @param scratch [description]
-   * @return [description]
-   */
-  Status Read(size_t n, Slice* result, char* scratch) {
-    LOG_DEBUG("[IN]%i\n", (int)n);
-    librados::bufferlist buffer;
-    Status s;
-    int r = _io_ctx->read(_fid, buffer, n, _offset);
-    if (r >= 0) {
-      buffer.begin().copy(r, scratch);
-      *result = Slice(scratch, r);
-      _offset += r;
-      s = Status::OK();
-    } else {
-      s = err_to_status(r);
-      if (s == Status::IOError()) {
-        *result = Slice();
-        s = Status::OK();
-      }
-    }
-    LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
-    return s;
+ /**
+  * @brief read file
+  * @details
+  *  Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
+  *  written by this routine.  Sets "*result" to the data that was
+  *  read (including if fewer than "n" bytes were successfully read).
+  *  May set "*result" to point at data in "scratch[0..n-1]", so
+  *  "scratch[0..n-1]" must be live when "*result" is used.
+  *  If an error was encountered, returns a non-OK status.
+  *
+  *  REQUIRES: External synchronization
+  *
+  * @param n [description]
+  * @param result [description]
+  * @param scratch [description]
+  * @return [description]
+  */
+ Status Read(size_t n, Slice* result, char* scratch) {
+   LOG_DEBUG("[IN]%i\n", (int)n);
+   librados::bufferlist buffer;
+   Status s;
+   int r = _io_ctx->read(_fid, buffer, n, _offset);
+   if (r >= 0) {
+     buffer.begin().copy(r, scratch);
+     *result = Slice(scratch, r);
+     _offset += r;
+     s = Status::OK();
+   } else {
+     s = err_to_status(r);
+     if (s == Status::IOError()) {
+       *result = Slice();
+       s = Status::OK();
+     }
+   }
+   LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
+   return s;
   }
 
   /**
@@ -183,40 +184,40 @@ class LibradosRandomAccessFile : public RandomAccessFile {
   std::string _fid;
   std::string _hint;
 public:
-  LibradosRandomAccessFile(librados::IoCtx * io_ctx, const std::string& fid, const std::string& hint):
-    _io_ctx(io_ctx), _fid(fid), _hint(hint) {}
+ LibradosRandomAccessFile(librados::IoCtx* io_ctx, const std::string& fid,
+                          const std::string& hint)
+     : _io_ctx(io_ctx), _fid(fid), _hint(hint) {}
 
-  ~LibradosRandomAccessFile() {}
+ ~LibradosRandomAccessFile() {}
 
-  /**
-   * @brief read file
-   * @details similar to LibradosSequentialFile::Read
-   *
-   * @param offset [description]
-   * @param n [description]
-   * @param result [description]
-   * @param scratch [description]
-   * @return [description]
-   */
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const {
-    LOG_DEBUG("[IN]%i\n", (int)n);
-    librados::bufferlist buffer;
-    Status s;
-    int r = _io_ctx->read(_fid, buffer, n, offset);
-    if (r >= 0) {
-      buffer.begin().copy(r, scratch);
-      *result = Slice(scratch, r);
-      s = Status::OK();
-    } else {
-      s = err_to_status(r);
-      if (s == Status::IOError()) {
-        *result = Slice();
-        s = Status::OK();
-      }
-    }
-    LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
-    return s;
+ /**
+  * @brief read file
+  * @details similar to LibradosSequentialFile::Read
+  *
+  * @param offset [description]
+  * @param n [description]
+  * @param result [description]
+  * @param scratch [description]
+  * @return [description]
+  */
+ Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+   LOG_DEBUG("[IN]%i\n", (int)n);
+   librados::bufferlist buffer;
+   Status s;
+   int r = _io_ctx->read(_fid, buffer, n, offset);
+   if (r >= 0) {
+     buffer.begin().copy(r, scratch);
+     *result = Slice(scratch, r);
+     s = Status::OK();
+   } else {
+     s = err_to_status(r);
+     if (s == Status::IOError()) {
+       *result = Slice();
+       s = Status::OK();
+     }
+   }
+   LOG_DEBUG("[OUT]%s, %i, %s\n", s.ToString().c_str(), (int)r, buffer.c_str());
+   return s;
   }
 
   /**
@@ -536,13 +537,11 @@ class LibradosDirectory : public Directory {
   librados::IoCtx * _io_ctx;
   std::string _fid;
 public:
-  explicit LibradosDirectory(librados::IoCtx * io_ctx, const std::string& fid):
-    _io_ctx(io_ctx), _fid(fid) {}
+ explicit LibradosDirectory(librados::IoCtx* io_ctx, const std::string& fid)
+     : _io_ctx(io_ctx), _fid(fid) {}
 
-  // Fsync directory. Can be called concurrently from multiple threads.
-  Status Fsync() {
-    return Status::OK();
-  }
+ // Fsync directory. Can be called concurrently from multiple threads.
+ Status Fsync() { return Status::OK(); }
 };
 
 // Identifies a locked file.
@@ -554,21 +553,17 @@ class LibradosFileLock : public FileLock {
   const std::string _cookie;
   int lock_state;
 public:
-  LibradosFileLock(
-    librados::IoCtx * io_ctx,
-    const std::string& obj_name):
-    _io_ctx(io_ctx),
-    _obj_name(obj_name),
-    _lock_name("lock_name"),
-    _cookie("cookie") {
-
-    // TODO: the lock will never expire. It may cause problem if the process crash or abnormally exit.
-    while (!_io_ctx->lock_exclusive(
-             _obj_name,
-             _lock_name,
-             _cookie,
-             "description", nullptr, 0));
-  }
+ LibradosFileLock(librados::IoCtx* io_ctx, const std::string& obj_name)
+     : _io_ctx(io_ctx),
+       _obj_name(obj_name),
+       _lock_name("lock_name"),
+       _cookie("cookie") {
+   // TODO: the lock will never expire. It may cause problem if the process
+   // crash or abnormally exit.
+   while (!_io_ctx->lock_exclusive(_obj_name, _lock_name, _cookie,
+                                   "description", nullptr, 0))
+     ;
+ }
 
   ~LibradosFileLock() {
     _io_ctx->unlock(_obj_name, _lock_name, _cookie);

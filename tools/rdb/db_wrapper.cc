@@ -11,20 +11,20 @@
 #include "rocksdb/slice.h"
 
 namespace {
-  void printWithBackSlashes(const std::string& str) {
-    for (std::string::size_type i = 0; i < str.size(); i++) {
-      if (str[i] == '\\' || str[i] == '"') {
-        std::cout << "\\";
-      }
-
-      std::cout << str[i];
+void printWithBackSlashes(const std::string& str) {
+  for (std::string::size_type i = 0; i < str.size(); i++) {
+    if (str[i] == '\\' || str[i] == '"') {
+      std::cout << "\\";
     }
-  }
 
-  bool has_key_for_array(Local<Object> obj, const std::string& key) {
-    return obj->Has(String::NewSymbol(key.c_str())) &&
-        obj->Get(String::NewSymbol(key.c_str()))->IsArray();
+    std::cout << str[i];
   }
+}
+
+bool has_key_for_array(Local<Object> obj, const std::string& key) {
+  return obj->Has(String::NewSymbol(key.c_str())) &&
+         obj->Get(String::NewSymbol(key.c_str()))->IsArray();
+}
 }
 
 using namespace v8;

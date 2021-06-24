@@ -3037,7 +3037,9 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status DeleteFile(const std::string& /*name*/) override { return Status::OK(); }
+  Status DeleteFile(const std::string& /*name*/) override {
+    return Status::OK();
+  }
 
   Status GetUpdatesSince(
       ROCKSDB_NAMESPACE::SequenceNumber,

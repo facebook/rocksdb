@@ -61,7 +61,8 @@ class SharedBlobFileMetaData {
 
  private:
   SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
-                         uint64_t total_blob_bytes, const std::string& checksum_method,
+                         uint64_t total_blob_bytes,
+                         const std::string& checksum_method,
                          const std::string& checksum_value)
       : blob_file_number_(blob_file_number),
         total_blob_count_(total_blob_count),

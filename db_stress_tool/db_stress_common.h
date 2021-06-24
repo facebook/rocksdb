@@ -460,7 +460,8 @@ extern inline std::string Key(int64_t val) {
 }
 
 // Given a string key, map it to an index into the expected values buffer
-extern inline bool GetIntVal(const std::string& big_endian_key, uint64_t* key_p) {
+extern inline bool GetIntVal(const std::string& big_endian_key,
+                             uint64_t* key_p) {
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 

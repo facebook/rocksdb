@@ -86,8 +86,8 @@ const char* LDBCommand::DELIM = " ==> ";
 
 namespace {
 
-void DumpWalFile(Options options, const std::string& wal_file, bool print_header,
-                 bool print_values, bool is_write_committed,
+void DumpWalFile(Options options, const std::string& wal_file,
+                 bool print_header, bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, const std::string& filename, bool output_hex,
@@ -1063,8 +1063,8 @@ void DBLoaderCommand::DoCommand() {
 
 namespace {
 
-void DumpManifestFile(Options options, const std::string& file, bool verbose, bool hex,
-                      bool json) {
+void DumpManifestFile(Options options, const std::string& file, bool verbose,
+                      bool hex, bool json) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -2326,8 +2326,8 @@ class InMemoryHandler : public WriteBatch::Handler {
   bool write_after_commit_;
 };
 
-void DumpWalFile(Options options, const std::string& wal_file, bool print_header,
-                 bool print_values, bool is_write_committed,
+void DumpWalFile(Options options, const std::string& wal_file,
+                 bool print_header, bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state) {
   const auto& fs = options.env->GetFileSystem();
   FileOptions soptions(options);

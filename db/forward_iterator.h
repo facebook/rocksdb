@@ -77,7 +77,8 @@ class ForwardIterator : public InternalIterator {
   virtual Slice value() const override;
   virtual Status status() const override;
   virtual bool PrepareValue() override;
-  virtual Status GetProperty(const std::string& prop_name, std::string* prop) override;
+  virtual Status GetProperty(const std::string& prop_name,
+                             std::string* prop) override;
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* pinned_iters_mgr) override;
   virtual bool IsKeyPinned() const override;

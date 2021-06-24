@@ -166,7 +166,8 @@ struct CompressionDict {
 #if ZSTD_VERSION_NUMBER >= 700
   CompressionDict(const std::string& dict, CompressionType type, int level) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  CompressionDict(const std::string& dict, CompressionType /*type*/, int /*level*/) {
+  CompressionDict(const std::string& dict, CompressionType /*type*/,
+                  int /*level*/) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
     dict_ = std::move(dict);
 #if ZSTD_VERSION_NUMBER >= 700
