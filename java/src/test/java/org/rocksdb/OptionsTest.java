@@ -1297,8 +1297,7 @@ public class OptionsTest {
     try (final Options options = new Options()) {
       final boolean booleanValue = true;
       options.setDisablePreloadPinning(booleanValue);
-      assertThat(options.disablePreloadPinning()).
-          isEqualTo(booleanValue);
+      assertThat(options.disablePreloadPinning()).isEqualTo(booleanValue);
     }
   }
 

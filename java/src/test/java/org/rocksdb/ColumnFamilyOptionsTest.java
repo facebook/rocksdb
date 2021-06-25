@@ -630,8 +630,7 @@ public class ColumnFamilyOptionsTest {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final boolean booleanValue = true;
       opt.setDisablePreloadPinning(booleanValue);
-      assertThat(opt.disablePreloadPinning()).
-          isEqualTo(booleanValue);
+      assertThat(opt.disablePreloadPinning()).isEqualTo(booleanValue);
     }
   }
 

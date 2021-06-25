@@ -1101,8 +1101,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setForceConsistencyChecks(final long handle,
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
-  private native void setDisablePreloadPinning(final long handle,
-    final boolean disablePreloadPinning);
+  private native void setDisablePreloadPinning(
+      final long handle, final boolean disablePreloadPinning);
   private native boolean disablePreloadPinning(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setCompactionThreadLimiter(

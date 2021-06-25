@@ -477,8 +477,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
    *
    * @return the reference to the current options.
    */
-  T setDisablePreloadPinning(
-      boolean disablePreloadPinning);
+  T setDisablePreloadPinning(boolean disablePreloadPinning);
 
   /**
    * RocksDB uses the first 25% of num_open_files for precaching during

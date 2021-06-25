@@ -3690,8 +3690,8 @@ jboolean Java_org_rocksdb_Options_forceConsistencyChecks(
  * Method:    disablePreloadPinning
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_Options_disablePreloadPinning(
-    JNIEnv*, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_Options_disablePreloadPinning(JNIEnv*, jobject,
+                                                        jlong jhandle) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<bool>(opts->disable_preload_pinning);
 }

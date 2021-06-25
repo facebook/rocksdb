@@ -380,8 +380,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
-  disable_preload_pinning_ =
-      IsFlagPresent(flags, ARG_DISABLE_PRELOAD_PINNING);
+  disable_preload_pinning_ = IsFlagPresent(flags, ARG_DISABLE_PRELOAD_PINNING);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }

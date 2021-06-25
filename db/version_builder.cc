@@ -1001,7 +1001,7 @@ class VersionBuilder::Rep {
         if (file_meta->table_reader_handle != nullptr) {
           if (!ioptions_->disable_preload_pinning) {
             file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
-              file_meta->table_reader_handle);
+                file_meta->table_reader_handle);
           } else {
             table_cache_->ReleaseHandle(file_meta->table_reader_handle);
             file_meta->table_reader_handle = nullptr;
