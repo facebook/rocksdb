@@ -486,5 +486,5 @@ public interface AdvancedColumnFamilyOptionsInterface<
    *
    * @return true when pinning preloaded files into cache is disable
    */
-  boolean DisablePreloadPinning();
+  boolean disablePreloadPinning();
 }
