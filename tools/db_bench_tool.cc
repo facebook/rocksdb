@@ -4544,7 +4544,9 @@ class Benchmark {
       s = DB::Open(options, db_name, &db->db);
     }
     if (FLAGS_report_open_timing) {
-      std::cout << "OpenDb:     " << (FLAGS_env->NowNanos() - open_start) / 1000000.0 << " milliseconds\n";
+      std::cout << "OpenDb:     "
+                << (FLAGS_env->NowNanos() - open_start) / 1000000.0
+                << " milliseconds\n";
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
