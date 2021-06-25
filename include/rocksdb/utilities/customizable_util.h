@@ -33,6 +33,53 @@ using UniqueFactoryFunc =
 template <typename T>
 using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 
+// Creates a new shared customizable instance object based on the
+// input parameters using the object registry.
+//
+// The id parameter specifies the instance class of the object to create.
+// The opt_map parameter specifies the configuration of the new instance.
+//
+// The config_options parameter controls the process and how errors are
+// returned. If ignore_unknown_options=true, unknown values are ignored during
+// the configuration. If ignore_unsupported_options=true, unknown instance types
+// are ignored. If invoke_prepare_options=true, the resulting instance will be
+// initialized (via PrepareOptions)
+//
+// @param config_options Controls how the instance is created and errors are
+// handled
+// @param id The identifier of the new object being created.  This string
+// will be used by the object registry to locate the appropriate object to
+// create.
+// @param opt_map Optional name-value pairs of properties to set for the newly
+// created object
+// @param result The newly created and configured instance.
+template <typename T>
+static Status NewSharedObject(
+    const ConfigOptions& config_options, const std::string& id,
+    const std::unordered_map<std::string, std::string> opt_map,
+    std::shared_ptr<T>* result) {
+  Status status;
+  if (!id.empty()) {
+#ifndef ROCKSDB_LITE
+    status = config_options.registry->NewSharedObject(id, result);
+#else
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+#endif  // ROCKSDB_LITE
+    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+      return Status::OK();
+    }
+  } else {
+    status = Status::NotSupported("Cannot reset object ");
+  }
+  if (!status.ok() || opt_map.empty()) {
+    return status;
+  } else if (result->get() != nullptr) {
+    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ", id);
+  }
+}
+
 // Creates a new shared Customizable object based on the input parameters.
 // This method parses the input value to determine the type of instance to
 // create. If there is an existing instance (in result) and it is the same ID
@@ -76,18 +123,47 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
     if (value.empty()) {           // No Id and no options.  Clear the object
       *result = nullptr;
       return Status::OK();
-    } else if (!id.empty()) {
-#ifndef ROCKSDB_LITE
-      status = config_options.registry->NewSharedObject(id, result);
-#else
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        return Status::OK();
-      }
     } else {
-      status = Status::NotSupported("Cannot reset object ");
+      return NewSharedObject(config_options, id, opt_map, result);
+    }
+  } else if (opt_map.empty()) {
+    return status;
+  } else if (result->get() != nullptr) {
+    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ");
+  }
+}
+
+// Creates a new unique pointer customizable instance object based on the
+// input parameters using the object registry.
+// @see NewSharedObject for more information on the inner workings of this
+// method.
+//
+// @param config_options Controls how the instance is created and errors are
+// handled
+// @param id The identifier of the new object being created.  This string
+// will be used by the object registry to locate the appropriate object to
+// create.
+// @param opt_map Optional name-value pairs of properties to set for the newly
+// created object
+// @param result The newly created and configured instance.
+template <typename T>
+static Status NewUniqueObject(
+    const ConfigOptions& config_options, const std::string& id,
+    const std::unordered_map<std::string, std::string> opt_map,
+    std::unique_ptr<T>* result) {
+  Status status;
+  if (id.empty()) {
+    status = Status::NotSupported("Cannot reset object ");
+  } else {
+#ifndef ROCKSDB_LITE
+    status = config_options.registry->NewUniqueObject(id, result);
+#else
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+#endif  // ROCKSDB_LITE
+    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+      return Status::OK();
     }
   }
   if (!status.ok() || opt_map.empty()) {
@@ -126,24 +202,52 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
     if (value.empty()) {           // No Id and no options.  Clear the object
       *result = nullptr;
       return Status::OK();
-    } else if (!id.empty()) {
-#ifndef ROCKSDB_LITE
-      status = config_options.registry->NewUniqueObject(id, result);
-#else
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        return Status::OK();
-      }
     } else {
-      status = Status::NotSupported("Cannot reset object ");
+      return NewUniqueObject(config_options, id, opt_map, result);
+    }
+  } else if (opt_map.empty()) {
+    return status;
+  } else if (result->get() != nullptr) {
+    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else {
+    return Status::InvalidArgument("Cannot configure null object ");
+  }
+}
+
+// Creates a new static (raw pointer) customizable instance object based on the
+// input parameters using the object registry.
+// @see NewSharedObject for more information on the inner workings of this
+// method.
+//
+// @param config_options Controls how the instance is created and errors are
+// handled
+// @param id The identifier of the new object being created.  This string
+// will be used by the object registry to locate the appropriate object to
+// create.
+// @param opt_map Optional name-value pairs of properties to set for the newly
+// created object
+// @param result The newly created and configured instance.
+template <typename T>
+static Status NewStaticObject(
+    const ConfigOptions& config_options, const std::string& id,
+    const std::unordered_map<std::string, std::string> opt_map, T** result) {
+  Status status;
+  if (id.empty()) {
+    status = Status::NotSupported("Cannot reset object ");
+  } else {
+#ifndef ROCKSDB_LITE
+    status = config_options.registry->NewStaticObject(id, result);
+#else
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+#endif  // ROCKSDB_LITE
+    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+      return Status::OK();
     }
   }
   if (!status.ok() || opt_map.empty()) {
     return status;
-  } else if (result->get() != nullptr) {
-    return result->get()->ConfigureFromMap(config_options, opt_map);
+  } else if (*result != nullptr) {
+    return (*result)->ConfigureFromMap(config_options, opt_map);
   } else {
     return Status::InvalidArgument("Cannot configure null object ");
   }
@@ -175,21 +279,10 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
     if (value.empty()) {           // No Id and no options.  Clear the object
       *result = nullptr;
       return Status::OK();
-    } else if (!id.empty()) {
-#ifndef ROCKSDB_LITE
-      status = config_options.registry->NewStaticObject(id, result);
-#else
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        return Status::OK();
-      }
     } else {
-      status = Status::NotSupported("Cannot reset object ");
+      return NewStaticObject(config_options, id, opt_map, result);
     }
-  }
-  if (!status.ok() || opt_map.empty()) {
+  } else if (opt_map.empty()) {
     return status;
   } else if (*result != nullptr) {
     return (*result)->ConfigureFromMap(config_options, opt_map);

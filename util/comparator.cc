@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -268,24 +269,11 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
     // No Id and no options.  Clear the object
     *result = nullptr;
     return Status::OK();
-  } else if (id.empty()) {  // We have no Id but have options.  Not good
-    return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
-    status = config_options.registry->NewStaticObject(id, result);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
-    if (!status.ok()) {
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        return Status::OK();
-      } else {
-        return status;
-      }
-    } else if (!opt_map.empty()) {
-      Comparator* comparator = const_cast<Comparator*>(*result);
-      status = comparator->ConfigureFromMap(config_options, opt_map);
+    Comparator* comparator = nullptr;
+    status = NewStaticObject(config_options, id, opt_map, &comparator);
+    if (status.ok()) {
+      *result = const_cast<const Comparator*>(comparator);
     }
   }
   return status;
