@@ -703,6 +703,15 @@ struct AdvancedColumnFamilyOptions {
   // Default: true
   bool force_consistency_checks = true;
 
+  // RocksDB uses the first 25% of num_open_files for precaching during
+  //  start-up and after compactions.  The files precached in this fashion
+  //  provide faster access.  However, these files are also never released.
+  //  Scenarios that have large bloom filters not cached or scenarios where
+  //  user is manually lowering the num_open_files at runtime might want
+  //  to disable this behavior.
+  // Default: false
+  bool disable_preload_pinning = false;
+
   // Measure IO stats in compactions and flushes, if true.
   //
   // Default: false

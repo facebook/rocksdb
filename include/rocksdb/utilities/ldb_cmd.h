@@ -61,6 +61,7 @@ class LDBCommand {
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
   static const std::string ARG_DISABLE_CONSISTENCY_CHECKS;
+  static const std::string ARG_DISABLE_PRELOAD_PINNING;
 
   struct ParsedParams {
     std::string cmd;
@@ -172,6 +173,9 @@ class LDBCommand {
 
   // The value passed to options.force_consistency_checks.
   bool force_consistency_checks_;
+
+  // The value passed to options.disable_preload_pinning.
+  bool disable_preload_pinning_;
 
   bool create_if_missing_;
 

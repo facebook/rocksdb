@@ -1293,6 +1293,16 @@ public class OptionsTest {
   }
 
   @Test
+  public void disablePreloadPinning() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setDisablePreloadPinning(booleanValue);
+      assertThat(options.disablePreloadPinning()).
+          isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void compactionFilter() {
     try(final Options options = new Options();
         final RemoveEmptyValueCompactionFilter cf = new RemoveEmptyValueCompactionFilter()) {

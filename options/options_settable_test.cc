@@ -496,6 +496,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
+      "disable_preload_pinning=true;"
       "inplace_update_num_locks=7429;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"

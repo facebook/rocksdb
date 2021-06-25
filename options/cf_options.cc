@@ -485,6 +485,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_measure_io_stats",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
+        {"disable_preload_pinning",
+         {offset_of(&ImmutableCFOptions::disable_preload_pinning),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"inplace_update_support",
          {offset_of(&ImmutableCFOptions::inplace_update_support),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -823,6 +827,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      disable_preload_pinning(cf_options.disable_preload_pinning),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),

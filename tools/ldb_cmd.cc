@@ -64,6 +64,8 @@ const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
 const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
     "disable_consistency_checks";
+const std::string LDBCommand::ARG_DISABLE_PRELOAD_PINNING =
+    "disable_preload_pinning";
 const std::string LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS =
     "ignore_unknown_options";
 const std::string LDBCommand::ARG_FROM = "from";
@@ -378,6 +380,8 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
+  disable_preload_pinning_ =
+      IsFlagPresent(flags, ARG_DISABLE_PRELOAD_PINNING);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -503,6 +507,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
                                   ARG_DISABLE_CONSISTENCY_CHECKS,
+                                  ARG_DISABLE_PRELOAD_PINNING,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -605,6 +610,7 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
   }
 
   cf_opts->force_consistency_checks = force_consistency_checks_;
+  cf_opts->disable_preload_pinning = disable_preload_pinning_;
   if (use_table_options) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
