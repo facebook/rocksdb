@@ -1757,15 +1757,16 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
-  std::vector<InternalIterator*> memtables(1,m->NewIterator(ro, &arena));
-  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>> range_del_iters;
+  std::vector<InternalIterator*> memtables(1, m->NewIterator(ro, &arena));
+  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      range_del_iters;
   auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
   if (range_del_iter != nullptr) {
     range_del_iters.emplace_back(range_del_iter);
   }
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd->internal_comparator()), &memtables[0],
-                          static_cast<int>(memtables.size()), &arena));
+                         static_cast<int>(memtables.size()), &arena));
 
   auto* ioptions = cfd->ioptions();
 
@@ -1808,8 +1809,8 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
     assert(env);
     MergeHelper merge(
         env, (cfd->internal_comparator()).user_comparator(),
-        (ioptions->merge_operator).get(), compaction_filter.get(), ioptions->logger,
-        true /* internal key corruption is not ok */,
+        (ioptions->merge_operator).get(), compaction_filter.get(),
+        ioptions->logger, true /* internal key corruption is not ok */,
         snapshot_seqs.empty() ? 0 : snapshot_seqs.back(), snapshot_checker);
     CompactionIterator c_iter(
         iter.get(), (cfd->internal_comparator()).user_comparator(), &merge,
