@@ -565,6 +565,32 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
   }
 }
 
+TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+  ASSERT_OK(Put("Key1", "v1_1"));
+  ASSERT_OK(Put("Key2", "v2_1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("Key1", "v1_2"));
+  ASSERT_OK(Merge("Key2", "v2_2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("Key1", "v1_3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_EQ(Get("Key1"), "v1_1,v1_2,v1_3");
+  ASSERT_EQ(Get("Key2"), "v2_1,v2_2");
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
