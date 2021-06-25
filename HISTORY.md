@@ -8,6 +8,7 @@
 
 ### New Features
 * ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
+* The new BlobDB implementation now tracks the amount of garbage in each blob file in the MANIFEST.
 
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
