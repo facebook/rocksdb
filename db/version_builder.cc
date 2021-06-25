@@ -922,7 +922,6 @@ class VersionBuilder::Rep {
                            const SliceTransform* prefix_extractor,
                            size_t max_file_size_for_l0_meta_pin) {
     assert(table_cache_ != nullptr);
-    assert(false == ioptions_->disable_preload_pinning);
 
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
