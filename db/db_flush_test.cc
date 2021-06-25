@@ -700,6 +700,8 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   std::string KEY5 = "IamKey5";
   std::string VALUE1 = "IamValue1";
   std::string VALUE2 = "IamValue2";
+  std::string value;
+  const std::string NOT_FOUND = "NOT_FOUND";
 
   // Check simple operations (put-delete).
   ASSERT_OK(Put(KEY1, VALUE1));
@@ -709,16 +711,17 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_OK(Put(KEY1, VALUE2));
   ASSERT_OK(Flush());
 
-  PinnableSlice value;
-  ASSERT_OK(Get(KEY1, &value));
+  value = Get(KEY1);
   ASSERT_EQ(value, VALUE2);
-  ASSERT_OK(Get(KEY2, &value));  // Issues to investigate here
+  value = Get(KEY2);
   ASSERT_EQ(value, VALUE1);
 
   ASSERT_OK(Delete(KEY1));
-  ASSERT_NOK(Get(KEY1, &value));
+  value = Get(KEY1);
+  ASSERT_EQ(value, NOT_FOUND);
   ASSERT_OK(Flush());
-  ASSERT_NOK(Get(KEY1, &value));
+  value = Get(KEY1);
+  ASSERT_EQ(value, NOT_FOUND);
 
   // Heavy overwrite workload,
   // more than would fit in maximum allowed memtables.
@@ -741,15 +744,15 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
     ASSERT_OK(Put(KEY3, p_v3));
     ASSERT_OK(Put(KEY4, p_v4));
     ASSERT_OK(Put(KEY5, p_v5));
-    ASSERT_OK(Get(KEY1, &value));
+    value = Get(KEY1);
     ASSERT_EQ(value, p_v1);
-    ASSERT_OK(Get(KEY2, &value));
+    value = Get(KEY2);
     ASSERT_EQ(value, p_v2);
-    ASSERT_OK(Get(KEY3, &value));
+    value = Get(KEY3);
     ASSERT_EQ(value, p_v3);
-    ASSERT_OK(Get(KEY4, &value));
+    value = Get(KEY4);
     ASSERT_EQ(value, p_v4);
-    ASSERT_OK(Get(KEY5, &value));
+    value = Get(KEY5);
     ASSERT_EQ(value, p_v5);
   }
 
@@ -787,13 +790,21 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   std::string KEY3 = "ThisIsKey3";
   std::string KEY4 = "ThisIsKey4";
   std::string KEY5 = "ThisIsKey5";
-  PinnableSlice value;
+  const std::string NOT_FOUND = "NOT_FOUND";
 
   Random rnd(117);
   const size_t NUM_REPEAT = 200;
   const size_t RAND_VALUES_LENGTH = 512;
   bool atLeastOneFlush = false;
-  std::string p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
+  std::string key, value, p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
+  int count = 0;
+  const int EXPECTED_COUNT_FORLOOP = 3;
+  const int EXPECTED_COUNT_END = 4;
+
+  ReadOptions ropt;
+  ropt.pin_data = true;
+  ropt.total_order_seek = true;
+  Iterator* iter = nullptr;
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
   for (size_t i = 0; i < NUM_REPEAT; i++) {
@@ -823,14 +834,40 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
       atLeastOneFlush = true;
     }
 
-    ASSERT_NOK(Get(KEY1, &value));
-    ASSERT_NOK(Get(KEY2, &value));
-    ASSERT_OK(Get(KEY3, &value));
+    value = Get(KEY1);
+    ASSERT_EQ(value, NOT_FOUND);
+    value = Get(KEY2);
+    ASSERT_EQ(value, NOT_FOUND);
+    value = Get(KEY3);
     ASSERT_EQ(value, p_v3b);
-    ASSERT_OK(Get(KEY4, &value));
+    value = Get(KEY4);
     ASSERT_EQ(value, p_v4);
-    ASSERT_OK(Get(KEY5, &value));
+    value = Get(KEY5);
     ASSERT_EQ(value, p_v5);
+
+    iter = db_->NewIterator(ropt);
+    iter->SeekToFirst();
+    count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      key = (iter->key()).ToString(false);
+      value = (iter->value()).ToString(false);
+      if (key.compare(KEY3) == 0)
+        ASSERT_EQ(value, p_v3b);
+      else if (key.compare(KEY4) == 0)
+        ASSERT_EQ(value, p_v4);
+      else if (key.compare(KEY5) == 0)
+        ASSERT_EQ(value, p_v5);
+      else
+        ASSERT_EQ(value, NOT_FOUND);
+      count++;
+    }
+
+    // Expected count here is 3: KEY3, KEY4, KEY5.
+    ASSERT_EQ(count, EXPECTED_COUNT_FORLOOP);
+    if (iter) {
+      delete iter;
+    }
   }
 
   // Check that there was at least one mempurge
@@ -844,9 +881,39 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   if (atLeastOneFlush) {
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
   } else {
+    // Note that there isn't enough values added to
+    // automatically trigger a flush/MemPurge in the background.
+    // Therefore we can make the assumption that if we never
+    // called "Flush()", no mempurge happened.
     EXPECT_EQ(mempurge_count, EXPECTED_FLUSH_COUNT);
   }
   EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
+
+  // Additional test for the iterator+memPurge.
+  ASSERT_OK(Put(KEY2, p_v2));
+  iter = db_->NewIterator(ropt);
+  iter->SeekToFirst();
+  ASSERT_OK(Put(KEY4, p_v4));
+  count = 0;
+  for (; iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    key = (iter->key()).ToString(false);
+    value = (iter->value()).ToString(false);
+    if (key.compare(KEY2) == 0)
+      ASSERT_EQ(value, p_v2);
+    else if (key.compare(KEY3) == 0)
+      ASSERT_EQ(value, p_v3b);
+    else if (key.compare(KEY4) == 0)
+      ASSERT_EQ(value, p_v4);
+    else if (key.compare(KEY5) == 0)
+      ASSERT_EQ(value, p_v5);
+    else
+      ASSERT_EQ(value, NOT_FOUND);
+    count++;
+  }
+  // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
+  ASSERT_EQ(count, EXPECTED_COUNT_END);
+  if (iter) delete iter;
 
   Close();
 }
