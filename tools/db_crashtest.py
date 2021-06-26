@@ -280,8 +280,6 @@ blob_params = {
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
-    # The following are currently incompatible with the integrated BlobDB
-    "use_merge": 0,
 }
 
 ts_params = {
