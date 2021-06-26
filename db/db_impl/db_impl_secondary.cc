@@ -285,9 +285,11 @@ Status DBImplSecondary::RecoverLogFiles(
           if (cfd == nullptr) {
             continue;
           }
-          auto iterbool = cfd_to_current_log_.insert({cfd, log_number});
-          if (!iterbool.second && log_number > iterbool.first->second) {
-            iterbool.first->second = log_number;
+          decltype(cfd_to_current_log_.find(cfd)) iter;
+          bool ok = false;
+          std::tie(iter, ok) = cfd_to_current_log_.insert({cfd, log_number});
+          if (!ok && log_number > iter->second) {
+            iter->second = log_number;
           }
         }
         auto last_sequence = *next_sequence - 1;
