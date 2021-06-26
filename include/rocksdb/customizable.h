@@ -162,12 +162,12 @@ class Customizable : public Configurable {
       const std::string& opt_value, std::string* id,
       std::unordered_map<std::string, std::string>* options);
 
- protected:
   // Returns the inner class when a Customizable implements a has-a (wrapped)
   // relationship.  Derived classes that implement a has-a must override this
   // method in order to get CheckedCast to function properly.
   virtual const Customizable* Inner() const { return nullptr; }
 
+ protected:
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
 #ifndef ROCKSDB_LITE
