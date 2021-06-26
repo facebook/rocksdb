@@ -270,7 +270,7 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
     *result = nullptr;
     return Status::OK();
   } else {
-    Comparator* comparator = nullptr;
+    Comparator* comparator = const_cast<Comparator*>(*result);
     status = NewStaticObject(config_options, id, opt_map, &comparator);
     if (status.ok()) {
       *result = const_cast<const Comparator*>(comparator);
