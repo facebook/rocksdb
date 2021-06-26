@@ -2452,7 +2452,7 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
   constexpr uint64_t garbage_blob_count = 0;
   constexpr uint64_t garbage_blob_bytes = 0;
 

@@ -1332,7 +1332,7 @@ Status DBImpl::CompactFilesImpl(
   if (output_file_names != nullptr) {
     for (const auto& newf : c->edit()->GetNewFiles()) {
       (*output_file_names)
-          .push_back(TableFileName(c->immutable_cf_options()->cf_paths,
+          .push_back(TableFileName(c->immutable_options()->cf_paths,
                                    newf.second.fd.GetNumber(),
                                    newf.second.fd.GetPathId()));
     }
@@ -2957,7 +2957,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           c->column_family_data()
               ->current()
               ->storage_info()
-              ->ComputeCompactionScore(*(c->immutable_cf_options()),
+              ->ComputeCompactionScore(*(c->immutable_options()),
                                        *(c->mutable_cf_options()));
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
@@ -3232,7 +3232,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       c->column_family_data()
           ->current()
           ->storage_info()
-          ->ComputeCompactionScore(*(c->immutable_cf_options()),
+          ->ComputeCompactionScore(*(c->immutable_options()),
                                    *(c->mutable_cf_options()));
       if (!cfd->queued_for_compaction()) {
         AddToCompactionQueue(cfd);
@@ -3397,7 +3397,7 @@ void DBImpl::BuildCompactionJobInfo(
     for (const auto fmd : *c->inputs(i)) {
       const FileDescriptor& desc = fmd->fd;
       const uint64_t file_number = desc.GetNumber();
-      auto fn = TableFileName(c->immutable_cf_options()->cf_paths, file_number,
+      auto fn = TableFileName(c->immutable_options()->cf_paths, file_number,
                               desc.GetPathId());
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
@@ -3416,7 +3416,7 @@ void DBImpl::BuildCompactionJobInfo(
     const FileDescriptor& desc = meta.fd;
     const uint64_t file_number = desc.GetNumber();
     compaction_job_info->output_files.push_back(TableFileName(
-        c->immutable_cf_options()->cf_paths, file_number, desc.GetPathId()));
+        c->immutable_options()->cf_paths, file_number, desc.GetPathId()));
     compaction_job_info->output_file_infos.push_back(CompactionFileInfo{
         newf.first, file_number, meta.oldest_blob_file_number});
   }

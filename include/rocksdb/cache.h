@@ -472,7 +472,9 @@ class Cache {
     return Release(handle, force_erase);
   }
 
-  // Determines if the handle returned by Lookup() has a valid value yet.
+  // Determines if the handle returned by Lookup() has a valid value yet. The
+  // call is not thread safe and should be called only by someone holding a
+  // reference to the handle.
   virtual bool IsReady(Handle* /*handle*/) { return true; }
 
   // If the handle returned by Lookup() is not ready yet, wait till it
@@ -482,7 +484,9 @@ class Cache {
   virtual void Wait(Handle* /*handle*/) {}
 
   // Wait for a vector of handles to become ready. As with Wait(), the user
-  // should check the Value() of each handle for nullptr
+  // should check the Value() of each handle for nullptr. This call is not
+  // thread safe and should only be called by the caller holding a reference
+  // to each of the handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
  private:

@@ -115,9 +115,10 @@ class ShardedCache : public Cache {
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
 
- private:
+ protected:
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
 
+ private:
   const uint32_t shard_mask_;
   mutable port::Mutex capacity_mutex_;
   size_t capacity_;

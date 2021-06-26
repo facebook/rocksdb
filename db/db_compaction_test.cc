@@ -3600,6 +3600,41 @@ TEST_F(DBCompactionTest, CompactFilesOverlapInL0Bug) {
   ASSERT_EQ("new_val", Get(Key(0)));
 }
 
+TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  const Snapshot* snapshot = nullptr;
+  const int kMaxKey = 10;
+
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+    ASSERT_OK(Delete(Key(i)));
+    if (!snapshot) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put(Key(kMaxKey), Key(kMaxKey)));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  // test DeleteFilesInRange() deletes the files already picked for compaction
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"VersionSet::LogAndApply:WriteManifestStart",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCompaction:Finish",
+        "VersionSet::LogAndApply:WriteManifestDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // release snapshot which mark bottommost file for compaction
+  db_->ReleaseSnapshot(snapshot);
+  std::string begin_string = Key(0);
+  std::string end_string = Key(kMaxKey + 1);
+  Slice begin(begin_string);
+  Slice end(end_string);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // bottom-level files may contain deletions due to snapshots protecting the
   // deleted keys. Once the snapshot is released, we should see files with many
@@ -5208,11 +5243,12 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   ASSERT_TRUE(num_compactions.load() == 1);
 
   // split the compaction to 5
-  uint64_t total = (l1_avg_size * 10) + (l2_avg_size * 100);
   int num_split = 5;
-  opts.max_compaction_bytes = total / num_split;
   DestroyAndReopen(opts);
   generate_sst_func();
+  uint64_t total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
+  opts.max_compaction_bytes = total_size / num_split;
+  Reopen(opts);
   num_compactions.store(0);
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_TRUE(num_compactions.load() == num_split);
@@ -5230,8 +5266,9 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   opts.max_compaction_bytes = 0;
   DestroyAndReopen(opts);
   generate_sst_func();
+  total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
   Status s = db_->SetOptions(
-      {{"max_compaction_bytes", std::to_string(total / num_split)}});
+      {{"max_compaction_bytes", std::to_string(total_size / num_split)}});
   ASSERT_OK(s);
 
   num_compactions.store(0);

@@ -304,6 +304,11 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       return WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
     }
+    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                         const Slice& end_key) override {
+      return WriteBatchInternal::DeleteRange(&updates_ttl, column_family_id,
+                                             begin_key, end_key);
+    }
     void LogData(const Slice& blob) override { updates_ttl.PutLogData(blob); }
 
    private:
