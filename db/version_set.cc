@@ -2554,7 +2554,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 }  // anonymous namespace
 
 void VersionStorageInfo::ComputeCompactionScore(
-    const ImmutableOptions& immutable_cf_options,
+    const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
@@ -2606,7 +2606,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         if (mutable_cf_options.ttl > 0) {
           score = std::max(
               static_cast<double>(GetExpiredTtlFilesCount(
-                  immutable_cf_options, mutable_cf_options, files_[level])),
+                  immutable_options, mutable_cf_options, files_[level])),
               score);
         }
 
@@ -2618,7 +2618,7 @@ void VersionStorageInfo::ComputeCompactionScore(
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
           uint64_t l0_target_size = mutable_cf_options.max_bytes_for_level_base;
-          if (immutable_cf_options.level_compaction_dynamic_level_bytes &&
+          if (immutable_options.level_compaction_dynamic_level_bytes &&
               level_multiplier_ != 0.0) {
             // Prevent L0 to Lbase fanout from growing larger than
             // `level_multiplier_`. This prevents us from getting stuck picking
@@ -2666,11 +2666,11 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
+    ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   }
   if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
-        immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
+        immutable_options, mutable_cf_options.periodic_compaction_seconds);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -4091,7 +4091,7 @@ Status VersionSet::ProcessManifestWrites(
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
-
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -4133,6 +4133,7 @@ Status VersionSet::ProcessManifestWrites(
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
             io_tracer_, nullptr, db_options_->listeners, nullptr,
+            tmp_set.Contains(FileType::kDescriptorFile),
             tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
@@ -5495,43 +5496,6 @@ InternalIterator* VersionSet::MakeInputIterator(
   return result;
 }
 
-// verify that the files listed in this compaction are present
-// in the current version
-bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
-#ifndef NDEBUG
-  Version* version = c->column_family_data()->current();
-  const VersionStorageInfo* vstorage = version->storage_info();
-  if (c->input_version() != version) {
-    ROCKS_LOG_INFO(
-        db_options_->info_log,
-        "[%s] compaction output being applied to a different base version from"
-        " input version",
-        c->column_family_data()->GetName().c_str());
-  }
-
-  for (size_t input = 0; input < c->num_input_levels(); ++input) {
-    int level = c->level(input);
-    for (size_t i = 0; i < c->num_input_files(input); ++i) {
-      uint64_t number = c->input(input, i)->fd.GetNumber();
-      bool found = false;
-      for (size_t j = 0; j < vstorage->files_[level].size(); j++) {
-        FileMetaData* f = vstorage->files_[level][j];
-        if (f->fd.GetNumber() == number) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        return false;  // input files non existent in current version
-      }
-    }
-  }
-#else
-  (void)c;
-#endif
-  return true;     // everything good
-}
-
 Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
                                       FileMetaData** meta,
                                       ColumnFamilyData** cfd) {
@@ -5589,6 +5553,9 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
         filemetadata.file_checksum = file->file_checksum;
         filemetadata.file_checksum_func_name = file->file_checksum_func_name;
+        filemetadata.temperature = file->temperature;
+        filemetadata.oldest_ancester_time = file->TryGetOldestAncesterTime();
+        filemetadata.file_creation_time = file->TryGetFileCreationTime();
         metadata->push_back(filemetadata);
       }
     }

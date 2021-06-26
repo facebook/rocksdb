@@ -204,6 +204,19 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 
 class TestSecondaryCache : public SecondaryCache {
  public:
+  // Specifies what action to take on a lookup for a particular key
+  enum ResultType {
+    SUCCESS,
+    // Fail lookup immediately
+    FAIL,
+    // Defer the result. It will returned after Wait/WaitAll is called
+    DEFER,
+    // Defer the result and eventually return failure
+    DEFER_AND_FAIL
+  };
+
+  using ResultMap = std::unordered_map<std::string, ResultType>;
+
   explicit TestSecondaryCache(size_t capacity)
       : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
@@ -246,22 +259,37 @@ class TestSecondaryCache : public SecondaryCache {
                           });
   }
 
-  std::unique_ptr<SecondaryCacheHandle> Lookup(
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb,
       bool /*wait*/) override {
-    std::unique_ptr<SecondaryCacheHandle> secondary_handle;
+    std::string key_str = key.ToString();
+    TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
+
+    std::unique_ptr<SecondaryCacheResultHandle> secondary_handle;
+    ResultType type = ResultType::SUCCESS;
+    auto iter = result_map_.find(key.ToString());
+    if (iter != result_map_.end()) {
+      type = iter->second;
+    }
+    if (type == ResultType::FAIL) {
+      return secondary_handle;
+    }
+
     Cache::Handle* handle = cache_->Lookup(key);
     num_lookups_++;
     if (handle) {
-      void* value;
-      size_t charge;
-      char* ptr = (char*)cache_->Value(handle);
-      size_t size = DecodeFixed64(ptr);
-      ptr += sizeof(uint64_t);
-      Status s = create_cb(ptr, size, &value, &charge);
+      void* value = nullptr;
+      size_t charge = 0;
+      Status s;
+      if (type != ResultType::DEFER_AND_FAIL) {
+        char* ptr = (char*)cache_->Value(handle);
+        size_t size = DecodeFixed64(ptr);
+        ptr += sizeof(uint64_t);
+        s = create_cb(ptr, size, &value, &charge);
+      }
       if (s.ok()) {
-        secondary_handle.reset(
-            new TestSecondaryCacheHandle(cache_.get(), handle, value, charge));
+        secondary_handle.reset(new TestSecondaryCacheResultHandle(
+            cache_.get(), handle, value, charge, type));
       } else {
         cache_->Release(handle);
       }
@@ -271,9 +299,17 @@ class TestSecondaryCache : public SecondaryCache {
 
   void Erase(const Slice& /*key*/) override {}
 
-  void WaitAll(std::vector<SecondaryCacheHandle*> /*handles*/) override {}
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override {
+    for (SecondaryCacheResultHandle* handle : handles) {
+      TestSecondaryCacheResultHandle* sec_handle =
+          static_cast<TestSecondaryCacheResultHandle*>(handle);
+      sec_handle->SetReady();
+    }
+  }
 
   std::string GetPrintableOptions() const override { return ""; }
+
+  void SetResultMap(ResultMap&& map) { result_map_ = std::move(map); }
 
   uint32_t num_inserts() { return num_inserts_; }
 
@@ -294,26 +330,41 @@ class TestSecondaryCache : public SecondaryCache {
   }
 
  private:
-  class TestSecondaryCacheHandle : public SecondaryCacheHandle {
+  class TestSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
    public:
-    TestSecondaryCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
-                             size_t size)
-        : cache_(cache), handle_(handle), value_(value), size_(size) {}
-    ~TestSecondaryCacheHandle() override { cache_->Release(handle_); }
+    TestSecondaryCacheResultHandle(Cache* cache, Cache::Handle* handle,
+                                   void* value, size_t size, ResultType type)
+        : cache_(cache),
+          handle_(handle),
+          value_(value),
+          size_(size),
+          is_ready_(true) {
+      if (type != ResultType::SUCCESS) {
+        is_ready_ = false;
+      }
+    }
 
-    bool IsReady() override { return true; }
+    ~TestSecondaryCacheResultHandle() override { cache_->Release(handle_); }
+
+    bool IsReady() override { return is_ready_; }
 
     void Wait() override {}
 
-    void* Value() override { return value_; }
+    void* Value() override {
+      assert(is_ready_);
+      return value_;
+    }
 
-    size_t Size() override { return size_; }
+    size_t Size() override { return Value() ? size_ : 0; }
+
+    void SetReady() { is_ready_ = true; }
 
    private:
     Cache* cache_;
     Cache::Handle* handle_;
     void* value_;
     size_t size_;
+    bool is_ready_;
   };
 
   std::shared_ptr<Cache> cache_;
@@ -321,6 +372,7 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_lookups_;
   bool inject_failure_;
   std::string db_session_id_;
+  ResultMap result_map_;
 };
 
 class DBSecondaryCacheTest : public DBTestBase {
@@ -350,6 +402,7 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
 
     char* Buf() { return buf_.get(); }
     size_t Size() { return size_; }
+    std::string ToString() { return std::string(Buf(), Size()); }
 
    private:
     std::unique_ptr<char[]> buf_;
@@ -575,14 +628,15 @@ TEST_F(LRUSecondaryCacheTest, FullCapacityTest) {
   handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
-  // This lookup should fail, since k1 promotion would have failed due to
-  // the block cache being at capacity
+  // k1 promotion should fail due to the block cache being at capacity,
+  // but the lookup should still succeed
   Cache::Handle* handle2;
   handle2 = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
                           test_item_creator, Cache::Priority::LOW, true);
-  ASSERT_EQ(handle2, nullptr);
-  // Since k1 didn't get promoted, k2 should still be in cache
+  ASSERT_NE(handle2, nullptr);
+  // Since k1 didn't get inserted, k2 should still be in cache
   cache->Release(handle);
+  cache->Release(handle2);
   handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
@@ -982,6 +1036,141 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
   secondary_cache->ResetInjectFailure();
 
+  Destroy(options);
+}
+
+TEST_F(LRUSecondaryCacheTest, BasicWaitAllTest) {
+  LRUCacheOptions opts(1024, 2, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(32 * 1024);
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  const int num_keys = 32;
+
+  Random rnd(301);
+  std::vector<std::string> values;
+  for (int i = 0; i < num_keys; ++i) {
+    std::string str = rnd.RandomString(1020);
+    values.emplace_back(str);
+    TestItem* item = new TestItem(str.data(), str.length());
+    ASSERT_OK(cache->Insert("k" + std::to_string(i), item,
+                            &LRUSecondaryCacheTest::helper_, str.length()));
+  }
+  // Force all entries to be evicted to the secondary cache
+  cache->SetCapacity(0);
+  ASSERT_EQ(secondary_cache->num_inserts(), 32u);
+  cache->SetCapacity(32 * 1024);
+
+  secondary_cache->SetResultMap(
+      {{"k3", TestSecondaryCache::ResultType::DEFER},
+       {"k4", TestSecondaryCache::ResultType::DEFER_AND_FAIL},
+       {"k5", TestSecondaryCache::ResultType::FAIL}});
+  std::vector<Cache::Handle*> results;
+  for (int i = 0; i < 6; ++i) {
+    results.emplace_back(
+        cache->Lookup("k" + std::to_string(i), &LRUSecondaryCacheTest::helper_,
+                      test_item_creator, Cache::Priority::LOW, false));
+  }
+  cache->WaitAll(results);
+  for (int i = 0; i < 6; ++i) {
+    if (i == 4) {
+      ASSERT_EQ(cache->Value(results[i]), nullptr);
+    } else if (i == 5) {
+      ASSERT_EQ(results[i], nullptr);
+      continue;
+    } else {
+      TestItem* item = static_cast<TestItem*>(cache->Value(results[i]));
+      ASSERT_EQ(item->ToString(), values[i]);
+    }
+    cache->Release(results[i]);
+  }
+
+  cache.reset();
+  secondary_cache.reset();
+}
+
+// In this test, we have one KV pair per data block. We indirectly determine
+// the cache key associated with each data block (and thus each KV) by using
+// a sync point callback in TestSecondaryCache::Lookup. We then control the
+// lookup result by setting the ResultMap.
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
+  LRUCacheOptions opts(1 << 20, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 8;
+  std::vector<std::string> keys;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(4000);
+    keys.emplace_back(p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+  // After Flush is successful, RocksDB does the paranoid check for the new
+  // SST file. This will try to lookup all data blocks in the secondary
+  // cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 8u);
+
+  cache->SetCapacity(0);
+  ASSERT_EQ(secondary_cache->num_inserts(), 8u);
+  cache->SetCapacity(1 << 20);
+
+  std::vector<std::string> cache_keys;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestSecondaryCache::Lookup", [&cache_keys](void* key) -> void {
+        cache_keys.emplace_back(*(static_cast<std::string*>(key)));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  for (int i = 0; i < N; ++i) {
+    std::string v = Get(Key(i));
+    ASSERT_EQ(4000, v.size());
+    ASSERT_EQ(v, keys[i]);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_EQ(secondary_cache->num_lookups(), 16u);
+  cache->SetCapacity(0);
+  cache->SetCapacity(1 << 20);
+
+  ASSERT_EQ(Get(Key(2)), keys[2]);
+  ASSERT_EQ(Get(Key(7)), keys[7]);
+  secondary_cache->SetResultMap(
+      {{cache_keys[3], TestSecondaryCache::ResultType::DEFER},
+       {cache_keys[4], TestSecondaryCache::ResultType::DEFER_AND_FAIL},
+       {cache_keys[5], TestSecondaryCache::ResultType::FAIL}});
+
+  std::vector<std::string> mget_keys(
+      {Key(0), Key(1), Key(2), Key(3), Key(4), Key(5), Key(6), Key(7)});
+  std::vector<PinnableSlice> values(mget_keys.size());
+  std::vector<Status> s(keys.size());
+  std::vector<Slice> key_slices;
+  for (const std::string& key : mget_keys) {
+    key_slices.emplace_back(key);
+  }
+  uint32_t num_lookups = secondary_cache->num_lookups();
+  dbfull()->MultiGet(ReadOptions(), dbfull()->DefaultColumnFamily(),
+                     key_slices.size(), key_slices.data(), values.data(),
+                     s.data(), false);
+  ASSERT_EQ(secondary_cache->num_lookups(), num_lookups + 5);
+  for (int i = 0; i < N; ++i) {
+    ASSERT_OK(s[i]);
+    ASSERT_EQ(values[i].ToString(), keys[i]);
+    values[i].Reset();
+  }
   Destroy(options);
 }
 

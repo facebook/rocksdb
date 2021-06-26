@@ -97,6 +97,8 @@ class CompactionIterator {
     virtual double blob_garbage_collection_age_cutoff() const = 0;
 
     virtual Version* input_version() const = 0;
+
+    virtual bool DoesInputReferenceBlobFiles() const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -104,7 +106,7 @@ class CompactionIterator {
     explicit RealCompaction(const Compaction* compaction)
         : compaction_(compaction) {
       assert(compaction_);
-      assert(compaction_->immutable_cf_options());
+      assert(compaction_->immutable_options());
       assert(compaction_->mutable_cf_options());
     }
 
@@ -126,11 +128,11 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_cf_options()->allow_ingest_behind;
+      return compaction_->immutable_options()->allow_ingest_behind;
     }
 
     bool preserve_deletes() const override {
-      return compaction_->immutable_cf_options()->preserve_deletes;
+      return compaction_->immutable_options()->preserve_deletes;
     }
 
     bool enable_blob_garbage_collection() const override {
@@ -144,6 +146,10 @@ class CompactionIterator {
 
     Version* input_version() const override {
       return compaction_->input_version();
+    }
+
+    bool DoesInputReferenceBlobFiles() const override {
+      return compaction_->DoesInputReferenceBlobFiles();
     }
 
    private:

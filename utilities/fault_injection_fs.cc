@@ -140,8 +140,8 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
 // By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
 // simulated.
 IOStatus TestFSWritableFile::Append(
-    const Slice& data, const IOOptions&,
-    const DataVerificationInfo& verification_info, IODebugContext*) {
+    const Slice& data, const IOOptions& options,
+    const DataVerificationInfo& verification_info, IODebugContext* dbg) {
   MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
@@ -161,10 +161,39 @@ IOStatus TestFSWritableFile::Append(
                       "current data checksum: " + checksum;
     return IOStatus::Corruption(msg);
   }
+  if (target_->use_direct_io()) {
+    target_->Append(data, options, dbg).PermitUncheckedError();
+  } else {
+    state_.buffer_.append(data.data(), data.size());
+    state_.pos_ += data.size();
+    fs_->WritableFileAppended(state_);
+  }
+  return IOStatus::OK();
+}
 
-  state_.buffer_.append(data.data(), data.size());
-  state_.pos_ += data.size();
-  fs_->WritableFileAppended(state_);
+IOStatus TestFSWritableFile::PositionedAppend(
+    const Slice& data, uint64_t offset, const IOOptions& options,
+    const DataVerificationInfo& verification_info, IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  if (fs_->ShouldDataCorruptionBeforeWrite()) {
+    return IOStatus::Corruption("Data is corrupted!");
+  }
+
+  // Calculate the checksum
+  std::string checksum;
+  CalculateTypedChecksum(fs_->GetChecksumHandoffFuncType(), data.data(),
+                         data.size(), &checksum);
+  if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
+      checksum != verification_info.checksum.ToString()) {
+    std::string msg = "Data is corrupted! Origin data checksum: " +
+                      verification_info.checksum.ToString() +
+                      "current data checksum: " + checksum;
+    return IOStatus::Corruption(msg);
+  }
+  target_->PositionedAppend(data, offset, options, dbg);
   return IOStatus::OK();
 }
 

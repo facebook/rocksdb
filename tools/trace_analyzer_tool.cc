@@ -524,6 +524,10 @@ Status TraceAnalyzer::StartProcessing() {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
         return s;
       }
+    } else if (trace.type == kTraceMultiGet) {
+      MultiGetPayload multiget_payload;
+      assert(trace_file_version_ >= 2);
+      TracerHelper::DecodeMultiGetPayload(&trace, &multiget_payload);
     } else if (trace.type == kTraceEnd) {
       break;
     }

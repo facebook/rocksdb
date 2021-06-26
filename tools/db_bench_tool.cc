@@ -45,6 +45,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -556,6 +557,10 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_int64(prepopulate_block_cache, 0,
+             "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
+             "to insert during flush");
+
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "
             "instead of kDataBlockBinarySearch. "
@@ -595,8 +600,9 @@ DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
              "Maximum write buffer for Writable File");
 
-DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
-             " use default settings.");
+DEFINE_int32(bloom_bits, -1,
+             "Bloom filter bits per key. Negative means use default."
+             "Zero disables.");
 
 DEFINE_bool(use_ribbon_filter, false, "Use Ribbon instead of Bloom filter");
 
@@ -1068,15 +1074,6 @@ DEFINE_int32(thread_status_per_interval, 0,
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
 
-#ifndef ROCKSDB_LITE
-static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
-    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
-  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
-      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
-  return composite_env.get();
-}
-#endif
-
 static bool ValidateRateLimit(const char* flagname, double value) {
   const double EPSILON = 1e-10;
   if ( value < -EPSILON ) {
@@ -1458,6 +1455,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 struct ReportFileOpCounters {
   std::atomic<int> open_counter_;
+  std::atomic<int> delete_counter_;
+  std::atomic<int> rename_counter_;
+  std::atomic<int> flush_counter_;
+  std::atomic<int> sync_counter_;
+  std::atomic<int> fsync_counter_;
+  std::atomic<int> close_counter_;
   std::atomic<int> read_counter_;
   std::atomic<int> append_counter_;
   std::atomic<uint64_t> bytes_read_;
@@ -1471,6 +1474,12 @@ class ReportFileOpEnv : public EnvWrapper {
 
   void reset() {
     counters_.open_counter_ = 0;
+    counters_.delete_counter_ = 0;
+    counters_.rename_counter_ = 0;
+    counters_.flush_counter_ = 0;
+    counters_.sync_counter_ = 0;
+    counters_.fsync_counter_ = 0;
+    counters_.close_counter_ = 0;
     counters_.read_counter_ = 0;
     counters_.append_counter_ = 0;
     counters_.bytes_read_ = 0;
@@ -1507,6 +1516,22 @@ class ReportFileOpEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), counters()));
     }
     return s;
+  }
+
+  Status DeleteFile(const std::string& fname) override {
+    Status s = target()->DeleteFile(fname);
+    if (s.ok()) {
+      counters()->delete_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return s;
+  }
+
+  Status RenameFile(const std::string& s, const std::string& t) override {
+    Status st = target()->RenameFile(s, t);
+    if (st.ok()) {
+      counters()->rename_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return st;
   }
 
   Status NewRandomAccessFile(const std::string& f,
@@ -1565,10 +1590,37 @@ class ReportFileOpEnv : public EnvWrapper {
         return Append(data);
       }
 
-      Status Truncate(uint64_t size) override { return target_->Truncate(size); }
-      Status Close() override { return target_->Close(); }
-      Status Flush() override { return target_->Flush(); }
-      Status Sync() override { return target_->Sync(); }
+      Status Truncate(uint64_t size) override {
+        return target_->Truncate(size);
+      }
+      Status Close() override {
+        Status s = target_->Close();
+        if (s.ok()) {
+          counters_->close_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Flush() override {
+        Status s = target_->Flush();
+        if (s.ok()) {
+          counters_->flush_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Sync() override {
+        Status s = target_->Sync();
+        if (s.ok()) {
+          counters_->sync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Fsync() override {
+        Status s = target_->Fsync();
+        if (s.ok()) {
+          counters_->fsync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
     };
 
     Status s = target()->NewWritableFile(f, r, soptions);
@@ -2245,6 +2297,18 @@ class Stats {
       ReportFileOpCounters* counters = env->counters();
       fprintf(stdout, "Num files opened: %d\n",
               counters->open_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files deleted: %d\n",
+              counters->delete_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files renamed: %d\n",
+              counters->rename_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Flush(): %d\n",
+              counters->flush_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Sync(): %d\n",
+              counters->sync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Fsync(): %d\n",
+              counters->fsync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Close(): %d\n",
+              counters->close_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Read(): %d\n",
               counters->read_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Append(): %d\n",
@@ -2432,7 +2496,6 @@ class Benchmark {
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
-  std::shared_ptr<const FilterPolicy> filter_policy_;
   const SliceTransform* prefix_extractor_;
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
@@ -2826,13 +2889,6 @@ class Benchmark {
   Benchmark()
       : cache_(NewCache(FLAGS_cache_size)),
         compressed_cache_(NewCache(FLAGS_compressed_cache_size)),
-        filter_policy_(
-            FLAGS_use_ribbon_filter
-                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
-                : FLAGS_bloom_bits >= 0
-                      ? NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                             FLAGS_use_block_based_filter)
-                      : nullptr),
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         key_size_(FLAGS_key_size),
@@ -3900,7 +3956,7 @@ class Benchmark {
 
       int bloom_bits_per_key = FLAGS_bloom_bits;
       if (bloom_bits_per_key < 0) {
-        bloom_bits_per_key = 0;
+        bloom_bits_per_key = PlainTableOptions().bloom_bits_per_key;
       }
 
       PlainTableOptions plain_table_options;
@@ -4007,13 +4063,27 @@ class Benchmark {
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.index_block_restart_interval =
           FLAGS_index_block_restart_interval;
-      block_based_options.filter_policy = filter_policy_;
       block_based_options.format_version =
           static_cast<uint32_t>(FLAGS_format_version);
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
+          block_based_options.prepopulate_block_cache;
+      switch (FLAGS_prepopulate_block_cache) {
+        case 0:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kDisable;
+          break;
+        case 1:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+          break;
+        default:
+          fprintf(stderr, "Unknown prepopulate block cache mode\n");
+      }
+      block_based_options.prepopulate_block_cache = prepopulate_block_cache;
       if (FLAGS_use_data_block_hash_index) {
         block_based_options.data_block_index_type =
             ROCKSDB_NAMESPACE::BlockBasedTableOptions::kDataBlockBinaryAndHash;
@@ -4235,10 +4305,14 @@ class Benchmark {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }
-      if (FLAGS_bloom_bits >= 0) {
+      if (FLAGS_bloom_bits < 0) {
+        table_options->filter_policy = BlockBasedTableOptions().filter_policy;
+      } else if (FLAGS_bloom_bits == 0) {
+        table_options->filter_policy.reset();
+      } else {
         table_options->filter_policy.reset(
             FLAGS_use_ribbon_filter
-                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
                 : NewBloomFilterPolicy(FLAGS_bloom_bits,
                                        FLAGS_use_block_based_filter));
       }
@@ -7693,23 +7767,20 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
-    if (FLAGS_env == nullptr) {
-      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
+  if (env_opts == 1) {
+    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                  &FLAGS_env, &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
-  } else if (!FLAGS_fs_uri.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
-    if (fs == nullptr) {
-      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
-      exit(1);
-    }
-    FLAGS_env = GetCompositeEnv(fs);
   } else if (FLAGS_simulate_hybrid_fs_file != "") {
-    FLAGS_env = GetCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-        FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    //**TODO: Make the simulate fs something that can be loaded
+    // from the ObjectRegistry...
+    static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+        NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
@@ -7766,13 +7837,6 @@ int db_bench_tool(int argc, char** argv) {
 
   if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
     fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
-    exit(1);
-  }
-
-  if ((FLAGS_enable_blob_files || FLAGS_enable_blob_garbage_collection) &&
-      !FLAGS_merge_operator.empty()) {
-    fprintf(stderr,
-            "Integrated BlobDB is currently incompatible with Merge.\n");
     exit(1);
   }
 

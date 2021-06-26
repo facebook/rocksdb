@@ -56,16 +56,8 @@ class ColumnFamilyTestBase : public testing::Test {
  public:
   explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
     Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-      base_env = test_env;
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
-#endif  // !ROCKSDB_LITE
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = new EnvCounter(base_env);
     env_->skip_fsync_ = true;

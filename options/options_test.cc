@@ -934,13 +934,21 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // Experimental Ribbon filter policy
+  // Ribbon filter policy
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt, "filter_policy=experimental_ribbon:5.678;",
+      config_options, table_opt, "filter_policy=ribbonfilter:5.678;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  // Old name
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=experimental_ribbon:6.789;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
 
   // Check block cache options are overwritten when specified
