@@ -10,7 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Abstract base class for building layered compation filter on top of
+// Abstract base class for building layered compaction filter on top of
 // user compaction filter.
 // See BlobIndexCompactionFilter or TtlCompactionFilter for a basic usage.
 class LayeredCompactionFilterBase : public CompactionFilter {
@@ -28,6 +28,9 @@ class LayeredCompactionFilterBase : public CompactionFilter {
 
   // Return a pointer to user compaction filter
   const CompactionFilter* user_comp_filter() const { return user_comp_filter_; }
+
+ protected:
+  const Customizable* Inner() const override { return user_comp_filter_; }
 
  private:
   const CompactionFilter* user_comp_filter_;

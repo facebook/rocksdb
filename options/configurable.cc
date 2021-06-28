@@ -398,10 +398,9 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
 
   if (opt_info.IsMutable() || !config_options.mutable_options_only) {
     // Either the option is mutable, or we are processing all of the options
-    if (opt_name == name ||
-        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
-        name == ConfigurableHelper::kIdPropName) {
-      return configurable.ParseOption(copy, opt_info, opt_name, value, opt_ptr);
+    if (opt_name == name || name == ConfigurableHelper::kIdPropName ||
+        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
+      return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.empty()) {
       return Status::OK();
     } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {

@@ -27,8 +27,16 @@ class SortList : public MergeOperator {
                          const std::deque<Slice>& operand_list,
                          std::string* new_value, Logger* logger) const override;
 
-  const char* Name() const override;
+  static const char* kClassName() { return "MergeSortOperator"; }
+  const char* Name() const override { return kClassName(); }
 
+  bool IsInstanceOf(const std::string& id) const override {
+    if (id == "sortlist") {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
   void MakeVector(std::vector<int>& operand, Slice slice) const;
 
  private:

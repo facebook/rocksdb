@@ -36,7 +36,15 @@ class UInt64AddOperator : public AssociativeMergeOperator {
     return true;  // Return true always since corruption will be treated as 0
   }
 
-  const char* Name() const override { return "UInt64AddOperator"; }
+  static const char* kClassName() { return "UInt64AddOperator"; }
+  const char* Name() const override { return kClassName(); }
+  bool IsInstanceOf(const std::string& id) const override {
+    if (id == "uint64add") {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
 
  private:
   // Takes the string and decodes it into a uint64_t

@@ -48,7 +48,8 @@ class PutOperator : public MergeOperator {
     return true;
   }
 
-  const char* Name() const override { return "PutOperator"; }
+  static const char* kClassName() { return "PutOperator"; }
+  const char* Name() const override { return kClassName(); }
 };
 
 class PutOperatorV2 : public PutOperator {
@@ -66,6 +67,13 @@ class PutOperatorV2 : public PutOperator {
     assert(!merge_in.operand_list.empty());
     merge_out->existing_operand = merge_in.operand_list.back();
     return true;
+  }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "put") {
+      return true;
+    } else {
+      return PutOperator::IsInstanceOf(name);
+    }
   }
 };
 

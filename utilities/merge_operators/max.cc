@@ -64,7 +64,15 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  const char* Name() const override { return "MaxOperator"; }
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "MaxOperator"; }
+  bool IsInstanceOf(const std::string& id) const override {
+    if (id == "max") {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
 };
 
 }  // end of anonymous namespace
