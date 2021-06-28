@@ -14,8 +14,10 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -49,7 +51,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
 }  // namespace
 
 StressTest::StressTest()
-    : cache_(NewCache(FLAGS_cache_size)),
+    : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
@@ -114,7 +116,8 @@ StressTest::~StressTest() {
   delete cmp_db_;
 }
 
-std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
+std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
+                                            int32_t num_shard_bits) {
   if (capacity <= 0) {
     return nullptr;
   }
@@ -126,7 +129,24 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
     }
     return cache;
   } else {
-    return NewLRUCache((size_t)capacity);
+    LRUCacheOptions opts;
+    opts.capacity = capacity;
+    opts.num_shard_bits = num_shard_bits;
+#ifndef ROCKSDB_LITE
+    std::shared_ptr<SecondaryCache> secondary_cache;
+    if (!FLAGS_secondary_cache_uri.empty()) {
+      Status s = ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
+          FLAGS_secondary_cache_uri, &secondary_cache);
+      if (secondary_cache == nullptr) {
+        fprintf(stderr,
+                "No secondary cache registered matching string: %s status=%s\n",
+                FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+      opts.secondary_cache = secondary_cache;
+    }
+#endif
+    return NewLRUCache(opts);
   }
 }
 
