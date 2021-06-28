@@ -29,6 +29,12 @@
 * Add BlockBasedTableOptions.prepopulate_block_cache.  If enabled, it prepopulate warm/hot data blocks which are already in memory into block cache at the time of flush. On a flush, the data block that is in memory (in memtables) get flushed to the device. If using Direct IO, additional IO is incurred to read this data back into memory again, which is avoided by enabling this option and it also helps with Distributed FileSystem. More details in include/rocksdb/table.h.
 * Added a `cancel` field to `CompactRangeOptions`, allowing individual in-process manual range compactions to be cancelled.
 
+### New Features
+* Added BlobMetaData to the ColumnFamilyMetaData to return information about blob files
+
+### Public API change
+* Added GetAllColumnFamilyMetaData API to retrieve the ColumnFamilyMetaData about all column families.
+
 ## 6.21.0 (2021-05-21)
 ### Bug Fixes
 * Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.

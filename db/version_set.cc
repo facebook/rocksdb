@@ -1469,6 +1469,10 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
   cf_meta->file_count = 0;
   cf_meta->levels.clear();
 
+  cf_meta->blob_file_size = 0;
+  cf_meta->blob_file_count = 0;
+  cf_meta->blob_files.clear();
+
   auto* ioptions = cfd_->ioptions();
   auto* vstorage = storage_info();
 
@@ -1503,6 +1507,17 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
     cf_meta->levels.emplace_back(
         level, level_size, std::move(files));
     cf_meta->size += level_size;
+  }
+  for (const auto& iter : vstorage->GetBlobFiles()) {
+    const auto meta = iter.second.get();
+    cf_meta->blob_files.emplace_back(
+        meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
+        ioptions->cf_paths.front().path, meta->GetBlobFileSize(),
+        meta->GetTotalBlobCount(), meta->GetTotalBlobBytes(),
+        meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes(),
+        meta->GetChecksumMethod(), meta->GetChecksumValue());
+    cf_meta->blob_file_count++;
+    cf_meta->blob_file_size += meta->GetBlobFileSize();
   }
 }
 

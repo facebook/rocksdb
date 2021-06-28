@@ -8,9 +8,13 @@
 #include <ostream>
 #include <sstream>
 
+#include "db/blob/blob_log_format.h"
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
+uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
+  return BlobLogHeader::kSize + total_blob_bytes_ + BlobLogFooter::kSize;
+}
 
 std::string SharedBlobFileMetaData::DebugString() const {
   std::ostringstream oss;
