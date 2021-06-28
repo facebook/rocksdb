@@ -1862,6 +1862,15 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
         break;
       }
     }
+
+    // Check status and propagate
+    // potential error status from c_iter
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
+    }
+
     // Range tombstone transfer.
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
