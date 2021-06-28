@@ -132,7 +132,7 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 #ifndef ROCKSDB_LITE
     {"string",
      {offsetof(struct BOptions, s), OptionType::kString,
-      OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"bool",
      {offsetof(struct BOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -752,10 +752,25 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_OK(mc.ConfigureOption(options, "mutable", "{bool=true}"));
   auto* mm_a = mm->get()->GetOptions<AOptions>("A");
   ASSERT_EQ(mm_a->b, true);
-  ASSERT_OK(mc.ConfigureOption(options, "mutable", "{int=11;bool=false}"));
+  ASSERT_OK(mc.ConfigureOption(options, "mutable", "{int=22;bool=false}"));
   mm_a = mm->get()->GetOptions<AOptions>("A");
-  ASSERT_EQ(mm_a->i, 11);
+  ASSERT_EQ(mm_a->i, 22);
   ASSERT_EQ(mm_a->b, false);
+
+  // Only the mutable options should get serialized
+  options.mutable_options_only = false;
+  ASSERT_OK(mc.ConfigureOption(options, "immutable", "{id=B;}"));
+  options.mutable_options_only = true;
+
+  std::string opt_str;
+  ASSERT_OK(mc.GetOptionString(options, &opt_str));
+  MutableCustomizable mc2;
+  ASSERT_OK(mc2.ConfigureFromString(options, opt_str));
+  std::string mismatch;
+  ASSERT_TRUE(mc.AreEquivalent(options, &mc2, &mismatch));
+  options.mutable_options_only = false;
+  ASSERT_FALSE(mc.AreEquivalent(options, &mc2, &mismatch));
+  ASSERT_EQ(mismatch, "immutable");
 }
 #endif  // !ROCKSDB_LITE
 

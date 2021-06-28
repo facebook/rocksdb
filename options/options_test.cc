@@ -1782,6 +1782,9 @@ TEST_F(OptionsTest, OnlyMutableDBOptions) {
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mdb_config->AreEquivalent(cfg_opts, db_config.get(), &mismatch));
   ASSERT_FALSE(db_config->AreEquivalent(cfg_opts, mdb_config.get(), &mismatch));
+
+  // Make sure there are only mutable options being configured
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, DBOptions(), opt_str, &db_opts));
 }
 
 TEST_F(OptionsTest, OnlyMutableCFOptions) {
@@ -1795,6 +1798,7 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   std::unordered_set<std::string> a_names;
 
   test::RandomInitCFOptions(&cf_opts, db_opts, &rnd);
+  cf_opts.comparator = ReverseBytewiseComparator();
   auto cf_config = CFOptionsAsConfigurable(cf_opts);
 
   // Get all of the CF Option names (mutable or not)
@@ -1826,7 +1830,11 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
   ASSERT_FALSE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
+  delete cf_opts.compaction_filter;
 
+  // Make sure the options string contains only mutable options
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, ColumnFamilyOptions(),
+                                             opt_str, &cf_opts));
   delete cf_opts.compaction_filter;
 }
 #endif  // !ROCKSDB_LITE
