@@ -1803,7 +1803,6 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
             "anymore.");
       }
     }
-    // (void)context;
 
     Env* env = immutable_db_options_.env;
     assert(env);
@@ -2100,8 +2099,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   cfd->mem()->SetNextLogNumber(logfile_number_);
   // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge) {
-    s = MemPurge(cfd, new_mem);
-    if (s.ok()) {
+    Status mempurge_s = MemPurge(cfd, new_mem);
+    if (mempurge_s.ok()) {
       // If mempurge worked successfully,
       // increment counter and decrement current memtable reference.
       RecordTick(stats_, MEMPURGE_COUNT, 1);

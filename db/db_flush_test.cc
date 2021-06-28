@@ -24,6 +24,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// This is a static filter used for filtering
+// kvs during the compaction process.
+static std::string NEW_VALUE = "NewValue";
+
 class DBFlushTest : public DBTestBase {
  public:
   DBFlushTest() : DBTestBase("/db_flush_test", /*env_do_fsync=*/true) {}
@@ -916,6 +920,122 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   if (iter) delete iter;
 
   Close();
+}
+
+// Create a Compaction Fitler that will be invoked
+// at flush time and will update the value of a KV pair
+// if the key string is "lower" than the filter_key_ string.
+class ConditionalUpdateFilter : public CompactionFilter {
+ public:
+  explicit ConditionalUpdateFilter(const std::string* filtered_key)
+      : filtered_key_(filtered_key) {}
+  bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+              std::string* new_value, bool* value_changed) const override {
+    // If key<filtered_key_, update the value of the KV-pair.
+    if (key.compare(*filtered_key_) < 0) {
+      assert(new_value != nullptr);
+      *new_value = NEW_VALUE;
+      *value_changed = true;
+    }
+    return false /*do not remove this KV-pair*/;
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilter"; }
+
+ private:
+  const std::string* filtered_key_;
+};
+
+class ConditionalUpdateFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit ConditionalUpdateFilterFactory(const Slice& filtered_key)
+      : filtered_key_(filtered_key.ToString()) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::unique_ptr<CompactionFilter>(
+        new ConditionalUpdateFilter(&filtered_key_));
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilterFactory"; }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    // This compaction filter will be invoked
+    // at flush time (and therefore at MemPurge time).
+    return (reason == TableFileCreationReason::kFlush);
+  }
+
+ private:
+  std::string filtered_key_;
+};
+
+TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
+  Options options = CurrentOptions();
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Create a ConditionalUpdate compaction filter
+  // that will update all the values of the KV pairs
+  // where the keys are "lower" than KEY4.
+  options.compaction_filter_factory =
+      std::make_shared<ConditionalUpdateFilterFactory>(KEY4);
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+
+  Random rnd(53);
+  const size_t NUM_REPEAT = 25;
+  const size_t RAND_VALUES_LENGTH = 128;
+  std::string value, p_v1, p_v2, p_v3, p_v4, p_v5;
+
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+
+    ASSERT_OK(Delete(KEY1));
+
+    ASSERT_OK(Flush());
+
+    // Verify that the ConditionalUpdateCompactionFilter
+    // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
+    value = Get(KEY1);
+    ASSERT_EQ(value, NOT_FOUND);
+    value = Get(KEY2);
+    ASSERT_EQ(value, NEW_VALUE);
+    value = Get(KEY3);
+    ASSERT_EQ(value, NEW_VALUE);
+    value = Get(KEY4);
+    ASSERT_EQ(value, p_v4);
+    value = Get(KEY5);
+    ASSERT_EQ(value, p_v5);
+  }
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
