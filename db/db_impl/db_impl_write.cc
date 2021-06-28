@@ -1739,6 +1739,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
   Status s;
+  assert(new_mem != nullptr);
 
   JobContext job_context(next_job_id_.fetch_add(1), true);
   std::vector<SequenceNumber> snapshot_seqs;
@@ -1765,7 +1766,7 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
     range_del_iters.emplace_back(range_del_iter);
   }
   ScopedArenaIterator iter(
-      NewMergingIterator(&(cfd->internal_comparator()), &memtables[0],
+      NewMergingIterator(&(cfd->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
 
   auto* ioptions = cfd->ioptions();
@@ -2107,7 +2108,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
   // If MemPurge activated, purge and delete current memtable.
-  if (immutable_db_options_.experimental_allow_mempurge) {
+  if (immutable_db_options_.experimental_allow_mempurge &&
+      (new_mem != nullptr)) {
     Status mempurge_s = MemPurge(cfd, new_mem);
     if (mempurge_s.ok()) {
       // If mempurge worked successfully,
