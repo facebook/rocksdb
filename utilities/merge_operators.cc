@@ -54,13 +54,27 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MergeOperator>(
+      "stringappend",
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new StringAppendOperator(","));
+        return guard->get();
+      });
+  library.Register<MergeOperator>(
       StringAppendTESTOperator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendTESTOperator(","));
         return guard->get();
       });
-  return 2;
+  library.Register<MergeOperator>(
+      "stringappendtest",
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new StringAppendTESTOperator(","));
+        return guard->get();
+      });
+  return 4;
 }
 #endif  // ROCKSDB_LITE
 

@@ -31,7 +31,7 @@ class BytesXOROperator : public AssociativeMergeOperator {
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "BytesXOR"; }
   bool IsInstanceOf(const std::string& id) const override {
-    if (id == "bytexor") {
+    if (id == "bytesxor") {
       return true;
     } else {
       return MergeOperator::IsInstanceOf(id);
