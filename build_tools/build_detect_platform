@@ -69,10 +69,6 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
       source "$PWD/build_tools/fbcode_config_platform007.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
       source "$PWD/build_tools/fbcode_config_platform009.sh"
-    elif [ -z "$USE_CLANG" ]; then
-        # Still use platform007 for gcc by default for build break on
-        # some hosts.
-      source "$PWD/build_tools/fbcode_config_platform007.sh"
     else
       source "$PWD/build_tools/fbcode_config_platform009.sh"
     fi
@@ -175,7 +171,10 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
-        if test $ROCKSDB_USE_IO_URING; then
+        if test -z "$ROCKSDB_USE_IO_URING"; then
+            ROCKSDB_USE_IO_URING=1
+        fi
+        if test "$ROCKSDB_USE_IO_URING" -ne 0; then
             # check for liburing
             $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
               #include <liburing.h>

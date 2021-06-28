@@ -17,10 +17,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void ConfigurableHelper::RegisterOptions(
-    Configurable& configurable, const std::string& name, void* opt_ptr,
+void Configurable::RegisterOptions(
+    const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
-  Configurable::RegisteredOptions opts;
+  RegisteredOptions opts;
   opts.name = name;
 #ifndef ROCKSDB_LITE
   opts.type_map = type_map;
@@ -28,7 +28,7 @@ void ConfigurableHelper::RegisterOptions(
   (void)type_map;
 #endif  // ROCKSDB_LITE
   opts.opt_ptr = opt_ptr;
-  configurable.options_.emplace_back(opts);
+  options_.emplace_back(opts);
 }
 
 //*************************************************************************

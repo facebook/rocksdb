@@ -1048,6 +1048,56 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
+  // Interface to block and signal the DB in case of stalling writes by
+  // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
+  // When DB needs to be blocked or signalled by WriteBufferManager,
+  // state_ is changed accordingly.
+  class WBMStallInterface : public StallInterface {
+   public:
+    enum State {
+      BLOCKED = 0,
+      RUNNING,
+    };
+
+    WBMStallInterface() : state_cv_(&state_mutex_) {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+    }
+
+    void SetState(State state) {
+      MutexLock lock(&state_mutex_);
+      state_ = state;
+    }
+
+    // Change the state_ to State::BLOCKED and wait until its state is
+    // changed by WriteBufferManager. When stall is cleared, Signal() is
+    // called to change the state and unblock the DB.
+    void Block() override {
+      MutexLock lock(&state_mutex_);
+      while (state_ == State::BLOCKED) {
+        TEST_SYNC_POINT("WBMStallInterface::BlockDB");
+        state_cv_.Wait();
+      }
+    }
+
+    // Called from WriteBufferManager. This function changes the state_
+    // to State::RUNNING indicating the stall is cleared and DB can proceed.
+    void Signal() override {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+      state_cv_.Signal();
+    }
+
+   private:
+    // Conditional variable and mutex to block and
+    // signal the DB during stalling process.
+    port::Mutex state_mutex_;
+    port::CondVar state_cv_;
+    // state represting whether DB is running or blocked because of stall by
+    // WriteBufferManager.
+    State state_;
+  };
+
  protected:
   const std::string dbname_;
   std::string db_id_;
@@ -1080,6 +1130,14 @@ class DBImpl : public DB {
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
 
+  // table_cache_ provides its own synchronization
+  std::shared_ptr<Cache> table_cache_;
+
+  ErrorHandler error_handler_;
+
+  // Unified interface for logging events
+  EventLogger event_logger_;
+
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
@@ -1109,6 +1167,12 @@ class DBImpl : public DB {
   //
   // Default: true
   const bool batch_per_txn_;
+
+  // Each flush or compaction gets its own job id. this counter makes sure
+  // they're unique
+  std::atomic<int> next_job_id_;
+
+  std::atomic<bool> shutting_down_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -1390,15 +1454,16 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     Status status;
     bool done;
-    bool in_progress;            // compaction request being processed?
-    bool incomplete;             // only part of requested range compacted
-    bool exclusive;              // current behavior of only one manual
-    bool disallow_trivial_move;  // Force actual compaction to run
-    const InternalKey* begin;    // nullptr means beginning of key range
-    const InternalKey* end;      // nullptr means end of key range
-    InternalKey* manual_end;     // how far we are compacting
-    InternalKey tmp_storage;     // Used to keep track of compaction progress
-    InternalKey tmp_storage1;    // Used to keep track of compaction progress
+    bool in_progress;             // compaction request being processed?
+    bool incomplete;              // only part of requested range compacted
+    bool exclusive;               // current behavior of only one manual
+    bool disallow_trivial_move;   // Force actual compaction to run
+    const InternalKey* begin;     // nullptr means beginning of key range
+    const InternalKey* end;       // nullptr means end of key range
+    InternalKey* manual_end;      // how far we are compacting
+    InternalKey tmp_storage;      // Used to keep track of compaction progress
+    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    std::atomic<bool>* canceled;  // Compaction canceled by the user?
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
@@ -1525,6 +1590,10 @@ class DBImpl : public DB {
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
+
+  // Begin stalling of writes when memory usage increases beyond a certain
+  // threshold.
+  void WriteBufferManagerStallWrites();
 
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
@@ -1886,9 +1955,6 @@ class DBImpl : public DB {
 
   Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
-  // table_cache_ provides its own synchronization
-  std::shared_ptr<Cache> table_cache_;
-
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
@@ -1901,8 +1967,6 @@ class DBImpl : public DB {
   // Note: to avoid dealock, if needed to acquire both log_write_mutex_ and
   // mutex_, the order should be first mutex_ and then log_write_mutex_.
   InstrumentedMutex log_write_mutex_;
-
-  std::atomic<bool> shutting_down_;
 
   // If zero, manual compactions are allowed to proceed. If non-zero, manual
   // compactions may still be running, but will quickly fail with
@@ -2112,10 +2176,6 @@ class DBImpl : public DB {
   // Number of threads intending to write to memtable
   std::atomic<size_t> pending_memtable_writes_ = {};
 
-  // Each flush or compaction gets its own job id. this counter makes sure
-  // they're unique
-  std::atomic<int> next_job_id_;
-
   // A flag indicating whether the current rocksdb database has any
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
@@ -2143,9 +2203,6 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;
 #endif  // ROCKSDB_LITE
-
-  // Unified interface for logging events
-  EventLogger event_logger_;
 
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
@@ -2214,8 +2271,6 @@ class DBImpl : public DB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
-  ErrorHandler error_handler_;
-
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
   // column families, and different threads can flush different column
@@ -2230,6 +2285,9 @@ class DBImpl : public DB {
   bool wal_in_db_path_;
 
   BlobFileCompletionCallback blob_callback_;
+
+  // Pointer to WriteBufferManager stalling interface.
+  std::unique_ptr<StallInterface> wbm_stall_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

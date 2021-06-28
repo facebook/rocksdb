@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 class VersionSet;
 class FileSystem;
 class SystemClock;
-struct ImmutableCFOptions;
+struct ImmutableOptions;
 struct MutableCFOptions;
 struct FileOptions;
 class BlobFileAddition;
@@ -32,7 +32,7 @@ class BlobFileCompletionCallback;
 class BlobFileBuilder {
  public:
   BlobFileBuilder(VersionSet* versions, FileSystem* fs,
-                  const ImmutableCFOptions* immutable_cf_options,
+                  const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
                   const FileOptions* file_options, int job_id,
                   uint32_t column_family_id,
@@ -45,8 +45,7 @@ class BlobFileBuilder {
                   std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(std::function<uint64_t()> file_number_generator,
-                  FileSystem* fs,
-                  const ImmutableCFOptions* immutable_cf_options,
+                  FileSystem* fs, const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
                   const FileOptions* file_options, int job_id,
                   uint32_t column_family_id,
@@ -78,7 +77,7 @@ class BlobFileBuilder {
 
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
-  const ImmutableCFOptions* immutable_cf_options_;
+  const ImmutableOptions* immutable_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;

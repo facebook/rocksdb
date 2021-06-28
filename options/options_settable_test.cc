@@ -180,7 +180,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
       "block_align=true;"
-      "max_auto_readahead_size=0",
+      "max_auto_readahead_size=0;"
+      "prepopulate_block_cache=kDisable",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -230,6 +231,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
       {offsetof(struct DBOptions, checksum_handoff_file_types),
        sizeof(FileTypeSet)},
+      {offsetof(struct DBOptions, compaction_service),
+       sizeof(std::shared_ptr<CompactionService>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -285,6 +288,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
+                             "flush_verify_memtable_count=true;"
                              "track_and_verify_wals_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
@@ -441,6 +445,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
+  options->bottommost_temperature = Temperature::kUnknown;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =

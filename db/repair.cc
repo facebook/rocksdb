@@ -100,8 +100,8 @@ class Repairer {
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
-        default_cf_iopts_(
-            ImmutableCFOptions(immutable_db_options_, default_cf_opts_)),
+        default_iopts_(
+            ImmutableOptions(immutable_db_options_, default_cf_opts_)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -109,14 +109,20 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(
-            default_cf_iopts_, env_options_, raw_table_cache_.get(),
-            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
+        table_cache_(
+            // TODO: db_session_id for TableCache should be initialized after
+            // db_session_id_ is set.
+            new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
+                           /*block_cache_tracer=*/nullptr,
+                           /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
+        // TODO: db_session_id for VersionSet should be initialized after
+        // db_session_id_ is set and use it for initialization.
         vset_(dbname_, &immutable_db_options_, env_options_,
               raw_table_cache_.get(), &wb_, &wc_,
-              /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr),
+              /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+              /*db_session_id*/ ""),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -248,7 +254,7 @@ class Repairer {
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
-  const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference
+  const ImmutableOptions default_iopts_;  // table_cache_ holds reference
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -440,19 +446,24 @@ class Repairer {
       }
 
       IOStatus io_s;
+      CompressionOptions default_compression;
+      TableBuilderOptions tboptions(
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
+          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
+          -1 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, current_time,
+          0 /* oldest_key_time */, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
+          meta.fd.GetNumber());
       status = BuildTable(
-          dbname_, /* versions */ nullptr, immutable_db_options_,
-          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), env_options_,
-          table_cache_.get(), iter.get(), std::move(range_del_iters), &meta,
-          nullptr /* blob_file_additions */, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
-          CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, &io_s, nullptr /*IOTracer*/,
-          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
-          nullptr /* table_properties */, -1 /* level */, current_time,
-          0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
-          "DB Repairer" /* db_id */, db_session_id_);
+          dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
+          env_options_, table_cache_.get(), iter.get(),
+          std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
+          {}, kMaxSequenceNumber, snapshot_checker,
+          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
+          nullptr /*IOTracer*/, nullptr /* event_logger */, 0 /* job_id */,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),

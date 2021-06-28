@@ -45,9 +45,9 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
       return true;
     } else {
       // uncompressed page is not found
-      if (ioptions_.info_log && !status.IsNotFound()) {
+      if (ioptions_.logger && !status.IsNotFound()) {
         assert(!status.ok());
-        ROCKS_LOG_INFO(ioptions_.info_log,
+        ROCKS_LOG_INFO(ioptions_.logger,
                        "Error reading from persistent cache. %s",
                        status.ToString().c_str());
       }
@@ -89,9 +89,9 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       return true;
-    } else if (!io_status_.IsNotFound() && ioptions_.info_log) {
+    } else if (!io_status_.IsNotFound() && ioptions_.logger) {
       assert(!io_status_.ok());
-      ROCKS_LOG_INFO(ioptions_.info_log,
+      ROCKS_LOG_INFO(ioptions_.logger,
                      "Error reading from persistent cache. %s",
                      io_status_.ToString().c_str());
     }

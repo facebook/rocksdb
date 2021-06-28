@@ -22,6 +22,7 @@
 #include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
@@ -87,8 +88,21 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   fs_->SyncDir(dirname_);
-  return dir_->Fsync(options, dbg);
+  IOStatus s = dir_->Fsync(options, dbg);
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+  return s;
 }
 
 TestFSWritableFile::TestFSWritableFile(const std::string& fname,
@@ -126,8 +140,8 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
 // By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
 // simulated.
 IOStatus TestFSWritableFile::Append(
-    const Slice& data, const IOOptions&,
-    const DataVerificationInfo& verification_info, IODebugContext*) {
+    const Slice& data, const IOOptions& options,
+    const DataVerificationInfo& verification_info, IODebugContext* dbg) {
   MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
@@ -147,10 +161,39 @@ IOStatus TestFSWritableFile::Append(
                       "current data checksum: " + checksum;
     return IOStatus::Corruption(msg);
   }
+  if (target_->use_direct_io()) {
+    target_->Append(data, options, dbg).PermitUncheckedError();
+  } else {
+    state_.buffer_.append(data.data(), data.size());
+    state_.pos_ += data.size();
+    fs_->WritableFileAppended(state_);
+  }
+  return IOStatus::OK();
+}
 
-  state_.buffer_.append(data.data(), data.size());
-  state_.pos_ += data.size();
-  fs_->WritableFileAppended(state_);
+IOStatus TestFSWritableFile::PositionedAppend(
+    const Slice& data, uint64_t offset, const IOOptions& options,
+    const DataVerificationInfo& verification_info, IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  if (fs_->ShouldDataCorruptionBeforeWrite()) {
+    return IOStatus::Corruption("Data is corrupted!");
+  }
+
+  // Calculate the checksum
+  std::string checksum;
+  CalculateTypedChecksum(fs_->GetChecksumHandoffFuncType(), data.data(),
+                         data.size(), &checksum);
+  if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
+      checksum != verification_info.checksum.ToString()) {
+    std::string msg = "Data is corrupted! Origin data checksum: " +
+                      verification_info.checksum.ToString() +
+                      "current data checksum: " + checksum;
+    return IOStatus::Corruption(msg);
+  }
+  target_->PositionedAppend(data, offset, options, dbg);
   return IOStatus::OK();
 }
 
@@ -158,6 +201,12 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
+  }
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
   }
   writable_file_opened_ = false;
   IOStatus io_s;
@@ -170,6 +219,10 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   }
   if (io_s.ok()) {
     fs_->WritableFileClosed(state_);
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
   }
   return io_s;
 }
@@ -275,6 +328,14 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
+size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
+  if (fs_->ShouldFailGetUniqueId()) {
+    return 0;
+  } else {
+    return target_->GetUniqueId(id, max_size);
+  }
+}
+
 IOStatus FaultInjectionTestFS::NewDirectory(
     const std::string& name, const IOOptions& options,
     std::unique_ptr<FSDirectory>* result, IODebugContext* dbg) {
@@ -294,6 +355,12 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
@@ -305,11 +372,19 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -323,6 +398,12 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (IsFilesystemDirectWritable()) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(
@@ -330,11 +411,19 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -348,17 +437,31 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (IsFilesystemDirectWritable()) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSRandomRWFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -385,9 +488,21 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
   if (io_s.ok()) {
     UntrackFile(f);
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -399,21 +514,33 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
 
   if (io_s.ok()) {
-    MutexLock l(&mutex_);
-    if (db_file_state_.find(s) != db_file_state_.end()) {
-      db_file_state_[t] = db_file_state_[s];
-      db_file_state_.erase(s);
-    }
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(s) != db_file_state_.end()) {
+        db_file_state_[t] = db_file_state_[s];
+        db_file_state_.erase(s);
+      }
 
-    auto sdn = TestFSGetDirAndName(s);
-    auto tdn = TestFSGetDirAndName(t);
-    if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
-      auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
-      assert(tlist.find(tdn.second) == tlist.end());
-      tlist.insert(tdn.second);
+      auto sdn = TestFSGetDirAndName(s);
+      auto tdn = TestFSGetDirAndName(t);
+      if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
+        auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+        assert(tlist.find(tdn.second) == tlist.end());
+        tlist.insert(tdn.second);
+      }
+    }
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
     }
   }
 
@@ -616,6 +743,19 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
     }
   }
   return IOStatus::OK();
+}
+
+IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
+  {
+    MutexLock l(&mutex_);
+    if (!enable_metadata_write_error_injection_ ||
+        !metadata_write_error_one_in_ ||
+        !write_error_rand_.OneIn(metadata_write_error_one_in_)) {
+      return IOStatus::OK();
+    }
+  }
+  TEST_SYNC_POINT("FaultInjectionTestFS::InjectMetadataWriteError:Injected");
+  return IOStatus::IOError();
 }
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {

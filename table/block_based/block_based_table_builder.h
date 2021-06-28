@@ -38,20 +38,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
-  BlockBasedTableBuilder(
-      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
-      const BlockBasedTableOptions& table_options,
-      const InternalKeyComparator& internal_comparator,
-      const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          int_tbl_prop_collector_factories,
-      uint32_t column_family_id, WritableFileWriter* file,
-      const CompressionType compression_type,
-      const CompressionOptions& compression_opts, const bool skip_filters,
-      const std::string& column_family_name, const int level_at_creation,
-      const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
-      const uint64_t target_file_size = 0,
-      const uint64_t file_creation_time = 0, const std::string& db_id = "",
-      const std::string& db_session_id = "");
+  BlockBasedTableBuilder(const BlockBasedTableOptions& table_options,
+                         const TableBuilderOptions& table_builder_options,
+                         WritableFileWriter* file);
 
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
@@ -126,10 +115,16 @@ class BlockBasedTableBuilder : public TableBuilder {
                   bool is_data_block);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     bool is_data_block = false);
+                     bool is_data_block = false,
+                     const Slice* raw_data = nullptr);
+
+  void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
+
   Status InsertBlockInCache(const Slice& block_contents,
-                            const CompressionType type,
                             const BlockHandle* handle);
+  Status InsertBlockInCompressedCache(const Slice& block_contents,
+                                      const CompressionType type,
+                                      const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,

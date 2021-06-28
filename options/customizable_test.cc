@@ -98,8 +98,9 @@ static std::unordered_map<std::string, OptionTypeInfo> a_option_info = {
 };
 class ACustomizable : public TestCustomizable {
  public:
-  ACustomizable(const std::string& id) : TestCustomizable("A"), id_(id) {
-    ConfigurableHelper::RegisterOptions(*this, "A", &opts_, &a_option_info);
+  explicit ACustomizable(const std::string& id)
+      : TestCustomizable("A"), id_(id) {
+    RegisterOptions("A", &opts_, &a_option_info);
   }
   std::string GetId() const override { return id_; }
   static const char* kClassName() { return "A"; }
@@ -141,8 +142,8 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 class BCustomizable : public TestCustomizable {
  private:
  public:
-  BCustomizable(const std::string& name) : TestCustomizable(name) {
-    ConfigurableHelper::RegisterOptions(*this, name, &opts_, &b_option_info);
+  explicit BCustomizable(const std::string& name) : TestCustomizable(name) {
+    RegisterOptions(name, &opts_, &b_option_info);
   }
   static const char* kClassName() { return "B"; }
 
@@ -246,13 +247,12 @@ class SimpleConfigurable : public Configurable {
 
  public:
   SimpleConfigurable() {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_,
-                                        &simple_option_info);
+    RegisterOptions("simple", &simple_, &simple_option_info);
   }
 
-  SimpleConfigurable(
+  explicit SimpleConfigurable(
       const std::unordered_map<std::string, OptionTypeInfo>* map) {
-    ConfigurableHelper::RegisterOptions(*this, "simple", &simple_, map);
+    RegisterOptions("simple", &simple_, map);
   }
 
   bool IsPrepared() const override {
@@ -505,12 +505,75 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+class InnerCustomizable : public Customizable {
+ public:
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
+      : inner_(w) {}
+  static const char* kClassName() { return "Inner"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return Customizable::IsInstanceOf(name);
+    }
+  }
+
+ protected:
+  const Customizable* Inner() const override { return inner_.get(); }
+
+ private:
+  std::shared_ptr<Customizable> inner_;
+};
+
+class WrappedCustomizable1 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped1"; }
+};
+
+class WrappedCustomizable2 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped2"; }
+};
+
+TEST_F(CustomizableTest, WrappedInnerTest) {
+  std::shared_ptr<TestCustomizable> ac =
+      std::make_shared<TestCustomizable>("A");
+
+  ASSERT_TRUE(ac->IsInstanceOf("A"));
+  ASSERT_TRUE(ac->IsInstanceOf("TestCustomizable"));
+  ASSERT_EQ(ac->CheckedCast<TestCustomizable>(), ac.get());
+  ASSERT_EQ(ac->CheckedCast<InnerCustomizable>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable1>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable2>(), nullptr);
+  std::shared_ptr<Customizable> wc1 =
+      std::make_shared<WrappedCustomizable1>(ac);
+
+  ASSERT_TRUE(wc1->IsInstanceOf(WrappedCustomizable1::kClassName()));
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable2>(), nullptr);
+  ASSERT_EQ(wc1->CheckedCast<InnerCustomizable>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<TestCustomizable>(), ac.get());
+
+  std::shared_ptr<Customizable> wc2 =
+      std::make_shared<WrappedCustomizable2>(wc1);
+  ASSERT_TRUE(wc2->IsInstanceOf(WrappedCustomizable2::kClassName()));
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable2>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
 class ShallowCustomizable : public Customizable {
  public:
   ShallowCustomizable() {
     inner_ = std::make_shared<ACustomizable>("a");
-    ConfigurableHelper::RegisterOptions(*this, "inner", &inner_,
-                                        &inner_option_info);
+    RegisterOptions("inner", &inner_, &inner_option_info);
   };
   static const char* kClassName() { return "shallow"; }
   const char* Name() const override { return kClassName(); }
@@ -641,10 +704,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 
    public:
     MutableCustomizable() {
-      ConfigurableHelper::RegisterOptions(*this, "mutable", &mutable_,
-                                          &mutable_option_info);
-      ConfigurableHelper::RegisterOptions(*this, "immutable", &immutable_,
-                                          &immutable_option_info);
+      RegisterOptions("mutable", &mutable_, &mutable_option_info);
+      RegisterOptions("immutable", &immutable_, &immutable_option_info);
     }
     const char* Name() const override { return "MutableCustomizable"; }
   };
@@ -697,6 +758,102 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_EQ(mm_a->b, false);
 }
 #endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+static int RegisterTestObjects(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  size_t num_types;
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+  library.Register<const Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        static test::SimpleSuffixReverseComparator ssrc;
+        return &ssrc;
+      });
+
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+static int RegisterLocalObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  size_t num_types;
+  // Load any locally defined objects here
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // !ROCKSDB_LITE
+
+class LoadCustomizableTest : public testing::Test {
+ public:
+  LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
+  bool RegisterTests(const std::string& arg) {
+#ifndef ROCKSDB_LITE
+    config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
+                                         arg);
+    config_options_.registry->AddLibrary("local-tests", RegisterLocalObjects,
+                                         arg);
+    return true;
+#else
+    (void)arg;
+    return false;
+#endif  // !ROCKSDB_LITE
+  }
+
+ protected:
+  DBOptions db_opts_;
+  ColumnFamilyOptions cf_opts_;
+  ConfigOptions config_options_;
+};
+
+TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  std::shared_ptr<TableFactory> factory;
+  ASSERT_NOK(
+      TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, TableFactory::kBlockBasedTableName(), &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "MockTable");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadComparatorTest) {
+  const Comparator* bytewise = BytewiseComparator();
+  const Comparator* reverse = ReverseBytewiseComparator();
+
+  const Comparator* result = nullptr;
+  ASSERT_NOK(Comparator::CreateFromString(
+      config_options_, test::SimpleSuffixReverseComparator::kClassName(),
+      &result));
+  ASSERT_OK(
+      Comparator::CreateFromString(config_options_, bytewise->Name(), &result));
+  ASSERT_EQ(result, bytewise);
+  ASSERT_OK(
+      Comparator::CreateFromString(config_options_, reverse->Name(), &result));
+  ASSERT_EQ(result, reverse);
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(Comparator::CreateFromString(
+        config_options_, test::SimpleSuffixReverseComparator::kClassName(),
+        &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(),
+                 test::SimpleSuffixReverseComparator::kClassName());
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {

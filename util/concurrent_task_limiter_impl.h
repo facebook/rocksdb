@@ -53,11 +53,16 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
 class TaskLimiterToken {
  public:
   explicit TaskLimiterToken(ConcurrentTaskLimiterImpl* limiter)
-      : limiter_(limiter) {}
+      : limiter_(limiter), released_(false) {}
   ~TaskLimiterToken();
+  // Releases the token from the `ConcurrentTaskLimiterImpl` if not already
+  // released.
+  // Not thread-safe.
+  void ReleaseOnce();
 
  private:
   ConcurrentTaskLimiterImpl* limiter_;
+  bool released_;
 
   // no copying allowed
   TaskLimiterToken(const TaskLimiterToken&) = delete;

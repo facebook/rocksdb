@@ -21,10 +21,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobFileReader::Create(
-    const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_options, uint32_t column_family_id,
-    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
-    const std::shared_ptr<IOTracer>& io_tracer,
+    const ImmutableOptions& immutable_options, const FileOptions& file_options,
+    uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
+    uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -34,7 +33,7 @@ Status BlobFileReader::Create(
 
   {
     const Status s =
-        OpenFile(immutable_cf_options, file_options, blob_file_read_hist,
+        OpenFile(immutable_options, file_options, blob_file_read_hist,
                  blob_file_number, io_tracer, &file_size, &file_reader);
     if (!s.ok()) {
       return s;
@@ -67,20 +66,20 @@ Status BlobFileReader::Create(
 }
 
 Status BlobFileReader::OpenFile(
-    const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_opts, HistogramImpl* blob_file_read_hist,
-    uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
-    uint64_t* file_size, std::unique_ptr<RandomAccessFileReader>* file_reader) {
+    const ImmutableOptions& immutable_options, const FileOptions& file_opts,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer, uint64_t* file_size,
+    std::unique_ptr<RandomAccessFileReader>* file_reader) {
   assert(file_size);
   assert(file_reader);
 
-  const auto& cf_paths = immutable_cf_options.cf_paths;
+  const auto& cf_paths = immutable_options.cf_paths;
   assert(!cf_paths.empty());
 
   const std::string blob_file_path =
       BlobFileName(cf_paths.front().path, blob_file_number);
 
-  FileSystem* const fs = immutable_cf_options.fs;
+  FileSystem* const fs = immutable_options.fs.get();
   assert(fs);
 
   constexpr IODebugContext* dbg = nullptr;
@@ -113,15 +112,15 @@ Status BlobFileReader::OpenFile(
 
   assert(file);
 
-  if (immutable_cf_options.advise_random_on_open) {
+  if (immutable_options.advise_random_on_open) {
     file->Hint(FSRandomAccessFile::kRandom);
   }
 
   file_reader->reset(new RandomAccessFileReader(
-      std::move(file), blob_file_path, immutable_cf_options.clock, io_tracer,
-      immutable_cf_options.statistics, BLOB_DB_BLOB_FILE_READ_MICROS,
-      blob_file_read_hist, immutable_cf_options.rate_limiter,
-      immutable_cf_options.listeners));
+      std::move(file), blob_file_path, immutable_options.clock, io_tracer,
+      immutable_options.stats, BLOB_DB_BLOB_FILE_READ_MICROS,
+      blob_file_read_hist, immutable_options.rate_limiter.get(),
+      immutable_options.listeners));
 
   return Status::OK();
 }

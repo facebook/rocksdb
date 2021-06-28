@@ -30,11 +30,8 @@ Status CuckooTableFactory::NewTableReader(
 }
 
 TableBuilder* CuckooTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  // Ignore the skipFIlters flag. Does not apply to this file format
-  //
-
   // TODO: change builder to take the option struct
   return new CuckooTableBuilder(
       file, table_options_.hash_table_ratio, 64,
@@ -42,8 +39,9 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       table_builder_options.internal_comparator.user_comparator(),
       table_options_.cuckoo_block_size, table_options_.use_module_hash,
       table_options_.identity_as_first_hash, nullptr /* get_slice_hash */,
-      column_family_id, table_builder_options.column_family_name,
-      table_builder_options.db_id, table_builder_options.db_session_id);
+      table_builder_options.column_family_id,
+      table_builder_options.column_family_name, table_builder_options.db_id,
+      table_builder_options.db_session_id);
 }
 
 std::string CuckooTableFactory::GetPrintableOptions() const {
@@ -95,8 +93,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
 
 CuckooTableFactory::CuckooTableFactory(const CuckooTableOptions& table_options)
     : table_options_(table_options) {
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &cuckoo_table_type_info);
+  RegisterOptions(&table_options_, &cuckoo_table_type_info);
 }
 
 TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {

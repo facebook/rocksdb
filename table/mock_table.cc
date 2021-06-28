@@ -255,7 +255,7 @@ Status MockTableFactory::NewTableReader(
 
 TableBuilder* MockTableFactory::NewTableBuilder(
     const TableBuilderOptions& /*table_builder_options*/,
-    uint32_t /*column_family_id*/, WritableFileWriter* file) const {
+    WritableFileWriter* file) const {
   uint32_t id;
   Status s = GetAndWriteNextID(file, &id);
   assert(s.ok());

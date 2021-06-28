@@ -54,7 +54,8 @@ class WalManagerTest : public testing::Test {
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
 
     wal_manager_.reset(
         new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
@@ -217,8 +218,8 @@ int CountRecords(TransactionLogIterator* iter) {
 }  // namespace
 
 TEST_F(WalManagerTest, WALArchivalSizeLimit) {
-  db_options_.wal_ttl_seconds = 0;
-  db_options_.wal_size_limit_mb = 1000;
+  db_options_.WAL_ttl_seconds = 0;
+  db_options_.WAL_size_limit_MB = 1000;
   Init();
 
   // TEST : Create WalManager with huge size limit and no ttl.
@@ -226,7 +227,7 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   // Count the archived log files that survived.
   // Assert that all of them did.
   // Change size limit. Re-open WalManager.
-  // Assert that archive is not greater than wal_size_limit_mb after
+  // Assert that archive is not greater than WAL_size_limit_MB after
   // PurgeObsoleteWALFiles()
   // Set ttl and time_to_check_ to small values. Re-open db.
   // Assert that there are no archived logs left.
@@ -238,14 +239,14 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
       ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_EQ(log_files.size(), 20U);
 
-  db_options_.wal_size_limit_mb = 8;
+  db_options_.WAL_size_limit_MB = 8;
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
   uint64_t archive_size = GetLogDirSize(archive_dir, env_.get());
-  ASSERT_TRUE(archive_size <= db_options_.wal_size_limit_mb * 1024 * 1024);
+  ASSERT_TRUE(archive_size <= db_options_.WAL_size_limit_MB * 1024 * 1024);
 
-  db_options_.wal_ttl_seconds = 1;
+  db_options_.WAL_ttl_seconds = 1;
   env_->FakeSleepForMicroseconds(2 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
@@ -255,7 +256,7 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
 }
 
 TEST_F(WalManagerTest, WALArchivalTtl) {
-  db_options_.wal_ttl_seconds = 1000;
+  db_options_.WAL_ttl_seconds = 1000;
   Init();
 
   // TEST : Create WalManager with a ttl and no size limit.
@@ -271,7 +272,7 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
       ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_GT(log_files.size(), 0U);
 
-  db_options_.wal_ttl_seconds = 1;
+  db_options_.WAL_ttl_seconds = 1;
   env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();

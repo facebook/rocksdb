@@ -558,8 +558,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
-                             immutable_db_options_.wal_size_limit_mb > 0)) {
+    if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
+                             immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }
@@ -943,7 +943,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
     return s;
   }
 
-  if (largest_file_number > next_file_number) {
+  if (largest_file_number >= next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
 

@@ -150,7 +150,7 @@ class VersionStorageInfo {
   // We use compaction scores to figure out which compaction to do next
   // REQUIRES: db_mutex held!!
   // TODO find a better way to pass compaction_options_fifo.
-  void ComputeCompactionScore(const ImmutableCFOptions& immutable_cf_options,
+  void ComputeCompactionScore(const ImmutableOptions& immutable_options,
                               const MutableCFOptions& mutable_cf_options);
 
   // Estimate est_comp_needed_bytes_
@@ -163,13 +163,13 @@ class VersionStorageInfo {
 
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
-  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
+  void ComputeExpiredTtlFiles(const ImmutableOptions& ioptions,
                               const uint64_t ttl);
 
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(
-      const ImmutableCFOptions& ioptions,
+      const ImmutableOptions& ioptions,
       const uint64_t periodic_compaction_seconds);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
@@ -482,7 +482,7 @@ class VersionStorageInfo {
   uint64_t MaxBytesForLevel(int level) const;
 
   // Must be called after any change to MutableCFOptions.
-  void CalculateBaseBytes(const ImmutableCFOptions& ioptions,
+  void CalculateBaseBytes(const ImmutableOptions& ioptions,
                           const MutableCFOptions& options);
 
   // Returns an estimate of the amount of live data in bytes.
@@ -935,7 +935,8 @@ class VersionSet {
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
-             const std::shared_ptr<IOTracer>& io_tracer);
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const std::string& db_session_id);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1221,12 +1222,6 @@ class VersionSet {
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
 
-  // verify that the files that we started with for a compaction
-  // still exist in the current version and in the same original level.
-  // This ensures that a concurrent compaction did not erroneously
-  // pick the same files to compact.
-  bool VerifyCompactionFileConsistency(Compaction* c);
-
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
@@ -1331,10 +1326,6 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const VersionEdit* edit);
 
-  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
-                                    const VersionEdit& from_edit,
-                                    VersionEditParams* version_edit_params);
-
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
@@ -1399,6 +1390,8 @@ class VersionSet {
   IOStatus io_status_;
 
   std::shared_ptr<IOTracer> io_tracer_;
+
+  std::string db_session_id_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex

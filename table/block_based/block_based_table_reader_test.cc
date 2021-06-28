@@ -59,17 +59,17 @@ class BlockBasedTableReaderTest
 
     // Create table builder.
     Options options;
-    ImmutableCFOptions ioptions(options);
+    ImmutableOptions ioptions(options);
     InternalKeyComparator comparator(options.comparator);
     ColumnFamilyOptions cf_options;
     MutableCFOptions moptions(cf_options);
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+    IntTblPropCollectorFactories factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, CompressionOptions(),
-                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            0 /* column_family_id */, kDefaultColumnFamilyName,
                             -1 /* level */),
-        0 /* column_family_id */, writer.get()));
+        writer.get()));
 
     // Build table.
     for (auto it = kv.begin(); it != kv.end(); it++) {
@@ -81,7 +81,7 @@ class BlockBasedTableReaderTest
   }
 
   void NewBlockBasedTableReader(const FileOptions& foptions,
-                                const ImmutableCFOptions& ioptions,
+                                const ImmutableOptions& ioptions,
                                 const InternalKeyComparator& comparator,
                                 const std::string& table_name,
                                 std::unique_ptr<BlockBasedTable>* table) {
@@ -197,7 +197,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
@@ -275,7 +275,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);

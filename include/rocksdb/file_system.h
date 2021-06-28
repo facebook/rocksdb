@@ -46,6 +46,7 @@ class Slice;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 class RateLimiter;
+struct ConfigOptions;
 
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
@@ -100,6 +101,13 @@ struct FileOptions : EnvOptions {
   // to be issued for the file open/creation
   IOOptions io_options;
 
+  // EXPERIMENTAL
+  // The feature is in development and is subject to change.
+  // When creating a new file, set the temperature of the file so that
+  // underlying file systems can put it with appropriate storage media and/or
+  // coding.
+  Temperature temperature = Temperature::kUnknown;
+
   // The checksum type that is used to calculate the checksum value for
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
@@ -115,6 +123,7 @@ struct FileOptions : EnvOptions {
   FileOptions(const FileOptions& opts)
       : EnvOptions(opts),
         io_options(opts.io_options),
+        temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type) {}
 
   FileOptions& operator=(const FileOptions& opts) = default;
@@ -201,8 +210,23 @@ class FileSystem {
   static const char* Type() { return "FileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
+  // The CreateFromString alternative should be used; this method may be
+  // deprecated in a future release.
   static Status Load(const std::string& value,
                      std::shared_ptr<FileSystem>* result);
+
+  // Loads the FileSystem specified by the input value into the result
+  // @see Customizable for a more detailed description of the parameters and
+  // return codes
+  // @param config_options Controls how the FileSystem is loaded
+  // @param value The name and optional properties describing the file system
+  //      to load.
+  // @param result On success, returns the loaded FileSystem
+  // @return OK if the FileSystem was successfully loaded.
+  // @return not-OK if the load failed.
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<FileSystem>* result);
 
   // Return a default fie_system suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

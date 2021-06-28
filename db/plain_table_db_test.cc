@@ -262,18 +262,15 @@ extern const uint64_t kPlainTableMagicNumber;
 
 class TestPlainTableReader : public PlainTableReader {
  public:
-  TestPlainTableReader(const EnvOptions& env_options,
-                       const InternalKeyComparator& icomparator,
-                       EncodingType encoding_type, uint64_t file_size,
-                       int bloom_bits_per_key, double hash_table_ratio,
-                       size_t index_sparseness,
-                       const TableProperties* table_properties,
-                       std::unique_ptr<RandomAccessFileReader>&& file,
-                       const ImmutableCFOptions& ioptions,
-                       const SliceTransform* prefix_extractor,
-                       bool* expect_bloom_not_match, bool store_index_in_file,
-                       uint32_t column_family_id,
-                       const std::string& column_family_name)
+  TestPlainTableReader(
+      const EnvOptions& env_options, const InternalKeyComparator& icomparator,
+      EncodingType encoding_type, uint64_t file_size, int bloom_bits_per_key,
+      double hash_table_ratio, size_t index_sparseness,
+      const TableProperties* table_properties,
+      std::unique_ptr<RandomAccessFileReader>&& file,
+      const ImmutableOptions& ioptions, const SliceTransform* prefix_extractor,
+      bool* expect_bloom_not_match, bool store_index_in_file,
+      uint32_t column_family_id, const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties,
                          prefix_extractor),
