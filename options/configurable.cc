@@ -398,10 +398,9 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
 
   if (opt_info.IsMutable() || !config_options.mutable_options_only) {
     // Either the option is mutable, or we are processing all of the options
-    if (opt_name == name ||
-        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
-        name == ConfigurableHelper::kIdPropName) {
-      return configurable.ParseOption(copy, opt_info, opt_name, value, opt_ptr);
+    if (opt_name == name || name == ConfigurableHelper::kIdPropName ||
+        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
+      return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.empty()) {
       return Status::OK();
     } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
@@ -479,32 +478,6 @@ Status ConfigurableHelper::ConfigureOption(
   }
 }
 #endif  // ROCKSDB_LITE
-
-Status ConfigurableHelper::ConfigureNewObject(
-    const ConfigOptions& config_options_in, Configurable* object,
-    const std::string& id, const std::string& base_opts,
-    const std::unordered_map<std::string, std::string>& opts) {
-  if (object != nullptr) {
-    ConfigOptions config_options = config_options_in;
-    config_options.invoke_prepare_options = false;
-    if (!base_opts.empty()) {
-#ifndef ROCKSDB_LITE
-      // Don't run prepare options on the base, as we would do that on the
-      // overlay opts instead
-      Status status = object->ConfigureFromString(config_options, base_opts);
-      if (!status.ok()) {
-        return status;
-      }
-#endif  // ROCKSDB_LITE
-    }
-    if (!opts.empty()) {
-      return object->ConfigureFromMap(config_options, opts);
-    }
-  } else if (!opts.empty()) {  // No object but no map.  This is OK
-    return Status::InvalidArgument("Cannot configure null object ", id);
-  }
-  return Status::OK();
-}
 
 //*******************************************************************************
 //
@@ -743,16 +716,6 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
   return true;
 }
 #endif  // ROCKSDB_LITE
-
-Status ConfigurableHelper::GetOptionsMap(
-    const std::string& value, const Customizable* customizable, std::string* id,
-    std::unordered_map<std::string, std::string>* props) {
-  if (customizable != nullptr) {
-    return GetOptionsMap(value, customizable->GetId(), id, props);
-  } else {
-    return GetOptionsMap(value, "", id, props);
-  }
-}
 
 Status ConfigurableHelper::GetOptionsMap(
     const std::string& value, const std::string& default_id, std::string* id,

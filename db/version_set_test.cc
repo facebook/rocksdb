@@ -699,7 +699,7 @@ class VersionSetTestBase {
         options_(),
         db_options_(options_),
         cf_options_(options_),
-        immutable_cf_options_(db_options_, cf_options_),
+        immutable_options_(db_options_, cf_options_),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
@@ -718,9 +718,9 @@ class VersionSetTestBase {
     options_.env = env_;
     db_options_.env = env_;
     db_options_.fs = fs_;
-    immutable_cf_options_.env = env_;
-    immutable_cf_options_.fs = fs_;
-    immutable_cf_options_.clock = env_->GetSystemClock().get();
+    immutable_options_.env = env_;
+    immutable_options_.fs = fs_;
+    immutable_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
@@ -908,7 +908,7 @@ class VersionSetTestBase {
   Options options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
-  ImmutableOptions immutable_cf_options_;
+  ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
@@ -989,7 +989,8 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_bytes = 77777777;
     constexpr char checksum_method[] = "SHA1";
     constexpr char checksum_value[] =
-        "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+        "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c"
+        "\x52\x5c\xbd";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1010,7 +1011,7 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_count = 555;
     constexpr uint64_t total_blob_bytes = 66666;
     constexpr char checksum_method[] = "CRC32";
-    constexpr char checksum_value[] = "3d87ff57";
+    constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1068,7 +1069,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t first_total_blob_count = 555;
   constexpr uint64_t first_total_blob_bytes = 66666;
   constexpr char first_checksum_method[] = "CRC32";
-  constexpr char first_checksum_value[] = "3d87ff57";
+  constexpr char first_checksum_value[] = "\x3d\x87\xff\x57";
 
   auto first_shared_meta = SharedBlobFileMetaData::Create(
       first_blob_file_number, first_total_blob_count, first_total_blob_bytes,
@@ -1111,7 +1112,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto second_shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
@@ -1151,7 +1152,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
@@ -2785,7 +2786,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
 
       std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
           TableBuilderOptions(
-              immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
+              immutable_options_, mutable_cf_options_, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
               CompressionOptions(),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,

@@ -452,10 +452,8 @@ class Status {
 
  protected:
   // A nullptr state_ (which is always the case for OK) means the message
-  // is empty.
-  // of the following form:
-  //    state_[0..3] == length of message
-  //    state_[4..]  == message
+  // is empty, else state_ points to message.
+
   Code code_;
   SubCode subcode_;
   Severity sev_;

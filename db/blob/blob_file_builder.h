@@ -77,7 +77,7 @@ class BlobFileBuilder {
 
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
-  const ImmutableOptions* immutable_cf_options_;
+  const ImmutableOptions* immutable_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;

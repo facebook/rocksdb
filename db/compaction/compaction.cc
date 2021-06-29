@@ -581,6 +581,29 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 }
 
+bool Compaction::DoesInputReferenceBlobFiles() const {
+  assert(input_version_);
+
+  const VersionStorageInfo* storage_info = input_version_->storage_info();
+  assert(storage_info);
+
+  if (storage_info->GetBlobFiles().empty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    for (const FileMetaData* meta : inputs_[i].files) {
+      assert(meta);
+
+      if (meta->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 uint64_t Compaction::MinInputFileOldestAncesterTime() const {
   uint64_t min_oldest_ancester_time = port::kMaxUint64;
   for (const auto& level_files : inputs_) {

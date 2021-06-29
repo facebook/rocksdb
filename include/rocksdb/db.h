@@ -1423,6 +1423,12 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
+  // Obtains the meta data of all column families for the DB.
+  // The returned map contains one entry for each column family indexed by the
+  // name of the column family.
+  virtual void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* /*metadata*/) {}
+
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
   // - Duplicate keys in the new files will overwrite exiting keys (default)

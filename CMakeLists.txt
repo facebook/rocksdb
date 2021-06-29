@@ -635,6 +635,7 @@ set(SOURCES
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
+        db/blob/blob_garbage_meter.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
@@ -933,13 +934,8 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc)
-  if(NOT MINGW)
-    # Mingw only supports std::thread when using
-    # posix threads.
-    list(APPEND SOURCES
-      port/win/win_thread.cc)
-  endif()
+    port/win/win_logger.cc
+    port/win/win_thread.cc)
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -1123,11 +1119,13 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
+        db/blob/blob_garbage_meter_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc

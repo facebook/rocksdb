@@ -403,6 +403,8 @@ Status FlushJob::WriteLevel0Table() {
                                    : meta_.oldest_ancester_time;
 
       uint64_t num_input_entries = 0;
+      uint64_t memtable_payload_bytes = 0;
+      uint64_t memtable_garbage_bytes = 0;
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
@@ -422,7 +424,7 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
           &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-          &num_input_entries);
+          &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }
@@ -436,6 +438,12 @@ Status FlushJob::WriteLevel0Table() {
         if (db_options_.flush_verify_memtable_count) {
           s = Status::Corruption(msg);
         }
+      }
+      if (tboptions.reason == TableFileCreationReason::kFlush) {
+        RecordTick(stats_, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+                   memtable_payload_bytes);
+        RecordTick(stats_, MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+                   memtable_garbage_bytes);
       }
       LogFlush(db_options_.info_log);
     }
