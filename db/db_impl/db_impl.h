@@ -400,11 +400,12 @@ class DBImpl : public DB {
       FileChecksumList* checksum_list) override;
 
   // Obtains the meta data of the specified column family of the DB.
-  // Status::NotFound() will be returned if the current DB does not have
-  // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* metadata) override;
+
+  void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* metadata) override;
 
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;
@@ -974,8 +975,10 @@ class DBImpl : public DB {
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 
-  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
-                             std::vector<std::vector<FileMetaData>>* metadata);
+  void TEST_GetFilesMetaData(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::vector<FileMetaData>>* metadata,
+      std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata = nullptr);
 
   void TEST_LockMutex();
 

@@ -1283,7 +1283,6 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);
 }
 
-
 // The code for crc32c combine, copied with permission from folly
 
 // Standard galois-field multiply.  The only modification is that a,

@@ -384,12 +384,12 @@ class CompactionService : public Customizable {
   // TODO: sub-compaction is not supported, as they will have the same job_id, a
   // sub-compaction id might be added
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, int job_id) = 0;
+      const std::string& compaction_service_input, uint64_t job_id) = 0;
 
   // Wait compaction to be finish.
   // TODO: Add output path override
   virtual CompactionServiceJobStatus WaitForComplete(
-      int job_id, std::string* compaction_service_result) = 0;
+      uint64_t job_id, std::string* compaction_service_result) = 0;
 
   virtual ~CompactionService() {}
 };

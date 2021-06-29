@@ -264,7 +264,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
       nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,
       r->ioptions.file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kTableFile)));
+      tmp_set.Contains(FileType::kTableFile), false));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

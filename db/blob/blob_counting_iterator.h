@@ -11,6 +11,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "table/internal_iterator.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -130,6 +131,9 @@ class BlobCountingIterator : public InternalIterator {
       status_ = iter_->status();
       return;
     }
+
+    TEST_SYNC_POINT(
+        "BlobCountingIterator::UpdateAndCountBlobIfNeeded:ProcessInFlow");
 
     status_ = blob_garbage_meter_->ProcessInFlow(key(), value());
   }
