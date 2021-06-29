@@ -242,34 +242,48 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
 #ifdef SNAPPY
 TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
-  ReadOptions read_options;
-  auto table_options = GetTableOptions();
-  auto options = GetOptions(table_options);
-  options.compression = CompressionType::kSnappyCompression;
-  InitTable(options);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
-  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.block_cache_compressed = nullptr;
+  table_options.block_size = 1;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  table_options.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = CompressionType::kSnappyCompression;
+
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+  for (size_t i = 0; i < kNumBlocks; i++) {
+    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Flush());
+  }
+
+  ReadOptions read_options;
   std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
+  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
+  table_options.no_block_cache = false;
   table_options.block_cache_compressed = compressed_cache;
+  table_options.max_auto_readahead_size = 0;
+  table_options.cache_index_and_filter_blocks = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
-  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
-  Iterator* iter = nullptr;
-
   // Load blocks into cache.
-  for (size_t i = 0; i + 1 < kNumBlocks; i++) {
-    iter = db_->NewIterator(read_options);
-    iter->Seek(ToString(i));
-    ASSERT_OK(iter->status());
+  for (size_t i = 0; i < kNumBlocks - 1; i++) {
+    ASSERT_EQ(value, Get(ToString(i)));
     CheckCacheCounters(options, 1, 0, 1, 0);
     CheckCompressedCacheCounters(options, 1, 0, 1, 0);
-    iterators[i].reset(iter);
   }
+
   size_t usage = cache->GetUsage();
-  ASSERT_LT(0, usage);
+  ASSERT_EQ(0, usage);
   ASSERT_EQ(usage, cache->GetPinnedUsage());
   size_t compressed_usage = compressed_cache->GetUsage();
   ASSERT_LT(0, compressed_usage);
@@ -281,24 +295,21 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   cache->SetCapacity(usage);
   cache->SetStrictCapacityLimit(true);
   ASSERT_EQ(usage, cache->GetPinnedUsage());
-  iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(kNumBlocks - 1));
-  ASSERT_TRUE(iter->status().IsIncomplete());
-  CheckCacheCounters(options, 1, 0, 0, 1);
+
+  // Load last key block.
+  ASSERT_EQ("Result incomplete: Insert failed due to LRU cache being full.",
+            Get(ToString(kNumBlocks - 1)));
+  // Failure won't record the miss counter.
+  CheckCacheCounters(options, 0, 0, 0, 1);
   CheckCompressedCacheCounters(options, 1, 0, 1, 0);
-  delete iter;
-  iter = nullptr;
 
   // Clear strict capacity limit flag. This time we shall hit compressed block
-  // cache.
+  // cache and load into block cache.
   cache->SetStrictCapacityLimit(false);
-  iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(kNumBlocks - 1));
-  ASSERT_OK(iter->status());
+  // Load last key block.
+  ASSERT_EQ(value, Get(ToString(kNumBlocks - 1)));
   CheckCacheCounters(options, 1, 0, 1, 0);
   CheckCompressedCacheCounters(options, 0, 1, 0, 0);
-  delete iter;
-  iter = nullptr;
 }
 #endif  // SNAPPY
 
@@ -445,6 +456,33 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
   //           filter_bytes_insert);
 }
+
+#if (defined OS_LINUX || defined OS_WIN)
+TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 25, 0, false);
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.prepopulate_block_cache =
+      BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+  for (size_t i = 1; i <= kNumBlocks; i++) {
+    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+
+    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
+  }
+}
+#endif
 
 namespace {
 
