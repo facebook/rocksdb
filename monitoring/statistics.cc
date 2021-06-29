@@ -9,9 +9,9 @@
 #include <cinttypes>
 #include <cstdio>
 
-#include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
