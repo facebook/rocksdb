@@ -15,10 +15,10 @@
 #include <unordered_map>
 
 #include "options/configurable_helper.h"
-#include "options/customizable_helper.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/mock_table.h"
@@ -607,6 +607,9 @@ TEST_F(CustomizableTest, NewCustomizableTest) {
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=A_1;int=1;bool=false}"));
   ASSERT_EQ(A_count, 2);  // Create another A_1
+  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=}"));
+  ASSERT_EQ(simple->cu, nullptr);
+  ASSERT_EQ(A_count, 2);
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=A_2;int=1;bool=false}"));
   ASSERT_EQ(A_count, 3);  // Created another A
