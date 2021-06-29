@@ -484,21 +484,26 @@ Status ConfigurableHelper::ConfigureNewObject(
     const std::string& id, const std::string& base_opts,
     const std::unordered_map<std::string, std::string>& opts) {
   if (object != nullptr) {
+    Status status;
     ConfigOptions config_options = config_options_in;
     config_options.invoke_prepare_options = false;
     if (!base_opts.empty()) {
 #ifndef ROCKSDB_LITE
       // Don't run prepare options on the base, as we would do that on the
       // overlay opts instead
-      Status status = object->ConfigureFromString(config_options, base_opts);
+      status = object->ConfigureFromString(config_options, base_opts);
       if (!status.ok()) {
         return status;
       }
 #endif  // ROCKSDB_LITE
     }
     if (!opts.empty()) {
-      return object->ConfigureFromMap(config_options, opts);
+      status = object->ConfigureFromMap(config_options, opts);
     }
+    if (config_options_in.invoke_prepare_options && status.ok()) {
+      status = object->PrepareOptions(config_options_in);
+    }
+    return status;
   } else if (!opts.empty()) {  // No object but no map.  This is OK
     return Status::InvalidArgument("Cannot configure null object ", id);
   }

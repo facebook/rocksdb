@@ -29,11 +29,12 @@ class LayeredCompactionFilterBase : public CompactionFilter {
   // Return a pointer to user compaction filter
   const CompactionFilter* user_comp_filter() const { return user_comp_filter_; }
 
- protected:
   const Customizable* Inner() const override { return user_comp_filter_; }
 
- private:
+ protected:
   const CompactionFilter* user_comp_filter_;
+
+ private:
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
 };
 
