@@ -39,30 +39,30 @@ void Configurable::RegisterOptions(
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   Status status = Status::OK();
+  if (opts.invoke_prepare_options) {
 #ifndef ROCKSDB_LITE
-  for (auto opt_iter : options_) {
-    for (auto map_iter : *(opt_iter.type_map)) {
-      auto& opt_info = map_iter.second;
-      if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
-          opt_info.IsConfigurable()) {
-        if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
-          Configurable* config =
-              opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
-          if (config != nullptr) {
-            status = config->PrepareOptions(opts);
-            if (!status.ok()) {
-              return status;
+    for (auto opt_iter : options_) {
+      for (auto map_iter : *(opt_iter.type_map)) {
+        auto& opt_info = map_iter.second;
+        if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
+            opt_info.IsConfigurable()) {
+          if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
+            Configurable* config =
+                opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
+            if (config != nullptr) {
+              status = config->PrepareOptions(opts);
+              if (!status.ok()) {
+                return status;
+              }
             }
           }
         }
       }
     }
-  }
-#else
-  (void)opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    prepared_ = true;
+    if (status.ok()) {
+      prepared_ = true;
+    }
   }
   return status;
 }
