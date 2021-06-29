@@ -8,9 +8,9 @@
 #include <cassert>
 #include <mutex>
 
-#include "options/customizable_helper.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
