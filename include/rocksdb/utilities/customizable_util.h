@@ -56,7 +56,7 @@ using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 template <typename T>
 static Status NewSharedObject(
     const ConfigOptions& config_options, const std::string& id,
-    const std::unordered_map<std::string, std::string> opt_map,
+    const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<T>* result) {
   Status status;
   if (!id.empty()) {
@@ -151,7 +151,7 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
 template <typename T>
 static Status NewUniqueObject(
     const ConfigOptions& config_options, const std::string& id,
-    const std::unordered_map<std::string, std::string> opt_map,
+    const std::unordered_map<std::string, std::string>& opt_map,
     std::unique_ptr<T>* result) {
   Status status;
   if (id.empty()) {
@@ -230,7 +230,7 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
 template <typename T>
 static Status NewStaticObject(
     const ConfigOptions& config_options, const std::string& id,
-    const std::unordered_map<std::string, std::string> opt_map, T** result) {
+    const std::unordered_map<std::string, std::string>& opt_map, T** result) {
   Status status;
   if (id.empty()) {
     status = Status::NotSupported("Cannot reset object ");
