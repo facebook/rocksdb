@@ -7,9 +7,9 @@
 
 #include <memory>
 
-#include "options/customizable_helper.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
@@ -91,7 +91,7 @@ Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
   std::unordered_map<std::string, std::string> opt_map;
   std::shared_ptr<MergeOperator> merge_op;
   Status status =
-      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
+    Customizable::GetOptionsMap(config_options, result->get(), value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -106,31 +106,8 @@ Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
     // No Id and no options.  Clear the object
     result->reset();
     return Status::OK();
-  } else if (id.empty()) {  // We have no Id but have options.  Not good
-    return Status::NotSupported("Cannot reset object ", id);
   } else {
-    std::string curr_opts;
-#ifndef ROCKSDB_LITE
-    if (*result != nullptr && (*result)->GetId() == id) {
-      // Try to get the existing options, ignoring any errors
-      ConfigOptions embedded = config_options;
-      embedded.delimiter = ";";
-      (*result)->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
-    }
-    status = config_options.registry->NewSharedObject(id, &merge_op);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif
-    if (!status.ok()) {
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        result->reset();
-        return Status::OK();
-      }
-    } else if (!curr_opts.empty() || !opt_map.empty()) {
-      status = ConfigurableHelper::ConfigureNewObject(
-          config_options, merge_op.get(), id, curr_opts, opt_map);
-    }
+    status = NewSharedObject(config_options, id, opt_map, &merge_op);
     if (status.ok()) {
       *result = merge_op;
     }
