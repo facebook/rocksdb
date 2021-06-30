@@ -703,7 +703,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> immutable_option_info =
       {{"immutable",
         OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-            0, OptionVerificationType::kNormal, OptionTypeFlags::kNone)}};
+            0, OptionVerificationType::kNormal, OptionTypeFlags::kAllowNull)}};
 
   class MutableCustomizable : public Customizable {
    private:
