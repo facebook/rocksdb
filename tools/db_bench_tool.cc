@@ -2527,6 +2527,9 @@ class Benchmark {
 
   class ErrorHandlerListener : public EventListener {
    public:
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
+
 #ifndef ROCKSDB_LITE
     ErrorHandlerListener()
         : mutex_(),

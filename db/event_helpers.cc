@@ -5,7 +5,16 @@
 
 #include "db/event_helpers.h"
 
+#include "rocksdb/convenience.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/utilities/customizable_util.h"
+
 namespace ROCKSDB_NAMESPACE {
+Status EventListener::CreateFromString(const ConfigOptions& config_options,
+                                       const std::string& id,
+                                       std::shared_ptr<EventListener>* result) {
+  return LoadSharedObject<EventListener>(config_options, id, nullptr, result);
+}
 
 namespace {
 template <class T>
