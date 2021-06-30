@@ -213,6 +213,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct MetadataCacheOptions, unpartitioned_pinning),
              &pinning_tier_type_string_map)}};
 
+static std::unordered_map<std::string,
+                          BlockBasedTableOptions::PrepopulateBlockCache>
+    block_base_table_prepopulate_block_cache_string_map = {
+        {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
+        {"kFlushOnly",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+
 #endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -416,6 +423,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"prepopulate_block_cache",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::PrepopulateBlockCache>(
+             offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
+             &block_base_table_prepopulate_block_cache_string_map)},
+
 #endif  // ROCKSDB_LITE
 };
 
@@ -486,7 +498,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
-      table_reader_options.cur_db_session_id);
+      table_reader_options.cur_db_session_id,
+      table_reader_options.cur_file_num);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -677,6 +690,10 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize,
            "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
            table_options_.max_auto_readahead_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  prepopulate_block_cache: %d\n",
+           static_cast<int>(table_options_.prepopulate_block_cache));
+  ret.append(buffer);
   return ret;
 }
 

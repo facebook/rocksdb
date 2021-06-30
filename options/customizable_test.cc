@@ -15,10 +15,10 @@
 #include <unordered_map>
 
 #include "options/configurable_helper.h"
-#include "options/customizable_helper.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/mock_table.h"
@@ -132,7 +132,7 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 #ifndef ROCKSDB_LITE
     {"string",
      {offsetof(struct BOptions, s), OptionType::kString,
-      OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"bool",
      {offsetof(struct BOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -505,6 +505,70 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+class InnerCustomizable : public Customizable {
+ public:
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
+      : inner_(w) {}
+  static const char* kClassName() { return "Inner"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return Customizable::IsInstanceOf(name);
+    }
+  }
+
+ protected:
+  const Customizable* Inner() const override { return inner_.get(); }
+
+ private:
+  std::shared_ptr<Customizable> inner_;
+};
+
+class WrappedCustomizable1 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped1"; }
+};
+
+class WrappedCustomizable2 : public InnerCustomizable {
+ public:
+  explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
+      : InnerCustomizable(w) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Wrapped2"; }
+};
+
+TEST_F(CustomizableTest, WrappedInnerTest) {
+  std::shared_ptr<TestCustomizable> ac =
+      std::make_shared<TestCustomizable>("A");
+
+  ASSERT_TRUE(ac->IsInstanceOf("A"));
+  ASSERT_TRUE(ac->IsInstanceOf("TestCustomizable"));
+  ASSERT_EQ(ac->CheckedCast<TestCustomizable>(), ac.get());
+  ASSERT_EQ(ac->CheckedCast<InnerCustomizable>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable1>(), nullptr);
+  ASSERT_EQ(ac->CheckedCast<WrappedCustomizable2>(), nullptr);
+  std::shared_ptr<Customizable> wc1 =
+      std::make_shared<WrappedCustomizable1>(ac);
+
+  ASSERT_TRUE(wc1->IsInstanceOf(WrappedCustomizable1::kClassName()));
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<WrappedCustomizable2>(), nullptr);
+  ASSERT_EQ(wc1->CheckedCast<InnerCustomizable>(), wc1.get());
+  ASSERT_EQ(wc1->CheckedCast<TestCustomizable>(), ac.get());
+
+  std::shared_ptr<Customizable> wc2 =
+      std::make_shared<WrappedCustomizable2>(wc1);
+  ASSERT_TRUE(wc2->IsInstanceOf(WrappedCustomizable2::kClassName()));
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable2>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
+  ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
+  ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
 class ShallowCustomizable : public Customizable {
  public:
   ShallowCustomizable() {
@@ -543,6 +607,9 @@ TEST_F(CustomizableTest, NewCustomizableTest) {
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=A_1;int=1;bool=false}"));
   ASSERT_EQ(A_count, 2);  // Create another A_1
+  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=}"));
+  ASSERT_EQ(simple->cu, nullptr);
+  ASSERT_EQ(A_count, 2);
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=A_2;int=1;bool=false}"));
   ASSERT_EQ(A_count, 3);  // Created another A
@@ -688,10 +755,25 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_OK(mc.ConfigureOption(options, "mutable", "{bool=true}"));
   auto* mm_a = mm->get()->GetOptions<AOptions>("A");
   ASSERT_EQ(mm_a->b, true);
-  ASSERT_OK(mc.ConfigureOption(options, "mutable", "{int=11;bool=false}"));
+  ASSERT_OK(mc.ConfigureOption(options, "mutable", "{int=22;bool=false}"));
   mm_a = mm->get()->GetOptions<AOptions>("A");
-  ASSERT_EQ(mm_a->i, 11);
+  ASSERT_EQ(mm_a->i, 22);
   ASSERT_EQ(mm_a->b, false);
+
+  // Only the mutable options should get serialized
+  options.mutable_options_only = false;
+  ASSERT_OK(mc.ConfigureOption(options, "immutable", "{id=B;}"));
+  options.mutable_options_only = true;
+
+  std::string opt_str;
+  ASSERT_OK(mc.GetOptionString(options, &opt_str));
+  MutableCustomizable mc2;
+  ASSERT_OK(mc2.ConfigureFromString(options, opt_str));
+  std::string mismatch;
+  ASSERT_TRUE(mc.AreEquivalent(options, &mc2, &mismatch));
+  options.mutable_options_only = false;
+  ASSERT_FALSE(mc.AreEquivalent(options, &mc2, &mismatch));
+  ASSERT_EQ(mismatch, "immutable");
 }
 #endif  // !ROCKSDB_LITE
 

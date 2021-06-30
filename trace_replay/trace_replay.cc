@@ -185,6 +185,47 @@ void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
   }
 }
 
+void TracerHelper::DecodeMultiGetPayload(Trace* trace,
+                                         MultiGetPayload* multiget_payload) {
+  assert(multiget_payload != nullptr);
+  Slice cfids_payload;
+  Slice keys_payload;
+  Slice buf(trace->payload);
+  GetFixed64(&buf, &trace->payload_map);
+  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+  while (payload_map) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
+    switch (set_pos) {
+      case TracePayloadType::kMultiGetSize:
+        GetFixed32(&buf, &(multiget_payload->multiget_size));
+        break;
+      case TracePayloadType::kMultiGetCFIDs:
+        GetLengthPrefixedSlice(&buf, &cfids_payload);
+        break;
+      case TracePayloadType::kMultiGetKeys:
+        GetLengthPrefixedSlice(&buf, &keys_payload);
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    payload_map &= (payload_map - 1);
+  }
+
+  // Decode the cfids_payload and keys_payload
+  multiget_payload->cf_ids.reserve(multiget_payload->multiget_size);
+  multiget_payload->multiget_keys.reserve(multiget_payload->multiget_size);
+  for (uint32_t i = 0; i < multiget_payload->multiget_size; i++) {
+    uint32_t tmp_cfid;
+    Slice tmp_key;
+    GetFixed32(&cfids_payload, &tmp_cfid);
+    GetLengthPrefixedSlice(&keys_payload, &tmp_key);
+    multiget_payload->cf_ids.push_back(tmp_cfid);
+    multiget_payload->multiget_keys.push_back(tmp_key.ToString());
+  }
+}
+
 Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
     : clock_(clock),
@@ -299,6 +340,77 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
   if (upper_bound.size() > 0) {
     PutLengthPrefixedSlice(&trace.payload, upper_bound);
   }
+  return WriteTrace(trace);
+}
+
+Status Tracer::MultiGet(const size_t num_keys,
+                        ColumnFamilyHandle** column_families,
+                        const Slice* keys) {
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  std::vector<ColumnFamilyHandle*> v_column_families;
+  std::vector<Slice> v_keys;
+  v_column_families.resize(num_keys);
+  v_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    v_column_families[i] = column_families[i];
+    v_keys[i] = keys[i];
+  }
+  return MultiGet(v_column_families, v_keys);
+}
+
+Status Tracer::MultiGet(const size_t num_keys,
+                        ColumnFamilyHandle* column_family, const Slice* keys) {
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> v_keys;
+  column_families.resize(num_keys);
+  v_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    column_families[i] = column_family;
+    v_keys[i] = keys[i];
+  }
+  return MultiGet(column_families, v_keys);
+}
+
+Status Tracer::MultiGet(const std::vector<ColumnFamilyHandle*>& column_families,
+                        const std::vector<Slice>& keys) {
+  if (column_families.size() != keys.size()) {
+    return Status::Corruption("the CFs size and keys size does not match!");
+  }
+  TraceType trace_type = kTraceMultiGet;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
+  uint32_t multiget_size = static_cast<uint32_t>(keys.size());
+  Trace trace;
+  trace.ts = clock_->NowMicros();
+  trace.type = trace_type;
+  // Set the payloadmap of the struct member that will be encoded in the
+  // payload.
+  TracerHelper::SetPayloadMap(trace.payload_map,
+                              TracePayloadType::kMultiGetSize);
+  TracerHelper::SetPayloadMap(trace.payload_map,
+                              TracePayloadType::kMultiGetCFIDs);
+  TracerHelper::SetPayloadMap(trace.payload_map,
+                              TracePayloadType::kMultiGetKeys);
+  // Encode the CFIDs inorder
+  std::string cfids_payload;
+  std::string keys_payload;
+  for (uint32_t i = 0; i < multiget_size; i++) {
+    assert(i < column_families.size());
+    assert(i < keys.size());
+    PutFixed32(&cfids_payload, column_families[i]->GetID());
+    PutLengthPrefixedSlice(&keys_payload, keys[i]);
+  }
+  // Encode the Get struct members into payload. Make sure add them in order.
+  PutFixed64(&trace.payload, trace.payload_map);
+  PutFixed32(&trace.payload, multiget_size);
+  PutLengthPrefixedSlice(&trace.payload, cfids_payload);
+  PutLengthPrefixedSlice(&trace.payload, keys_payload);
   return WriteTrace(trace);
 }
 

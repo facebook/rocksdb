@@ -989,7 +989,8 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_bytes = 77777777;
     constexpr char checksum_method[] = "SHA1";
     constexpr char checksum_value[] =
-        "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+        "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c"
+        "\x52\x5c\xbd";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1010,7 +1011,7 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_count = 555;
     constexpr uint64_t total_blob_bytes = 66666;
     constexpr char checksum_method[] = "CRC32";
-    constexpr char checksum_value[] = "3d87ff57";
+    constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1068,7 +1069,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t first_total_blob_count = 555;
   constexpr uint64_t first_total_blob_bytes = 66666;
   constexpr char first_checksum_method[] = "CRC32";
-  constexpr char first_checksum_value[] = "3d87ff57";
+  constexpr char first_checksum_value[] = "\x3d\x87\xff\x57";
 
   auto first_shared_meta = SharedBlobFileMetaData::Create(
       first_blob_file_number, first_total_blob_count, first_total_blob_bytes,
@@ -1111,7 +1112,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto second_shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
@@ -1151,7 +1152,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
