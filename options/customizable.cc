@@ -104,4 +104,16 @@ Status Customizable::GetOptionsMap(
     return ConfigurableHelper::GetOptionsMap(value, "", id, props);
   }
 }
+
+Status Customizable::ConfigureNewObject(
+    const ConfigOptions& config_options, Customizable* object,
+    const std::unordered_map<std::string, std::string>& opt_map) {
+  Status status;
+  if (object != nullptr) {
+    status = object->ConfigureFromMap(config_options, opt_map);
+  } else if (!opt_map.empty()) {
+    status = Status::InvalidArgument("Cannot configure null object ");
+  }
+  return status;
+}
 }  // namespace ROCKSDB_NAMESPACE
