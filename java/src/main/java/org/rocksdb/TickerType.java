@@ -767,7 +767,7 @@ public enum TickerType {
      * Counter to keep track of the number of times
      * the MemPurge operation is performed.
      */
-    MEMPURGE_COUNT((byte) -0x1E),
+    EXPERIMENTAL_MEMPURGE_COUNT((byte) -0x1E),
     /**
      * Counter that tracks the number of times an immutable
      * memtable flush operation happens.

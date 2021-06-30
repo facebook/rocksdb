@@ -704,7 +704,6 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   std::string KEY5 = "IamKey5";
   std::string VALUE1 = "IamValue1";
   std::string VALUE2 = "IamValue2";
-  std::string value;
   const std::string NOT_FOUND = "NOT_FOUND";
 
   // Check simple operations (put-delete).
@@ -715,17 +714,13 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_OK(Put(KEY1, VALUE2));
   ASSERT_OK(Flush());
 
-  value = Get(KEY1);
-  ASSERT_EQ(value, VALUE2);
-  value = Get(KEY2);
-  ASSERT_EQ(value, VALUE1);
+  ASSERT_EQ(Get(KEY1), VALUE2);
+  ASSERT_EQ(Get(KEY2), VALUE1);
 
   ASSERT_OK(Delete(KEY1));
-  value = Get(KEY1);
-  ASSERT_EQ(value, NOT_FOUND);
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
   ASSERT_OK(Flush());
-  value = Get(KEY1);
-  ASSERT_EQ(value, NOT_FOUND);
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
 
   // Heavy overwrite workload,
   // more than would fit in maximum allowed memtables.
@@ -748,16 +743,12 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
     ASSERT_OK(Put(KEY3, p_v3));
     ASSERT_OK(Put(KEY4, p_v4));
     ASSERT_OK(Put(KEY5, p_v5));
-    value = Get(KEY1);
-    ASSERT_EQ(value, p_v1);
-    value = Get(KEY2);
-    ASSERT_EQ(value, p_v2);
-    value = Get(KEY3);
-    ASSERT_EQ(value, p_v3);
-    value = Get(KEY4);
-    ASSERT_EQ(value, p_v4);
-    value = Get(KEY5);
-    ASSERT_EQ(value, p_v5);
+
+    ASSERT_EQ(Get(KEY1), p_v1);
+    ASSERT_EQ(Get(KEY2), p_v2);
+    ASSERT_EQ(Get(KEY3), p_v3);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
   }
 
   // Check that there was at least one mempurge
@@ -765,7 +756,8 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Check that there was no flush to storage.
   const uint64_t EXPECTED_FLUSH_COUNT = 0;
 
-  uint64_t mempurge_count = TestGetTickerCount(options, MEMPURGE_COUNT);
+  uint64_t mempurge_count =
+      TestGetTickerCount(options, EXPERIMENTAL_MEMPURGE_COUNT);
   uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
   EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
   EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
@@ -838,16 +830,11 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
       atLeastOneFlush = true;
     }
 
-    value = Get(KEY1);
-    ASSERT_EQ(value, NOT_FOUND);
-    value = Get(KEY2);
-    ASSERT_EQ(value, NOT_FOUND);
-    value = Get(KEY3);
-    ASSERT_EQ(value, p_v3b);
-    value = Get(KEY4);
-    ASSERT_EQ(value, p_v4);
-    value = Get(KEY5);
-    ASSERT_EQ(value, p_v5);
+    ASSERT_EQ(Get(KEY1), NOT_FOUND);
+    ASSERT_EQ(Get(KEY2), NOT_FOUND);
+    ASSERT_EQ(Get(KEY3), p_v3b);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
 
     iter = db_->NewIterator(ropt);
     iter->SeekToFirst();
@@ -879,7 +866,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   // Check that there was no flush to storage.
   const uint64_t EXPECTED_FLUSH_COUNT = 0;
 
-  uint64_t mempurge_count = TestGetTickerCount(options, MEMPURGE_COUNT);
+  uint64_t mempurge_count =
+      TestGetTickerCount(options, EXPERIMENTAL_MEMPURGE_COUNT);
   uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
 
   if (atLeastOneFlush) {
@@ -1002,7 +990,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   Random rnd(53);
   const size_t NUM_REPEAT = 25;
   const size_t RAND_VALUES_LENGTH = 128;
-  std::string value, p_v1, p_v2, p_v3, p_v4, p_v5;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5;
 
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
@@ -1025,16 +1013,11 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
 
     // Verify that the ConditionalUpdateCompactionFilter
     // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
-    value = Get(KEY1);
-    ASSERT_EQ(value, NOT_FOUND);
-    value = Get(KEY2);
-    ASSERT_EQ(value, NEW_VALUE);
-    value = Get(KEY3);
-    ASSERT_EQ(value, NEW_VALUE);
-    value = Get(KEY4);
-    ASSERT_EQ(value, p_v4);
-    value = Get(KEY5);
-    ASSERT_EQ(value, p_v5);
+    ASSERT_EQ(Get(KEY1), NOT_FOUND);
+    ASSERT_EQ(Get(KEY2), NEW_VALUE);
+    ASSERT_EQ(Get(KEY3), NEW_VALUE);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
   }
 }
 

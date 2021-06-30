@@ -443,7 +443,7 @@ bool SuperVersion::Unref() {
   return previous_refs == 1;
 }
 
-void SuperVersion::Cleanup(bool fromMemPurge) {
+void SuperVersion::Cleanup(const bool fromMemPurge) {
   assert(refs.load(std::memory_order_relaxed) == 0);
   // Since this SuperVersion object is being deleted,
   // decrement reference to the immutable MemtableList

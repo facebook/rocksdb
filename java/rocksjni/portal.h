@@ -5000,7 +5000,7 @@ class TickerTypeJni {
         return -0x1C;
       case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
         return -0x1D;
-      case ROCKSDB_NAMESPACE::Tickers::MEMPURGE_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::EXPERIMENTAL_MEMPURGE_COUNT:
         return -0x1E;
       case ROCKSDB_NAMESPACE::Tickers::FLUSH_COUNT:
         return -0x1F;
@@ -5335,7 +5335,7 @@ class TickerTypeJni {
       case -0x1D:
         return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
       case -0x1E:
-        return ROCKSDB_NAMESPACE::Tickers::MEMPURGE_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::EXPERIMENTAL_MEMPURGE_COUNT;
       case -0x1F:
         return ROCKSDB_NAMESPACE::Tickers::FLUSH_COUNT;
       case 0x5F:

@@ -1798,10 +1798,10 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
           ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
       if (compaction_filter != nullptr &&
           !compaction_filter->IgnoreSnapshots()) {
-        s.PermitUncheckedError();
-        return Status::NotSupported(
+        s = Status::NotSupported(
             "CompactionFilter::IgnoreSnapshots() = false is not supported "
             "anymore.");
+        return s;
       }
     }
 
@@ -2114,7 +2114,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (mempurge_s.ok()) {
       // If mempurge worked successfully,
       // increment counter and decrement current memtable reference.
-      RecordTick(stats_, MEMPURGE_COUNT, 1);
+      RecordTick(stats_, EXPERIMENTAL_MEMPURGE_COUNT);
       cfd->mem()->Unref();
     } else {
       // If mempurge failed, go back to regular mem->imm->flush workflow.

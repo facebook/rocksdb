@@ -222,7 +222,7 @@ struct SuperVersion {
   // Cleanup unrefs mem, imm and current. Also, it stores all memtables
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
-  void Cleanup(bool fromMemPurge = false);
+  void Cleanup(const bool fromMemPurge = false);
   void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
             MemTableListVersion* new_imm, Version* new_current);
 
