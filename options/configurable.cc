@@ -161,17 +161,26 @@ Status Configurable::ConfigureOptions(
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
+  Status s;
+  if (!opts_map.empty()) {
 #ifndef ROCKSDB_LITE
-  if (!config_options.ignore_unknown_options) {
-    // If we are not ignoring unused, get the defaults in case we need to reset
+    // There are options in the map.
+    // Save the current configuration in curr_opts and then configure the
+    // options, but do not prepare them now.  We will do all the prepare when
+    // the configuration is complete.
     ConfigOptions copy = config_options;
-    copy.depth = ConfigOptions::kDepthDetailed;
-    copy.delimiter = "; ";
-    GetOptionString(copy, &curr_opts).PermitUncheckedError();
-  }
+    copy.invoke_prepare_options = false;
+    if (!config_options.ignore_unknown_options) {
+      // If we are not ignoring unused, get the defaults in case we need to
+      // reset
+      copy.depth = ConfigOptions::kDepthDetailed;
+      copy.delimiter = "; ";
+      GetOptionString(copy, &curr_opts).PermitUncheckedError();
+    }
 #endif  // ROCKSDB_LITE
-  Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
-                                                  opts_map, unused);
+
+    s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
+  }
   if (config_options.invoke_prepare_options && s.ok()) {
     s = PrepareOptions(config_options);
   }
@@ -180,6 +189,7 @@ Status Configurable::ConfigureOptions(
     ConfigOptions reset = config_options;
     reset.ignore_unknown_options = true;
     reset.invoke_prepare_options = true;
+    reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
     ConfigureFromString(reset, curr_opts).PermitUncheckedError();
   }
