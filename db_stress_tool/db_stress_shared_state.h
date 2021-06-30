@@ -130,9 +130,8 @@ class SharedState {
       std::unique_ptr<WritableFile> wfile;
       if (status.ok() && size == 0) {
         const EnvOptions soptions;
-        status =
-            default_env->NewWritableFile(FLAGS_expected_values_path,
-                                    &wfile, soptions);
+        status = default_env->NewWritableFile(FLAGS_expected_values_path,
+                                              &wfile, soptions);
       }
       if (status.ok() && size == 0) {
         std::string buf(expected_values_size, '\0');
@@ -141,7 +140,7 @@ class SharedState {
       }
       if (status.ok()) {
         status = default_env->NewMemoryMappedFileBuffer(
-                    FLAGS_expected_values_path, &expected_mmap_buffer_);
+            FLAGS_expected_values_path, &expected_mmap_buffer_);
       }
       if (status.ok()) {
         assert(expected_mmap_buffer_->GetLen() == expected_values_size);
