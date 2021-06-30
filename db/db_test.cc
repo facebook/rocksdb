@@ -1237,11 +1237,13 @@ TEST_F(DBTest, AllMetaDataTest) {
   uint64_t start_time = static_cast<uint64_t>(temp_time);
 
   Random rnd(301);
+  dbfull()->TEST_LockMutex();
   for (int cf = 0; cf < 2; cf++) {
     AddBlobFile(handles_[cf], blob_file_number * (cf + 1),
                 total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
                 checksum_method, checksum_value);
   }
+  dbfull()->TEST_UnlockMutex();
 
   std::vector<ColumnFamilyMetaData> all_meta;
   db_->GetAllColumnFamilyMetaData(&all_meta);
