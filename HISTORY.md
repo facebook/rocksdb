@@ -11,6 +11,8 @@
 * ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
 * The new BlobDB implementation now tracks the amount of garbage in each blob file in the MANIFEST.
 * Integrated BlobDB now supports Merge with base values (Put/Delete etc.).
+* RemoteCompaction supports sub-compaction, the job_id in the user interface is changed from `int` to `uint64_t` to support sub-compaction id.
+* Expose statistics option in RemoteCompaction worker.
 
 ### Public API change
 * Added APIs to the Customizable class to allow developers to create their own Customizable classes.  Created the utilities/customizable_util.h file to contain helper methods for developing new Customizable classes.
