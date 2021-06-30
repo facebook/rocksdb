@@ -168,7 +168,8 @@ IOStatus TestFSWritableFile::Append(
     state_.pos_ += data.size();
     fs_->WritableFileAppended(state_);
   }
-  return IOStatus::OK();
+  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  return io_s;
 }
 
 IOStatus TestFSWritableFile::PositionedAppend(
@@ -194,7 +195,8 @@ IOStatus TestFSWritableFile::PositionedAppend(
     return IOStatus::Corruption(msg);
   }
   target_->PositionedAppend(data, offset, options, dbg);
-  return IOStatus::OK();
+  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  return io_s;
 }
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
@@ -724,15 +726,19 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
   }
   bool allowed_type = false;
 
-  uint64_t number;
-  FileType cur_type = kTempFile;
-  std::size_t found = file_name.find_last_of("/");
-  std::string file = file_name.substr(found);
-  bool ret = ParseFileName(file, &number, &cur_type);
-  if (ret) {
-    for (const auto& type : write_error_allowed_types_) {
-      if (cur_type == type) {
-        allowed_type = true;
+  if (inject_for_all_file_types_) {
+    allowed_type = true;
+  } else {
+    uint64_t number;
+    FileType cur_type = kTempFile;
+    std::size_t found = file_name.find_last_of("/");
+    std::string file = file_name.substr(found);
+    bool ret = ParseFileName(file, &number, &cur_type);
+    if (ret) {
+      for (const auto& type : write_error_allowed_types_) {
+        if (cur_type == type) {
+          allowed_type = true;
+        }
       }
     }
   }

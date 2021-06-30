@@ -620,7 +620,8 @@ void StressTest::OperateDb(ThreadState* thread) {
                                    FileType::kDescriptorFile,
                                    FileType::kCurrentFile};
     fault_fs_guard->SetRandomWriteError(
-        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg, types);
+        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
+        /*inject_for_all_file_types=*/false, types);
   }
 #endif // NDEBUG
   thread->stats.Start();
@@ -2464,15 +2465,28 @@ void StressTest::Open() {
       // Only ingest metadata error if it is reopening, as initial open
       // failure doesn't need to be handled.
       // TODO cover transaction DB is not covered in this fault test too.
-      bool ingest_meta_error =
-          FLAGS_open_metadata_write_fault_one_in &&
+      bool ingest_meta_error = false;
+      bool ingest_write_error = false;
+      if ((FLAGS_open_metadata_write_fault_one_in ||
+           FLAGS_open_write_fault_one_in) &&
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
-              .ok();
-      if (ingest_meta_error) {
-        fault_fs_guard->EnableMetadataWriteErrorInjection();
-        fault_fs_guard->SetRandomMetadataWriteError(
-            FLAGS_open_metadata_write_fault_one_in);
+              .ok()) {
+        ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
+        ingest_write_error = FLAGS_open_write_fault_one_in;
+        if (ingest_meta_error) {
+          fault_fs_guard->EnableMetadataWriteErrorInjection();
+          fault_fs_guard->SetRandomMetadataWriteError(
+              FLAGS_open_metadata_write_fault_one_in);
+        }
+        if (ingest_write_error) {
+          fault_fs_guard->SetFilesystemDirectWritable(false);
+          fault_fs_guard->EnableWriteErrorInjection();
+          fault_fs_guard->SetRandomWriteError(
+              static_cast<uint32_t>(FLAGS_seed), FLAGS_open_write_fault_one_in,
+              IOStatus::IOError("Injected Open Error"),
+              /*inject_for_all_file_types=*/true, /*types=*/{});
+        }
       }
       while (true) {
 #endif  // NDEBUG
@@ -2506,8 +2520,10 @@ void StressTest::Open() {
         }
 
 #ifndef NDEBUG
-        if (ingest_meta_error) {
+        if (ingest_meta_error || ingest_write_error) {
+          fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
+          fault_fs_guard->DisableWriteErrorInjection();
           if (s.ok()) {
             // Ingested errors might happen in background compactions. We
             // wait for all compactions to finish to make sure DB is in
@@ -2523,6 +2539,7 @@ void StressTest::Open() {
             // successfully open the DB with correct data if no IO error shows
             // up.
             ingest_meta_error = false;
+            ingest_write_error = false;
 
             Random rand(static_cast<uint32_t>(FLAGS_seed));
             if (rand.OneIn(2)) {

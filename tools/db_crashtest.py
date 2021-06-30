@@ -140,6 +140,7 @@ default_params = {
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 8]),
+    "open_write_fault_one_in": lambda: random.choice([0, 16]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
