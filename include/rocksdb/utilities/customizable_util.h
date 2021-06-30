@@ -71,12 +71,11 @@ static Status NewSharedObject(
   } else {
     status = Status::NotSupported("Cannot reset object ");
   }
-  if (!status.ok() || opt_map.empty()) {
+  if (!status.ok()) {
     return status;
-  } else if (result->get() != nullptr) {
-    return result->get()->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ", id);
+    return Customizable::ConfigureNewObject(config_options, result->get(),
+                                            opt_map);
   }
 }
 
@@ -126,12 +125,9 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
     } else {
       return NewSharedObject(config_options, id, opt_map, result);
     }
-  } else if (opt_map.empty()) {
-    return status;
-  } else if (result->get() != nullptr) {
-    return result->get()->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ");
+    return Customizable::ConfigureNewObject(config_options, result->get(),
+                                            opt_map);
   }
 }
 
@@ -166,12 +162,11 @@ static Status NewUniqueObject(
       return Status::OK();
     }
   }
-  if (!status.ok() || opt_map.empty()) {
+  if (!status.ok()) {
     return status;
-  } else if (result->get() != nullptr) {
-    return result->get()->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ");
+    return Customizable::ConfigureNewObject(config_options, result->get(),
+                                            opt_map);
   }
 }
 
@@ -205,12 +200,9 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
     } else {
       return NewUniqueObject(config_options, id, opt_map, result);
     }
-  } else if (opt_map.empty()) {
-    return status;
-  } else if (result->get() != nullptr) {
-    return result->get()->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ");
+    return Customizable::ConfigureNewObject(config_options, result->get(),
+                                            opt_map);
   }
 }
 
@@ -244,12 +236,10 @@ static Status NewStaticObject(
       return Status::OK();
     }
   }
-  if (!status.ok() || opt_map.empty()) {
+  if (!status.ok()) {
     return status;
-  } else if (*result != nullptr) {
-    return (*result)->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ");
+    return Customizable::ConfigureNewObject(config_options, *result, opt_map);
   }
 }
 
@@ -282,12 +272,8 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
     } else {
       return NewStaticObject(config_options, id, opt_map, result);
     }
-  } else if (opt_map.empty()) {
-    return status;
-  } else if (*result != nullptr) {
-    return (*result)->ConfigureFromMap(config_options, opt_map);
   } else {
-    return Status::InvalidArgument("Cannot configure null object ");
+    return Customizable::ConfigureNewObject(config_options, *result, opt_map);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
