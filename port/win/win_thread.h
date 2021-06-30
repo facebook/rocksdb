@@ -9,6 +9,8 @@
 
 #pragma once
 
+#ifndef _POSIX_THREADS
+
 #include <memory>
 #include <functional>
 #include <type_traits>
@@ -120,3 +122,4 @@ inline void swap(ROCKSDB_NAMESPACE::port::WindowsThread& th1,
 }
 } // namespace std
 
+#endif  // !_POSIX_THREADS

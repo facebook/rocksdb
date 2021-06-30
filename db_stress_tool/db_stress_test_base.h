@@ -23,7 +23,7 @@ class StressTest {
 
   virtual ~StressTest();
 
-  std::shared_ptr<Cache> NewCache(size_t capacity);
+  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 

@@ -180,9 +180,17 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
+  // sub compaction job id, which is used to identify different sub-compaction
+  // within the same compaction job.
+  const uint32_t sub_job_id;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size)
-      : compaction(c), start(_start), end(_end), approx_size(size) {
+  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
+                     uint32_t _sub_job_id)
+      : compaction(c),
+        start(_start),
+        end(_end),
+        approx_size(size),
+        sub_job_id(_sub_job_id) {
     assert(compaction != nullptr);
   }
 
@@ -449,7 +457,8 @@ void CompactionJob::Prepare() {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       Slice* start = i == 0 ? nullptr : &boundaries_[i - 1];
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
-      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
+      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i],
+                                                static_cast<uint32_t>(i));
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -458,7 +467,8 @@ void CompactionJob::Prepare() {
     constexpr Slice* end = nullptr;
     constexpr uint64_t size = 0;
 
-    compact_->sub_compact_states.emplace_back(c, start, end, size);
+    compact_->sub_compact_states.emplace_back(c, start, end, size,
+                                              /*sub_job_id*/ 0);
   }
 }
 
@@ -973,7 +983,8 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction_input.column_family.name.c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
   CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->Start(compaction_input_binary, job_id_);
+      db_options_.compaction_service->Start(compaction_input_binary,
+                                            GetCompactionId(sub_compact));
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     sub_compact->status =
         Status::Incomplete("CompactionService failed to start compaction job.");
@@ -982,7 +993,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   std::string compaction_result_binary;
   compaction_status = db_options_.compaction_service->WaitForComplete(
-      job_id_, &compaction_result_binary);
+      GetCompactionId(sub_compact), &compaction_result_binary);
 
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
@@ -1444,6 +1455,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   clip.reset();
   raw_input.reset();
   sub_compact->status = status;
+}
+
+uint64_t CompactionJob::GetCompactionId(SubcompactionState* sub_compact) {
+  return (uint64_t)job_id_ << 32 | sub_compact->sub_job_id;
 }
 
 void CompactionJob::RecordDroppedKeys(
@@ -2217,8 +2232,8 @@ Status CompactionServiceCompactionJob::Run() {
   Slice end = compaction_input_.end;
   compact_->sub_compact_states.emplace_back(
       c, compaction_input_.has_begin ? &begin : nullptr,
-      compaction_input_.has_end ? &end : nullptr,
-      compaction_input_.approx_size);
+      compaction_input_.has_end ? &end : nullptr, compaction_input_.approx_size,
+      /*sub_job_id*/ 0);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();

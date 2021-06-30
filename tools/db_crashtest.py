@@ -151,6 +151,7 @@ default_params = {
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
 _DEBUG_LEVEL_ENV_VAR = 'DEBUG_LEVEL'
 
+stress_cmd = "./db_stress"
 
 def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
@@ -413,12 +414,12 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    cmd = ['./db_stress'] + [
+    cmd = [stress_cmd] + [
         '--{0}={1}'.format(k, v)
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery', 'enable_ts'])
+                         'test_best_efforts_recovery', 'enable_ts', 'stress_cmd'])
         and v is not None] + unknown_params
     return cmd
 
@@ -498,7 +499,7 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['interval'])
 
         if not hit_timeout:
-            print('Exit Before Killing') 
+            print('Exit Before Killing')
             print('stdout:')
             print(outs)
             print('stderr:')
@@ -669,6 +670,8 @@ def whitebox_crash_main(args, unknown_args):
 
 
 def main():
+    global stress_cmd
+
     parser = argparse.ArgumentParser(description="This script runs and kills \
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
@@ -677,6 +680,7 @@ def main():
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
     parser.add_argument("--enable_ts", action='store_true')
+    parser.add_argument("--stress_cmd")
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -698,6 +702,8 @@ def main():
                 (_TEST_DIR_ENV_VAR, test_tmpdir))
         sys.exit(1)
 
+    if args.stress_cmd:
+        stress_cmd = args.stress_cmd
     if args.test_type == 'blackbox':
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
