@@ -13,26 +13,46 @@
 
 #include <algorithm>
 
-#include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    slice_transform_length_info = {
+#ifndef ROCKSDB_LITE
+        {"length",
+         {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever, 0}},
+#endif  // ROCKSDB_LITE
+};
 
 class FixedPrefixTransform : public SliceTransform {
  private:
   size_t prefix_len_;
 
  public:
-  explicit FixedPrefixTransform(size_t prefix_len) : prefix_len_(prefix_len) {}
+  explicit FixedPrefixTransform(size_t prefix_len) : prefix_len_(prefix_len) {
+    RegisterOptions(Name(), &prefix_len_, &slice_transform_length_info);
+  }
 
   static const char* kClassName() { return "rocksdb.FixedPrefix"; }
   const char* Name() const override { return kClassName(); }
+
   std::string GetId() const override {
     return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(prefix_len_);
+  }
+
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "fixed") {
+      return true;
+    } else {
+      return SliceTransform::IsInstanceOf(name);
+    }
   }
 
   Slice Transform(const Slice& src) const override {
@@ -63,12 +83,22 @@ class CappedPrefixTransform : public SliceTransform {
   size_t cap_len_;
 
  public:
-  explicit CappedPrefixTransform(size_t cap_len) : cap_len_(cap_len) {}
+  explicit CappedPrefixTransform(size_t cap_len) : cap_len_(cap_len) {
+    RegisterOptions(Name(), &cap_len_, &slice_transform_length_info);
+  }
 
   static const char* kClassName() { return "rocksdb.CappedPrefix"; }
   const char* Name() const override { return kClassName(); }
   std::string GetId() const override {
     return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(cap_len_);
+  }
+
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "capped") {
+      return true;
+    } else {
+      return SliceTransform::IsInstanceOf(name);
+    }
   }
 
   Slice Transform(const Slice& src) const override {
@@ -110,60 +140,6 @@ class NoopTransform : public SliceTransform {
   }
 };
 
-static bool ParseSliceTransformHelper(
-    const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
-    const std::string& value,
-    std::shared_ptr<const SliceTransform>* slice_transform) {
-  const char* no_op_name = "rocksdb.Noop";
-  size_t no_op_length = strlen(no_op_name);
-  auto& pe_value = value;
-  if (value.empty() || value == kNullptrString) {
-    slice_transform->reset();
-  } else if (pe_value.size() > kFixedPrefixName.size() &&
-             pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) ==
-                 0) {
-    int prefix_length = ParseInt(trim(value.substr(kFixedPrefixName.size())));
-    slice_transform->reset(new FixedPrefixTransform(prefix_length));
-  } else if (pe_value.size() > kCappedPrefixName.size() &&
-             pe_value.compare(0, kCappedPrefixName.size(), kCappedPrefixName) ==
-                 0) {
-    int prefix_length =
-        ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
-    slice_transform->reset(new CappedPrefixTransform(prefix_length));
-  } else if (pe_value.size() == no_op_length &&
-             pe_value.compare(0, no_op_length, no_op_name) == 0) {
-    slice_transform->reset(new NoopTransform());
-  } else {
-    return false;
-  }
-
-  return true;
-}
-
-static bool ParseSliceTransform(
-    const std::string& value,
-    std::shared_ptr<const SliceTransform>* slice_transform) {
-  // While we normally don't convert the string representation of a
-  // pointer-typed option into its instance, here we do so for backward
-  // compatibility as we allow this action in SetOption().
-
-  // TODO(yhchiang): A possible better place for these serialization /
-  // deserialization is inside the class definition of pointer-typed
-  // option itself, but this requires a bigger change of public API.
-  bool result =
-      ParseSliceTransformHelper("fixed:", "capped:", value, slice_transform);
-  if (result) {
-    return result;
-  }
-  result = ParseSliceTransformHelper(
-      "rocksdb.FixedPrefix.", "rocksdb.CappedPrefix.", value, slice_transform);
-  if (result) {
-    return result;
-  }
-  // TODO(yhchiang): we can further support other default
-  //                 SliceTransforms here.
-  return false;
-}
 }  // end namespace
 
 const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {
@@ -176,42 +152,121 @@ const SliceTransform* NewCappedPrefixTransform(size_t cap_len) {
 
 const SliceTransform* NewNoopTransform() { return new NoopTransform; }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
+                                         const std::string& /*arg*/) {
+  library.Register<const SliceTransform>(
+      NoopTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(NewNoopTransform());
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      "fixed:[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        auto len = ParseSizeT(uri.substr(colon + 1));
+        guard->reset(NewFixedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      FixedPrefixTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(NewFixedPrefixTransform(0));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(FixedPrefixTransform::kClassName()) + "\\.[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto len = ParseSizeT(
+            uri.substr(strlen(FixedPrefixTransform::kClassName()) + 1));
+        guard->reset(NewFixedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      "capped:[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        auto len = ParseSizeT(uri.substr(colon + 1));
+        guard->reset(NewCappedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(CappedPrefixTransform::kClassName()) + "(\\.[0-9]+)?",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        if (uri == CappedPrefixTransform::kClassName()) {
+          guard->reset(NewCappedPrefixTransform(0));
+        } else {  // Length + "."
+          auto len = ParseSizeT(
+              uri.substr(strlen(CappedPrefixTransform::kClassName()) + 1));
+          guard->reset(NewCappedPrefixTransform(len));
+        }
+        return guard->get();
+      });
+  return 5;
+}
+#endif  // ROCKSDB_LITE
+
 Status SliceTransform::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<const SliceTransform>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinSliceTransform(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status =
-      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  } else if (opt_map.empty() && ParseSliceTransform(id, result)) {
-    return Status::OK();
-  } else {
-    std::string curr_opts;
+  }
 #ifndef ROCKSDB_LITE
-    if (result->get() != nullptr && result->get()->GetId() == id) {
-      // Try to get the existing options, ignoring any errors
-      ConfigOptions embedded = config_options;
-      embedded.delimiter = ";";
-      (*result)->GetOptionString(embedded, &curr_opts).PermitUncheckedError();
-    }
-    status = config_options.registry->NewSharedObject(id, result);
+  status = config_options.registry->NewSharedObject(id, result);
 #else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
-    if (!status.ok()) {
-      if (config_options.ignore_unsupported_options &&
-          status.IsNotSupported()) {
-        return Status::OK();
-      } else {
-        return status;
-      }
-    } else if (!curr_opts.empty() || !opt_map.empty()) {
-      SliceTransform* transform = const_cast<SliceTransform*>(result->get());
-      status = ConfigurableHelper::ConfigureNewObject(config_options, transform,
-                                                      id, curr_opts, opt_map);
+  auto size = id.size();
+  if (id == NoopTransform::kClassName()) {
+    result->reset(NewNoopTransform());
+  } else if (size > strlen("fixed:") && StartsWith(id, "fixed:")) {
+    auto len = ParseSizeT(id.substr(strlen("fixed:") + 2));
+    result->reset(NewFixedTransform(len));
+  } else if (size > strlen("capped:") && StartsWith(id, "capped:")) {
+    result->reset(NewCappedTransform(len));
+  } else {
+    auto fixed = strlen(FixedSliceTransform::kClassName());
+    auto capped = strlen(CappedSliceTransform::kClassName());
+    if (size > capped + 2 && id[capped] == '.' &&
+        StartsWith(id, CappedSliceTransform::kClassName)) {
+      auto len = ParseSizeT(id.substr(capped + 1));
+      result->reset(NewCappedTransform(len));
+    } else if (size > fixed + 2 && id[fixed] == '.' &&
+               StartsWith(id, FixedSliceTransform::kClassName)) {
+      auto len = ParseSizeT(id.substr(fixed + 1));
+      result->reset(NewFixedTransform(len));
+    } else {
+      status = Status::NotSupported("Cannot load object in LITE mode ", id);
     }
+  }
+#endif  // ROCKSDB_LITE
+  if (!status.ok()) {
+    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+      return Status::OK();
+    } else {
+      return status;
+    }
+  } else if (result->get() != nullptr) {
+    SliceTransform* transform = const_cast<SliceTransform*>(result->get());
+    status = transform->ConfigureFromMap(config_options, opt_map);
   }
   return status;
 }

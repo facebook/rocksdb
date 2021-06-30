@@ -2360,6 +2360,67 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
 }
 
+TEST_F(OptionsTest, SliceTransformCreateFromString) {
+  std::shared_ptr<const SliceTransform> transform = nullptr;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options, "fixed:31", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_FALSE(transform->IsInstanceOf("capped"));
+  ASSERT_TRUE(transform->IsInstanceOf("fixed"));
+  ASSERT_TRUE(transform->IsInstanceOf("rocksdb.FixedPrefix"));
+  ASSERT_EQ(transform->GetId(), "rocksdb.FixedPrefix.31");
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.FixedPrefix.42", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.FixedPrefix.42");
+
+  ASSERT_OK(SliceTransform::CreateFromString(config_options, "capped:16",
+                                             &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_FALSE(transform->IsInstanceOf("fixed"));
+  ASSERT_TRUE(transform->IsInstanceOf("capped"));
+  ASSERT_TRUE(transform->IsInstanceOf("rocksdb.CappedPrefix"));
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.16");
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.CappedPrefix.42", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.42");
+
+  ASSERT_OK(SliceTransform::CreateFromString(config_options, "rocksdb.Noop",
+                                             &transform));
+  ASSERT_NE(transform, nullptr);
+
+  ASSERT_NOK(SliceTransform::CreateFromString(config_options,
+                                              "fixed:21:invalid", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(config_options,
+                                              "capped:21:invalid", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "fixed", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "capped", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.FixedPrefix:42", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.CappedPrefix:42", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "invalid", &transform));
+
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "id=rocksdb.CappedPrefix; length=11", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.11");
+
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "id=rocksdb.CappedPrefix; length=11; invalid=true",
+      &transform));
+#endif  // ROCKSDB_LITE
+}
+
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
