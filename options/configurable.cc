@@ -163,13 +163,13 @@ Status Configurable::ConfigureOptions(
   std::string curr_opts;
   Status s;
   if (!opts_map.empty()) {
-#ifndef ROCKSDB_LITE
     // There are options in the map.
     // Save the current configuration in curr_opts and then configure the
     // options, but do not prepare them now.  We will do all the prepare when
     // the configuration is complete.
     ConfigOptions copy = config_options;
     copy.invoke_prepare_options = false;
+#ifndef ROCKSDB_LITE
     if (!config_options.ignore_unknown_options) {
       // If we are not ignoring unused, get the defaults in case we need to
       // reset
