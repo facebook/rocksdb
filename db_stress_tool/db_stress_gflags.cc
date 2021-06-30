@@ -824,5 +824,8 @@ DEFINE_int32(open_metadata_write_fault_one_in, 0,
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
 #endif  // ROCKSDB_LITE
+DEFINE_int32(open_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file write "
+             "during DB reopen.");
 
 #endif  // GFLAGS

@@ -31,6 +31,7 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(read_fault_one_in);
 DECLARE_int32(write_fault_one_in);
 DECLARE_int32(open_metadata_write_fault_one_in);
+DECLARE_int32(open_write_fault_one_in);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;

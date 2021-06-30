@@ -365,6 +365,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // want to inject. Types decides the file types we want to inject the
   // error (e.g., Wal files, SST files), which is empty by default.
   void SetRandomWriteError(uint32_t seed, int one_in, IOStatus error,
+                           bool inject_for_all_file_types,
                            const std::vector<FileType>& types) {
     MutexLock l(&mutex_);
     Random tmp_rand(seed);
@@ -372,6 +373,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     error_ = error;
     write_error_rand_ = tmp_rand;
     write_error_one_in_ = one_in;
+    inject_for_all_file_types_ = inject_for_all_file_types;
     write_error_allowed_types_ = types;
   }
 
@@ -492,6 +494,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   Random write_error_rand_;
   int write_error_one_in_;
   int metadata_write_error_one_in_;
+  bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;

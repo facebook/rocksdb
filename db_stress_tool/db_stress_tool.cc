@@ -86,7 +86,8 @@ int db_stress_tool(int argc, char** argv) {
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in) {
+      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
+      FLAGS_open_write_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
