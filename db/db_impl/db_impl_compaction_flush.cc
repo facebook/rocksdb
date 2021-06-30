@@ -105,7 +105,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
-      io_s = log->Sync(immutable_db_options_.use_fsync);
+      io_s = log->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }

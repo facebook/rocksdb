@@ -1565,7 +1565,7 @@ TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
 class DBWALTestWithParamsRecycling
     : public DBWALTestBase,
       public ::testing::WithParamInterface<
-          std::tuple<bool, int, WALRecoveryMode>> {
+          std::tuple<bool, int, int, WALRecoveryMode>> {
  public:
   DBWALTestWithParamsRecycling()
       : DBWALTestBase("/db_wal_test_with_params_recovery_hole") {}
@@ -1575,16 +1575,19 @@ INSTANTIATE_TEST_CASE_P(
     Wal, DBWALTestWithParamsRecycling,
     ::testing::Combine(
         ::testing::Bool(), ::testing::Values(0, 2),
+        ::testing::Values(0 /*beginning*/, 1 /*middle*/, 2 /*end*/),
         ::testing::Values(WALRecoveryMode::kTolerateCorruptedTailRecords,
                           WALRecoveryMode::kAbsoluteConsistency,
                           WALRecoveryMode::kPointInTimeRecovery,
                           WALRecoveryMode::kSkipAnyCorruptedRecords)));
 
 TEST_P(DBWALTestWithParamsRecycling, RecoveryHole) {
+  const int bytes_to_corrupt = 1;
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = std::get<0>(GetParam());
   options.recycle_log_file_num = std::get<1>(GetParam());
-  options.wal_recovery_mode = std::get<2>(GetParam());
+  int corruption_point = std::get<2>(GetParam());
+  options.wal_recovery_mode = std::get<3>(GetParam());
 
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "ok", "ok"));
@@ -1594,15 +1597,28 @@ TEST_P(DBWALTestWithParamsRecycling, RecoveryHole) {
   uint64_t wal_file_id = dbfull()->TEST_LogfileNumber();
   std::string fname = LogFileName(dbname_, wal_file_id);
   uint64_t offset_to_corrupt;
+  uint64_t offset_to_corrupt_max;
   ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt));
   ASSERT_GT(offset_to_corrupt, 0);
   ASSERT_OK(Put(0, "key1", "wal1"));
+  ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt_max));
   ASSERT_OK(Flush(1));
   ASSERT_OK(Put(0, "key2", "wal2"));
 
-  // Corrupt WAL1 at location of key1
+  switch (corruption_point) {
+    case 1: {
+      uint64_t record_size = offset_to_corrupt_max - offset_to_corrupt;
+      ASSERT_GT(record_size, bytes_to_corrupt);
+      offset_to_corrupt += ((record_size - bytes_to_corrupt) / 2);
+    } break;
+    case 2: {
+      offset_to_corrupt = 0 - bytes_to_corrupt;
+    } break;
+  }
+
+  // Corrupt WAL1 somewhere in key1
   ASSERT_OK(test::CorruptFile(env, fname, static_cast<int>(offset_to_corrupt),
-                              4, false));
+                              bytes_to_corrupt, false));
 
   if (options.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
       options.wal_recovery_mode ==

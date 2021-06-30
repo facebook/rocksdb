@@ -1305,7 +1305,7 @@ Status DBImpl::SyncWAL() {
   Status status;
   IOStatus io_s;
   for (log::Writer* log : logs_to_sync) {
-    io_s = log->SyncWithoutFlush(immutable_db_options_.use_fsync);
+    io_s = log->file()->SyncWithoutFlush(immutable_db_options_.use_fsync);
     if (!io_s.ok()) {
       status = io_s;
       break;
@@ -1367,9 +1367,8 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     assert(wal.getting_synced);
     if (logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-          wal.writer->GetSyncedBytes() > 0) {
-        synced_wals.AddWal(wal.number,
-                           WalMetadata(wal.writer->GetSyncedBytes()));
+          wal.writer->GetFileSize() > 0) {
+        synced_wals.AddWal(wal.number, WalMetadata(wal.writer->GetFileSize()));
       }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
