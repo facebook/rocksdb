@@ -142,6 +142,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
 #endif  // ROCKSDB_LITE
   options.fail_if_options_file_error =
       immutable_db_options.fail_if_options_file_error;
+  options.use_options_file = immutable_db_options.use_options_file;
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
   options.avoid_flush_during_recovery =
       immutable_db_options.avoid_flush_during_recovery;

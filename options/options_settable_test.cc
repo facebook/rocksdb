@@ -303,6 +303,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "random_access_max_buffer_size=1048576;"
                              "advise_random_on_open=true;"
                              "fail_if_options_file_error=false;"
+                             "use_options_file=false;"
                              "enable_pipelined_write=false;"
                              "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
