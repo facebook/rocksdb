@@ -418,11 +418,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal,
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as an Env
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
              const std::string& value, void* addr) {
             auto old_env = static_cast<Env**>(addr);       // Get the old value
             Env* new_env = *old_env;                       // Set new to old
-            Status s = Env::LoadEnv(value, &new_env);      // Update new value
+            Status s = Env::CreateFromString(opts, value,
+                                             &new_env);    // Update new value
             if (s.ok()) {                                  // It worked
               *old_env = new_env;                          // Update the old one
             }

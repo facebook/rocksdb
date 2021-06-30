@@ -563,6 +563,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
+
+  // Note: the subcompaction boundary picking logic does not currently guarantee
+  // that all user keys that differ only by timestamp get processed by the same
+  // subcompaction.
+  if (cfd_->user_comparator()->timestamp_size() > 0) {
+    return false;
+  }
+
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
            !IsOutputLevelEmpty();
@@ -571,6 +579,29 @@ bool Compaction::ShouldFormSubcompactions() const {
   } else {
     return false;
   }
+}
+
+bool Compaction::DoesInputReferenceBlobFiles() const {
+  assert(input_version_);
+
+  const VersionStorageInfo* storage_info = input_version_->storage_info();
+  assert(storage_info);
+
+  if (storage_info->GetBlobFiles().empty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    for (const FileMetaData* meta : inputs_[i].files) {
+      assert(meta);
+
+      if (meta->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 uint64_t Compaction::MinInputFileOldestAncesterTime() const {

@@ -223,9 +223,9 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
-  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableOptions* immutable_cf_options() const {
+  const ImmutableOptions* immutable_options() const {
     return &immutable_options_;
   }
 
@@ -265,6 +265,11 @@ class Compaction {
 
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
+
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
 
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost

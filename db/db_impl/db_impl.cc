@@ -251,16 +251,17 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   table_cache_ = NewLRUCache(co);
+  SetDbSessionId();
+  assert(!db_session_id_.empty());
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_));
+                                 io_tracer_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
-  SetDbSessionId();
   DumpDBFileSummary(immutable_db_options_, dbname_, db_session_id_);
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
@@ -906,13 +907,6 @@ Status DBImpl::GetStatsHistory(
 void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:1");
 #ifndef ROCKSDB_LITE
-  const DBPropertyInfo* cf_property_info =
-      GetPropertyInfo(DB::Properties::kCFStats);
-  assert(cf_property_info != nullptr);
-  const DBPropertyInfo* db_property_info =
-      GetPropertyInfo(DB::Properties::kDBStats);
-  assert(db_property_info != nullptr);
-
   std::string stats;
   if (shutdown_initiated_) {
     return;
@@ -920,18 +914,29 @@ void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
-    default_cf_internal_stats_->GetStringProperty(
-        *db_property_info, DB::Properties::kDBStats, &stats);
+    const std::string* property = &DB::Properties::kDBStats;
+    const DBPropertyInfo* property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
+    default_cf_internal_stats_->GetStringProperty(*property_info, *property,
+                                                  &stats);
+
+    property = &DB::Properties::kCFStatsNoFileHistogram;
+    property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
+        cfd->internal_stats()->GetStringProperty(*property_info, *property,
+                                                 &stats);
       }
     }
+
+    property = &DB::Properties::kCFFileHistogram;
+    property_info = GetPropertyInfo(*property);
+    assert(property_info != nullptr);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
+        cfd->internal_stats()->GetStringProperty(*property_info, *property,
+                                                 &stats);
       }
     }
   }
@@ -1875,6 +1880,16 @@ std::vector<Status> DBImpl::MultiGet(
   }
 #endif  // NDEBUG
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(column_family, keys).PermitUncheckedError();
+    }
+  }
+
   SequenceNumber consistent_seqnum;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
@@ -2186,6 +2201,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   }
 #endif  // NDEBUG
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(num_keys, column_families, keys).PermitUncheckedError();
+    }
+  }
+
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
@@ -2348,6 +2373,15 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(num_keys, column_family, keys).PermitUncheckedError();
+    }
+  }
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
@@ -3675,6 +3709,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           deleted_files.insert(level_file);
           level_file->being_compacted = true;
         }
+        vstorage->ComputeCompactionScore(*cfd->ioptions(),
+                                         *cfd->GetLatestMutableCFOptions());
       }
     }
     if (edit.GetDeletedFiles().empty()) {
@@ -3736,6 +3772,17 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
     sv->current->GetColumnFamilyMetaData(cf_meta);
   }
   ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
+void DBImpl::GetAllColumnFamilyMetaData(
+    std::vector<ColumnFamilyMetaData>* metadata) {
+  InstrumentedMutexLock l(&mutex_);
+  for (auto cfd : *(versions_->GetColumnFamilySet())) {
+    {
+      metadata->emplace_back();
+      cfd->current()->GetColumnFamilyMetaData(&metadata->back());
+    }
+  }
 }
 
 #endif  // ROCKSDB_LITE

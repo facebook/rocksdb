@@ -19,6 +19,28 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
+ public:
+  LimitedStringAppendMergeOp(int limit, char delim)
+      : StringAppendTESTOperator(delim), limit_(limit) {}
+
+  const char* Name() const override {
+    return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
+  }
+
+  bool ShouldMerge(const std::vector<Slice>& operands) const override {
+    if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
+      return true;
+    }
+    return false;
+  }
+
+ private:
+  size_t limit_ = 0;
+};
+}  // namespace
+
 class DBMergeOperandTest : public DBTestBase {
  public:
   DBMergeOperandTest()
@@ -26,26 +48,6 @@ class DBMergeOperandTest : public DBTestBase {
 };
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
-  class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
-   public:
-    LimitedStringAppendMergeOp(int limit, char delim)
-        : StringAppendTESTOperator(delim), limit_(limit) {}
-
-    const char* Name() const override {
-      return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
-    }
-
-    bool ShouldMerge(const std::vector<Slice>& operands) const override {
-      if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
-        return true;
-      }
-      return false;
-    }
-
-   private:
-    size_t limit_ = 0;
-  };
-
   Options options;
   options.create_if_missing = true;
   // Use only the latest two merge operands.
@@ -214,7 +216,8 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[2], "dc");
   ASSERT_EQ(values[3], "ed");
 
-  // First 3 k5 values are in SST and next 4 k5 values are in Immutable Memtable
+  // First 3 k5 values are in SST and next 4 k5 values are in Immutable
+  // Memtable
   ASSERT_OK(Merge("k5", "who"));
   ASSERT_OK(Merge("k5", "am"));
   ASSERT_OK(Merge("k5", "i"));
@@ -230,6 +233,93 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[0], "remember");
   ASSERT_EQ(values[1], "i");
   ASSERT_EQ(values[2], "am");
+}
+
+TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
+  Options options;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  // Use only the latest two merge operands.
+  options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+  options.env = env_;
+  Reopen(options);
+  int num_records = 4;
+  int number_of_operands = 0;
+  std::vector<PinnableSlice> values(num_records);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  // All k1 values are in memtable.
+  ASSERT_OK(Put("k1", "x"));
+  ASSERT_OK(Merge("k1", "b"));
+  ASSERT_OK(Merge("k1", "c"));
+  ASSERT_OK(Merge("k1", "d"));
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(values[0], "x");
+  ASSERT_EQ(values[1], "b");
+  ASSERT_EQ(values[2], "c");
+  ASSERT_EQ(values[3], "d");
+
+  // expected_max_number_of_operands is less than number of merge operands so
+  // status should be Incomplete.
+  merge_operands_info.expected_max_number_of_operands = num_records - 1;
+  Status status = db_->GetMergeOperands(
+      ReadOptions(), db_->DefaultColumnFamily(), "k1", values.data(),
+      &merge_operands_info, &number_of_operands);
+  ASSERT_EQ(status.IsIncomplete(), true);
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  // All k2 values are flushed to L0 into a single file.
+  ASSERT_OK(Put("k2", "q"));
+  ASSERT_OK(Merge("k2", "w"));
+  ASSERT_OK(Merge("k2", "e"));
+  ASSERT_OK(Merge("k2", "r"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k2", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(values[0], "q,w,e,r");
+
+  // Do some compaction that will make the following tests more predictable
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // All k3 values are flushed and are in different files.
+  ASSERT_OK(Put("k3", "ab"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "bc"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "cd"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "de"));
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k3", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(values[0], "ab");
+  ASSERT_EQ(values[1], "bc");
+  ASSERT_EQ(values[2], "cd");
+  ASSERT_EQ(values[3], "de");
+
+  // All K4 values are in different levels
+  ASSERT_OK(Put("k4", "ba"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+  ASSERT_OK(Merge("k4", "cb"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Merge("k4", "dc"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Merge("k4", "ed"));
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k4", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(values[0], "ba");
+  ASSERT_EQ(values[1], "cb");
+  ASSERT_EQ(values[2], "dc");
+  ASSERT_EQ(values[3], "ed");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

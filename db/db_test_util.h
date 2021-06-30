@@ -303,6 +303,9 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      size_t GetUniqueId(char* id, size_t max_size) const override {
+        return base_->GetUniqueId(id, max_size);
+      }
     };
     class ManifestFile : public WritableFile {
      public:

@@ -20,6 +20,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/data_structure.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -370,20 +371,25 @@ enum class CompactionServiceJobStatus : char {
   kUseLocal,  // TODO: Add support for use local compaction
 };
 
-class CompactionService {
+class CompactionService : public Customizable {
  public:
+  static const char* Type() { return "CompactionService"; }
+
+  // Returns the name of this compaction service.
+  virtual const char* Name() const = 0;
+
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.
   // TODO: sub-compaction is not supported, as they will have the same job_id, a
   // sub-compaction id might be added
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, int job_id) = 0;
+      const std::string& compaction_service_input, uint64_t job_id) = 0;
 
   // Wait compaction to be finish.
   // TODO: Add output path override
   virtual CompactionServiceJobStatus WaitForComplete(
-      int job_id, std::string* compaction_service_result) = 0;
+      uint64_t job_id, std::string* compaction_service_result) = 0;
 
   virtual ~CompactionService() {}
 };
@@ -1656,6 +1662,9 @@ struct CompactRangeOptions {
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
   Slice* full_history_ts_low = nullptr;
+
+  // Allows cancellation of an in-progress manual compaction.
+  std::atomic<bool>* canceled = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

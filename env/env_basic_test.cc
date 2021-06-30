@@ -75,19 +75,30 @@ namespace {
 // The purpose of returning an empty vector (instead of nullptr) is that gtest
 // ValuesIn() will skip running tests when given an empty collection.
 std::vector<Env*> GetCustomEnvs() {
-  static Env* custom_env;
   static bool init = false;
+  static std::vector<Env*> res;
   if (!init) {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      Env::LoadEnv(uri, &custom_env);
+      static std::shared_ptr<Env> env_guard;
+      static Env* custom_env;
+      Status s =
+          Env::CreateFromUri(ConfigOptions(), uri, "", &custom_env, &env_guard);
+      if (s.ok()) {
+        res.emplace_back(custom_env);
+      }
     }
-  }
-
-  std::vector<Env*> res;
-  if (custom_env != nullptr) {
-    res.emplace_back(custom_env);
+    uri = getenv("TEST_FS_URI");
+    if (uri != nullptr) {
+      static std::shared_ptr<Env> fs_env_guard;
+      static Env* fs_env;
+      Status s =
+          Env::CreateFromUri(ConfigOptions(), "", uri, &fs_env, &fs_env_guard);
+      if (s.ok()) {
+        res.emplace_back(fs_env);
+      }
+    }
   }
   return res;
 }
