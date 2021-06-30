@@ -256,6 +256,8 @@ class SimpleConfigurable : public Configurable {
 
 class CustomizableTest : public testing::Test {
  public:
+  CustomizableTest() { config_options_.invoke_prepare_options = false; }
+
   ConfigOptions config_options_;
 };
 
@@ -373,7 +375,6 @@ TEST_F(CustomizableTest, AreEquivalentOptionsTest) {
   };
   std::string mismatch;
   ConfigOptions config_options = config_options_;
-  config_options.invoke_prepare_options = false;
   std::unique_ptr<Configurable> c1(new SimpleConfigurable());
   std::unique_ptr<Configurable> c2(new SimpleConfigurable());
   ASSERT_OK(c1->ConfigureFromMap(config_options, opt_map));
@@ -520,9 +521,12 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
       });
 
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
+  ConfigOptions prepared(config_options_);
+  prepared.invoke_prepare_options = true;
+
   ASSERT_FALSE(base->IsPrepared());
   ASSERT_OK(base->ConfigureFromString(
-      config_options_, "unique=A_1; shared={id=B;string=s}; pointer.id=S"));
+      prepared, "unique=A_1; shared={id=B;string=s}; pointer.id=S"));
   SimpleOptions* simple = base->GetOptions<SimpleOptions>();
   ASSERT_NE(simple, nullptr);
   ASSERT_NE(simple->cu, nullptr);
@@ -533,11 +537,9 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_TRUE(simple->cs->IsPrepared());
   ASSERT_TRUE(simple->cp->IsPrepared());
   delete simple->cp;
-  ConfigOptions unprepared(config_options_);
-  unprepared.invoke_prepare_options = false;
   base.reset(new SimpleConfigurable());
   ASSERT_OK(base->ConfigureFromString(
-      unprepared, "unique=A_1; shared={id=B;string=s}; pointer.id=S"));
+      config_options_, "unique=A_1; shared={id=B;string=s}; pointer.id=S"));
 
   simple = base->GetOptions<SimpleOptions>();
   ASSERT_NE(simple, nullptr);
@@ -549,12 +551,12 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_FALSE(simple->cs->IsPrepared());
   ASSERT_FALSE(simple->cp->IsPrepared());
 
-  ASSERT_OK(base->PrepareOptions(unprepared));
+  ASSERT_OK(base->PrepareOptions(config_options_));
   ASSERT_FALSE(base->IsPrepared());
   ASSERT_FALSE(simple->cu->IsPrepared());
   ASSERT_FALSE(simple->cs->IsPrepared());
   ASSERT_FALSE(simple->cp->IsPrepared());
-  ASSERT_OK(base->PrepareOptions(config_options_));
+  ASSERT_OK(base->PrepareOptions(prepared));
   ASSERT_TRUE(base->IsPrepared());
   ASSERT_TRUE(simple->cu->IsPrepared());
   ASSERT_TRUE(simple->cs->IsPrepared());
@@ -562,29 +564,29 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   delete simple->cp;
   base.reset(new SimpleConfigurable());
 
-  ASSERT_NOK(base->ConfigureFromString(config_options_,
-                                       "unique={id=P; can_prepare=false}"));
+  ASSERT_NOK(
+      base->ConfigureFromString(prepared, "unique={id=P; can_prepare=false}"));
   simple = base->GetOptions<SimpleOptions>();
   ASSERT_NE(simple, nullptr);
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_FALSE(simple->cu->IsPrepared());
 
+  ASSERT_OK(
+      base->ConfigureFromString(prepared, "unique={id=P; can_prepare=true}"));
+  ASSERT_TRUE(simple->cu->IsPrepared());
+
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=P; can_prepare=true}"));
-  ASSERT_TRUE(simple->cu->IsPrepared());
-
-  ASSERT_OK(
-      base->ConfigureFromString(unprepared, "unique={id=P; can_prepare=true}"));
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_FALSE(simple->cu->IsPrepared());
-  ASSERT_OK(simple->cu->PrepareOptions(config_options_));
+  ASSERT_OK(simple->cu->PrepareOptions(prepared));
   ASSERT_TRUE(simple->cu->IsPrepared());
 
-  ASSERT_OK(base->ConfigureFromString(unprepared,
+  ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=P; can_prepare=false}"));
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_FALSE(simple->cu->IsPrepared());
-  ASSERT_NOK(simple->cu->PrepareOptions(config_options_));
+  ASSERT_NOK(simple->cu->PrepareOptions(prepared));
   ASSERT_FALSE(simple->cu->IsPrepared());
 }
 
@@ -789,7 +791,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> immutable_option_info =
       {{"immutable",
         OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-            0, OptionVerificationType::kNormal, OptionTypeFlags::kNone)}};
+            0, OptionVerificationType::kNormal, OptionTypeFlags::kAllowNull)}};
 
   class MutableCustomizable : public Customizable {
    private:
