@@ -63,6 +63,8 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
       }
     }
   }
+#else
+  (void)opts;
 #endif  // ROCKSDB_LITE
   if (status.ok()) {
     prepared_ = true;
