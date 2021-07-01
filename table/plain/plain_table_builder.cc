@@ -277,7 +277,7 @@ Status PlainTableBuilder::Finish() {
   IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
   if (!s.ok()) {
-    return s;
+    return io_status_to_status(s);
   }
   meta_index_builer.Add(kPropertiesBlock, property_block_handle);
 

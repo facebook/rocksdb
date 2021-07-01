@@ -266,4 +266,8 @@ inline IOStatus status_to_io_status(Status&& status) {
   }
 }
 
+inline Status io_status_to_status(IOStatus& io_s) {
+  return Status(std::move(io_s));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
