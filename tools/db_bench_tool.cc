@@ -2527,9 +2527,6 @@ class Benchmark {
 
   class ErrorHandlerListener : public EventListener {
    public:
-    const char* Name() const override { return kClassName(); }
-    static const char* kClassName() { return "ErrorHandlerListener"; }
-
 #ifndef ROCKSDB_LITE
     ErrorHandlerListener()
         : mutex_(),
@@ -2538,6 +2535,9 @@ class Benchmark {
           recovery_complete_(false) {}
 
     ~ErrorHandlerListener() override {}
+
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
 
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,

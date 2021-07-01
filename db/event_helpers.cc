@@ -10,11 +10,13 @@
 #include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
 Status EventListener::CreateFromString(const ConfigOptions& config_options,
                                        const std::string& id,
                                        std::shared_ptr<EventListener>* result) {
   return LoadSharedObject<EventListener>(config_options, id, nullptr, result);
 }
+#endif  // ROCKSDB_LITE
 
 namespace {
 template <class T>

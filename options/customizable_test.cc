@@ -980,6 +980,7 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
   std::shared_ptr<EventListener> result;
 
@@ -998,6 +999,7 @@ TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
     ASSERT_STREQ(result->Name(), FlushCounterListener::kClassName());
   }
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
