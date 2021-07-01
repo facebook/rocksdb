@@ -62,7 +62,8 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      cmp_db_(nullptr) {
+      cmp_db_(nullptr),
+      is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
     db_stress_env->GetChildren(FLAGS_db, &files);
@@ -614,8 +615,15 @@ void StressTest::OperateDb(ThreadState* thread) {
                                             FLAGS_read_fault_one_in);
   }
   if (FLAGS_write_fault_one_in) {
-    IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
-    error_msg.SetRetryable(true);
+    IOStatus error_msg;
+    if (FLAGS_injest_error_severity <= 1 || FLAGS_injest_error_severity > 2) {
+      error_msg = IOStatus::IOError("Retryable IO Error");
+      error_msg.SetRetryable(true);
+    } else if (FLAGS_injest_error_severity == 2) {
+      // Ingest the fatal error
+      error_msg = IOStatus::IOError("Fatal IO Error");
+      error_msg.SetDataLoss(true);
+    }
     std::vector<FileType> types = {FileType::kTableFile,
                                    FileType::kDescriptorFile,
                                    FileType::kCurrentFile};
