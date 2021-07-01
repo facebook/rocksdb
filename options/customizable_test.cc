@@ -995,6 +995,20 @@ TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
       SliceTransform::CreateFromString(config_options_, "fixed:16", &result));
   ASSERT_NE(result.get(), nullptr);
   ASSERT_TRUE(result->IsInstanceOf("fixed"));
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.FixedPrefix.22", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options_, "capped:16", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
+
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.CappedPrefix.11", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
 
   if (RegisterTests("Test")) {
     ASSERT_OK(

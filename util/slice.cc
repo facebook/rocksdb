@@ -238,21 +238,22 @@ Status SliceTransform::CreateFromString(
   if (id == NoopTransform::kClassName()) {
     result->reset(NewNoopTransform());
   } else if (size > strlen("fixed:") && StartsWith(id, "fixed:")) {
-    auto len = ParseSizeT(id.substr(strlen("fixed:") + 2));
-    result->reset(NewFixedTransform(len));
+    auto len = ParseSizeT(id.substr(strlen("fixed:")));
+    result->reset(NewFixedPrefixTransform(len));
   } else if (size > strlen("capped:") && StartsWith(id, "capped:")) {
-    result->reset(NewCappedTransform(len));
+    auto len = ParseSizeT(id.substr(strlen("capped:")));
+    result->reset(NewCappedPrefixTransform(len));
   } else {
-    auto fixed = strlen(FixedSliceTransform::kClassName());
-    auto capped = strlen(CappedSliceTransform::kClassName());
+    auto fixed = strlen(FixedPrefixTransform::kClassName());
+    auto capped = strlen(CappedPrefixTransform::kClassName());
     if (size > capped + 2 && id[capped] == '.' &&
-        StartsWith(id, CappedSliceTransform::kClassName)) {
+        StartsWith(id, CappedPrefixTransform::kClassName())) {
       auto len = ParseSizeT(id.substr(capped + 1));
-      result->reset(NewCappedTransform(len));
+      result->reset(NewCappedPrefixTransform(len));
     } else if (size > fixed + 2 && id[fixed] == '.' &&
-               StartsWith(id, FixedSliceTransform::kClassName)) {
+               StartsWith(id, FixedPrefixTransform::kClassName())) {
       auto len = ParseSizeT(id.substr(fixed + 1));
-      result->reset(NewFixedTransform(len));
+      result->reset(NewFixedPrefixTransform(len));
     } else {
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
     }
