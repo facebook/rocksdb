@@ -828,4 +828,9 @@ DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file write "
              "during DB reopen.");
 
+DEFINE_int32(injest_error_severity, 1,
+             "The severity of the injested IO Error. 1 is soft error (e.g. "
+             "retryable error), 2 is fatal error, and the defulat is "
+             "retryable error.");
+
 #endif  // GFLAGS
