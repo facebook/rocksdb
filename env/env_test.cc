@@ -2397,6 +2397,7 @@ class EncryptionProviderTest : public testing::Test {
 
 TEST_F(EncryptionProviderTest, LoadCTRProvider) {
   ConfigOptions config_options;
+  config_options.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
   std::shared_ptr<EncryptionProvider> provider;
   // Test a provider with no cipher
