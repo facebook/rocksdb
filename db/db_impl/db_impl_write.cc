@@ -2113,6 +2113,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
+
+  // By default, it is assumed that the 'old' memtable
+  // will be added to the Imm memtable list and will therefore
+  // contribute to the Imm memory footprint.
+  bool noImmMemoryContribution = false;
   // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge &&
       (new_mem != nullptr) &&
@@ -2124,6 +2129,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       // increment counter and decrement current memtable reference.
       RecordTick(stats_, EXPERIMENTAL_MEMPURGE_COUNT);
       cfd->mem()->Unref();
+      // If the MemPurge is successful, the 'old' (purged) memtable
+      // is not added to the Imm memtable list and therefore
+      // does not contribute to the Imm memory cost anymore.
+      noImmMemoryContribution = true;
     } else {
       // If mempurge failed, go back to regular mem->imm->flush workflow.
       if (new_mem) {
@@ -2145,13 +2154,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  InstallSuperVersionAndScheduleWork(
-      cfd, &context->superversion_context, mutable_cf_options,
-      immutable_db_options_.experimental_allow_mempurge
-      // fromMemPurge. Need to be updated when looking
-      // for MemPurge heuristic, meaning the MemPurge
-      // won't always happen even if flag is "true".
-  );
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                     mutable_cf_options,
+                                     noImmMemoryContribution);
 
 #ifndef ROCKSDB_LITE
   mutex_.Unlock();
