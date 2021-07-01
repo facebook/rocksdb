@@ -5183,6 +5183,7 @@ void DBImpl::NotifyOnExternalFileIngested(
     info.internal_file_path = f.internal_file_path;
     info.global_seqno = f.assigned_seqno;
     info.table_properties = f.table_properties;
+    info.picked_level = f.picked_level;
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnExternalFileIngested(this, info);
     }

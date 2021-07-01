@@ -468,6 +468,8 @@ struct ExternalFileIngestionInfo {
   SequenceNumber global_seqno;
   // Table properties of the table being flushed
   TableProperties table_properties;
+  // Level inside the DB we picked for the external file.
+  int picked_level;
 };
 
 // Result of auto background error recovery
