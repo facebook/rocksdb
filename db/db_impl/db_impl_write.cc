@@ -2126,8 +2126,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     Status mempurge_s = MemPurge(cfd, new_mem);
     if (mempurge_s.ok()) {
       // If mempurge worked successfully,
-      // increment counter and decrement current memtable reference.
-      RecordTick(stats_, EXPERIMENTAL_MEMPURGE_COUNT);
+      // create sync point and decrement current memtable reference.
+      TEST_SYNC_POINT("DBImpl::MemPurge");
       cfd->mem()->Unref();
       // If the MemPurge is successful, the 'old' (purged) memtable
       // is not added to the Imm memtable list and therefore

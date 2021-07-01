@@ -696,6 +696,13 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
+  int32_t mempurge_count = 0;
+  int32_t flush_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:Flush", [&](void* /*arg*/) { flush_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::string KEY1 = "IamKey1";
   std::string KEY2 = "IamKey2";
@@ -752,13 +759,10 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   }
 
   // Check that there was at least one mempurge
-  const uint64_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
   // Check that there was no flush to storage.
-  const uint64_t EXPECTED_FLUSH_COUNT = 0;
+  const uint32_t EXPECTED_FLUSH_COUNT = 0;
 
-  uint64_t mempurge_count =
-      TestGetTickerCount(options, EXPERIMENTAL_MEMPURGE_COUNT);
-  uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
   EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
   EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
 
@@ -780,6 +784,14 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
+
+  int32_t mempurge_count = 0;
+  int32_t flush_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:Flush", [&](void* /*arg*/) { flush_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::string KEY1 = "ThisIsKey1";
   std::string KEY2 = "ThisIsKey2";
@@ -862,13 +874,9 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   }
 
   // Check that there was at least one mempurge
-  const uint64_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
   // Check that there was no flush to storage.
-  const uint64_t EXPECTED_FLUSH_COUNT = 0;
-
-  uint64_t mempurge_count =
-      TestGetTickerCount(options, EXPERIMENTAL_MEMPURGE_COUNT);
-  uint64_t flush_count = TestGetTickerCount(options, FLUSH_COUNT);
+  const uint32_t EXPECTED_FLUSH_COUNT = 0;
 
   if (atLeastOneFlush) {
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);

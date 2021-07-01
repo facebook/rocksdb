@@ -763,16 +763,6 @@ public enum TickerType {
      * Outdated bytes of data present on memtable at flush time.
      */
     MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
-    /**
-     * Counter to keep track of the number of times
-     * the MemPurge operation is performed.
-     */
-    EXPERIMENTAL_MEMPURGE_COUNT((byte) -0x1E),
-    /**
-     * Counter that tracks the number of times an immutable
-     * memtable flush operation happens.
-     */
-    FLUSH_COUNT((byte) -0x1F),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
