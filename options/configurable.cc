@@ -50,14 +50,13 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
         if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
           Configurable* config =
               opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
+          // If the configurable exists, configure it.  If it is null,
+          // skip it (ValidateOptions will flag it)
           if (config != nullptr) {
             status = config->PrepareOptions(opts);
             if (!status.ok()) {
               return status;
             }
-          } else if (!opt_info.CanBeNull()) {
-            status =
-                Status::NotFound("Missing configurable object", map_iter.first);
           }
         }
       }
