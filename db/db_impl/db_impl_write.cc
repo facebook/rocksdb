@@ -1750,6 +1750,7 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
 
   // Grab current memtable
   MemTable* m = cfd->mem();
+  SequenceNumber first_seqno = m->GetFirstSequenceNumber();
   SequenceNumber earliest_seqno = m->GetEarliestSequenceNumber();
 
   // Create two iterators, one for the memtable data (contains
@@ -1833,19 +1834,16 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
     // memtable being flushed (See later if there is a need
     // to update this number!).
     new_mem->SetEarliestSequenceNumber(earliest_seqno);
-    SequenceNumber new_earliest_seqno = kMaxSequenceNumber;
+    // Likewise for first seq number.
+    new_mem->SetFirstSequenceNumber(first_seqno);
     SequenceNumber new_first_seqno = kMaxSequenceNumber;
 
     // Key transfer
     for (; c_iter.Valid(); c_iter.Next()) {
       const ParsedInternalKey ikey = c_iter.ikey();
       const Slice value = c_iter.value();
-      new_earliest_seqno = ikey.sequence < new_earliest_seqno
-                               ? ikey.sequence
-                               : new_earliest_seqno;
       new_first_seqno =
           ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
-      new_mem->SetFirstSequenceNumber(new_first_seqno);
 
       // Should we update "OldestKeyTime" ????
       s = new_mem->Add(
@@ -1880,7 +1878,6 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
         auto tombstone = range_del_it->Tombstone();
         new_first_seqno =
             tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
-        new_mem->SetFirstSequenceNumber(new_first_seqno);
         s = new_mem->Add(
             tombstone.seq_,        // Sequence number
             kTypeRangeDeletion,    // KV type
@@ -1901,11 +1898,20 @@ Status DBImpl::MemPurge(ColumnFamilyData* cfd, MemTable* new_mem) {
         }
       }
     }
+    // Rectify the first sequence number, which (unlike the earliest seq
+    // number) needs to be present in the new memtable.
+    new_mem->SetFirstSequenceNumber(new_first_seqno);
   }
   // Note: if the mempurge was ineffective, meaning that there was no
   // garbage to remove, and this new_mem needs to be flushed again,
   // the new_mem->Add would have updated the flush status when it
   // called "UpdateFlushState()" internally at the last Add() call.
+  // Therefore if the new mem needs to be flushed again, we mark
+  // the return status as "aborted", which will trigger the regular
+  // flush operation.
+  if (s.ok() && new_mem->ShouldScheduleFlush()) {
+    s = Status::Aborted(Slice("No garbage collected."));
+  }
   return s;
 }
 
@@ -2083,7 +2089,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       for (auto cf : empty_cfs) {
         if (cf->IsEmpty()) {
           cf->SetLogNumber(logfile_number_);
-          // MEMPURGE: No need to change this, become new adds
+          // MEMPURGE: No need to change this, because new adds
           // should still receive new sequence numbers.
           cf->mem()->SetCreationSeq(versions_->LastSequence());
         }  // cf may become non-empty.
@@ -2109,7 +2115,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   cfd->mem()->SetNextLogNumber(logfile_number_);
   // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge &&
-      (new_mem != nullptr)) {
+      (new_mem != nullptr) &&
+      ((cfd->GetFlushReason() == FlushReason::kOthers) ||
+       (cfd->GetFlushReason() == FlushReason::kManualFlush))) {
     Status mempurge_s = MemPurge(cfd, new_mem);
     if (mempurge_s.ok()) {
       // If mempurge worked successfully,
