@@ -2405,7 +2405,7 @@ TEST_F(EncryptionProviderTest, LoadCTRProvider) {
       EncryptionProvider::CreateFromString(config_options, CTR, &provider));
   ASSERT_NE(provider, nullptr);
   ASSERT_EQ(provider->Name(), CTR);
-  ASSERT_OK(provider->PrepareOptions(config_options));
+  ASSERT_NOK(provider->PrepareOptions(config_options));
   ASSERT_NOK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
   auto cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
   ASSERT_NE(cipher, nullptr);

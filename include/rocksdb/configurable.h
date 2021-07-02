@@ -235,10 +235,11 @@ class Configurable {
   // reconfigure the cache), as there is the potential this method can be called
   // more than once.
   //
-  // By default, this method will also prepare all non-null nested
-  // (OptionTypeInfo::IsConfigurable) objects.
+  // By default, this method will also prepare all nested (Inner and
+  // OptionType::kConfigurable) objects.
   //
-  // @param config_options Controls how the object is prepared.
+  // @param config_options Controls how the object is prepared.  Also contains
+  //      a Logger and Env that can be used to initialize this object.
   // @return OK If the object was successfully initialized.
   // @return InvalidArgument If this object could not be successfully
   // initialized.
@@ -250,10 +251,8 @@ class Configurable {
   // support certain mmap modes or a TableFactory might require certain
   // settings.
   //
-  // By default, this method will also validate all nested
-  // OptionTypeInfo::IsConfigurable) objects.  All nested objects must either be
-  // present (non-null) or marked as allowed to be null
-  // (OptionTypeInfo::CanBeNull).
+  // By default, this method will also validate all nested (Inner and
+  // OptionType::kConfigurable) objects.
   //
   // @param db_opts The DBOptions to validate
   // @param cf_opts The ColumnFamilyOptions to validate
