@@ -303,6 +303,16 @@ class Compaction {
 
   uint64_t MinInputFileOldestAncesterTime() const;
 
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -386,6 +396,10 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
 };
 
 // Return sum of sizes of all files in `files`.

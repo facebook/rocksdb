@@ -1395,6 +1395,8 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
       manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return;
   }
+
+  c->SetNotifyOnCompactionCompleted();
   Version* current = cfd->current();
   current->Ref();
   // release lock while notifying events
@@ -1430,10 +1432,8 @@ void DBImpl::NotifyOnCompactionCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
-  // TODO: Should disabling manual compaction squash compaction completed
-  //   notifications that aren't the result of a shutdown?
-  if (c->is_manual_compaction() &&
-      manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
+
+  if (c->ShouldNotifyOnCompactionCompleted() == false) {
     return;
   }
 
