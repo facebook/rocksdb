@@ -3843,7 +3843,7 @@ class Benchmark {
     printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
     ConfigOptions config_options(options);
-    
+
     assert(db_.db == nullptr);
 
     options.env = FLAGS_env;
@@ -4206,8 +4206,8 @@ class Benchmark {
 
     // merge operator options
     if (!FLAGS_merge_operator.empty()) {
-      Status s = MergeOperator::CreateFromString(config_options, FLAGS_merge_operator,
-                                                 &options.merge_operator);
+      Status s = MergeOperator::CreateFromString(
+          config_options, FLAGS_merge_operator, &options.merge_operator);
       if (!s.ok()) {
         fprintf(stderr, "invalid merge operator[%s]: %s\n",
                 FLAGS_merge_operator.c_str(), s.ToString().c_str());
