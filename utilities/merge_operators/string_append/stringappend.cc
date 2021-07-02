@@ -16,6 +16,7 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
     stringappend_merge_type_info = {
 #ifndef ROCKSDB_LITE
@@ -24,7 +25,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 #endif  // ROCKSDB_LITE
 };
-
+}  // namespace
 // Constructor: also specify the delimiter character.
 StringAppendOperator::StringAppendOperator(char delim_char)
     : delim_(1, delim_char) {

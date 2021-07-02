@@ -790,6 +790,8 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 0);
   ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  delete filter;
+  filter = nullptr;
 
   ASSERT_OK(CompactionFilter::CreateFromString(
       config_options_, "id=TtlCompactionFilter; ttl=123", &filter));
@@ -798,6 +800,8 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 123);
   ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  delete filter;
+  filter = nullptr;
 
   ASSERT_OK(CompactionFilter::CreateFromString(
       config_options_,
@@ -812,6 +816,7 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
   ASSERT_OK(
       CompactionFilter::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(filter->AreEquivalent(config_options_, copy, &mismatch));
+  delete filter;
 }
 
 TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
