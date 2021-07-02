@@ -696,8 +696,8 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
-  int32_t mempurge_count = 0;
-  int32_t flush_count = 0;
+  uint32_t mempurge_count = 0;
+  uint32_t flush_count = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -785,8 +785,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
 
-  int32_t mempurge_count = 0;
-  int32_t flush_count = 0;
+  uint32_t mempurge_count = 0;
+  uint32_t flush_count = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
