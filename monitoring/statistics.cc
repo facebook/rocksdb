@@ -273,9 +273,29 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinStatistics(ObjectLibrary& library,
+                                     const std::string& /*arg*/) {
+  library.Register<Statistics>(
+      StatisticsImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new StatisticsImpl(nullptr));
+        return guard->get();
+      });
+  return 1;
+}
+#endif  // ROCKSDB_LITE
+
 Status Statistics::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& id,
                                     std::shared_ptr<Statistics>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinStatistics(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
   Status s;
   if (id == "" || id == StatisticsImpl::kClassName()) {
     result->reset(new StatisticsImpl(nullptr));

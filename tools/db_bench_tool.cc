@@ -7705,6 +7705,7 @@ class Benchmark {
 
 int db_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
+  ConfigOptions config_options;
   static bool initialized = false;
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -7721,8 +7722,8 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
-        FLAGS_statistics_string, &dbstats);
+    Status s = Statistics::CreateFromString(config_options,
+                                            FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
       fprintf(stderr,
               "No Statistics registered matching string: %s status=%s\n",
@@ -7768,7 +7769,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (env_opts == 1) {
-    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+    Status s = Env::CreateFromUri(config_options, FLAGS_env_uri, FLAGS_fs_uri,
                                   &FLAGS_env, &env_guard);
     if (!s.ok()) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());

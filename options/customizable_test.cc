@@ -1019,6 +1019,15 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
     ASSERT_NE(inner, nullptr);
     ASSERT_NE(inner->get(), nullptr);
     ASSERT_STREQ(inner->get()->Name(), "BasicStatistics");
+
+    ASSERT_OK(Statistics::CreateFromString(
+        config_options_, "id=BasicStatistics;inner=Test", &stats));
+    ASSERT_NE(stats, nullptr);
+    ASSERT_STREQ(stats->Name(), "BasicStatistics");
+    inner = stats->GetOptions<std::shared_ptr<Statistics>>("StatisticsOptions");
+    ASSERT_NE(inner, nullptr);
+    ASSERT_NE(inner->get(), nullptr);
+    ASSERT_STREQ(inner->get()->Name(), TestStatistics::kClassName());
   }
 #endif
 }
