@@ -1124,18 +1124,18 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   // Destroy the DB to recreate as a TransactionDB.
   Close();
   Destroy(options, true);
-  
+
   // Create a TransactionDB.
   TransactionDB* txn_db = nullptr;
   TransactionDBOptions txn_db_opts;
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
   ASSERT_NE(txn_db, nullptr);
   db_ = txn_db;
-  
+
   std::vector<std::string> cfs = {"new_CF"};
   CreateColumnFamilies(cfs, options);
   ASSERT_EQ(handles_.size(), 1);
-  
+
   WriteOptions wopts;
   TransactionOptions txn_opts;
   Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
