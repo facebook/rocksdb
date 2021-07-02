@@ -510,17 +510,15 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
     }
     if (UNLIKELY(!delayed_prepared_empty_.load(std::memory_order_acquire))) {
       WriteLock wl(&prepared_mutex_);
-      for (auto dp : delayed_prepared_) {
-        if (dp == evicted.prep_seq) {
-          // This is a rare case that txn is committed but prepared_txns_ is not
-          // cleaned up yet. Refer to delayed_prepared_commits_ definition for
-          // why it should be kept updated.
-          delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
-          ROCKS_LOG_DEBUG(info_log_,
-                          "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
-                          evicted.prep_seq, evicted.commit_seq);
-          break;
-        }
+      auto dp_iter = delayed_prepared_.find(evicted.prep_seq);
+      if (dp_iter != delayed_prepared_.end()) {
+        // This is a rare case that txn is committed but prepared_txns_ is not
+        // cleaned up yet. Refer to delayed_prepared_commits_ definition for
+        // why it should be kept updated.
+        delayed_prepared_commits_[evicted.prep_seq] = evicted.commit_seq;
+        ROCKS_LOG_DEBUG(info_log_,
+                        "delayed_prepared_commits_[%" PRIu64 "]=%" PRIu64,
+                        evicted.prep_seq, evicted.commit_seq);
       }
     }
     // After each eviction from commit cache, check if the commit entry should
