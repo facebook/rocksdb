@@ -1613,8 +1613,8 @@ TEST_P(DBWALTestWithParamsRecycling, RecoveryHole) {
     case 1: {
       uint64_t record_size = record_offset_end - record_offset_begin;
       ASSERT_GT(record_size, bytes_to_corrupt);
-      offset_to_corrupt =
-          record_offset_begin + ((record_size - bytes_to_corrupt) / 2);
+      offset_to_corrupt = static_cast<int>(
+          record_offset_begin + ((record_size - bytes_to_corrupt) / 2));
     } break;
     case 2: {
       // < 0 means from end of file
