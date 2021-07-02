@@ -139,12 +139,7 @@ Status TtlMergeOperator::PrepareOptions(const ConfigOptions& config_options) {
   if (clock_ == nullptr) {
     clock_ = config_options.env->GetSystemClock().get();
   }
-  if (user_merge_op_ == nullptr) {
-    return Status::InvalidArgument(
-        "UserMergeOperator required by TtlMergeOperator");
-  } else {
-    return MergeOperator::PrepareOptions(config_options);
-  }
+  return MergeOperator::PrepareOptions(config_options);
 }
 
 Status TtlMergeOperator::ValidateOptions(

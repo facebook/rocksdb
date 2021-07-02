@@ -860,12 +860,14 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
 TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> mo;
 
+  config_options_.invoke_prepare_options = false;
   ASSERT_OK(MergeOperator::CreateFromString(
       config_options_, TtlMergeOperator::kClassName(), &mo));
   ASSERT_NE(mo.get(), nullptr);
   ASSERT_STREQ(mo->Name(), TtlMergeOperator::kClassName());
   ASSERT_NOK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 
+  config_options_.invoke_prepare_options = true;
   ASSERT_OK(MergeOperator::CreateFromString(
       config_options_, "id=TtlMergeOperator; user_operator=bytesxor", &mo));
   ASSERT_NE(mo.get(), nullptr);
