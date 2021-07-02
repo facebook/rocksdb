@@ -440,6 +440,7 @@ Status FlushJob::WriteLevel0Table() {
         }
       }
       if (tboptions.reason == TableFileCreationReason::kFlush) {
+        TEST_SYNC_POINT("DBImpl::FlushJob:Flush");
         RecordTick(stats_, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
                    memtable_payload_bytes);
         RecordTick(stats_, MEMTABLE_GARBAGE_BYTES_AT_FLUSH,

@@ -151,7 +151,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd);
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
-
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       port::kMaxUint64 /* memtable_id */, file_options_for_compaction_,
@@ -3437,7 +3436,7 @@ void DBImpl::BuildCompactionJobInfo(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, bool fromMemPurge) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -3452,7 +3451,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options,
+                           fromMemPurge);
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be
