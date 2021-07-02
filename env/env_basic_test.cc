@@ -47,8 +47,11 @@ INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
 
 #ifndef ROCKSDB_LITE
 static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
+  ConfigOptions config_opts;
+  config_opts.invoke_prepare_options = false;
+
   std::shared_ptr<EncryptionProvider> provider;
-  EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
+  EXPECT_OK(EncryptionProvider::CreateFromString(config_opts, provider_id,
                                                  &provider));
   return NewEncryptedEnv(base, provider);
 }
