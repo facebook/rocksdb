@@ -871,6 +871,27 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+class TestSecondaryCache : public SecondaryCache {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Test"; }
+  Status Insert(const Slice& /*key*/, void* /*value*/,
+                const Cache::CacheItemHelper* /*helper*/) override {
+    return Status::NotSupported();
+  }
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
+      const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
+      bool /*wait*/) override {
+    return nullptr;
+  }
+  void Erase(const Slice& /*key*/) override {}
+
+  // Wait for a collection of handles to become ready
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
+
+  std::string GetPrintableOptions() const override { return ""; }
+};
+
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 static int RegisterTestObjects(ObjectLibrary& library,
@@ -894,27 +915,6 @@ static int RegisterTestObjects(ObjectLibrary& library,
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-
-class TestSecondaryCache : public SecondaryCache {
- public:
-  const char* Name() const override { return kClassName(); }
-  static const char* kClassName() { return "Test"; }
-  Status Insert(const Slice& /*key*/, void* /*value*/,
-                const Cache::CacheItemHelper* /*helper*/) override {
-    return Status::NotSupported();
-  }
-  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/) override {
-    return nullptr;
-  }
-  void Erase(const Slice& /*key*/) override {}
-
-  // Wait for a collection of handles to become ready
-  void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
-
-  std::string GetPrintableOptions() const override { return ""; }
-};
 
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
