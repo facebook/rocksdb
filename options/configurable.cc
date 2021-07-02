@@ -39,30 +39,33 @@ void Configurable::RegisterOptions(
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   Status status = Status::OK();
+  if (opts.invoke_prepare_options) {
 #ifndef ROCKSDB_LITE
-  for (auto opt_iter : options_) {
-    for (auto map_iter : *(opt_iter.type_map)) {
-      auto& opt_info = map_iter.second;
-      if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
-          opt_info.IsConfigurable()) {
-        if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
-          Configurable* config =
-              opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
-          if (config != nullptr) {
-            status = config->PrepareOptions(opts);
-            if (!status.ok()) {
-              return status;
+    for (auto opt_iter : options_) {
+      for (auto map_iter : *(opt_iter.type_map)) {
+        auto& opt_info = map_iter.second;
+        if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
+            opt_info.IsConfigurable()) {
+          if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
+            Configurable* config =
+                opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
+            if (config != nullptr) {
+              status = config->PrepareOptions(opts);
+              if (!status.ok()) {
+                return status;
+              }
+            } else if (!opt_info.CanBeNull()) {
+              status = Status::NotFound("Missing configurable object",
+                                        map_iter.first);
             }
           }
         }
       }
     }
-  }
-#else
-  (void)opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    prepared_ = true;
+    if (status.ok()) {
+      prepared_ = true;
+    }
   }
   return status;
 }
@@ -158,17 +161,26 @@ Status Configurable::ConfigureOptions(
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
-#ifndef ROCKSDB_LITE
-  if (!config_options.ignore_unknown_options) {
-    // If we are not ignoring unused, get the defaults in case we need to reset
+  Status s;
+  if (!opts_map.empty()) {
+    // There are options in the map.
+    // Save the current configuration in curr_opts and then configure the
+    // options, but do not prepare them now.  We will do all the prepare when
+    // the configuration is complete.
     ConfigOptions copy = config_options;
-    copy.depth = ConfigOptions::kDepthDetailed;
-    copy.delimiter = "; ";
-    GetOptionString(copy, &curr_opts).PermitUncheckedError();
-  }
+    copy.invoke_prepare_options = false;
+#ifndef ROCKSDB_LITE
+    if (!config_options.ignore_unknown_options) {
+      // If we are not ignoring unused, get the defaults in case we need to
+      // reset
+      copy.depth = ConfigOptions::kDepthDetailed;
+      copy.delimiter = "; ";
+      GetOptionString(copy, &curr_opts).PermitUncheckedError();
+    }
 #endif  // ROCKSDB_LITE
-  Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
-                                                  opts_map, unused);
+
+    s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
+  }
   if (config_options.invoke_prepare_options && s.ok()) {
     s = PrepareOptions(config_options);
   }
@@ -177,6 +189,7 @@ Status Configurable::ConfigureOptions(
     ConfigOptions reset = config_options;
     reset.ignore_unknown_options = true;
     reset.invoke_prepare_options = true;
+    reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
     ConfigureFromString(reset, curr_opts).PermitUncheckedError();
   }

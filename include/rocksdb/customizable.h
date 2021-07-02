@@ -162,6 +162,17 @@ class Customizable : public Configurable {
       const std::string& opt_value, std::string* id,
       std::unordered_map<std::string, std::string>* options);
 
+  // Helper method to configure a new object with the supplied options.
+  // If the object is not null and invoke_prepare_options=true, the object
+  // will be configured and prepared.
+  // Returns success if the object is properly configured and (optionally)
+  // prepared Returns InvalidArgument if the object is nullptr and there are
+  // options in the map Returns the result of the ConfigureFromMap or
+  // PrepareOptions
+  static Status ConfigureNewObject(
+      const ConfigOptions& config_options, Customizable* object,
+      const std::unordered_map<std::string, std::string>& options);
+
   // Returns the inner class when a Customizable implements a has-a (wrapped)
   // relationship.  Derived classes that implement a has-a must override this
   // method in order to get CheckedCast to function properly.
