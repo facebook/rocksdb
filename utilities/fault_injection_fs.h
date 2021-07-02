@@ -152,8 +152,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
 
 class TestFSSequentialFile : public FSSequentialFileWrapper {
  public:
-  explicit TestFSSequentialFile(FSSequentialFile* t, FaultInjectionTestFS* fs)
-      : FSSequentialFileWrapper(t), fs_(fs) {}
+  explicit TestFSSequentialFile(FSSequentialFile* f, FaultInjectionTestFS* fs)
+      : FSSequentialFileWrapper(f), target_guard_(f), fs_(fs) {}
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
@@ -161,6 +161,7 @@ class TestFSSequentialFile : public FSSequentialFileWrapper {
                           IODebugContext* dbg) override;
 
  private:
+  std::unique_ptr<FSSequentialFile> target_guard_;
   FaultInjectionTestFS* fs_;
 };
 
@@ -401,6 +402,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
   // If the value is not 0, it is enabled. Otherwise, it is disabled.
   void SetRandomReadError(int one_in) { read_error_one_in_ = one_in; }
+
+  bool ShouldInjectRandomReadError() {
+    return read_error_one_in() &&
+           Random::GetTLSInstance()->OneIn(read_error_one_in());
+  }
 
   // Inject an write error with randomlized parameter and the predefined
   // error type. Only the allowed file types will inject the write error

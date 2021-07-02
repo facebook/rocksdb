@@ -328,8 +328,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
         FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
         scratch);
   }
-  if (s.ok() && fs_->read_error_one_in() &&
-      Random::GetTLSInstance()->OneIn(fs_->read_error_one_in())) {
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected read error");
   }
   return s;
@@ -346,8 +345,7 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     Slice* result, char* scratch,
                                     IODebugContext* dbg) {
   IOStatus s = target()->Read(n, options, result, scratch, dbg);
-  if (s.ok() && fs_->read_error_one_in() &&
-      Random::GetTLSInstance()->OneIn(fs_->read_error_one_in())) {
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected seq read error");
   }
   return s;
@@ -359,8 +357,7 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                               IODebugContext* dbg) {
   IOStatus s =
       target()->PositionedRead(offset, n, options, result, scratch, dbg);
-  if (s.ok() && fs_->read_error_one_in() &&
-      Random::GetTLSInstance()->OneIn(fs_->read_error_one_in())) {
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected seq positioned read error");
   }
   return s;
@@ -502,6 +499,9 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  if (ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected error when open random access file");
+  }
   IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
                                                 false, nullptr);
   if (io_s.ok()) {
@@ -518,6 +518,10 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
     std::unique_ptr<FSSequentialFile>* result, IODebugContext* dbg) {
   if (!IsFilesystemActive()) {
     return GetError();
+  }
+
+  if (ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected read error when creating seq file");
   }
   IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
