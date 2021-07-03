@@ -18,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
-    stringappend_merge_type_info = {
+    stringappend2_merge_type_info = {
 #ifndef ROCKSDB_LITE
         {"delimiter",
          {0, OptionType::kString, OptionVerificationType::kNormal,
@@ -30,12 +30,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
 // Constructor: also specify the delimiter character.
 StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
     : delim_(1, delim_char) {
-  RegisterOptions("Delimiter", &delim_, &stringappend_merge_type_info);
+  RegisterOptions("Delimiter", &delim_, &stringappend2_merge_type_info);
 }
 
 StringAppendTESTOperator::StringAppendTESTOperator(const std::string& delim)
     : delim_(delim) {
-  RegisterOptions("Delimiter", &delim_, &stringappend_merge_type_info);
+  RegisterOptions("Delimiter", &delim_, &stringappend2_merge_type_info);
 }
 
 // Implementation for the merge operation (concatenates two strings)

@@ -898,10 +898,10 @@ static int RegisterTestObjects(ObjectLibrary& library,
         guard->reset(new test::ChanglingMergeOperator(uri));
         return guard->get();
       });
-  library.Register<const CompactionFilter>(
-      "Changling", [](const std::string& uri,
-                      std::unique_ptr<const CompactionFilter>* /*guard*/,
-                      std::string* /* errmsg */) {
+  library.Register<CompactionFilter>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
         return new test::ChanglingCompactionFilter(uri);
       });
   library.Register<CompactionFilterFactory>(
