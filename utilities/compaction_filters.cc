@@ -16,10 +16,10 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinCompactionFilters(ObjectLibrary& library,
                                             const std::string& /*arg*/) {
-  library.Register<const CompactionFilter>(
+  library.Register<CompactionFilter>(
       RemoveEmptyValueCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const CompactionFilter>* /*guard*/,
+         std::unique_ptr<CompactionFilter>* /*guard*/,
          std::string* /*errmsg*/) {
         return new RemoveEmptyValueCompactionFilter();
       });
