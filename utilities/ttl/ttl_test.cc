@@ -751,9 +751,9 @@ class DummyFilterFactory : public CompactionFilterFactory {
 
 static int RegisterTestObjects(ObjectLibrary& library,
                                const std::string& /*arg*/) {
-  library.Register<const CompactionFilter>(
+  library.Register<CompactionFilter>(
       "DummyFilter", [](const std::string& /*uri*/,
-                        std::unique_ptr<const CompactionFilter>* /*guard*/,
+                        std::unique_ptr<CompactionFilter>* /*guard*/,
                         std::string* /* errmsg */) {
         static DummyFilter dummy;
         return &dummy;
@@ -817,6 +817,7 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
       CompactionFilter::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(filter->AreEquivalent(config_options_, copy, &mismatch));
   delete filter;
+  delete copy;
 }
 
 TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {

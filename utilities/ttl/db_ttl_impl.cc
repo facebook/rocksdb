@@ -229,7 +229,6 @@ Status TtlCompactionFilter::PrepareOptions(
 
 Status TtlCompactionFilter::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
-  Status s;
   if (clock_ == nullptr) {
     return Status::InvalidArgument(
         "SystemClock required by TtlCompactionFilter");
@@ -271,7 +270,6 @@ Status TtlCompactionFilterFactory::PrepareOptions(
 
 Status TtlCompactionFilterFactory::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
-  Status s;
   if (clock_ == nullptr) {
     return Status::InvalidArgument(
         "SystemClock required by TtlCompactionFilterFactory");
@@ -296,10 +294,10 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         guard->reset(new TtlCompactionFilterFactory(0, nullptr, nullptr));
         return guard->get();
       });
-  library.Register<const CompactionFilter>(
+  library.Register<CompactionFilter>(
       TtlCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const CompactionFilter>* /*guard*/,
+         std::unique_ptr<CompactionFilter>* /*guard*/,
          std::string* /* errmsg */) {
         return new TtlCompactionFilter(0, nullptr, nullptr);
       });
