@@ -228,8 +228,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
 
-  if (db_options_.experimental_allow_mempurge){
-    Status mempurge_s = MemPurge();
+  if (db_options_.experimental_allow_mempurge
+      && (cfd_->GetFlushReason()==FlushReason::kOthers)
+      && (mems_.size() > 1)){
+    Status mempurge_s = MemPurgeV2();
   }
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
@@ -309,14 +311,21 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-Status FlushJob::MemPurge() {
+Status FlushJob::MemPurgeV2() {
   Status s;
+  db_mutex_->AssertHeld();
+  db_mutex_->Unlock();
+
   MemTable* new_mem = nullptr; // work on allocation.
-  (void)new_mem;
-  // SequenceNumber earliest_seq=0, id=0;
-  // new_mem = MemTable(cfd_->internal_comparator_, db_options_, mutable_cf_options_,
-  //                     cfd_->write_buffer_manager_, earliest_seq, id);
-  // assert(new_mem != nullptr);
+
+  new_mem = new MemTable((cfd_->internal_comparator()),
+                      *(cfd_->ioptions()),
+                      mutable_cf_options_,
+                      nullptr /*cfd_->write_buffer_manager_*/,
+                      mems_[0]->GetEarliestSequenceNumber(),
+                      mems_[0]->GetID());
+  assert(new_mem != nullptr);
+  delete new_mem;
 
   // JobContext job_context(next_job_id_.fetch_add(1), true);
   // std::vector<SequenceNumber> snapshot_seqs;
@@ -326,169 +335,178 @@ Status FlushJob::MemPurge() {
   //                    &earliest_write_conflict_snapshot, &snapshot_checker);
 
   // // Grab current memtable
-  // MemTable* m = cfd->mem();
-  // SequenceNumber first_seqno = m->GetFirstSequenceNumber();
-  // SequenceNumber earliest_seqno = m->GetEarliestSequenceNumber();
+  // Create two iterators, one for the memtable data (contains
+  // info from puts + deletes), and one for the memtable
+  // Range Tombstones (from DeleteRanges).
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Arena arena;
+  std::vector<InternalIterator*> memtables;
+  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      range_del_iters;
+  for (MemTable* m : mems_) {
+    memtables.push_back(m->NewIterator(ro, &arena));
+    auto* range_del_iter =
+        m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    if (range_del_iter != nullptr) {
+      range_del_iters.emplace_back(range_del_iter);
+    }
+  }
+  SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
+  SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
 
-  // // Create two iterators, one for the memtable data (contains
-  // // info from puts + deletes), and one for the memtable
-  // // Range Tombstones (from DeleteRanges).
-  // ReadOptions ro;
-  // ro.total_order_seek = true;
-  // Arena arena;
-  // std::vector<InternalIterator*> memtables(1, m->NewIterator(ro, &arena));
-  // std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
-  //     range_del_iters;
-  // auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
-  // if (range_del_iter != nullptr) {
-  //   range_del_iters.emplace_back(range_del_iter);
+  ScopedArenaIterator iter(
+      NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
+                         static_cast<int>(memtables.size()), &arena));
+
+  auto* ioptions = cfd_->ioptions();
+
+  // Place iterator at the First (meaning most recent) key node.
+  iter->SeekToFirst();
+
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&(cfd_->internal_comparator()),
+                                       existing_snapshots_));
+  for (auto& rd_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(rd_iter));
+  }
+
+  // If there is valid data in the memtable,
+  // or at least range tombstones, copy over the info
+  // to the new memtable.
+  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions->compaction_filter_factory != nullptr &&
+        ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
+            TableFileCreationReason::kFlush)) {
+      CompactionFilter::Context ctx;
+      ctx.is_full_compaction = false;
+      ctx.is_manual_compaction = false;
+      ctx.column_family_id = cfd_->GetID();
+      ctx.reason = TableFileCreationReason::kFlush;
+      compaction_filter =
+          ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s = Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+        return s;
+      }
+    }
+
+    Env* env = db_options_.env;
+    assert(env);
+    MergeHelper merge(
+        env, (cfd_->internal_comparator()).user_comparator(),
+        (ioptions->merge_operator).get(), compaction_filter.get(),
+        ioptions->logger, true /* internal key corruption is not ok */,
+        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(), snapshot_checker_);
+    CompactionIterator c_iter(
+        iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
+        kMaxSequenceNumber, &existing_snapshots_, earliest_write_conflict_snapshot_,
+        snapshot_checker_, env, ShouldReportDetailedTime(env, ioptions->stats),
+        true /* internal key corruption is not ok */, range_del_agg.get(),
+        nullptr, ioptions->allow_data_in_errors,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
+        &(cfd_->GetFullHistoryTsLow()));
+
   // }
-  // ScopedArenaIterator iter(
-  //     NewMergingIterator(&(cfd->internal_comparator()), memtables.data(),
-  //                        static_cast<int>(memtables.size()), &arena));
-
-  // auto* ioptions = cfd->ioptions();
-
-  // // Place iterator at the First (meaning most recent) key node.
-  // iter->SeekToFirst();
-
-  // std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
-  //     new CompactionRangeDelAggregator(&(cfd->internal_comparator()),
-  //                                      snapshot_seqs));
-  // for (auto& rd_iter : range_del_iters) {
-  //   range_del_agg->AddTombstones(std::move(rd_iter));
-  // }
-
-  // // If there is valid data in the memtable,
-  // // or at least range tombstones, copy over the info
-  // // to the new memtable.
-  // if (iter->Valid() || !range_del_agg->IsEmpty()) {
-  //   std::unique_ptr<CompactionFilter> compaction_filter;
-  //   if (ioptions->compaction_filter_factory != nullptr &&
-  //       ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
-  //           TableFileCreationReason::kFlush)) {
-  //     CompactionFilter::Context ctx;
-  //     ctx.is_full_compaction = false;
-  //     ctx.is_manual_compaction = false;
-  //     ctx.column_family_id = cfd->GetID();
-  //     ctx.reason = TableFileCreationReason::kFlush;
-  //     compaction_filter =
-  //         ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
-  //     if (compaction_filter != nullptr &&
-  //         !compaction_filter->IgnoreSnapshots()) {
-  //       s = Status::NotSupported(
-  //           "CompactionFilter::IgnoreSnapshots() = false is not supported "
-  //           "anymore.");
-  //       return s;
-  //     }
-  //   }
-
-  //   Env* env = immutable_db_options_.env;
-  //   assert(env);
-  //   MergeHelper merge(
-  //       env, (cfd->internal_comparator()).user_comparator(),
-  //       (ioptions->merge_operator).get(), compaction_filter.get(),
-  //       ioptions->logger, true /* internal key corruption is not ok */,
-  //       snapshot_seqs.empty() ? 0 : snapshot_seqs.back(), snapshot_checker);
-  //   CompactionIterator c_iter(
-  //       iter.get(), (cfd->internal_comparator()).user_comparator(), &merge,
-  //       kMaxSequenceNumber, &snapshot_seqs, earliest_write_conflict_snapshot,
-  //       snapshot_checker, env, ShouldReportDetailedTime(env, ioptions->stats),
-  //       true /* internal key corruption is not ok */, range_del_agg.get(),
-  //       nullptr, ioptions->allow_data_in_errors,
-  //       /*compaction=*/nullptr, compaction_filter.get(),
-  //       /*shutting_down=*/nullptr,
-  //       /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-  //       /*manual_compaction_canceled=*/nullptr, immutable_db_options_.info_log,
-  //       &(cfd->GetFullHistoryTsLow()));
-
-  //   c_iter.SeekToFirst();
+  // (void)first_seqno;
+  // (void)earliest_seqno;
 
   //   mutex_.AssertHeld();
 
-  //   // Set earliest sequence number in the new memtable
-  //   // to be equal to the earliest sequence number of the
-  //   // memtable being flushed (See later if there is a need
-  //   // to update this number!).
-  //   new_mem->SetEarliestSequenceNumber(earliest_seqno);
-  //   // Likewise for first seq number.
-  //   new_mem->SetFirstSequenceNumber(first_seqno);
-  //   SequenceNumber new_first_seqno = kMaxSequenceNumber;
+    // Set earliest sequence number in the new memtable
+    // to be equal to the earliest sequence number of the
+    // memtable being flushed (See later if there is a need
+    // to update this number!).
+    new_mem->SetEarliestSequenceNumber(earliest_seqno);
+    // Likewise for first seq number.
+    new_mem->SetFirstSequenceNumber(first_seqno);
+    SequenceNumber new_first_seqno = kMaxSequenceNumber;
 
-  //   // Key transfer
-  //   for (; c_iter.Valid(); c_iter.Next()) {
-  //     const ParsedInternalKey ikey = c_iter.ikey();
-  //     const Slice value = c_iter.value();
-  //     new_first_seqno =
-  //         ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
+    // TODO: GET READY TO CREATE NEW NEW_MEMs!
+    c_iter.SeekToFirst();
 
-  //     // Should we update "OldestKeyTime" ????
-  //     s = new_mem->Add(
-  //         ikey.sequence, ikey.type, ikey.user_key, value,
-  //         nullptr,   // KV protection info set as nullptr since it
-  //                    // should only be useful for the first add to
-  //                    // the original memtable.
-  //         false,     // : allow concurrent_memtable_writes_
-  //                    // Not seen as necessary for now.
-  //         nullptr,   // get_post_process_info(m) must be nullptr
-  //                    // when concurrent_memtable_writes is switched off.
-  //         nullptr);  // hint, only used when concurrent_memtable_writes_
-  //                    // is switched on.
-  //     if (!s.ok()) {
-  //       break;
-  //     }
-  //   }
+    // Key transfer
+    for (; c_iter.Valid(); c_iter.Next()) {
+      const ParsedInternalKey ikey = c_iter.ikey();
+      const Slice value = c_iter.value();
+      new_first_seqno =
+          ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
 
-  //   // Check status and propagate
-  //   // potential error status from c_iter
-  //   if (!s.ok()) {
-  //     c_iter.status().PermitUncheckedError();
-  //   } else if (!c_iter.status().ok()) {
-  //     s = c_iter.status();
-  //   }
+      // Should we update "OldestKeyTime" ????
+      s = new_mem->Add(
+          ikey.sequence, ikey.type, ikey.user_key, value,
+          nullptr,   // KV protection info set as nullptr since it
+                     // should only be useful for the first add to
+                     // the original memtable.
+          false,     // : allow concurrent_memtable_writes_
+                     // Not seen as necessary for now.
+          nullptr,   // get_post_process_info(m) must be nullptr
+                     // when concurrent_memtable_writes is switched off.
+          nullptr);  // hint, only used when concurrent_memtable_writes_
+                     // is switched on.
+      if (!s.ok()) {
+        break;
+      }
+    }
 
-  //   // Range tombstone transfer.
-  //   if (s.ok()) {
-  //     auto range_del_it = range_del_agg->NewIterator();
-  //     for (range_del_it->SeekToFirst(); range_del_it->Valid();
-  //          range_del_it->Next()) {
-  //       auto tombstone = range_del_it->Tombstone();
-  //       new_first_seqno =
-  //           tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
-  //       s = new_mem->Add(
-  //           tombstone.seq_,        // Sequence number
-  //           kTypeRangeDeletion,    // KV type
-  //           tombstone.start_key_,  // Key is start key.
-  //           tombstone.end_key_,    // Value is end key.
-  //           nullptr,               // KV protection info set as nullptr since it
-  //                                  // should only be useful for the first add to
-  //                                  // the original memtable.
-  //           false,                 // : allow concurrent_memtable_writes_
-  //                                  // Not seen as necessary for now.
-  //           nullptr,               // get_post_process_info(m) must be nullptr
-  //                     // when concurrent_memtable_writes is switched off.
-  //           nullptr);  // hint, only used when concurrent_memtable_writes_
-  //                      // is switched on.
+    // Check status and propagate
+    // potential error status from c_iter
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
+    }
 
-  //       if (!s.ok()) {
-  //         break;
-  //       }
-  //     }
-  //   }
-  //   // Rectify the first sequence number, which (unlike the earliest seq
-  //   // number) needs to be present in the new memtable.
-  //   new_mem->SetFirstSequenceNumber(new_first_seqno);
-  // }
-  // // Note: if the mempurge was ineffective, meaning that there was no
-  // // garbage to remove, and this new_mem needs to be flushed again,
-  // // the new_mem->Add would have updated the flush status when it
-  // // called "UpdateFlushState()" internally at the last Add() call.
-  // // Therefore if the new mem needs to be flushed again, we mark
-  // // the return status as "aborted", which will trigger the regular
-  // // flush operation.
-  // if (s.ok() && new_mem->ShouldScheduleFlush()) {
-  //   s = Status::Aborted(Slice("No garbage collected."));
-  // }
+    // Range tombstone transfer.
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        new_first_seqno =
+            tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        s = new_mem->Add(
+            tombstone.seq_,        // Sequence number
+            kTypeRangeDeletion,    // KV type
+            tombstone.start_key_,  // Key is start key.
+            tombstone.end_key_,    // Value is end key.
+            nullptr,               // KV protection info set as nullptr since it
+                                   // should only be useful for the first add to
+                                   // the original memtable.
+            false,                 // : allow concurrent_memtable_writes_
+                                   // Not seen as necessary for now.
+            nullptr,               // get_post_process_info(m) must be nullptr
+                      // when concurrent_memtable_writes is switched off.
+            nullptr);  // hint, only used when concurrent_memtable_writes_
+                       // is switched on.
+
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+    // Rectify the first sequence number, which (unlike the earliest seq
+    // number) needs to be present in the new memtable.
+    new_mem->SetFirstSequenceNumber(new_first_seqno);
+  }
+  // Note: if the mempurge was ineffective, meaning that there was no
+  // garbage to remove, and this new_mem needs to be flushed again,
+  // the new_mem->Add would have updated the flush status when it
+  // called "UpdateFlushState()" internally at the last Add() call.
+  // Therefore if the new mem needs to be flushed again, we mark
+  // the return status as "aborted", which will trigger the regular
+  // flush operation.
+  if (s.ok() && new_mem->ShouldScheduleFlush()) {
+    s = Status::Aborted(Slice("No garbage collected."));
+  }
+  db_mutex_->Lock();
   return s;
 }
 
