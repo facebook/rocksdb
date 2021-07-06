@@ -24,6 +24,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// This is a static filter used for filtering
+// kvs during the compaction process.
+static std::string NEW_VALUE = "NewValue";
+
 class DBFlushTest : public DBTestBase {
  public:
   DBFlushTest() : DBTestBase("/db_flush_test", /*env_do_fsync=*/true) {}
@@ -656,6 +660,373 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
 
   Close();
+}
+
+TEST_F(DBFlushTest, MemPurgeBasic) {
+  Options options = CurrentOptions();
+
+  // The following options are used to enforce several values that
+  // may already exist as default values to make this test resilient
+  // to default value updates in the future.
+  options.statistics = CreateDBStatistics();
+
+  // Record all statistics.
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+
+  // Useful for now as we are trying to compare uncompressed data savings on
+  // flush().
+  options.compression = kNoCompression;
+
+  // Prevent memtable in place updates. Should already be disabled
+  // (from Wiki:
+  //  In place updates can be enabled by toggling on the bool
+  //  inplace_update_support flag. However, this flag is by default set to
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+  uint32_t mempurge_count = 0;
+  uint32_t flush_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:Flush", [&](void* /*arg*/) { flush_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string KEY1 = "IamKey1";
+  std::string KEY2 = "IamKey2";
+  std::string KEY3 = "IamKey3";
+  std::string KEY4 = "IamKey4";
+  std::string KEY5 = "IamKey5";
+  std::string VALUE1 = "IamValue1";
+  std::string VALUE2 = "IamValue2";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  // Check simple operations (put-delete).
+  ASSERT_OK(Put(KEY1, VALUE1));
+  ASSERT_OK(Put(KEY2, VALUE2));
+  ASSERT_OK(Delete(KEY1));
+  ASSERT_OK(Put(KEY2, VALUE1));
+  ASSERT_OK(Put(KEY1, VALUE2));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get(KEY1), VALUE2);
+  ASSERT_EQ(Get(KEY2), VALUE1);
+
+  ASSERT_OK(Delete(KEY1));
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
+
+  // Heavy overwrite workload,
+  // more than would fit in maximum allowed memtables.
+  Random rnd(719);
+  const size_t NUM_REPEAT = 100000;
+  const size_t RAND_VALUES_LENGTH = 512;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5;
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+
+    ASSERT_EQ(Get(KEY1), p_v1);
+    ASSERT_EQ(Get(KEY2), p_v2);
+    ASSERT_EQ(Get(KEY3), p_v3);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+  }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no flush to storage.
+  const uint32_t EXPECTED_FLUSH_COUNT = 0;
+
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
+
+  Close();
+}
+
+TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+
+  uint32_t mempurge_count = 0;
+  uint32_t flush_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:Flush", [&](void* /*arg*/) { flush_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  Random rnd(117);
+  const size_t NUM_REPEAT = 200;
+  const size_t RAND_VALUES_LENGTH = 512;
+  bool atLeastOneFlush = false;
+  std::string key, value, p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
+  int count = 0;
+  const int EXPECTED_COUNT_FORLOOP = 3;
+  const int EXPECTED_COUNT_END = 4;
+
+  ReadOptions ropt;
+  ropt.pin_data = true;
+  ropt.total_order_seek = true;
+  Iterator* iter = nullptr;
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3b = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+    ASSERT_OK(Delete(KEY2));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2,
+                               KEY4));
+    ASSERT_OK(Put(KEY3, p_v3b));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY3));
+    ASSERT_OK(Delete(KEY1));
+
+    // Flush (MemPurge) with a probability of 50%.
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(Flush());
+      atLeastOneFlush = true;
+    }
+
+    ASSERT_EQ(Get(KEY1), NOT_FOUND);
+    ASSERT_EQ(Get(KEY2), NOT_FOUND);
+    ASSERT_EQ(Get(KEY3), p_v3b);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+
+    iter = db_->NewIterator(ropt);
+    iter->SeekToFirst();
+    count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      key = (iter->key()).ToString(false);
+      value = (iter->value()).ToString(false);
+      if (key.compare(KEY3) == 0)
+        ASSERT_EQ(value, p_v3b);
+      else if (key.compare(KEY4) == 0)
+        ASSERT_EQ(value, p_v4);
+      else if (key.compare(KEY5) == 0)
+        ASSERT_EQ(value, p_v5);
+      else
+        ASSERT_EQ(value, NOT_FOUND);
+      count++;
+    }
+
+    // Expected count here is 3: KEY3, KEY4, KEY5.
+    ASSERT_EQ(count, EXPECTED_COUNT_FORLOOP);
+    if (iter) {
+      delete iter;
+    }
+  }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no flush to storage.
+  const uint32_t EXPECTED_FLUSH_COUNT = 0;
+
+  if (atLeastOneFlush) {
+    EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  } else {
+    // Note that there isn't enough values added to
+    // automatically trigger a flush/MemPurge in the background.
+    // Therefore we can make the assumption that if we never
+    // called "Flush()", no mempurge happened.
+    EXPECT_EQ(mempurge_count, EXPECTED_FLUSH_COUNT);
+  }
+  EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
+
+  // Additional test for the iterator+memPurge.
+  ASSERT_OK(Put(KEY2, p_v2));
+  iter = db_->NewIterator(ropt);
+  iter->SeekToFirst();
+  ASSERT_OK(Put(KEY4, p_v4));
+  count = 0;
+  for (; iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    key = (iter->key()).ToString(false);
+    value = (iter->value()).ToString(false);
+    if (key.compare(KEY2) == 0)
+      ASSERT_EQ(value, p_v2);
+    else if (key.compare(KEY3) == 0)
+      ASSERT_EQ(value, p_v3b);
+    else if (key.compare(KEY4) == 0)
+      ASSERT_EQ(value, p_v4);
+    else if (key.compare(KEY5) == 0)
+      ASSERT_EQ(value, p_v5);
+    else
+      ASSERT_EQ(value, NOT_FOUND);
+    count++;
+  }
+  // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
+  ASSERT_EQ(count, EXPECTED_COUNT_END);
+  if (iter) delete iter;
+
+  Close();
+}
+
+// Create a Compaction Fitler that will be invoked
+// at flush time and will update the value of a KV pair
+// if the key string is "lower" than the filter_key_ string.
+class ConditionalUpdateFilter : public CompactionFilter {
+ public:
+  explicit ConditionalUpdateFilter(const std::string* filtered_key)
+      : filtered_key_(filtered_key) {}
+  bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+              std::string* new_value, bool* value_changed) const override {
+    // If key<filtered_key_, update the value of the KV-pair.
+    if (key.compare(*filtered_key_) < 0) {
+      assert(new_value != nullptr);
+      *new_value = NEW_VALUE;
+      *value_changed = true;
+    }
+    return false /*do not remove this KV-pair*/;
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilter"; }
+
+ private:
+  const std::string* filtered_key_;
+};
+
+class ConditionalUpdateFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit ConditionalUpdateFilterFactory(const Slice& filtered_key)
+      : filtered_key_(filtered_key.ToString()) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::unique_ptr<CompactionFilter>(
+        new ConditionalUpdateFilter(&filtered_key_));
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilterFactory"; }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    // This compaction filter will be invoked
+    // at flush time (and therefore at MemPurge time).
+    return (reason == TableFileCreationReason::kFlush);
+  }
+
+ private:
+  std::string filtered_key_;
+};
+
+TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
+  Options options = CurrentOptions();
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Create a ConditionalUpdate compaction filter
+  // that will update all the values of the KV pairs
+  // where the keys are "lower" than KEY4.
+  options.compaction_filter_factory =
+      std::make_shared<ConditionalUpdateFilterFactory>(KEY4);
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+
+  Random rnd(53);
+  const size_t NUM_REPEAT = 25;
+  const size_t RAND_VALUES_LENGTH = 128;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5;
+
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+
+    ASSERT_OK(Delete(KEY1));
+
+    ASSERT_OK(Flush());
+
+    // Verify that the ConditionalUpdateCompactionFilter
+    // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
+    ASSERT_EQ(Get(KEY1), NOT_FOUND);
+    ASSERT_EQ(Get(KEY2), NEW_VALUE);
+    ASSERT_EQ(Get(KEY3), NEW_VALUE);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+  }
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
