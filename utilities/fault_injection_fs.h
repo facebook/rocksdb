@@ -150,6 +150,21 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   FaultInjectionTestFS* fs_;
 };
 
+class TestFSSequentialFile : public FSSequentialFileWrapper {
+ public:
+  explicit TestFSSequentialFile(FSSequentialFile* f, FaultInjectionTestFS* fs)
+      : FSSequentialFileWrapper(f), target_guard_(f), fs_(fs) {}
+  IOStatus Read(size_t n, const IOOptions& options, Slice* result,
+                char* scratch, IODebugContext* dbg) override;
+  IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
+                          Slice* result, char* scratch,
+                          IODebugContext* dbg) override;
+
+ private:
+  std::unique_ptr<FSSequentialFile> target_guard_;
+  FaultInjectionTestFS* fs_;
+};
+
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
@@ -178,6 +193,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         write_error_rand_(0),
         write_error_one_in_(0),
         metadata_write_error_one_in_(0),
+        read_error_one_in_(0),
         ingest_data_corruption_before_write_(false),
         fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
@@ -207,6 +223,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                                const FileOptions& file_opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* dbg) override;
+  IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* r,
+                             IODebugContext* dbg) override;
 
   virtual IOStatus DeleteFile(const std::string& f, const IOOptions& options,
                               IODebugContext* dbg) override;
@@ -381,6 +400,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     metadata_write_error_one_in_ = one_in;
   }
+  // If the value is not 0, it is enabled. Otherwise, it is disabled.
+  void SetRandomReadError(int one_in) { read_error_one_in_ = one_in; }
+
+  bool ShouldInjectRandomReadError() {
+    return read_error_one_in() &&
+           Random::GetTLSInstance()->OneIn(read_error_one_in());
+  }
 
   // Inject an write error with randomlized parameter and the predefined
   // error type. Only the allowed file types will inject the write error
@@ -393,8 +419,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
-  IOStatus InjectError(ErrorOperation op, Slice* slice,
-                       bool direct_io, char* scratch);
+  IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
+                                         bool direct_io, char* scratch);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -420,7 +446,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     enable_write_error_injection_ = true;
   }
-
   void EnableMetadataWriteErrorInjection() {
     MutexLock l(&mutex_);
     enable_metadata_write_error_injection_ = true;
@@ -443,6 +468,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     enable_metadata_write_error_injection_ = false;
   }
+
+  int read_error_one_in() const { return read_error_one_in_.load(); }
 
   // We capture a backtrace every time a fault is injected, for debugging
   // purposes. This call prints the backtrace to stderr and frees the
@@ -494,6 +521,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   Random write_error_rand_;
   int write_error_one_in_;
   int metadata_write_error_one_in_;
+  std::atomic<int> read_error_one_in_;
   bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
   bool ingest_data_corruption_before_write_;

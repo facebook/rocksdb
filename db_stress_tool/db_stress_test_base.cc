@@ -2476,13 +2476,15 @@ void StressTest::Open() {
       // TODO cover transaction DB is not covered in this fault test too.
       bool ingest_meta_error = false;
       bool ingest_write_error = false;
+      bool ingest_read_error = false;
       if ((FLAGS_open_metadata_write_fault_one_in ||
-           FLAGS_open_write_fault_one_in) &&
+           FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) &&
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
         ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
         ingest_write_error = FLAGS_open_write_fault_one_in;
+        ingest_read_error = FLAGS_open_read_fault_one_in;
         if (ingest_meta_error) {
           fault_fs_guard->EnableMetadataWriteErrorInjection();
           fault_fs_guard->SetRandomMetadataWriteError(
@@ -2495,6 +2497,9 @@ void StressTest::Open() {
               static_cast<uint32_t>(FLAGS_seed), FLAGS_open_write_fault_one_in,
               IOStatus::IOError("Injected Open Error"),
               /*inject_for_all_file_types=*/true, /*types=*/{});
+        }
+        if (ingest_read_error) {
+          fault_fs_guard->SetRandomReadError(FLAGS_open_read_fault_one_in);
         }
       }
       while (true) {
@@ -2529,10 +2534,11 @@ void StressTest::Open() {
         }
 
 #ifndef NDEBUG
-        if (ingest_meta_error || ingest_write_error) {
+        if (ingest_meta_error || ingest_write_error || ingest_read_error) {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           fault_fs_guard->DisableWriteErrorInjection();
+          fault_fs_guard->SetRandomReadError(0);
           if (s.ok()) {
             // Ingested errors might happen in background compactions. We
             // wait for all compactions to finish to make sure DB is in
@@ -2549,6 +2555,7 @@ void StressTest::Open() {
             // up.
             ingest_meta_error = false;
             ingest_write_error = false;
+            ingest_read_error = false;
 
             Random rand(static_cast<uint32_t>(FLAGS_seed));
             if (rand.OneIn(2)) {

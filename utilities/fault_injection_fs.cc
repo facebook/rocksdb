@@ -324,8 +324,12 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   }
   IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
   if (s.ok()) {
-    s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::kRead, result,
-                         use_direct_io(), scratch);
+    s = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
+        scratch);
+  }
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected read error");
   }
   return s;
 }
@@ -336,6 +340,27 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   } else {
     return target_->GetUniqueId(id, max_size);
   }
+}
+IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
+                                    Slice* result, char* scratch,
+                                    IODebugContext* dbg) {
+  IOStatus s = target()->Read(n, options, result, scratch, dbg);
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected seq read error");
+  }
+  return s;
+}
+
+IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
+                                              const IOOptions& options,
+                                              Slice* result, char* scratch,
+                                              IODebugContext* dbg) {
+  IOStatus s =
+      target()->PositionedRead(offset, n, options, result, scratch, dbg);
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected seq positioned read error");
+  }
+  return s;
 }
 
 IOStatus FaultInjectionTestFS::NewDirectory(
@@ -474,12 +499,33 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  IOStatus io_s = InjectError(ErrorOperation::kOpen, nullptr, false, nullptr);
+  if (ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected error when open random access file");
+  }
+  IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
+                                                false, nullptr);
   if (io_s.ok()) {
     io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   }
   if (io_s.ok()) {
     result->reset(new TestFSRandomAccessFile(fname, std::move(*result), this));
+  }
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::NewSequentialFile(
+    const std::string& fname, const FileOptions& file_opts,
+    std::unique_ptr<FSSequentialFile>* result, IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+
+  if (ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected read error when creating seq file");
+  }
+  IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
+  if (io_s.ok()) {
+    result->reset(new TestFSSequentialFile(result->release(), this));
   }
   return io_s;
 }
@@ -642,10 +688,10 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   open_files_.erase(f);
 }
 
-IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
-                                           Slice* result,
-                                           bool direct_io,
-                                           char* scratch) {
+IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(ErrorOperation op,
+                                                             Slice* result,
+                                                             bool direct_io,
+                                                             char* scratch) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
