@@ -119,6 +119,7 @@ StressTest::~StressTest() {
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                                             int32_t num_shard_bits) {
+  ConfigOptions config_options;
   if (capacity <= 0) {
     return nullptr;
   }
@@ -136,8 +137,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
 #ifndef ROCKSDB_LITE
     std::shared_ptr<SecondaryCache> secondary_cache;
     if (!FLAGS_secondary_cache_uri.empty()) {
-      Status s = ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-          FLAGS_secondary_cache_uri, &secondary_cache);
+      Status s = SecondaryCache::CreateFromString(
+          config_options, FLAGS_secondary_cache_uri, &secondary_cache);
       if (secondary_cache == nullptr) {
         fprintf(stderr,
                 "No secondary cache registered matching string: %s status=%s\n",

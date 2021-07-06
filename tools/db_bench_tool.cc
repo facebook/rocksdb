@@ -2869,9 +2869,8 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s =
-            ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-                FLAGS_secondary_cache_uri, &secondary_cache);
+        Status s = SecondaryCache::CreateFromString(
+            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,
