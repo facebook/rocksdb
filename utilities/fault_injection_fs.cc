@@ -124,15 +124,19 @@ TestFSWritableFile::~TestFSWritableFile() {
   }
 }
 
-IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
-                                    IODebugContext*) {
+IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
+                                    IODebugContext* dbg) {
   MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  state_.buffer_.append(data.data(), data.size());
-  state_.pos_ += data.size();
-  fs_->WritableFileAppended(state_);
+  if (target_->use_direct_io()) {
+    target_->Append(data, options, dbg).PermitUncheckedError();
+  } else {
+    state_.buffer_.append(data.data(), data.size());
+    state_.pos_ += data.size();
+    fs_->WritableFileAppended(state_);
+  }
   IOStatus io_s = fs_->InjectWriteError(state_.filename_);
   return io_s;
 }
@@ -212,7 +216,9 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   }
   writable_file_opened_ = false;
   IOStatus io_s;
-  io_s = target_->Append(state_.buffer_, options, dbg);
+  if (!target_->use_direct_io()) {
+    io_s = target_->Append(state_.buffer_, options, dbg);
+  }
   if (io_s.ok()) {
     state_.buffer_.resize(0);
     // Ignore sync errors
@@ -243,6 +249,11 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
                                   IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
+  }
+  if (target_->use_direct_io()) {
+    // For Direct IO mode, we don't buffer anything in TestFSWritableFile.
+    // So just return
+    return IOStatus::OK();
   }
   IOStatus io_s = target_->Append(state_.buffer_, options, dbg);
   state_.buffer_.resize(0);
