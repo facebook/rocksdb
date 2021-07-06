@@ -228,9 +228,9 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
 
-  if (db_options_.experimental_allow_mempurge
-      && (cfd_->GetFlushReason()==FlushReason::kOthers)
-      && (mems_.size() > 1)){
+  if (db_options_.experimental_allow_mempurge &&
+      (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
+      (mems_.size() > 0)) {
     Status mempurge_s = MemPurgeV2();
   }
   // This will release and re-acquire the mutex.
@@ -315,6 +315,7 @@ Status FlushJob::MemPurgeV2() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
+  autovector<MemTable*> purged_mems = {};
 
   MemTable* new_mem = nullptr; // work on allocation.
 
@@ -325,7 +326,6 @@ Status FlushJob::MemPurgeV2() {
                       mems_[0]->GetEarliestSequenceNumber(),
                       mems_[0]->GetID());
   assert(new_mem != nullptr);
-  delete new_mem;
 
   // JobContext job_context(next_job_id_.fetch_add(1), true);
   // std::vector<SequenceNumber> snapshot_seqs;
@@ -334,7 +334,6 @@ Status FlushJob::MemPurgeV2() {
   // GetSnapshotContext(&job_context, &snapshot_seqs,
   //                    &earliest_write_conflict_snapshot, &snapshot_checker);
 
-  // // Grab current memtable
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
   // Range Tombstones (from DeleteRanges).
@@ -414,12 +413,6 @@ Status FlushJob::MemPurgeV2() {
         /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
         &(cfd_->GetFullHistoryTsLow()));
 
-  // }
-  // (void)first_seqno;
-  // (void)earliest_seqno;
-
-  //   mutex_.AssertHeld();
-
     // Set earliest sequence number in the new memtable
     // to be equal to the earliest sequence number of the
     // memtable being flushed (See later if there is a need
@@ -453,6 +446,18 @@ Status FlushJob::MemPurgeV2() {
                      // is switched on.
       if (!s.ok()) {
         break;
+      }
+      if (new_mem->ShouldScheduleFlush()) {
+        // Rectify the first sequence number, which (unlike the earliest seq
+        // number) needs to be present in the new memtable.
+        new_mem->SetFirstSequenceNumber(new_first_seqno);
+        purged_mems.push_back(new_mem);
+        new_mem = new MemTable((cfd_->internal_comparator()),
+                               *(cfd_->ioptions()), mutable_cf_options_,
+                               nullptr /*cfd_->write_buffer_manager_*/,
+                               mems_[0]->GetEarliestSequenceNumber(),
+                               (mems_[0]->GetID()) + purged_mems.size());
+        new_first_seqno = kMaxSequenceNumber;
       }
     }
 
@@ -490,11 +495,29 @@ Status FlushJob::MemPurgeV2() {
         if (!s.ok()) {
           break;
         }
+        if (new_mem->ShouldScheduleFlush()) {
+          // Rectify the first sequence number, which (unlike the earliest seq
+          // number) needs to be present in the new memtable.
+          new_mem->SetFirstSequenceNumber(new_first_seqno);
+          purged_mems.push_back(new_mem);
+          new_mem = new MemTable((cfd_->internal_comparator()),
+                                 *(cfd_->ioptions()), mutable_cf_options_,
+                                 nullptr /*cfd_->write_buffer_manager_*/,
+                                 mems_[0]->GetEarliestSequenceNumber(),
+                                 (mems_[0]->GetID()) + purged_mems.size());
+          new_first_seqno = kMaxSequenceNumber;
+        }
       }
     }
-    // Rectify the first sequence number, which (unlike the earliest seq
-    // number) needs to be present in the new memtable.
-    new_mem->SetFirstSequenceNumber(new_first_seqno);
+    if (s.ok() && (new_first_seqno != kMaxSequenceNumber)) {
+      // Rectify the first sequence number, which (unlike the earliest seq
+      // number) needs to be present in the new memtable.
+      new_mem->SetFirstSequenceNumber(new_first_seqno);
+      purged_mems.push_back(new_mem);
+    }
+  }
+  if (new_mem) {
+    delete new_mem;
   }
   // Note: if the mempurge was ineffective, meaning that there was no
   // garbage to remove, and this new_mem needs to be flushed again,
@@ -503,8 +526,16 @@ Status FlushJob::MemPurgeV2() {
   // Therefore if the new mem needs to be flushed again, we mark
   // the return status as "aborted", which will trigger the regular
   // flush operation.
-  if (s.ok() && new_mem->ShouldScheduleFlush()) {
-    s = Status::Aborted(Slice("No garbage collected."));
+  // if (s.ok() && new_mem->ShouldScheduleFlush()) {
+  //   s = Status::Aborted(Slice("No garbage collected."));
+  // }
+  if (s.ok() && (purged_mems.size() > 0)) {
+    // VERY DANGEROUS: NEED TP CHAGE because some other structs might be
+    // pointing to these
+    for (MemTable* m : mems_) {
+      delete m;
+    }
+    mems_ = purged_mems;
   }
   db_mutex_->Lock();
   return s;
