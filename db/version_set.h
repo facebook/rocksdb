@@ -407,6 +407,8 @@ class VersionStorageInfo {
   int base_level() const { return base_level_; }
   double level_multiplier() const { return level_multiplier_; }
 
+  uint64_t max_file_number() const { return max_file_number_; }
+
   // REQUIRES: lock is held
   // Set the index that is used to offset into files_by_compaction_pri_ to find
   // the next compaction candidate file.
@@ -536,6 +538,8 @@ class VersionStorageInfo {
   // level).
   using FileLocations = std::unordered_map<uint64_t, FileLocation>;
   FileLocations file_locations_;
+
+  uint64_t max_file_number_;
 
   // Map of blob files in version by number.
   BlobFiles blob_files_;

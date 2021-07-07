@@ -44,7 +44,7 @@ class VersionBuilderTest : public testing::Test {
   ~VersionBuilderTest() override {
     for (int i = 0; i < vstorage_.num_levels(); i++) {
       for (auto* f : vstorage_.LevelFiles(i)) {
-        if (--f->refs == 0) {
+        if (f->Unref()) {
           delete f;
         }
       }
@@ -159,10 +159,28 @@ class VersionBuilderTest : public testing::Test {
   }
 };
 
+struct FileReferenceChecker {
+  std::unordered_map<uint64_t, FileMetaData*> files;
+
+  bool Check(const VersionStorageInfo* vstorage) {
+    for (int i = 0; i < vstorage->num_levels(); i++) {
+      for (auto* f : vstorage->LevelFiles(i)) {
+        auto it = files.find(f->fd.GetNumber());
+        if (it == files.end()) {
+          files[f->fd.GetNumber()] = f;
+        } else if (it->second != f) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+};
+
 void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
   for (int i = 0; i < new_vstorage->num_levels(); i++) {
     for (auto* f : new_vstorage->LevelFiles(i)) {
-      if (--f->refs == 0) {
+      if (f->Unref()) {
         delete f;
       }
     }
@@ -407,6 +425,111 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(2));
 
   UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, ApplyMoveAndSaveTo) {
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200, false,
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime, kUnknownFileChecksum,
+                       kUnknownFileChecksumFuncName);
+  VersionEdit version_edit2;
+  version_edit2.DeleteFile(0, 666);
+  version_edit2.AddFile(1, 666, 0, 100U, GetInternalKey("301"),
+                        GetInternalKey("350"), 200, 200, false,
+                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                        kUnknownFileCreationTime, kUnknownFileChecksum,
+                        kUnknownFileChecksumFuncName);
+
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr, false);
+  {
+    EnvOptions env_options;
+    VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+    version_builder.Apply(&version_edit);
+    version_builder.SaveTo(&new_vstorage);
+    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(0));
+  }
+
+  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
+  {
+    EnvOptions env_options;
+    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
+    version_builder.Apply(&version_edit2);
+    version_builder.SaveTo(&new_vstorage2);
+    ASSERT_EQ(0U, new_vstorage2.NumLevelBytes(0));
+    ASSERT_EQ(100U, new_vstorage2.NumLevelBytes(1));
+  }
+
+  FileReferenceChecker checker;
+  ASSERT_TRUE(checker.Check(&new_vstorage));
+  ASSERT_TRUE(checker.Check(&new_vstorage2));
+
+  UnrefFilesInVersion(&new_vstorage);
+  UnrefFilesInVersion(&new_vstorage2);
+}
+
+TEST_F(VersionBuilderTest, ApplySmallFileNumberAndSaveTo) {
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200, false,
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime, kUnknownFileChecksum,
+                       kUnknownFileChecksumFuncName);
+  // Delete file and create one with smaller file number.
+  VersionEdit version_edit2;
+  version_edit2.DeleteFile(0, 666);
+  version_edit2.AddFile(0, 500, 0, 100U, GetInternalKey("301"),
+                        GetInternalKey("350"), 200, 200, false,
+                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                        kUnknownFileCreationTime, kUnknownFileChecksum,
+                        kUnknownFileChecksumFuncName);
+  // Move file to a different path.
+  VersionEdit version_edit3;
+  version_edit2.DeleteFile(0, 666);
+  version_edit2.AddFile(0, 666, 1 /*path_id*/, 100U, GetInternalKey("301"),
+                        GetInternalKey("350"), 200, 200, false,
+                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                        kUnknownFileCreationTime, kUnknownFileChecksum,
+                        kUnknownFileChecksumFuncName);
+
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr, false);
+  {
+    EnvOptions env_options;
+    VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+    version_builder.Apply(&version_edit);
+    version_builder.SaveTo(&new_vstorage);
+    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(0));
+  }
+
+  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
+  {
+    EnvOptions env_options;
+    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
+    version_builder.Apply(&version_edit2);
+    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage2).IsCorruption());
+  }
+
+  VersionStorageInfo new_vstorage3(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
+  {
+    EnvOptions env_options;
+    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
+    version_builder.Apply(&version_edit3);
+    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage3).IsCorruption());
+  }
+
+  UnrefFilesInVersion(&new_vstorage);
+  UnrefFilesInVersion(&new_vstorage2);
+  UnrefFilesInVersion(&new_vstorage3);
 }
 
 TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
@@ -1528,7 +1651,6 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
-  UnrefFilesInVersion(&new_vstorage2);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {

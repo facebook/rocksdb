@@ -173,6 +173,7 @@ class VersionBuilder::Rep {
   VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
+  std::unordered_map<uint64_t, FileMetaData*> deleted_base_files_;
   // Store sizes of levels larger than num_levels_. We do this instead of
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
@@ -221,8 +222,7 @@ class VersionBuilder::Rep {
   }
 
   void UnrefFile(FileMetaData* f) {
-    f->refs--;
-    if (f->refs <= 0) {
+    if (f->Unref()) {
       if (f->table_reader_handle) {
         assert(table_cache_ != nullptr);
         table_cache_->ReleaseHandle(f->table_reader_handle);
@@ -634,7 +634,7 @@ class VersionBuilder::Rep {
     }
 
     FileMetaData* const f = new FileMetaData(meta);
-    f->refs = 1;
+    f->Ref();
 
     auto& add_files = level_state.added_files;
     assert(add_files.find(file_number) == add_files.end());
@@ -903,9 +903,13 @@ class VersionBuilder::Rep {
       while (added_iter != added_end || base_iter != base_end) {
         if (base_iter == base_end ||
                 (added_iter != added_end && cmp(*added_iter, *base_iter))) {
-          MaybeAddFile(vstorage, level, *added_iter++);
+          s = MaybeAddFile(vstorage, level, *added_iter++,
+                           base_vstorage_->max_file_number());
+          if (!s.ok()) {
+            return s;
+          }
         } else {
-          MaybeAddFile(vstorage, level, *base_iter++);
+          MaybeInheritFile(vstorage, level, *base_iter++);
         }
       }
     }
@@ -1018,15 +1022,41 @@ class VersionBuilder::Rep {
     return ret;
   }
 
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+  void MaybeInheritFile(VersionStorageInfo* vstorage, int level,
+                        FileMetaData* f) {
     const uint64_t file_number = f->fd.GetNumber();
 
+    if (levels_[level].deleted_files.count(file_number) > 0) {
+      // f is to-be-deleted table file
+      vstorage->RemoveCurrentStats(f);
+      deleted_base_files_[file_number] = f;
+    } else {
+      vstorage->AddFile(level, f);
+    }
+  }
+
+  Status MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
+                      uint64_t base_max_file_number) {
+    const uint64_t file_number = f->fd.GetNumber();
     const auto& level_state = levels_[level];
 
-    const auto& del_files = level_state.deleted_files;
-    const auto del_it = del_files.find(file_number);
-
-    if (del_it != del_files.end()) {
+    if (file_number <= base_max_file_number) {
+      auto it = deleted_base_files_.find(file_number);
+      if (it == deleted_base_files_.end()) {
+        return Status::Corruption("VersionBuilder: Attempt to add file (" +
+                                  std::to_string(file_number) +
+                                  ") with potentially used file number.");
+      }
+      // This should be a file moved to a new position. Make sure the two are
+      // the same physical file.
+      if (it->second->fd.GetPathId() != f->fd.GetPath()) {
+        return Status::Corruption(
+            "VersionBuilder: Attempt to add file (" +
+            std::to_string(file_number) +
+            ") with used file number to a different path.");
+      }
+      vstorage->AddFile(level, it->second);
+    } else if (level_state.deleted_files.count(file_number) > 0) {
       // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
@@ -1041,6 +1071,7 @@ class VersionBuilder::Rep {
         vstorage->AddFile(level, f);
       }
     }
+    return Status::OK();
   }
 };
 
