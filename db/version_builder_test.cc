@@ -516,10 +516,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   ASSERT_OK(builder2.Apply(&deletion));
   ASSERT_OK(builder3.Apply(&deletion));
 
-  VersionEdit addition1;
-
   constexpr bool marked_for_compaction = false;
 
+  VersionEdit addition1;
   addition1.AddFile(level, file_number, path_id, file_size,
                     GetInternalKey(smallest, smallest_seq),
                     GetInternalKey(largest, largest_seq), smallest_seqno,
@@ -537,16 +536,19 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
 
   ASSERT_OK(builder1.SaveTo(&new_vstorage1));
   ASSERT_EQ(new_vstorage1.GetFileLocation(file_number).GetLevel(), level);
-  FileReferenceChecker checker;
-  ASSERT_TRUE(checker.Check(&new_vstorage1));
+  FileReferenceChecker checker1;
+  ASSERT_TRUE(checker1.Check(&vstorage_));
+  ASSERT_TRUE(checker1.Check(&new_vstorage1));
 
   VersionEdit addition2;
-  addition2.AddFile(level, file_number, path_id + 1, file_size,
   // Move to a higher level.
   addition2.AddFile(level + 1, file_number, path_id, file_size,
                     GetInternalKey(smallest, smallest_seqno),
                     GetInternalKey(largest, largest_seqno), smallest_seqno,
-                    largest_seqno, marked_for_compaction);
+                    largest_seqno, marked_for_compaction,
+                    kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                    kUnknownFileCreationTime, kUnknownFileChecksum,
+                    kUnknownFileChecksumFuncName);
 
   ASSERT_OK(builder2.Apply(&addition2));
 
@@ -559,7 +561,6 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   FileReferenceChecker checker2;
   ASSERT_TRUE(checker2.Check(&vstorage_));
   ASSERT_TRUE(checker2.Check(&new_vstorage2));
-
 
   VersionEdit addition3;
   // Move to a different path.
