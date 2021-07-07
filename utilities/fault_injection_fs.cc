@@ -592,11 +592,11 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   // garbage collect the those files. We do it if it is needed later.
   // We ignore I/O errors here for simplicity.
   std::string previous_contents = kNewFileNoOverwrite;
-  if (FileExists(t, IOOptions(), nullptr).ok()) {
+  if (target()->FileExists(t, IOOptions(), nullptr).ok()) {
     uint64_t file_size;
-    if (GetFileSize(t, IOOptions(), &file_size, nullptr).ok() &&
+    if (target()->GetFileSize(t, IOOptions(), &file_size, nullptr).ok() &&
         file_size < 1024) {
-      ReadFileToString(this, t, &previous_contents).PermitUncheckedError();
+      ReadFileToString(target(), t, &previous_contents).PermitUncheckedError();
     }
   }
   IOStatus io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
@@ -702,7 +702,8 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
         }
       } else {
         IOStatus io_s =
-            WriteStringToFile(this, file_pair.second, file_pair.first, true);
+            WriteStringToFile(target(), file_pair.second,
+                              pair.first + "/" + file_pair.first, true);
         if (!io_s.ok()) {
           return io_s;
         }
