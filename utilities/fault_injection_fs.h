@@ -480,7 +480,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
   std::set<std::string> open_files_;
-  std::unordered_map<std::string, std::set<std::string>>
+  // directory -> (file name -> file contents to recover)
+  // When data is recovered from unsyned parent directory, the files with
+  // empty file contents to recover is deleted. Those with non-empty ones
+  // will be recovered to content accordingly.
+  std::unordered_map<std::string, std::map<std::string, std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
