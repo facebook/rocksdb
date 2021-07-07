@@ -159,6 +159,8 @@ class VersionBuilderTest : public testing::Test {
   }
 };
 
+// Check that one file number is mapped to one unique FileMetaData in a series
+// of versions.
 struct FileReferenceChecker {
   std::unordered_map<uint64_t, FileMetaData*> files;
 
@@ -427,120 +429,6 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST_F(VersionBuilderTest, ApplyMoveAndSaveTo) {
-  UpdateVersionStorageInfo();
-
-  EnvOptions env_options;
-  constexpr TableCache* table_cache = nullptr;
-  constexpr VersionSet* version_set = nullptr;
-
-  VersionEdit version_edit;
-  version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
-                       GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName);
-  VersionEdit version_edit2;
-  version_edit2.DeleteFile(0, 666);
-  version_edit2.AddFile(1, 666, 0, 100U, GetInternalKey("301"),
-                        GetInternalKey("350"), 200, 200, false,
-                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                        kUnknownFileCreationTime, kUnknownFileChecksum,
-                        kUnknownFileChecksumFuncName);
-
-  VersionStorageInfo base_vstorage(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                   &vstorage_, version_set);
-    version_builder.Apply(&version_edit);
-    version_builder.SaveTo(&base_vstorage);
-    ASSERT_EQ(100U, base_vstorage.NumLevelBytes(0));
-  }
-
-  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr, false);
-  {
-    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                   &base_vstorage, version_set);
-    version_builder.Apply(&version_edit2);
-    version_builder.SaveTo(&new_vstorage);
-    ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
-    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(1));
-  }
-
-  FileReferenceChecker checker;
-  ASSERT_TRUE(checker.Check(&base_vstorage));
-  ASSERT_TRUE(checker.Check(&new_vstorage));
-
-  UnrefFilesInVersion(&base_vstorage);
-  UnrefFilesInVersion(&new_vstorage);
-}
-
-TEST_F(VersionBuilderTest, ApplySmallFileNumberAndSaveTo) {
-  UpdateVersionStorageInfo();
-
-  EnvOptions env_options;
-  constexpr TableCache* table_cache = nullptr;
-  constexpr VersionSet* version_set = nullptr;
-
-  VersionEdit version_edit;
-  version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
-                       GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName);
-  // Delete file and create one with smaller file number.
-  VersionEdit version_edit2;
-  version_edit2.DeleteFile(0, 666);
-  version_edit2.AddFile(0, 500, 0, 100U, GetInternalKey("301"),
-                        GetInternalKey("350"), 200, 200, false,
-                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                        kUnknownFileCreationTime, kUnknownFileChecksum,
-                        kUnknownFileChecksumFuncName);
-  // Move file to a different path.
-  VersionEdit version_edit3;
-  version_edit2.DeleteFile(0, 666);
-  version_edit2.AddFile(0, 666, 1 /*path_id*/, 100U, GetInternalKey("301"),
-                        GetInternalKey("350"), 200, 200, false,
-                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                        kUnknownFileCreationTime, kUnknownFileChecksum,
-                        kUnknownFileChecksumFuncName);
-
-  VersionStorageInfo base_vstorage(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                   &vstorage_, version_set);
-    version_builder.Apply(&version_edit);
-    version_builder.SaveTo(&base_vstorage);
-    ASSERT_EQ(100U, base_vstorage.NumLevelBytes(0));
-  }
-
-  VersionStorageInfo new_vstorage1(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                   &base_vstorage, version_set);
-    version_builder.Apply(&version_edit2);
-    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage1).IsCorruption());
-  }
-
-  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    EnvOptions env_options;
-    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                   &base_vstorage, version_set);
-    version_builder.Apply(&version_edit3);
-    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage2).IsCorruption());
-  }
-
-  UnrefFilesInVersion(&base_vstorage);
-  UnrefFilesInVersion(&new_vstorage1);
-  UnrefFilesInVersion(&new_vstorage2);
-}
-
 TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
   constexpr int level = 1;
   constexpr uint64_t file_number = 2345;
@@ -614,37 +502,84 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   constexpr TableCache* table_cache = nullptr;
   constexpr VersionSet* version_set = nullptr;
 
-  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+  VersionBuilder builder1(env_options, &ioptions_, table_cache, &vstorage_,
+                          version_set);
+  VersionBuilder builder2(env_options, &ioptions_, table_cache, &vstorage_,
+                          version_set);
+  VersionBuilder builder3(env_options, &ioptions_, table_cache, &vstorage_,
+                          version_set);
 
   VersionEdit deletion;
-
   deletion.DeleteFile(level, file_number);
 
-  ASSERT_OK(builder.Apply(&deletion));
+  ASSERT_OK(builder1.Apply(&deletion));
+  ASSERT_OK(builder2.Apply(&deletion));
+  ASSERT_OK(builder3.Apply(&deletion));
 
-  VersionEdit addition;
+  VersionEdit addition1;
 
   constexpr bool marked_for_compaction = false;
 
-  addition.AddFile(level, file_number, path_id, file_size,
-                   GetInternalKey(smallest, smallest_seq),
-                   GetInternalKey(largest, largest_seq), smallest_seqno,
-                   largest_seqno, marked_for_compaction, kInvalidBlobFileNumber,
-                   kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                   kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+  addition1.AddFile(level, file_number, path_id, file_size,
+                    GetInternalKey(smallest, smallest_seq),
+                    GetInternalKey(largest, largest_seq), smallest_seqno,
+                    largest_seqno, marked_for_compaction,
+                    kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                    kUnknownFileCreationTime, kUnknownFileChecksum,
+                    kUnknownFileChecksumFuncName);
 
-  ASSERT_OK(builder.Apply(&addition));
+  ASSERT_OK(builder1.Apply(&addition1));
 
   constexpr bool force_consistency_checks = false;
-  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, &vstorage_,
-                                  force_consistency_checks);
+  VersionStorageInfo new_vstorage1(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, &vstorage_,
+                                   force_consistency_checks);
 
-  ASSERT_OK(builder.SaveTo(&new_vstorage));
-  ASSERT_EQ(new_vstorage.GetFileLocation(file_number).GetLevel(), level);
+  ASSERT_OK(builder1.SaveTo(&new_vstorage1));
+  ASSERT_EQ(new_vstorage1.GetFileLocation(file_number).GetLevel(), level);
+  FileReferenceChecker checker;
+  ASSERT_TRUE(checker.Check(&new_vstorage1));
 
-  UnrefFilesInVersion(&new_vstorage);
+  VersionEdit addition2;
+  addition2.AddFile(level, file_number, path_id + 1, file_size,
+  // Move to a higher level.
+  addition2.AddFile(level + 1, file_number, path_id, file_size,
+                    GetInternalKey(smallest, smallest_seqno),
+                    GetInternalKey(largest, largest_seqno), smallest_seqno,
+                    largest_seqno, marked_for_compaction);
+
+  ASSERT_OK(builder2.Apply(&addition2));
+
+  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, &vstorage_,
+                                   force_consistency_checks);
+
+  ASSERT_OK(builder2.SaveTo(&new_vstorage2));
+  ASSERT_EQ(new_vstorage2.GetFileLocation(file_number).GetLevel(), level + 1);
+  FileReferenceChecker checker2;
+  ASSERT_TRUE(checker2.Check(&vstorage_));
+  ASSERT_TRUE(checker2.Check(&new_vstorage2));
+
+
+  VersionEdit addition3;
+  // Move to a different path.
+  addition3.AddFile(level, file_number, path_id + 1, file_size,
+                    GetInternalKey(smallest, smallest_seq),
+                    GetInternalKey(largest, largest_seq), smallest_seqno,
+                    largest_seqno, marked_for_compaction,
+                    kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                    kUnknownFileCreationTime, kUnknownFileChecksum,
+                    kUnknownFileChecksumFuncName);
+
+  const Status s3 = builder3.Apply(&addition3);
+  ASSERT_TRUE(s3.IsCorruption());
+  ASSERT_TRUE(std::strstr(s3.getState(),
+                          "Cannot add table file #2345 to level 1 by trivial "
+                          "move since it isn't trivial to move to a different "
+                          "path"));
+
+  UnrefFilesInVersion(&new_vstorage1);
+  UnrefFilesInVersion(&new_vstorage2);
 }
 
 TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
@@ -662,7 +597,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
                          version_set);
 
-  VersionEdit edit;
+  VersionEdit edit1;
 
   constexpr int new_level = 2;
   constexpr uint32_t path_id = 0;
@@ -671,18 +606,34 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   constexpr SequenceNumber largest_seqno = 1000;
   constexpr bool marked_for_compaction = false;
 
-  edit.AddFile(new_level, file_number, path_id, file_size,
-               GetInternalKey(smallest), GetInternalKey(largest),
-               smallest_seqno, largest_seqno, marked_for_compaction,
-               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName);
+  // Add an existing file.
+  edit1.AddFile(new_level, file_number, path_id, file_size,
+                GetInternalKey(smallest), GetInternalKey(largest),
+                smallest_seqno, largest_seqno, marked_for_compaction,
+                kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                kUnknownFileCreationTime, kUnknownFileChecksum,
+                kUnknownFileChecksumFuncName);
 
-  const Status s = builder.Apply(&edit);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(std::strstr(s.getState(),
+  const Status s1 = builder.Apply(&edit1);
+  ASSERT_TRUE(s1.IsCorruption());
+  ASSERT_TRUE(std::strstr(s1.getState(),
                           "Cannot add table file #2345 to level 2 since it is "
                           "already in the LSM tree on level 1"));
+
+  VersionEdit edit2;
+  // Add a file with a small file number.
+  edit2.AddFile(new_level, file_number - 1, path_id, file_size,
+                GetInternalKey(smallest), GetInternalKey(largest),
+                smallest_seqno, largest_seqno, marked_for_compaction,
+                kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                kUnknownFileCreationTime, kUnknownFileChecksum,
+                kUnknownFileChecksumFuncName);
+  const Status s2 = builder.Apply(&edit2);
+  ASSERT_TRUE(s2.IsCorruption());
+  ASSERT_TRUE(std::strstr(s2.getState(),
+                          "Cannot add table file #2344 to level 2 since it has "
+                          " a small file number which is potentially "
+                          "referenced by older versions"));
 }
 
 TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
