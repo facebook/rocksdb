@@ -3436,15 +3436,13 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
 
     // Calculate for static bytes base case
     for (int i = 0; i < ioptions.num_levels; ++i) {
-      if (i == 0 && ioptions.compaction_style == kCompactionStyleUniversal) {
+      if (i == 0) {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       } else if (i > 1) {
         level_max_bytes_[i] = MultiplyCheckOverflow(
             MultiplyCheckOverflow(level_max_bytes_[i - 1],
                                   options.max_bytes_for_level_multiplier),
             options.MaxBytesMultiplerAdditional(i - 1));
-      } else {
-        level_max_bytes_[i] = options.max_bytes_for_level_base;
       }
     }
   } else {
