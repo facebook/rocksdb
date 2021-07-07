@@ -2113,14 +2113,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
-
+  assert(new_mem != nullptr);
   // By default, it is assumed that the 'old' memtable
   // will be added to the Imm memtable list and will therefore
   // contribute to the Imm memory footprint.
   bool noImmMemoryContribution = false;
   // If MemPurge activated, purge and delete current memtable.
   if (immutable_db_options_.experimental_allow_mempurge &&
-      (new_mem != nullptr) &&
       ((cfd->GetFlushReason() == FlushReason::kOthers) ||
        (cfd->GetFlushReason() == FlushReason::kManualFlush))) {
     Status mempurge_s = MemPurge(cfd, new_mem);
@@ -2135,9 +2134,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       noImmMemoryContribution = true;
     } else {
       // If mempurge failed, go back to regular mem->imm->flush workflow.
-      if (new_mem) {
-        delete new_mem;
-      }
+      assert(new_mem != nullptr);
+      delete new_mem;
       SuperVersion* new_superversion =
           context->superversion_context.new_superversion.release();
       if (new_superversion != nullptr) {
@@ -2145,6 +2143,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       }
       SequenceNumber seq = versions_->LastSequence();
       new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+      assert(new_mem != nullptr);
       context->superversion_context.NewSuperVersion();
       cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
     }
