@@ -597,7 +597,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
                          version_set);
 
-  VersionEdit edit1;
+  VersionEdit edit;
 
   constexpr int new_level = 2;
   constexpr uint32_t path_id = 0;
@@ -607,33 +607,18 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   constexpr bool marked_for_compaction = false;
 
   // Add an existing file.
-  edit1.AddFile(new_level, file_number, path_id, file_size,
-                GetInternalKey(smallest), GetInternalKey(largest),
-                smallest_seqno, largest_seqno, marked_for_compaction,
-                kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                kUnknownFileCreationTime, kUnknownFileChecksum,
-                kUnknownFileChecksumFuncName);
+  edit.AddFile(new_level, file_number, path_id, file_size,
+               GetInternalKey(smallest), GetInternalKey(largest),
+               smallest_seqno, largest_seqno, marked_for_compaction,
+               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName);
 
-  const Status s1 = builder.Apply(&edit1);
-  ASSERT_TRUE(s1.IsCorruption());
-  ASSERT_TRUE(std::strstr(s1.getState(),
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(),
                           "Cannot add table file #2345 to level 2 since it is "
                           "already in the LSM tree on level 1"));
-
-  VersionEdit edit2;
-  // Add a file with a small file number.
-  edit2.AddFile(new_level, file_number - 1, path_id, file_size,
-                GetInternalKey(smallest), GetInternalKey(largest),
-                smallest_seqno, largest_seqno, marked_for_compaction,
-                kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                kUnknownFileCreationTime, kUnknownFileChecksum,
-                kUnknownFileChecksumFuncName);
-  const Status s2 = builder.Apply(&edit2);
-  ASSERT_TRUE(s2.IsCorruption());
-  ASSERT_TRUE(std::strstr(s2.getState(),
-                          "Cannot add table file #2344 to level 2 since it has "
-                          " a small file number which is potentially "
-                          "referenced by older versions"));
 }
 
 TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {

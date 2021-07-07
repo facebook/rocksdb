@@ -625,29 +625,18 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 
-    FileMetaData* f = nullptr;
-    // FIXME: It's possible that an older version has a bigger `max_file_number`
-    // than current version.
-    if (file_number <= base_vstorage_->max_file_number()) {
-      auto* base_meta = base_vstorage_->GetFileMetaDataByNumber(file_number);
-      if (!base_meta) {
-        std::ostringstream oss;
-        oss << "Cannot add table file #" << file_number << " to level " << level
-            << " since it has a small file number which is potentially "
-            << "referenced by older versions";
-        return Status::Corruption("VersionBuilder", oss.str());
-      }
+    // Try to reuse file meta from base version.
+    FileMetaData* f = base_vstorage_->GetFileMetaDataByNumber(file_number);
+    if (f) {
       // This should be a file trivially moved to a new position. Make sure the
       // two are the same physical file.
-      if (base_meta->fd.GetPathId() != meta.fd.GetPathId()) {
+      if (f->fd.GetPathId() != meta.fd.GetPathId()) {
         std::ostringstream oss;
         oss << "Cannot add table file #" << file_number << " to level " << level
             << " by trivial move since it isn't trivial to move to a "
             << "different path";
         return Status::Corruption("VersionBuilder", oss.str());
       }
-      // One physical file should be reference counted in one FileMetaData.
-      f = base_meta;
     } else {
       f = new FileMetaData(meta);
     }
