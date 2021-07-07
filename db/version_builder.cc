@@ -926,6 +926,7 @@ class VersionBuilder::Rep {
           MaybeAddFile(vstorage, level, *base_iter++, true /*from_base*/);
         } else {
           MaybeAddFile(vstorage, level, *added_iter++, false /*from_base*/);
+        }
       }
     }
 
