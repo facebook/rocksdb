@@ -1219,7 +1219,7 @@ Status CTREncryptionProvider::CreateCipherStream(
   // with initial counter & IV are unencrypted)
   CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
   Status status;
- 
+
   // A completely empty prefix is tolerated here, which allows to open
   // encrypted log files that were only created but not filled with any
   // data. This can happen if there is a crash/power loss directly after
