@@ -965,7 +965,7 @@ class DBImpl : public DB {
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t TEST_MaxNextLevelOverlappingBytes(
+  uint64_t TEST_MaxNextLevelOverlappingBytes(
       ColumnFamilyHandle* column_family = nullptr);
 
   // Return the current manifest file no.
