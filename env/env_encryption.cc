@@ -1215,19 +1215,24 @@ Status CTREncryptionProvider::CreateCipherStream(
   Slice iv;
   decodeCTRParameters(prefix.data(), blockSize, initialCounter, iv);
 
-  // If the prefix is smaller than twice the block size, we would below read a
-  // very large chunk of the file (and very likely read over the bounds)
-  assert(prefix.size() >= 2 * blockSize);
-  if (prefix.size() < 2 * blockSize) {
-    return Status::Corruption("Unable to read from file " + fname +
-                              ": read attempt would read beyond file bounds");
-  }
-
   // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1
   // with initial counter & IV are unencrypted)
   CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
   Status status;
-  {
+ 
+  // A completely empty prefix is tolerated here, which allows to open
+  // encrypted log files that were only created but not filled with any
+  // data. This can happen if there is a crash/power loss directly after
+  // log file creation.
+  if (!prefix.empty()) {
+    // If the prefix is smaller than twice the block size, we would below read a
+    // very large chunk of the file (and very likely read over the bounds)
+    assert(prefix.size() >= 2 * blockSize);
+    if (prefix.size() < 2 * blockSize) {
+      return Status::Corruption("Unable to read from file " + fname +
+                                ": read attempt would read beyond file bounds");
+    }
+
     PERF_TIMER_GUARD(decrypt_data_nanos);
     status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize),
                                   prefix.size() - (2 * blockSize));
