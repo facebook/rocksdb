@@ -1038,7 +1038,7 @@ class VersionBuilder::Rep {
     return ret;
   }
 
-  void MaybeAddFile(VersionStorageInfo * vstorage, int level, FileMetaData* f,
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
                     bool from_base) {
     const uint64_t file_number = f->fd.GetNumber();
 
