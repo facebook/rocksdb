@@ -272,7 +272,11 @@ class MemTableList {
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  // By default, adding memtables will flag that the memtable list needs to be
+  // flushed, but in certain situations, like after a mempurge, we may want to
+  // avoid flushing the memtable list upon addition of a memtable.
+  void Add(MemTable* m, autovector<MemTable*>* to_delete,
+           bool trigger_flush = true);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();

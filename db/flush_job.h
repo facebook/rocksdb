@@ -101,7 +101,29 @@ class FlushJob {
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
-  Status MemPurgeV2();
+
+  // Memtable Garbage Collection algorithm: a MemPurge takes the list
+  // of immutablememtable and filters out (or "purge") the outdated bytes
+  // out of it. The output (the filtered bytes, or "useful payload") is
+  // then transfered into new memtables. If these new memtables are all
+  // filled at maximum capacity, they are subsequently flushed. If the
+  // last memtable is not entirely filled, it can be, depending on the
+  // heuristics, placed onto the immutable memtable list.
+  // The addition to the imm list will not trigger a flush operation. The
+  // flush of the imm list will instead be triggered once the mutable memtable
+  // is added to the imm list.
+  // This process is typically intended for workloads with heavy overwrites
+  // when we want to avoid SSD writes (and reads) as much as possible.
+  // "MemPurge" is an experimental feature still at a very early stage
+  // of development. At the moment it is only compatible with the Get, Put,
+  // Delete operations as well as Iterators and CompactionFilters.
+  // For this early version, "MemPurge" is called by setting the
+  // options.experimental_allow_mempurge flag as "true". When this is
+  // the case, ALL automatic flush operations (kWRiteBufferManagerFull) will
+  // first go through the MemPurge process. herefore, we strongly
+  // recommend all users not to set this flag as true given that the MemPurge
+  // process has not matured yet.
+  Status MemPurge();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE

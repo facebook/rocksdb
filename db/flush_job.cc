@@ -231,7 +231,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
       (mems_.size() > 0)) {
-    Status mempurge_s = MemPurgeV2();
+    Status mempurge_s = MemPurge();
   }
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
@@ -311,7 +311,7 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-Status FlushJob::MemPurgeV2() {
+Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
@@ -326,13 +326,6 @@ Status FlushJob::MemPurgeV2() {
                       mems_[0]->GetEarliestSequenceNumber(),
                       mems_[0]->GetID());
   assert(new_mem != nullptr);
-
-  // JobContext job_context(next_job_id_.fetch_add(1), true);
-  // std::vector<SequenceNumber> snapshot_seqs;
-  // SequenceNumber earliest_write_conflict_snapshot;
-  // SnapshotChecker* snapshot_checker;
-  // GetSnapshotContext(&job_context, &snapshot_seqs,
-  //                    &earliest_write_conflict_snapshot, &snapshot_checker);
 
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
@@ -509,15 +502,27 @@ Status FlushJob::MemPurgeV2() {
         }
       }
     }
+    db_mutex_->Lock();
     if (s.ok() && (new_first_seqno != kMaxSequenceNumber)) {
       // Rectify the first sequence number, which (unlike the earliest seq
       // number) needs to be present in the new memtable.
       new_mem->SetFirstSequenceNumber(new_first_seqno);
-      purged_mems.push_back(new_mem);
+      if (new_mem->ApproximateMemoryUsage() <
+          static_cast<size_t>(
+              ceil(0.1 * mutable_cf_options_.write_buffer_size))) {
+        //   // Need to reinstall anything?
+        cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free,
+                         false /* need to add bool not to trigger flush?*/);
+        new_mem->Ref();
+      }
+      // purged_mems.push_back(new_mem);
     }
   }
-  if (new_mem) {
-    delete new_mem;
+  // if (new_mem) {
+  //   delete new_mem;
+  // }
+  for (auto newm : purged_mems) {
+    mems_.push_back(newm);
   }
   // Note: if the mempurge was ineffective, meaning that there was no
   // garbage to remove, and this new_mem needs to be flushed again,
@@ -529,15 +534,14 @@ Status FlushJob::MemPurgeV2() {
   // if (s.ok() && new_mem->ShouldScheduleFlush()) {
   //   s = Status::Aborted(Slice("No garbage collected."));
   // }
-  if (s.ok() && (purged_mems.size() > 0)) {
-    // VERY DANGEROUS: NEED TP CHAGE because some other structs might be
-    // pointing to these
-    for (MemTable* m : mems_) {
-      delete m;
-    }
-    mems_ = purged_mems;
-  }
-  db_mutex_->Lock();
+  // if (s.ok() && (purged_mems.size() > 0)) {
+  //   // VERY DANGEROUS: NEED TP CHAGE because some other structs might be
+  //   // pointing to these
+  //   for (MemTable* m : mems_) {
+  //     m->SetFlushCompleted(true);
+  //   }
+  //   // mems_ = purged_mems;
+  // }
   return s;
 }
 
