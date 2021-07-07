@@ -430,6 +430,10 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 TEST_F(VersionBuilderTest, ApplyMoveAndSaveTo) {
   UpdateVersionStorageInfo();
 
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
   VersionEdit version_edit;
   version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
@@ -444,37 +448,41 @@ TEST_F(VersionBuilderTest, ApplyMoveAndSaveTo) {
                         kUnknownFileCreationTime, kUnknownFileChecksum,
                         kUnknownFileChecksumFuncName);
 
+  VersionStorageInfo base_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
+  {
+    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                   &vstorage_, version_set);
+    version_builder.Apply(&version_edit);
+    version_builder.SaveTo(&base_vstorage);
+    ASSERT_EQ(100U, base_vstorage.NumLevelBytes(0));
+  }
+
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
   {
-    EnvOptions env_options;
-    VersionBuilder version_builder(env_options, nullptr, &vstorage_);
-    version_builder.Apply(&version_edit);
-    version_builder.SaveTo(&new_vstorage);
-    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(0));
-  }
-
-  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    EnvOptions env_options;
-    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
+    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                   &base_vstorage, version_set);
     version_builder.Apply(&version_edit2);
-    version_builder.SaveTo(&new_vstorage2);
-    ASSERT_EQ(0U, new_vstorage2.NumLevelBytes(0));
-    ASSERT_EQ(100U, new_vstorage2.NumLevelBytes(1));
+    version_builder.SaveTo(&new_vstorage);
+    ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
+    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(1));
   }
 
   FileReferenceChecker checker;
+  ASSERT_TRUE(checker.Check(&base_vstorage));
   ASSERT_TRUE(checker.Check(&new_vstorage));
-  ASSERT_TRUE(checker.Check(&new_vstorage2));
 
+  UnrefFilesInVersion(&base_vstorage);
   UnrefFilesInVersion(&new_vstorage);
-  UnrefFilesInVersion(&new_vstorage2);
 }
 
 TEST_F(VersionBuilderTest, ApplySmallFileNumberAndSaveTo) {
   UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
 
   VersionEdit version_edit;
   version_edit.AddFile(0, 666, 0, 100U, GetInternalKey("301"),
@@ -499,37 +507,38 @@ TEST_F(VersionBuilderTest, ApplySmallFileNumberAndSaveTo) {
                         kUnknownFileCreationTime, kUnknownFileChecksum,
                         kUnknownFileChecksumFuncName);
 
-  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr, false);
+  VersionStorageInfo base_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
   {
-    EnvOptions env_options;
-    VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                   &vstorage_, version_set);
     version_builder.Apply(&version_edit);
-    version_builder.SaveTo(&new_vstorage);
-    ASSERT_EQ(100U, new_vstorage.NumLevelBytes(0));
+    version_builder.SaveTo(&base_vstorage);
+    ASSERT_EQ(100U, base_vstorage.NumLevelBytes(0));
+  }
+
+  VersionStorageInfo new_vstorage1(&icmp_, ucmp_, options_.num_levels,
+                                   kCompactionStyleLevel, nullptr, false);
+  {
+    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                   &base_vstorage, version_set);
+    version_builder.Apply(&version_edit2);
+    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage1).IsCorruption());
   }
 
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
                                    kCompactionStyleLevel, nullptr, false);
   {
     EnvOptions env_options;
-    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
-    version_builder.Apply(&version_edit2);
+    VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                   &base_vstorage, version_set);
+    version_builder.Apply(&version_edit3);
     ASSERT_TRUE(version_builder.SaveTo(&new_vstorage2).IsCorruption());
   }
 
-  VersionStorageInfo new_vstorage3(&icmp_, ucmp_, options_.num_levels,
-                                   kCompactionStyleLevel, nullptr, false);
-  {
-    EnvOptions env_options;
-    VersionBuilder version_builder(env_options, nullptr, &new_vstorage);
-    version_builder.Apply(&version_edit3);
-    ASSERT_TRUE(version_builder.SaveTo(&new_vstorage3).IsCorruption());
-  }
-
-  UnrefFilesInVersion(&new_vstorage);
+  UnrefFilesInVersion(&base_vstorage);
+  UnrefFilesInVersion(&new_vstorage1);
   UnrefFilesInVersion(&new_vstorage2);
-  UnrefFilesInVersion(&new_vstorage3);
 }
 
 TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
@@ -1651,6 +1660,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
+  UnrefFilesInVersion(&new_vstorage2);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {

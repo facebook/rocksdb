@@ -1049,7 +1049,7 @@ class VersionBuilder::Rep {
       }
       // This should be a file moved to a new position. Make sure the two are
       // the same physical file.
-      if (it->second->fd.GetPathId() != f->fd.GetPath()) {
+      if (it->second->fd.GetPathId() != f->fd.GetPathId()) {
         return Status::Corruption(
             "VersionBuilder: Attempt to add file (" +
             std::to_string(file_number) +

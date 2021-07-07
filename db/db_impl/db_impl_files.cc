@@ -93,7 +93,7 @@ bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }
 
-// * Returns the list of live files in 'blob_live'.
+// * Returns the list of live blob files in 'blob_live'.
 // If it's doing full scan:
 // * Returns the list of all files in the filesystem in
 // 'full_scan_candidate_files'.
