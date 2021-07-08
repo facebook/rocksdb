@@ -918,7 +918,7 @@ static int RegisterTestObjects(ObjectLibrary& library,
 
 class MockEncryptionProvider : public EncryptionProvider {
  public:
-  MockEncryptionProvider(const std::string& id) : id_(id) {}
+  explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
   const char* Name() const override { return "Mock"; }
   size_t GetPrefixLength() const override { return 0; }
   Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,

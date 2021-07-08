@@ -1015,12 +1015,17 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
   }
 }
 
-static std::unordered_map<std::string, OptionTypeInfo>
-    rot13_block_cipher_type_info = {
-        {"block_size",
-         {0 /* No offset, whole struct*/, OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-};
+namespace {
+static const std::unordered_map<std::string, OptionTypeInfo>*
+GetRot13TypeInfo() {
+  static std::unordered_map<std::string, OptionTypeInfo>
+      rot13_block_cipher_type_info = {
+          {"block_size",
+           {0 /* No offset, whole struct*/, OptionType::kInt,
+            OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+      };
+  return &rot13_block_cipher_type_info;
+}
 
 // Implements a BlockCipher using ROT13.
 //
@@ -1031,9 +1036,8 @@ class ROT13BlockCipher : public BlockCipher {
   size_t blockSize_;
 
  public:
-  ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {
-    RegisterOptions("ROT13BlockCipherOptions", &blockSize_,
-                    &rot13_block_cipher_type_info);
+  explicit ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {
+    RegisterOptions("ROT13BlockCipherOptions", &blockSize_, GetRot13TypeInfo());
   }
 
   static const char* kClassName() { return "ROT13"; }
@@ -1054,6 +1058,18 @@ class ROT13BlockCipher : public BlockCipher {
   // Length of data is equal to BlockSize().
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
+static const std::unordered_map<std::string, OptionTypeInfo>*
+GetCtrProviderTypeInfo() {
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      ctr_encryption_provider_type_info = {
+          {"cipher",
+           OptionTypeInfo::AsCustomSharedPtr<BlockCipher>(
+               0 /* No offset, whole struct*/, OptionVerificationType::kByName,
+               OptionTypeFlags::kNone)},
+      };
+  return &ctr_encryption_provider_type_info;
+}
+}  // anonymous namespace
 
 // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
 void CTRCipherStream::AllocateScratch(std::string& scratch) {
@@ -1091,18 +1107,10 @@ Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char* data,
   return EncryptBlock(blockIndex, data, scratch);
 }
 
-static std::unordered_map<std::string, OptionTypeInfo>
-    ctr_encryption_provider_type_info = {
-        {"cipher",
-         OptionTypeInfo::AsCustomSharedPtr<BlockCipher>(
-             0 /* No offset, whole struct*/, OptionVerificationType::kByName,
-             OptionTypeFlags::kNone)},
-};
-
 CTREncryptionProvider::CTREncryptionProvider(
     const std::shared_ptr<BlockCipher>& c)
     : cipher_(c) {
-  RegisterOptions("Cipher", &cipher_, &ctr_encryption_provider_type_info);
+  RegisterOptions("Cipher", &cipher_, GetCtrProviderTypeInfo());
 }
 
 // GetPrefixLength returns the length of the prefix that is added to every file
