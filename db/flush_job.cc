@@ -515,6 +515,7 @@ Status FlushJob::MemPurge() {
                          false /* need to add bool not to trigger flush?*/);
         new_mem->Ref();
       }
+
       // purged_mems.push_back(new_mem);
     }
   }
