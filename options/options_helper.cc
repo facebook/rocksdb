@@ -562,23 +562,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
                                           : kNullptrString;
       break;
     }
-    case OptionType::kComparator: {
-      // it's a const pointer of const Comparator*
-      const auto* ptr = static_cast<const Comparator* const*>(opt_address);
-      // Since the user-specified comparator will be wrapped by
-      // InternalKeyComparator, we should persist the user-specified one
-      // instead of InternalKeyComparator.
-      if (*ptr == nullptr) {
-        *value = kNullptrString;
-      } else {
-        const Comparator* root_comp = (*ptr)->GetRootComparator();
-        if (root_comp == nullptr) {
-          root_comp = (*ptr);
-        }
-        *value = root_comp->Name();
-      }
-      break;
-    }
     case OptionType::kCompactionFilter: {
       // it's a const pointer of const CompactionFilter*
       const auto* ptr =
@@ -1113,8 +1096,6 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     return Status::NotSupported("Cannot serialize option: ", opt_name);
   } else if (serialize_func_ != nullptr) {
     return serialize_func_(config_options, opt_name, opt_addr, opt_value);
-  } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
-    return Status::OK();
   } else if (IsCustomizable()) {
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
     if (custom == nullptr) {
@@ -1125,7 +1106,18 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     } else {
       ConfigOptions embedded = config_options;
       embedded.delimiter = ";";
-      *opt_value = custom->ToString(embedded);
+      // If this option is mutable, everything inside it should be considered
+      // mutable
+      if (IsMutable()) {
+        embedded.mutable_options_only = false;
+      }
+      std::string value = custom->ToString(embedded);
+      if (!embedded.mutable_options_only ||
+          value.find("=") != std::string::npos) {
+        *opt_value = value;
+      } else {
+        *opt_value = "";
+      }
     }
     return Status::OK();
   } else if (IsConfigurable()) {
@@ -1135,6 +1127,10 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
       embedded.delimiter = ";";
       *opt_value = config->ToString(embedded);
     }
+    return Status::OK();
+  } else if (config_options.mutable_options_only && !IsMutable()) {
+    return Status::OK();
+  } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
     return Status::OK();
   } else {
     return Status::InvalidArgument("Cannot serialize option: ", opt_name);

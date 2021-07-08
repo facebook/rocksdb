@@ -20,6 +20,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/data_structure.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -370,20 +371,25 @@ enum class CompactionServiceJobStatus : char {
   kUseLocal,  // TODO: Add support for use local compaction
 };
 
-class CompactionService {
+class CompactionService : public Customizable {
  public:
+  static const char* Type() { return "CompactionService"; }
+
+  // Returns the name of this compaction service.
+  virtual const char* Name() const = 0;
+
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.
   // TODO: sub-compaction is not supported, as they will have the same job_id, a
   // sub-compaction id might be added
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, int job_id) = 0;
+      const std::string& compaction_service_input, uint64_t job_id) = 0;
 
   // Wait compaction to be finish.
   // TODO: Add output path override
   virtual CompactionServiceJobStatus WaitForComplete(
-      int job_id, std::string* compaction_service_result) = 0;
+      uint64_t job_id, std::string* compaction_service_result) = 0;
 
   virtual ~CompactionService() {}
 };
@@ -1332,9 +1338,18 @@ struct ReadOptions {
   // "iterate_upper_bound" defines the extent up to which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
-  // not a valid entry. If prefix_extractor is not null, the Seek target
-  // and iterate_upper_bound need to have the same prefix.
-  // This is because ordering is not guaranteed outside of prefix domain.
+  // not a valid entry. If prefix_extractor is not null:
+  // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
+  //    to infer whether prefix iterating (e.g. applying prefix bloom filter)
+  //    can be used within RocksDB. This is done by comparing
+  //    iterate_upper_bound with the seek key.
+  // 2. If options.auto_prefix_mode = false, iterate_upper_bound only takes
+  //    effect if it shares the same prefix as the seek key. If
+  //    iterate_upper_bound is outside the prefix of the seek key, then keys
+  //    returned outside the prefix range will be undefined, just as if
+  //    iterate_upper_bound = null.
+  // If iterate_upper_bound is not null, SeekToLast() will position the iterator
+  // at the first key smaller than iterate_upper_bound.
   //
   // Default: nullptr
   const Slice* iterate_upper_bound;
@@ -1647,6 +1662,9 @@ struct CompactRangeOptions {
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
   Slice* full_history_ts_low = nullptr;
+
+  // Allows cancellation of an in-progress manual compaction.
+  std::atomic<bool>* canceled = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
@@ -1779,6 +1797,11 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+
+  // statistics is used to collect DB operation metrics, the metrics won't be
+  // returned to CompactionService primary host, to collect that, the user needs
+  // to set it here.
+  std::shared_ptr<Statistics> statistics = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

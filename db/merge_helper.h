@@ -84,7 +84,8 @@ class MergeHelper {
                     CompactionRangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
                     const bool at_bottom = false,
-                    const bool allow_data_in_errors = false);
+                    const bool allow_data_in_errors = false,
+                    Version* version = nullptr);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.

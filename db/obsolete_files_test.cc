@@ -228,7 +228,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,

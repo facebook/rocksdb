@@ -81,6 +81,7 @@ class CompactionJob {
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<int>* manual_compaction_paused = nullptr,
+      const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
@@ -167,7 +168,7 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
-  int job_id_;
+  uint32_t job_id_;
 
   CompactionJobStats* compaction_job_stats_;
 
@@ -185,6 +186,7 @@ class CompactionJob {
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
+  const std::atomic<bool>* manual_compaction_canceled_;
   const SequenceNumber preserve_deletes_seqnum_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
@@ -216,6 +218,8 @@ class CompactionJob {
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  uint64_t GetCompactionId(SubcompactionState* sub_compact);
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.

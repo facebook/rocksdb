@@ -400,11 +400,12 @@ class DBImpl : public DB {
       FileChecksumList* checksum_list) override;
 
   // Obtains the meta data of the specified column family of the DB.
-  // Status::NotFound() will be returned if the current DB does not have
-  // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* metadata) override;
+
+  void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* metadata) override;
 
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;
@@ -974,8 +975,10 @@ class DBImpl : public DB {
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 
-  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
-                             std::vector<std::vector<FileMetaData>>* metadata);
+  void TEST_GetFilesMetaData(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::vector<FileMetaData>>* metadata,
+      std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata = nullptr);
 
   void TEST_LockMutex();
 
@@ -1454,15 +1457,16 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     Status status;
     bool done;
-    bool in_progress;            // compaction request being processed?
-    bool incomplete;             // only part of requested range compacted
-    bool exclusive;              // current behavior of only one manual
-    bool disallow_trivial_move;  // Force actual compaction to run
-    const InternalKey* begin;    // nullptr means beginning of key range
-    const InternalKey* end;      // nullptr means end of key range
-    InternalKey* manual_end;     // how far we are compacting
-    InternalKey tmp_storage;     // Used to keep track of compaction progress
-    InternalKey tmp_storage1;    // Used to keep track of compaction progress
+    bool in_progress;             // compaction request being processed?
+    bool incomplete;              // only part of requested range compacted
+    bool exclusive;               // current behavior of only one manual
+    bool disallow_trivial_move;   // Force actual compaction to run
+    const InternalKey* begin;     // nullptr means beginning of key range
+    const InternalKey* end;       // nullptr means end of key range
+    InternalKey* manual_end;      // how far we are compacting
+    InternalKey tmp_storage;      // Used to keep track of compaction progress
+    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    std::atomic<bool>* canceled;  // Compaction canceled by the user?
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.

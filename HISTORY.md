@@ -1,5 +1,45 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Changes
+* Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
+
+### Bug Fixes
+* Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
+* `GetLiveFilesMetaData()` now populates the `temperature`, `oldest_ancester_time`, and `file_creation_time` fields of its `LiveFileMetaData` results when the information is available. Previously these fields always contained zero indicating unknown.
+
+### New Features
+* ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
+* The new BlobDB implementation now tracks the amount of garbage in each blob file in the MANIFEST.
+* Integrated BlobDB now supports Merge with base values (Put/Delete etc.).
+* RemoteCompaction supports sub-compaction, the job_id in the user interface is changed from `int` to `uint64_t` to support sub-compaction id.
+* Expose statistics option in RemoteCompaction worker.
+
+### Public API change
+* Added APIs to the Customizable class to allow developers to create their own Customizable classes.  Created the utilities/customizable_util.h file to contain helper methods for developing new Customizable classes.
+## 6.22.0 (2021-06-18)
+### Behavior Changes
+* Added two additional tickers, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH and MEMTABLE_GARBAGE_BYTES_AT_FLUSH. These stats can be used to estimate the ratio of "garbage" (outdated) bytes in the memtable that are discarded at flush time.
+* Added API comments clarifying safe usage of Disable/EnableManualCompaction and EventListener callbacks for compaction.
+### Bug Fixes
+* fs_posix.cc GetFreeSpace() always report disk space available to root even when running as non-root.  Linux defaults often have disk mounts with 5 to 10 percent of total space reserved only for root.  Out of space could result for non-root users.
+* Subcompactions are now disabled when user-defined timestamps are used, since the subcompaction boundary picking logic is currently not timestamp-aware, which could lead to incorrect results when different subcompactions process keys that only differ by timestamp.
+* Fix an issue that `DeleteFilesInRange()` may cause ongoing compaction reports corruption exception, or ASSERT for debug build. There's no actual data loss or corruption that we find.
+* Fixed confusingly duplicated output in LOG for periodic stats ("DUMPING STATS"), including "Compaction Stats" and "File Read Latency Histogram By Level".
+* Fixed performance bugs in background gathering of block cache entry statistics, that could consume a lot of CPU when there are many column families with a shared block cache.
+
+### New Features
+* Marked the Ribbon filter and optimize_filters_for_memory features as production-ready, each enabling memory savings for Bloom-like filters. Use `NewRibbonFilterPolicy` in place of `NewBloomFilterPolicy` to use Ribbon filters instead of Bloom, or `ribbonfilter` in place of `bloomfilter` in configuration string.
+* Allow `DBWithTTL` to use `DeleteRange` api just like other DBs. `DeleteRangeCF()` which executes `WriteBatchInternal::DeleteRange()` has been added to the handler in `DBWithTTLImpl::Write()` to implement it.
+* Add BlockBasedTableOptions.prepopulate_block_cache.  If enabled, it prepopulate warm/hot data blocks which are already in memory into block cache at the time of flush. On a flush, the data block that is in memory (in memtables) get flushed to the device. If using Direct IO, additional IO is incurred to read this data back into memory again, which is avoided by enabling this option and it also helps with Distributed FileSystem. More details in include/rocksdb/table.h.
+* Added a `cancel` field to `CompactRangeOptions`, allowing individual in-process manual range compactions to be cancelled.
+
+### New Features
+* Added BlobMetaData to the ColumnFamilyMetaData to return information about blob files
+
+### Public API change
+* Added GetAllColumnFamilyMetaData API to retrieve the ColumnFamilyMetaData about all column families.
+
+## 6.21.0 (2021-05-21)
 ### Bug Fixes
 * Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
 * Fixed a bug where ingested files were written with incorrect boundary key metadata. In rare cases this could have led to a level's files being wrongly ordered and queries for the boundary keys returning wrong results.

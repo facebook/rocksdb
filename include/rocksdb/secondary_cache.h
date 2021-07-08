@@ -21,9 +21,9 @@ namespace ROCKSDB_NAMESPACE {
 // ready, and call Wait() in order to block until it becomes ready.
 // The caller must call value() after it becomes ready to determine if the
 // handle successfullly read the item.
-class SecondaryCacheHandle {
+class SecondaryCacheResultHandle {
  public:
-  virtual ~SecondaryCacheHandle() {}
+  virtual ~SecondaryCacheResultHandle() {}
 
   // Returns whether the handle is ready or not
   virtual bool IsReady() = 0;
@@ -63,7 +63,7 @@ class SecondaryCache {
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready
-  virtual std::unique_ptr<SecondaryCacheHandle> Lookup(
+  virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait) = 0;
 
   // At the discretion of the implementation, erase the data associated
@@ -71,7 +71,7 @@ class SecondaryCache {
   virtual void Erase(const Slice& key) = 0;
 
   // Wait for a collection of handles to become ready
-  virtual void WaitAll(std::vector<SecondaryCacheHandle*> handles) = 0;
+  virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
   virtual std::string GetPrintableOptions() const = 0;
 };

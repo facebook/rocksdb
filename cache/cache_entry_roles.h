@@ -27,7 +27,7 @@ enum class CacheEntryRole {
   kIndexBlock,
   // Other kinds of block-based table block
   kOtherBlock,
-  // WriteBufferManager resevations to account for memtable usage
+  // WriteBufferManager reservations to account for memtable usage
   kWriteBuffer,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.

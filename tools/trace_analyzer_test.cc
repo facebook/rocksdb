@@ -12,7 +12,7 @@
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
-  return 1;
+  return 0;
 }
 #else
 
@@ -81,8 +81,26 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(batch.SingleDelete("d"));
     ASSERT_OK(batch.DeleteRange("e", "f"));
     ASSERT_OK(db_->Write(wo, &batch));
-
+    std::vector<Slice> keys;
+    keys.push_back("a");
+    keys.push_back("b");
+    keys.push_back("df");
+    keys.push_back("gege");
+    keys.push_back("hjhjhj");
+    std::vector<std::string> values;
+    std::vector<Status> ss = db_->MultiGet(ro, keys, &values);
+    ASSERT_GE(ss.size(), 0);
+    ASSERT_OK(ss[0]);
+    ASSERT_NOK(ss[2]);
+    std::vector<ColumnFamilyHandle*> cfs(2, db_->DefaultColumnFamily());
+    std::vector<PinnableSlice> values2(keys.size());
+    db_->MultiGet(ro, 2, cfs.data(), keys.data(), values2.data(), ss.data(),
+                  false);
+    ASSERT_OK(ss[0]);
+    db_->MultiGet(ro, db_->DefaultColumnFamily(), 2, keys.data() + 3,
+                  values2.data(), ss.data(), false);
     ASSERT_OK(db_->Get(ro, "a", &value));
+
     single_iter = db_->NewIterator(ro);
     single_iter->Seek("a");
     ASSERT_OK(single_iter->status());
