@@ -222,7 +222,10 @@ struct SuperVersion {
   // Cleanup unrefs mem, imm and current. Also, it stores all memtables
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
-  void Cleanup();
+  // The 'noImmMemoryContribution' is set to true if the memtable being
+  // dereferenced in this SuperVersion was not added to the Immutable
+  // memtable list.
+  void Cleanup(bool noImmMemoryContribution = false);
   void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
             MemTableListVersion* new_imm, Version* new_current);
 
@@ -454,7 +457,8 @@ class ColumnFamilyData {
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex,
-                           const MutableCFOptions& mutable_cf_options);
+                           const MutableCFOptions& mutable_cf_options,
+                           bool noImmMemoryContribution = false);
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex);
 

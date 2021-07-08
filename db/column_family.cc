@@ -443,14 +443,26 @@ bool SuperVersion::Unref() {
   return previous_refs == 1;
 }
 
-void SuperVersion::Cleanup() {
+void SuperVersion::Cleanup(const bool noImmMemoryContribution) {
   assert(refs.load(std::memory_order_relaxed) == 0);
+  // Since this SuperVersion object is being deleted,
+  // decrement reference to the immutable MemtableList
+  // this SV object was pointing to.
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
-    auto* memory_usage = current->cfd()->imm()->current_memory_usage();
-    assert(*memory_usage >= m->ApproximateMemoryUsage());
-    *memory_usage -= m->ApproximateMemoryUsage();
+    // Typically, if the m memtable was not made
+    // immutable, and therefore was not added to the
+    // imm list, it does not contribute to the imm
+    // memory footprint (and actually is not part of
+    // the 'imm' MemtableList at all).
+    // At the moment, noImmMemoryContribution is only
+    // used by the experimental 'MemPurge' prototype.
+    if (!noImmMemoryContribution) {
+      auto* memory_usage = current->cfd()->imm()->current_memory_usage();
+      assert(*memory_usage >= m->ApproximateMemoryUsage());
+      *memory_usage -= m->ApproximateMemoryUsage();
+    }
     to_delete.push_back(m);
   }
   current->Unref();
@@ -1260,7 +1272,7 @@ void ColumnFamilyData::InstallSuperVersion(
 
 void ColumnFamilyData::InstallSuperVersion(
     SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, bool noImmMemoryContribution) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
@@ -1290,7 +1302,7 @@ void ColumnFamilyData::InstallSuperVersion(
           new_superversion->write_stall_condition, GetName(), ioptions());
     }
     if (old_superversion->Unref()) {
-      old_superversion->Cleanup();
+      old_superversion->Cleanup(noImmMemoryContribution);
       sv_context->superversions_to_free.push_back(old_superversion);
     }
   }

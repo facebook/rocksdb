@@ -18,6 +18,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/secondary_cache.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -870,6 +871,27 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+class TestSecondaryCache : public SecondaryCache {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Test"; }
+  Status Insert(const Slice& /*key*/, void* /*value*/,
+                const Cache::CacheItemHelper* /*helper*/) override {
+    return Status::NotSupported();
+  }
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
+      const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
+      bool /*wait*/) override {
+    return nullptr;
+  }
+  void Erase(const Slice& /*key*/) override {}
+
+  // Wait for a collection of handles to become ready
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
+
+  std::string GetPrintableOptions() const override { return ""; }
+};
+
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 static int RegisterTestObjects(ObjectLibrary& library,
@@ -898,6 +920,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
   // Load any locally defined objects here
+  library.Register<SecondaryCache>(
+      TestSecondaryCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestSecondaryCache());
+        return guard->get();
+      });
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -938,6 +967,18 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
         TableFactory::CreateFromString(config_options_, "MockTable", &factory));
     ASSERT_NE(factory, nullptr);
     ASSERT_STREQ(factory->Name(), "MockTable");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadSecondaryCacheTest) {
+  std::shared_ptr<SecondaryCache> result;
+  ASSERT_NOK(SecondaryCache::CreateFromString(
+      config_options_, TestSecondaryCache::kClassName(), &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SecondaryCache::CreateFromString(
+        config_options_, TestSecondaryCache::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), TestSecondaryCache::kClassName());
   }
 }
 
