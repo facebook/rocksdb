@@ -1042,9 +1042,18 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
 
+  uint32_t mempurge_count = 0;
+  uint32_t sst_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
   Random rnd(53);
-  const size_t NUM_REPEAT = 100000;
-  const size_t RAND_VALUES_LENGTH = 128;
+  const size_t NUM_REPEAT = 10000;
+  const size_t RAND_VALUES_LENGTH = 2048;
   std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9;
 
   p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
@@ -1061,6 +1070,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
 
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
+  // while(mempurge_count == 0){
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
@@ -1074,6 +1084,14 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
 
     ASSERT_OK(Delete(KEY7));
   }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no SST files created during flush.
+  const uint32_t EXPECTED_SST_COUNT = 0;
+
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
 
   // Verify that the ConditionalUpdateCompactionFilter
   // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
