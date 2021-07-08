@@ -453,11 +453,11 @@ Status FlushJob::MemPurge() {
         // number) needs to be present in the new memtable.
         new_mem->SetFirstSequenceNumber(new_first_seqno);
         purged_mems.push_back(new_mem);
-        new_mem = new MemTable((cfd_->internal_comparator()),
-                               *(cfd_->ioptions()), mutable_cf_options_,
-                               nullptr /*cfd_->write_buffer_manager_*/,
-                               mems_[0]->GetEarliestSequenceNumber(),
-                               (mems_[0]->GetID()) + purged_mems.size());
+        new_mem = new MemTable(
+            (cfd_->internal_comparator()), *(cfd_->ioptions()),
+            mutable_cf_options_, nullptr /*cfd_->write_buffer_manager_*/,
+            mems_[0]->GetEarliestSequenceNumber(),
+            (mems_[0]->GetID()) + static_cast<uint32_t>(purged_mems.size()));
         new_first_seqno = kMaxSequenceNumber;
       }
     }
