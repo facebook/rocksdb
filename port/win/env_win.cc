@@ -9,8 +9,6 @@
 
 #if defined(OS_WIN)
 
-#include "port/win/env_win.h"
-
 #include <direct.h>  // _rmdir, _mkdir, _getcwd
 #include <errno.h>
 #include <io.h>   // _access
@@ -29,9 +27,9 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
+#include "port/win/env_win.h"
 #include "port/win/io_win.h"
 #include "port/win/win_logger.h"
-#include "port/win/win_thread.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
@@ -89,9 +87,8 @@ WinClock::WinClock()
 
   HMODULE module = GetModuleHandle("kernel32.dll");
   if (module != NULL) {
-    GetSystemTimePreciseAsFileTime_ =
-        (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
-            module, "GetSystemTimePreciseAsFileTime");
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)(
+        void*)GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
   }
 }
 
@@ -1293,7 +1290,7 @@ void WinEnvThreads::StartThread(void (*function)(void* arg), void* arg) {
   state->user_function = function;
   state->arg = arg;
   try {
-    ROCKSDB_NAMESPACE::port::WindowsThread th(&StartThreadWrapper, state.get());
+    Thread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);

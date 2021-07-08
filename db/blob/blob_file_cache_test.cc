@@ -29,28 +29,27 @@ namespace {
 
 // Creates a test blob file with a single blob in it.
 void WriteBlobFile(uint32_t column_family_id,
-                   const ImmutableCFOptions& immutable_cf_options,
+                   const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number) {
-  assert(!immutable_cf_options.cf_paths.empty());
+  assert(!immutable_options.cf_paths.empty());
 
-  const std::string blob_file_path = BlobFileName(
-      immutable_cf_options.cf_paths.front().path, blob_file_number);
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
+  ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
                             FileOptions()));
 
-  std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
-                             immutable_cf_options.clock));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(file), blob_file_path, FileOptions(), immutable_options.clock));
 
   constexpr Statistics* statistics = nullptr;
   constexpr bool use_fsync = false;
   constexpr bool do_flush = false;
 
-  BlobLogWriter blob_log_writer(std::move(file_writer),
-                                immutable_cf_options.clock, statistics,
-                                blob_file_number, use_fsync, do_flush);
+  BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
+                                statistics, blob_file_number, use_fsync,
+                                do_flush);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -100,10 +99,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -111,7 +110,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
@@ -145,10 +144,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -156,7 +155,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
@@ -199,12 +198,12 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
 
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   FileOptions file_options;
   constexpr uint32_t column_family_id = 1;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 
@@ -231,10 +230,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
-  ImmutableCFOptions immutable_cf_options(options);
+  ImmutableOptions immutable_options(options);
   constexpr uint64_t blob_file_number = 123;
 
-  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+  WriteBlobFile(column_family_id, immutable_options, blob_file_number);
 
   constexpr size_t capacity = 0;
   constexpr int num_shard_bits = -1;  // determined automatically
@@ -245,7 +244,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
                                 &file_options, column_family_id,
                                 blob_file_read_hist, nullptr /*IOTracer*/);
 

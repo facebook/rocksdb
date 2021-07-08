@@ -106,9 +106,7 @@ NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
-# in gcc-5 there are known problems with TSAN like https://gcc.gnu.org/bugzilla/show_bug.cgi?id=71090.
-# using platform007 gives us gcc-8 or higher which has that bug fixed.
-TSAN="ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007=1 COMPILE_WITH_TSAN=1"
+TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 TSAN_CRASH='CRASH_TEST_EXT_ARGS="--compression_type=zstd --log2_keys_per_lock=22"'
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
@@ -1197,6 +1195,40 @@ JAVA_BUILD_TEST_COMMANDS="[
     }
 ]"
 
+#
+# RocksDB fbcode stress/crash test
+#
+FBCODE_STRESS_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Fbcode Stress and Crash Test',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            {
+                'name':'Copy RocksDB code to fbcode repo',
+                'shell':'cd internal_repo_rocksdb/repo && git init && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo master || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Build RocksDB fbcode stress tests',
+                'shell':'cd $WORKING_DIR; buck build @mode/dbg rocks/tools:rocks_db_stress || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Run RocksDB whitebox crash tests',
+                'timeout': 86400,
+                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_whitebox_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_whitebox_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI -checkpoint_one_in=0 -backup_one_in=0 -cache_size=134217728 -cache_numshardbits=4 -logtostderr=false whitebox || $CONTRUN_NAME=whitebox_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
 
 case $1 in
   unit)
@@ -1333,6 +1365,11 @@ case $1 in
     ;;
   java_build)
     echo $JAVA_BUILD_TEST_COMMANDS
+    ;;
+  fbcode_stress_crash)
+    set -f
+    echo $FBCODE_STRESS_CRASH_TEST_COMMANDS
+    set +f
     ;;
   *)
     echo "Invalid determinator command"

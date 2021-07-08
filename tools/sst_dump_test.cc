@@ -10,11 +10,12 @@
 #ifndef ROCKSDB_LITE
 
 #include <stdint.h>
-#include "rocksdb/sst_dump_tool.h"
 
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/sst_dump_tool.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
@@ -56,10 +57,7 @@ class SSTDumpToolTest : public testing::Test {
 
  public:
   SSTDumpToolTest() : env_(Env::Default()) {
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Env::LoadEnv(test_env_uri, &env_, &env_guard_);
-    }
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
     test_dir_ = test::PerThreadDBPath(env_, "sst_dump_test_db");
     Status s = env_->CreateDirIfMissing(test_dir_);
     EXPECT_OK(s);
@@ -96,14 +94,12 @@ class SSTDumpToolTest : public testing::Test {
     Env* test_env = opts.env;
     FileOptions file_options(opts);
     ReadOptions read_options;
-    const ImmutableCFOptions imoptions(opts);
+    const ImmutableOptions imoptions(opts);
     const MutableCFOptions moptions(opts);
     ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
     std::unique_ptr<TableBuilder> tb;
 
-
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
-        int_tbl_prop_collector_factories;
+    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
     std::unique_ptr<WritableFileWriter> file_writer;
     ASSERT_OK(WritableFileWriter::Create(test_env->GetFileSystem(), file_name,
                                          file_options, &file_writer, nullptr));
@@ -114,8 +110,8 @@ class SSTDumpToolTest : public testing::Test {
         TableBuilderOptions(
             imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
             CompressionType::kNoCompression, CompressionOptions(),
-            false /* skip_filters */, column_family_name, unknown_level),
-        TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+            TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+            column_family_name, unknown_level),
         file_writer.get()));
 
     // Populate slightly more than 1K keys

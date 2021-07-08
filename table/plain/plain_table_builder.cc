@@ -57,9 +57,8 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
-    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories,
+    const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
+    const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
@@ -102,7 +101,7 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.db_session_id = db_session_id;
   properties_.db_host_id = ioptions.db_host_id;
   if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
-    ROCKS_LOG_INFO(ioptions_.info_log, "db_host_id property will not be set");
+    ROCKS_LOG_INFO(ioptions_.logger, "db_host_id property will not be set");
   }
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
                                           ? moptions_.prefix_extractor->Name()
@@ -113,9 +112,12 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.user_collected_properties
       [PlainTablePropertyNames::kEncodingType] = val;
 
-  for (auto& collector_factories : *int_tbl_prop_collector_factories) {
+  assert(int_tbl_prop_collector_factories);
+  for (auto& factory : *int_tbl_prop_collector_factories) {
+    assert(factory);
+
     table_properties_collectors_.emplace_back(
-        collector_factories->CreateIntTblPropCollector(column_family_id));
+        factory->CreateIntTblPropCollector(column_family_id));
   }
 }
 
@@ -193,7 +195,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   // notify property collectors
   NotifyCollectTableCollectorsOnAdd(
-      key, value, offset_, table_properties_collectors_, ioptions_.info_log);
+      key, value, offset_, table_properties_collectors_, ioptions_.logger);
   status_ = io_status_;
 }
 
@@ -219,7 +221,7 @@ Status PlainTableBuilder::Finish() {
       bloom_block_.SetTotalBits(
           &arena_,
           static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
-          ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
+          ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.logger);
 
       PutVarint32(&properties_.user_collected_properties
                        [PlainTablePropertyNames::kNumBloomBlocks],
@@ -263,9 +265,8 @@ Status PlainTableBuilder::Finish() {
   property_block_builder.Add(properties_.user_collected_properties);
 
   // -- Add user collected properties
-  NotifyCollectTableCollectorsOnFinish(table_properties_collectors_,
-                                       ioptions_.info_log,
-                                       &property_block_builder);
+  NotifyCollectTableCollectorsOnFinish(
+      table_properties_collectors_, ioptions_.logger, &property_block_builder);
 
   // -- Write property block
   BlockHandle property_block_handle;

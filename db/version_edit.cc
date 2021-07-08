@@ -191,6 +191,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       char p = static_cast<char>(f.fd.GetPathId());
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
+    if (f.temperature != Temperature::kUnknown) {
+      PutVarint32(dst, NewFileCustomTag::kTemperature);
+      char p = static_cast<char>(f.temperature);
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
     if (f.marked_for_compaction) {
       PutVarint32(dst, NewFileCustomTag::kNeedCompaction);
       char p = static_cast<char>(1);
@@ -358,6 +363,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kOldestBlobFileNumber:
           if (!GetVarint64(&field, &f.oldest_blob_file_number)) {
             return "invalid oldest blob file number";
+          }
+          break;
+        case kTemperature:
+          if (field.size() != 1) {
+            return "temperature field wrong size";
+          } else {
+            Temperature casted_field = static_cast<Temperature>(field[0]);
+            if (casted_field <= Temperature::kCold) {
+              f.temperature = casted_field;
+            }
           }
           break;
         default:
@@ -774,6 +789,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.file_checksum);
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
+    if (f.temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(ToString(static_cast<int>(f.temperature)));
+    }
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -875,6 +896,11 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
+      }
+      if (f.temperature != Temperature::kUnknown) {
+        // Maybe change to human readable format whenthe feature becomes
+        // permanent
+        jw << "Temperature" << static_cast<int>(f.temperature);
       }
       jw.EndArrayedObject();
     }

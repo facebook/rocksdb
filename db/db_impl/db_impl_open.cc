@@ -300,7 +300,8 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, immutable_db_options_.clock,
         io_tracer_, nullptr /* stats */, immutable_db_options_.listeners,
-        nullptr, tmp_set.Contains(FileType::kDescriptorFile)));
+        nullptr, tmp_set.Contains(FileType::kDescriptorFile),
+        tmp_set.Contains(FileType::kDescriptorFile)));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1137,11 +1138,29 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
        immutable_db_options_.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords)) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->GetLogNumber() > corrupted_wal_number) {
+      // One special case cause cfd->GetLogNumber() > corrupted_wal_number but
+      // the CF is still consistent: If a new column family is created during
+      // the flush and the WAL sync fails at the same time, the new CF points to
+      // the new WAL but the old WAL is curropted. Since the new CF is empty, it
+      // is still consistent. We add the check of CF sst file size to avoid the
+      // false positive alert.
+
+      // Note that, the check of (cfd->GetLiveSstFilesSize() > 0) may leads to
+      // the ignorance of a very rare inconsistency case caused in data
+      // canclation. One CF is empty due to KV deletion. But those operations
+      // are in the WAL. If the WAL is corrupted, the status of this CF might
+      // not be consistent with others. However, the consistency check will be
+      // bypassed due to empty CF.
+      // TODO: a better and complete implementation is needed to ensure strict
+      // consistency check in WAL recovery including hanlding the tailing
+      // issues.
+      if (cfd->GetLogNumber() > corrupted_wal_number &&
+          cfd->GetLiveSstFilesSize() > 0) {
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "Column family inconsistency: SST file contains data"
                         " beyond the point of corruption.");
-        return Status::Corruption("SST file is ahead of WALs");
+        return Status::Corruption("SST file is ahead of WALs in CF " +
+                                  cfd->GetName());
       }
     }
   }
@@ -1241,7 +1260,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      GetLogSizeAndMaybeTruncate(wal_numbers.back(), true, nullptr)
+      const bool truncate = !read_only;
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
           .PermitUncheckedError();
     }
   }
@@ -1274,7 +1294,7 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
       truncate_status = last_log->Close(IOOptions(), nullptr);
     }
     // Not a critical error if fail to truncate.
-    if (!truncate_status.ok()) {
+    if (!truncate_status.ok() && !truncate_status.IsNotSupported()) {
       ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Failed to truncate log #%" PRIu64 ": %s", wal_number,
                      truncate_status.ToString().c_str());
@@ -1375,21 +1395,23 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       }
 
       IOStatus io_s;
-      s = BuildTable(
-          dbname_, versions_.get(), immutable_db_options_, *cfd->ioptions(),
-          mutable_cf_options, file_options_for_compaction_, cfd->table_cache(),
-          iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          cfd->GetID(), cfd->GetName(), snapshot_seqs,
-          earliest_write_conflict_snapshot, snapshot_checker,
+      TableBuilderOptions tboptions(
+          *cfd->ioptions(), mutable_cf_options, cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(),
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
-          mutable_cf_options.compression_opts, paranoid_file_checks,
-          cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
-          io_tracer_, &event_logger_, job_id, Env::IO_HIGH,
-          nullptr /* table_properties */, 0 /* level */, current_time,
-          0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
-          db_id_, db_session_id_, nullptr /*full_history_ts_low*/,
-          &blob_callback_);
+          mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
+          0 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, current_time,
+          0 /* oldest_key_time */, 0 /* file_creation_time */, db_id_,
+          db_session_id_, 0 /* target_file_size */, meta.fd.GetNumber());
+      s = BuildTable(
+          dbname_, versions_.get(), immutable_db_options_, tboptions,
+          file_options_for_compaction_, cfd->table_cache(), iter.get(),
+          std::move(range_del_iters), &meta, &blob_file_additions,
+          snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+          paranoid_file_checks, cfd->internal_stats(), &io_s, io_tracer_,
+          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
+          write_hint, nullptr /*full_history_ts_low*/, &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1519,7 +1541,8 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(lfile), log_fname, opt_file_options,
         immutable_db_options_.clock, io_tracer_, nullptr /* stats */, listeners,
-        nullptr, tmp_set.Contains(FileType::kWalFile)));
+        nullptr, tmp_set.Contains(FileType::kWalFile),
+        tmp_set.Contains(FileType::kWalFile)));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);

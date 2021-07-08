@@ -109,7 +109,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFileReader> file_reader;
     ASSERT_OK(RandomAccessFileReader::Create(
         env->GetFileSystem(), fname, file_options, &file_reader, nullptr));
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
@@ -137,7 +137,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFileReader> file_reader;
     ASSERT_OK(RandomAccessFileReader::Create(
         env->GetFileSystem(), fname, file_options, &file_reader, nullptr));
-    const ImmutableCFOptions ioptions(options);
+    const ImmutableOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
@@ -209,7 +209,7 @@ class CuckooReaderTest : public testing::Test {
 
 TEST_F(CuckooReaderTest, FileNotMmaped) {
   options.allow_mmap_reads = false;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, nullptr, 0, nullptr, nullptr);
   ASSERT_TRUE(reader.status().IsInvalidArgument());
   ASSERT_STREQ("File is not mmaped", reader.status().getState());
@@ -328,7 +328,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   ASSERT_OK(RandomAccessFileReader::Create(
       env->GetFileSystem(), fname, file_options, &file_reader, nullptr));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
                            GetSliceHash);
   ASSERT_OK(reader.status());
@@ -437,7 +437,7 @@ void WriteFile(const std::vector<std::string>& keys,
   ASSERT_OK(RandomAccessFileReader::Create(fs, fname, file_options,
                                            &file_reader, nullptr));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
                            test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
@@ -470,7 +470,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   ASSERT_OK(RandomAccessFileReader::Create(fs, fname, file_options,
                                            &file_reader, nullptr));
 
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
                            test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());

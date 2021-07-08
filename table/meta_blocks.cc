@@ -83,6 +83,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kIndexValueIsDeltaEncoded,
       props.index_value_is_delta_encoded);
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
+  Add(TablePropertiesNames::kNumFilterEntries, props.num_filter_entries);
   Add(TablePropertiesNames::kDeletedKeys, props.num_deletions);
   Add(TablePropertiesNames::kMergeOperands, props.num_merge_operands);
   Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
@@ -152,8 +153,8 @@ Slice PropertyBlockBuilder::Finish() {
   return properties_block_->Finish();
 }
 
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name) {
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name) {
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
@@ -211,7 +212,7 @@ bool NotifyCollectTableCollectorsOnFinish(
 Status ReadProperties(const ReadOptions& read_options,
                       const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-                      const ImmutableCFOptions& ioptions,
+                      const ImmutableOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,
                       BlockHandle* ret_block_handle,
                       CacheAllocationPtr* verification_buf,
@@ -269,6 +270,8 @@ Status ReadProperties(const ReadOptions& read_options,
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
+      {TablePropertiesNames::kNumFilterEntries,
+       &new_table_properties->num_filter_entries},
       {TablePropertiesNames::kDeletedKeys,
        &new_table_properties->num_deletions},
       {TablePropertiesNames::kMergeOperands,
@@ -329,7 +332,7 @@ Status ReadProperties(const ReadOptions& read_options,
         auto error_msg =
           "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        ROCKS_LOG_ERROR(ioptions.info_log, "%s", error_msg.c_str());
+        ROCKS_LOG_ERROR(ioptions.logger, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
@@ -383,7 +386,7 @@ Status ReadProperties(const ReadOptions& read_options,
 
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions& ioptions,
+                           const ImmutableOptions& ioptions,
                            TableProperties** properties,
                            bool compression_type_missing,
                            MemoryAllocator* memory_allocator,
@@ -454,7 +457,7 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
                      bool /*compression_type_missing*/,
@@ -496,7 +499,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents, bool /*compression_type_missing*/,
                      MemoryAllocator* memory_allocator) {

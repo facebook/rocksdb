@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -506,12 +507,27 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       ASSERT_LE(reads, 3 * N / 100);
     }
 
+#ifndef ROCKSDB_LITE
+    // Sanity check some table properties
+    std::map<std::string, std::string> props;
+    ASSERT_TRUE(db_->GetMapProperty(
+        handles_[1], DB::Properties::kAggregatedTableProperties, &props));
+    uint64_t nkeys = N + N / 100;
+    uint64_t filter_size = ParseUint64(props["filter_size"]);
+    EXPECT_LE(filter_size,
+              (partition_filters_ ? 12 : 11) * nkeys / /*bits / byte*/ 8);
+    EXPECT_GE(filter_size, 10 * nkeys / /*bits / byte*/ 8);
+
+    uint64_t num_filter_entries = ParseUint64(props["num_filter_entries"]);
+    EXPECT_EQ(num_filter_entries, nkeys);
+#endif  // ROCKSDB_LITE
+
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
@@ -535,7 +551,7 @@ INSTANTIATE_TEST_CASE_P(
                         test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -774,6 +790,14 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
   const std::unique_ptr<const FilterPolicy> policy_otherwise_;
 };
 
+static std::map<TableFileCreationReason, std::string>
+    table_file_creation_reason_to_string{
+        {TableFileCreationReason::kCompaction, "kCompaction"},
+        {TableFileCreationReason::kFlush, "kFlush"},
+        {TableFileCreationReason::kMisc, "kMisc"},
+        {TableFileCreationReason::kRecovery, "kRecovery"},
+    };
+
 class TestingContextCustomFilterPolicy
     : public LevelAndStyleCustomFilterPolicy {
  public:
@@ -786,11 +810,17 @@ class TestingContextCustomFilterPolicy
       const FilterBuildingContext& context) const override {
     test_report_ += "cf=";
     test_report_ += context.column_family_name;
-    test_report_ += ",cs=";
+    test_report_ += ",s=";
     test_report_ +=
         OptionsHelper::compaction_style_to_string[context.compaction_style];
-    test_report_ += ",lv=";
-    test_report_ += std::to_string(context.level_at_creation);
+    test_report_ += ",n=";
+    test_report_ += ToString(context.num_levels);
+    test_report_ += ",l=";
+    test_report_ += ToString(context.level_at_creation);
+    test_report_ += ",b=";
+    test_report_ += ToString(int{context.is_bottommost});
+    test_report_ += ",r=";
+    test_report_ += table_file_creation_reason_to_string[context.reason];
     test_report_ += "\n";
 
     return LevelAndStyleCustomFilterPolicy::GetBuilderWithContext(context);
@@ -808,15 +838,16 @@ class TestingContextCustomFilterPolicy
 }  // namespace
 
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
+  auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
+  Options options;
   for (bool fifo : {true, false}) {
-    Options options = CurrentOptions();
+    options = CurrentOptions();
     options.max_open_files = fifo ? -1 : options.max_open_files;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.compaction_style =
         fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
 
     BlockBasedTableOptions table_options;
-    auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
     table_options.filter_policy = policy;
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -832,16 +863,16 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
     Flush(1);
     EXPECT_EQ(policy->DumpTestReport(),
-              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
-                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+              fifo ? "cf=abe,s=kCompactionStyleFIFO,n=1,l=0,b=0,r=kFlush\n"
+                   : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
 
     for (int i = maxKey / 2; i < maxKey; i++) {
       ASSERT_OK(Put(1, Key(i), Key(i)));
     }
     Flush(1);
     EXPECT_EQ(policy->DumpTestReport(),
-              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
-                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+              fifo ? "cf=abe,s=kCompactionStyleFIFO,n=1,l=0,b=0,r=kFlush\n"
+                   : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
 
     // Check that they can be found
     for (int i = 0; i < maxKey; i++) {
@@ -869,7 +900,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
                                   nullptr));
       EXPECT_EQ(policy->DumpTestReport(),
-                "cf=bob,cs=kCompactionStyleLevel,lv=1\n");
+                "cf=bob,s=kCompactionStyleLevel,n=7,l=1,b=1,r=kCompaction\n");
 
       // Check that we now have one filter, about 9.2% FP rate (5 bits per key)
       for (int i = 0; i < maxKey; i++) {
@@ -881,6 +912,20 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
         EXPECT_GE(useful_count, maxKey * 0.90);
         EXPECT_LE(useful_count, maxKey * 0.91);
       }
+    } else {
+#ifndef ROCKSDB_LITE
+      // Also try external SST file
+      {
+        std::string file_path = dbname_ + "/external.sst";
+        SstFileWriter sst_file_writer(EnvOptions(), options, handles_[1]);
+        ASSERT_OK(sst_file_writer.Open(file_path));
+        ASSERT_OK(sst_file_writer.Put("key", "value"));
+        ASSERT_OK(sst_file_writer.Finish());
+      }
+      // Note: kCompactionStyleLevel is default, ignored if num_levels == -1
+      EXPECT_EQ(policy->DumpTestReport(),
+                "cf=abe,s=kCompactionStyleLevel,n=-1,l=-1,b=0,r=kMisc\n");
+#endif
     }
 
     // Destroy

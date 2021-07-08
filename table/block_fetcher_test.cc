@@ -93,17 +93,17 @@ class BlockFetcherTest : public testing::Test {
     NewFileWriter(table_name, &writer);
 
     // Create table builder.
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     InternalKeyComparator comparator(options_.comparator);
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+    IntTblPropCollectorFactories factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, CompressionOptions(),
-                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            0 /* column_family_id */, kDefaultColumnFamilyName,
                             -1 /* level */),
-        0 /* column_family_id */, writer.get()));
+        writer.get()));
 
     // Build table.
     for (int i = 0; i < 9; i++) {
@@ -271,7 +271,7 @@ class BlockFetcherTest : public testing::Test {
                                              env_->GetSystemClock().get()));
   }
 
-  void NewTableReader(const ImmutableCFOptions& ioptions,
+  void NewTableReader(const ImmutableOptions& ioptions,
                       const FileOptions& foptions,
                       const InternalKeyComparator& comparator,
                       const std::string& table_name,
@@ -317,7 +317,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
                   CompressionType* compresstion_type) {
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
     Footer footer;
@@ -348,7 +348,7 @@ class BlockFetcherTest : public testing::Test {
                            MemoryAllocator* compressed_buf_allocator,
                            BlockContents* block, std::string* result,
                            MemcpyStats* memcpy_stats) {
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     InternalKeyComparator comparator(options_.comparator);
     FileOptions foptions(options_);
 

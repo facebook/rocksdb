@@ -182,6 +182,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   Version* input_version() const override { return nullptr; }
 
+  bool DoesInputReferenceBlobFiles() const override { return false; }
+
   bool key_not_exists_beyond_output_level = false;
 
   bool is_bottommost_level = false;
@@ -282,7 +284,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         range_del_agg_.get(), nullptr /* blob_file_builder */,
         true /*allow_data_in_errors*/, std::move(compaction), filter,
         &shutting_down_, /*preserve_deletes_seqnum=*/0,
-        /*manual_compaction_paused=*/nullptr, /*info_log=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, /*info_log=*/nullptr,
         full_history_ts_low));
   }
 

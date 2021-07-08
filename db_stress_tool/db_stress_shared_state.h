@@ -30,6 +30,11 @@ DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(read_fault_one_in);
 DECLARE_int32(write_fault_one_in);
+DECLARE_int32(open_metadata_write_fault_one_in);
+DECLARE_int32(open_write_fault_one_in);
+DECLARE_int32(open_read_fault_one_in);
+
+DECLARE_int32(injest_error_severity);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -57,7 +62,7 @@ class SharedState {
   static bool ignore_read_error;
 #endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
-  SharedState(Env* env, StressTest* stress_test)
+  SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
         seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
@@ -121,14 +126,15 @@ class SharedState {
             "--clear_column_family_one_in is greater than zero.");
       }
       uint64_t size = 0;
+      Env* default_env = Env::Default();
       if (status.ok()) {
-        status = env->GetFileSize(FLAGS_expected_values_path, &size);
+        status = default_env->GetFileSize(FLAGS_expected_values_path, &size);
       }
       std::unique_ptr<WritableFile> wfile;
       if (status.ok() && size == 0) {
         const EnvOptions soptions;
-        status =
-            env->NewWritableFile(FLAGS_expected_values_path, &wfile, soptions);
+        status = default_env->NewWritableFile(FLAGS_expected_values_path,
+                                              &wfile, soptions);
       }
       if (status.ok() && size == 0) {
         std::string buf(expected_values_size, '\0');
@@ -136,8 +142,8 @@ class SharedState {
         values_init_needed = true;
       }
       if (status.ok()) {
-        status = env->NewMemoryMappedFileBuffer(FLAGS_expected_values_path,
-                                                &expected_mmap_buffer_);
+        status = default_env->NewMemoryMappedFileBuffer(
+            FLAGS_expected_values_path, &expected_mmap_buffer_);
       }
       if (status.ok()) {
         assert(expected_mmap_buffer_->GetLen() == expected_values_size);

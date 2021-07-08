@@ -539,7 +539,7 @@ IOStatus WinMmapFile::Allocate(uint64_t offset, uint64_t len,
                                const IOOptions& /*options*/,
                                IODebugContext* /*dbg*/) {
   IOStatus status;
-  TEST_KILL_RANDOM("WinMmapFile::Allocate", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WinMmapFile::Allocate");
 
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want
@@ -889,7 +889,7 @@ inline IOStatus WinWritableImpl::SyncImpl(const IOOptions& /*options*/,
 
 inline IOStatus WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   IOStatus status;
-  TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WinWritableFile::Allocate");
 
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want

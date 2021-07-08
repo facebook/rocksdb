@@ -344,6 +344,12 @@ ifdef ROCKSDB_VALGRIND_RUN
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
 	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
 endif
+ifdef ROCKSDB_FULL_VALGRIND_RUN
+	# Some tests are slow when run under valgrind and are only run when
+	# explicitly requested via the ROCKSDB_FULL_VALGRIND_RUN compiler flag.
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+endif
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
@@ -491,13 +497,14 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))
+CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES))
 TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
 # Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
-ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
+ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
@@ -515,8 +522,10 @@ endif
 ifdef ASSERT_STATUS_CHECKED
 	# TODO: finish fixing all tests to pass this check
 	TESTS_FAILING_ASC = \
+		c_test \
 		db_test \
 		db_test2 \
+		env_test \
 		range_locking_test \
 		testutil_test \
 
@@ -1043,6 +1052,12 @@ ubsan_crash_test_with_best_efforts_recovery: clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
+full_valgrind_test:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+
+full_valgrind_test_some:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
+
 valgrind_test:
 	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
@@ -1252,7 +1267,7 @@ folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly
 	$(AM_LINK)
 endif
 
-cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(LIBRARY)
+cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
@@ -1539,6 +1554,9 @@ compaction_job_test: $(OBJ_DIR)/db/compaction/compaction_job_test.o $(TEST_LIBRA
 compaction_job_stats_test: $(OBJ_DIR)/db/compaction/compaction_job_stats_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+compaction_service_test: $(OBJ_DIR)/db/compaction/compaction_service_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 compact_on_deletion_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1821,6 +1839,9 @@ block_cache_trace_analyzer_test: $(OBJ_DIR)/tools/block_cache_analyzer/block_cac
 defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+blob_counting_iterator_test: $(OBJ_DIR)/db/blob/blob_counting_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1834,6 +1855,9 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 	$(AM_LINK)
 
 blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1859,6 +1883,13 @@ io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY
 
 db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
+
+db_write_buffer_manager_test: $(OBJ_DIR)/db/db_write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local

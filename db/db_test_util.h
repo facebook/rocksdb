@@ -303,6 +303,9 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      size_t GetUniqueId(char* id, size_t max_size) const override {
+        return base_->GetUniqueId(id, max_size);
+      }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -378,14 +381,20 @@ class SpecialEnv : public EnvWrapper {
         return Append(data);
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      void PrepareWrite(size_t offset, size_t len) override {
+        base_->PrepareWrite(offset, len);
+      }
+      void SetPreallocationBlockSize(size_t size) override {
+        base_->SetPreallocationBlockSize(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        // preallocation size is never passed to base file.
-        size_t preallocation_size = preallocation_block_size();
+        size_t block_size, last_allocated_block;
+        base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
-                                 &preallocation_size);
+                                 &block_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
         return base_->Close();
@@ -393,6 +402,10 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
+        if (env_->corrupt_in_sync_) {
+          Append(std::string(33000, ' '));
+          return Status::IOError("Ingested Sync Failure");
+        }
         if (env_->skip_fsync_) {
           return Status::OK();
         } else {
@@ -717,6 +730,9 @@ class SpecialEnv : public EnvWrapper {
   // If true, all fsync to files and directories are skipped.
   bool skip_fsync_ = false;
 
+  // If true, ingest the corruption to file during sync.
+  bool corrupt_in_sync_ = false;
+
   std::atomic<uint32_t> non_writeable_rate_;
 
   std::atomic<uint32_t> new_writable_count_;
@@ -813,6 +829,7 @@ class CacheWrapper : public Cache {
 
   const char* Name() const override { return target_->Name(); }
 
+  using Cache::Insert;
   Status Insert(const Slice& key, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value),
                 Handle** handle = nullptr,
@@ -820,12 +837,14 @@ class CacheWrapper : public Cache {
     return target_->Insert(key, value, charge, deleter, handle, priority);
   }
 
+  using Cache::Lookup;
   Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
     return target_->Lookup(key, stats);
   }
 
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
+  using Cache::Release;
   bool Release(Handle* handle, bool force_erase = false) override {
     return target_->Release(handle, force_erase);
   }
@@ -859,9 +878,20 @@ class CacheWrapper : public Cache {
     return target_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return target_->GetDeleter(handle);
+  }
+
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override {
     target_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override {
+    target_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }

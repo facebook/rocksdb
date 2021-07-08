@@ -81,6 +81,7 @@ enum NewFileCustomTag : uint32_t {
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
+  kTemperature = 9,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -188,6 +189,7 @@ struct FileMetaData {
 
   bool marked_for_compaction = false;  // True if client asked us nicely to
                                        // compact this file.
+  Temperature temperature = Temperature::kUnknown;
 
   // Used only in BlobDB. The file number of the oldest blob file this SST file
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.

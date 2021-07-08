@@ -145,7 +145,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 }
 
 Status SstFileDumper::NewTableReader(
-    const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
+    const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
   auto t_opt =
@@ -207,7 +207,6 @@ Status SstFileDumper::CalculateCompressedTableSize(
   std::unique_ptr<TableBuilder> table_builder;
   table_builder.reset(block_based_tf.NewTableBuilder(
       tb_options,
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -265,19 +264,19 @@ Status SstFileDumper::ShowCompressionSize(
   Options opts;
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
-  const ImmutableCFOptions imoptions(opts);
+  const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      block_based_table_factories;
+  IntTblPropCollectorFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;
-  TableBuilderOptions tb_opts(imoptions, moptions, ikc,
-                              &block_based_table_factories, compress_type,
-                              compress_opt, false /* skip_filters */,
-                              column_family_name, unknown_level);
+  TableBuilderOptions tb_opts(
+      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
+      compress_opt,
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();

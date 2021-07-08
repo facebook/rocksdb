@@ -24,10 +24,9 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool flush_verify_memtable_count;
   bool track_and_verify_wals_in_manifest;
   Env* env;
-  std::shared_ptr<FileSystem> fs;
-  SystemClock* clock;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;
@@ -44,8 +43,8 @@ struct ImmutableDBOptions {
   size_t recycle_log_file_num;
   uint64_t max_manifest_file_size;
   int table_cache_numshardbits;
-  uint64_t wal_ttl_seconds;
-  uint64_t wal_size_limit_mb;
+  uint64_t WAL_ttl_seconds;
+  uint64_t WAL_size_limit_MB;
   uint64_t max_write_batch_group_size_bytes;
   size_t manifest_preallocation_size;
   bool allow_mmap_reads;
@@ -55,6 +54,7 @@ struct ImmutableDBOptions {
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;
+  bool experimental_allow_mempurge;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;
@@ -96,6 +96,12 @@ struct ImmutableDBOptions {
   bool allow_data_in_errors;
   std::string db_host_id;
   FileTypeSet checksum_handoff_file_types;
+  // Convenience/Helper objects that are not part of the base DBOptions
+  std::shared_ptr<FileSystem> fs;
+  SystemClock* clock;
+  Statistics* stats;
+  Logger* logger;
+  std::shared_ptr<CompactionService> compaction_service;
 };
 
 struct MutableDBOptions {
@@ -125,5 +131,16 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
   int max_background_flushes;
 };
+
+#ifndef ROCKSDB_LITE
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string);
+
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options);
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

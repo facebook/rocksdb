@@ -73,7 +73,9 @@ typedef struct rocksdb_backup_engine_t   rocksdb_backup_engine_t;
 typedef struct rocksdb_backup_engine_info_t   rocksdb_backup_engine_info_t;
 typedef struct rocksdb_backupable_db_options_t rocksdb_backupable_db_options_t;
 typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
-typedef struct rocksdb_cache_t           rocksdb_cache_t;
+typedef struct rocksdb_memory_allocator_t rocksdb_memory_allocator_t;
+typedef struct rocksdb_lru_cache_options_t rocksdb_lru_cache_options_t;
+typedef struct rocksdb_cache_t rocksdb_cache_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
@@ -537,6 +539,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flush_cf(
     rocksdb_t* db, const rocksdb_flushoptions_t* options,
     rocksdb_column_family_handle_t* column_family, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(rocksdb_t* db,
+                                                  unsigned char sync,
+                                                  char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);
 
@@ -998,9 +1004,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_compression_options_zstd_max_train_bytes(rocksdb_options_t*,
                                                              int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_compression_options_parallel_threads(rocksdb_options_t*,
+                                                         int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_compression_options_parallel_threads(
+    rocksdb_options_t* opt);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_bottommost_compression_options(rocksdb_options_t*, int, int,
                                                    int, int, unsigned char);
@@ -1412,6 +1430,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_row_cache(
     rocksdb_options_t* opt, rocksdb_cache_t* cache
 );
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_add_compact_on_deletion_collector_factory(
+    rocksdb_options_t*, size_t window_size, size_t num_dels_trigger);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
+    rocksdb_options_t* opt, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
+    rocksdb_options_t* opt);
+
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
@@ -1738,10 +1764,28 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_wait(
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushoptions_get_wait(
     rocksdb_flushoptions_t*);
 
+/* Memory allocator */
+
+extern ROCKSDB_LIBRARY_API rocksdb_memory_allocator_t*
+rocksdb_jemalloc_nodump_allocator_create(char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_memory_allocator_destroy(
+    rocksdb_memory_allocator_t*);
+
 /* Cache */
+
+extern ROCKSDB_LIBRARY_API rocksdb_lru_cache_options_t*
+rocksdb_lru_cache_options_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_destroy(
+    rocksdb_lru_cache_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_capacity(
+    rocksdb_lru_cache_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_memory_allocator(
+    rocksdb_lru_cache_options_t*, rocksdb_memory_allocator_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru(
     size_t capacity);
+extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru_opts(
+    rocksdb_lru_cache_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_destroy(rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_disown_data(
     rocksdb_cache_t* cache);

@@ -14,23 +14,15 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
 
-// Context information of a compaction run
-struct CompactionFilterContext {
-  // Does this compaction run include all data files
-  bool is_full_compaction;
-  // Is this compaction requested by the client (true),
-  // or is it occurring as an automatic compaction process
-  bool is_manual_compaction;
-};
-
-// CompactionFilter allows an application to modify/delete a key-value at
-// the time of compaction.
+// CompactionFilter allows an application to modify/delete a key-value during
+// table file creation.
 
 class CompactionFilter {
  public:
@@ -52,31 +44,33 @@ class CompactionFilter {
 
   enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
 
-  // Context information of a compaction run
+  // Context information for a table file creation.
   struct Context {
-    // Does this compaction run include all data files
+    // Whether this table file is created as part of a compaction including all
+    // table files.
     bool is_full_compaction;
-    // Is this compaction requested by the client (true),
-    // or is it occurring as an automatic compaction process
+    // Whether this table file is created as part of a compaction requested by
+    // the client.
     bool is_manual_compaction;
-    // Which column family this compaction is for.
+    // The column family that will contain the created table file.
     uint32_t column_family_id;
+    // Reason this table file is being created.
+    TableFileCreationReason reason;
   };
 
   virtual ~CompactionFilter() {}
 
-  // The compaction process invokes this
-  // method for kv that is being compacted. A return value
-  // of false indicates that the kv should be preserved in the
-  // output of this compaction run and a return value of true
-  // indicates that this key-value should be removed from the
-  // output of the compaction.  The application can inspect
-  // the existing value of the key and make decision based on it.
+  // The table file creation process invokes this method before adding a kv to
+  // the table file. A return value of false indicates that the kv should be
+  // preserved in the new table file and a return value of true indicates
+  // that this key-value should be removed from the new table file. The
+  // application can inspect the existing value of the key and make decision
+  // based on it.
   //
-  // Key-Values that are results of merge operation during compaction are not
-  // passed into this function. Currently, when you have a mix of Put()s and
-  // Merge()s on a same key, we only guarantee to process the merge operands
-  // through the compaction filters. Put()s might be processed, or might not.
+  // Key-Values that are results of merge operation during table file creation
+  // are not passed into this function. Currently, when you have a mix of Put()s
+  // and Merge()s on a same key, we only guarantee to process the merge operands
+  // through the `CompactionFilter`s. Put()s might be processed, or might not.
   //
   // When the value is to be preserved, the application has the option
   // to modify the existing_value and pass it back through new_value.
@@ -85,8 +79,9 @@ class CompactionFilter {
   // Note that RocksDB snapshots (i.e. call GetSnapshot() API on a
   // DB* object) will not guarantee to preserve the state of the DB with
   // CompactionFilter. Data seen from a snapshot might disappear after a
-  // compaction finishes. If you use snapshots, think twice about whether you
-  // want to use compaction filter and whether you are using it in a safe way.
+  // table file created with a `CompactionFilter` is installed. If you use
+  // snapshots, think twice about whether you want to use `CompactionFilter` and
+  // whether you are using it in a safe way.
   //
   // If multithreaded compaction is being used *and* a single CompactionFilter
   // instance was supplied via Options::compaction_filter, this method may be
@@ -94,7 +89,7 @@ class CompactionFilter {
   // that the call is thread-safe.
   //
   // If the CompactionFilter was created by a factory, then it will only ever
-  // be used by a single thread that is doing the compaction run, and this
+  // be used by a single thread that is doing the table file creation, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
   virtual bool Filter(int /*level*/, const Slice& /*key*/,
@@ -104,9 +99,9 @@ class CompactionFilter {
     return false;
   }
 
-  // The compaction process invokes this method on every merge operand. If this
-  // method returns true, the merge operand will be ignored and not written out
-  // in the compaction output
+  // The table file creation process invokes this method on every merge operand.
+  // If this method returns true, the merge operand will be ignored and not
+  // written out in the new table file.
   //
   // Note: If you are using a TransactionDB, it is not recommended to implement
   // FilterMergeOperand().  If a Merge operation is filtered out, TransactionDB
@@ -143,13 +138,14 @@ class CompactionFilter {
   //         snapshot - beware if you're using TransactionDB or
   //         DB::GetSnapshot().
   //       - If value for a key was overwritten or merged into (multiple Put()s
-  //         or Merge()s), and compaction filter skips this key with
+  //         or Merge()s), and `CompactionFilter` skips this key with
   //         kRemoveAndSkipUntil, it's possible that it will remove only
   //         the new value, exposing the old value that was supposed to be
   //         overwritten.
   //       - Doesn't work with PlainTableFactory in prefix mode.
-  //       - If you use kRemoveAndSkipUntil, consider also reducing
-  //         compaction_readahead_size option.
+  //       - If you use kRemoveAndSkipUntil for table files created by
+  //         compaction, consider also reducing compaction_readahead_size
+  //         option.
   //
   // Should never return kUndetermined.
   // Note: If you are using a TransactionDB, it is not recommended to filter
@@ -189,13 +185,13 @@ class CompactionFilter {
   }
 
   // This function is deprecated. Snapshots will always be ignored for
-  // compaction filters, because we realized that not ignoring snapshots doesn't
-  // provide the guarantee we initially thought it would provide. Repeatable
-  // reads will not be guaranteed anyway. If you override the function and
-  // returns false, we will fail the compaction.
+  // `CompactionFilter`s, because we realized that not ignoring snapshots
+  // doesn't provide the guarantee we initially thought it would provide.
+  // Repeatable reads will not be guaranteed anyway. If you override the
+  // function and returns false, we will fail the table file creation.
   virtual bool IgnoreSnapshots() const { return true; }
 
-  // Returns a name that identifies this compaction filter.
+  // Returns a name that identifies this `CompactionFilter`.
   // The name will be printed to LOG file on start up for diagnosis.
   virtual const char* Name() const = 0;
 
@@ -214,16 +210,28 @@ class CompactionFilter {
   }
 };
 
-// Each compaction will create a new CompactionFilter allowing the
-// application to know about different compactions
+// Each thread of work involving creating table files will create a new
+// `CompactionFilter` according to `ShouldFilterTableFileCreation()`. This
+// allows the application to know about the different ongoing threads of work
+// and makes it unnecessary for `CompactionFilter` to provide thread-safety.
 class CompactionFilterFactory {
  public:
   virtual ~CompactionFilterFactory() {}
 
+  // Returns whether a thread creating table files for the specified `reason`
+  // should invoke `CreateCompactionFilter()` and pass KVs through the returned
+  // filter.
+  virtual bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const {
+    // For backward compatibility, default implementation only applies
+    // `CompactionFilter` to files generated by compaction.
+    return reason == TableFileCreationReason::kCompaction;
+  }
+
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) = 0;
 
-  // Returns a name that identifies this compaction filter factory.
+  // Returns a name that identifies this `CompactionFilter` factory.
   virtual const char* Name() const = 0;
 };
 

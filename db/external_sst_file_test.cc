@@ -1291,8 +1291,11 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   // We have 2 overlapping files in L0
   EXPECT_EQ(FilesPerLevel(), "2");
 
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::AddFile:MutexLock", "ExternalSSTFileTest::PickedLevelBug:0"},
+      {{"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
+        "ExternalSSTFileTest::PickedLevelBug:0"},
        {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
        {"ExternalSSTFileTest::PickedLevelBug:2",
         "DBImpl::RunManualCompaction:0"},
@@ -1333,10 +1336,14 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
     // wait for 2 seconds to give a chance for compactions to run during
     // this period, and then make sure that no compactions where able to run
     env_->SleepForMicroseconds(1000000 * 2);
-    ASSERT_FALSE(bg_compact_started.load());
+    bool bg_compact_started_tmp = bg_compact_started.load();
 
     // Hold AddFile from finishing writing the MANIFEST
     TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
+
+    // check the status at the end, so even if the ASSERT fails the threads
+    // could be joined and return.
+    ASSERT_FALSE(bg_compact_started_tmp);
   }
 
   ASSERT_OK(bg_addfile_status);
@@ -1391,6 +1398,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_EQ(1, num_sst_files);
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1448,6 +1456,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     }
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   env_->skip_fsync_ = true;
@@ -1709,6 +1718,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1750,6 +1760,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     VerifyDBFromMap(true_data, &kcnt, false);
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   Options options = CurrentOptions();

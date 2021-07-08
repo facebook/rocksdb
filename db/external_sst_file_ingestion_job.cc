@@ -109,17 +109,26 @@ Status ExternalSstFileIngestionJob::Prepare(
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<FSWritableFile> file_to_sync;
-        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
-                                         &file_to_sync, nullptr);
-        if (status.ok()) {
-          TEST_SYNC_POINT(
-              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
-          status = SyncIngestedFile(file_to_sync.get());
-          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
-          if (!status.ok()) {
-            ROCKS_LOG_WARN(db_options_.info_log,
-                           "Failed to sync ingested file %s: %s",
-                           path_inside_db.c_str(), status.ToString().c_str());
+        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                           &file_to_sync, nullptr);
+        TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
+                                 &s);
+        // Some file systems (especially remote/distributed) don't support
+        // reopening a file for writing and don't require reopening and
+        // syncing the file. Ignore the NotSupported error in that case.
+        if (!s.IsNotSupported()) {
+          status = s;
+          if (status.ok()) {
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+            status = SyncIngestedFile(file_to_sync.get());
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+            if (!status.ok()) {
+              ROCKS_LOG_WARN(db_options_.info_log,
+                             "Failed to sync ingested file %s: %s",
+                             path_inside_db.c_str(), status.ToString().c_str());
+            }
           }
         }
       } else if (status.IsNotSupported() &&
@@ -367,9 +376,32 @@ Status ExternalSstFileIngestionJob::Run() {
           super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
           last_seqno, &f, &assigned_seqno);
     }
+
+    // Modify the smallest/largest internal key to include the sequence number
+    // that we just learned. Only overwrite sequence number zero. There could
+    // be a nonzero sequence number already to indicate a range tombstone's
+    // exclusive endpoint.
+    ParsedInternalKey smallest_parsed, largest_parsed;
+    if (status.ok()) {
+      status = ParseInternalKey(*f.smallest_internal_key.rep(),
+                                &smallest_parsed, false /* log_err_key */);
+    }
+    if (status.ok()) {
+      status = ParseInternalKey(*f.largest_internal_key.rep(), &largest_parsed,
+                                false /* log_err_key */);
+    }
     if (!status.ok()) {
       return status;
     }
+    if (smallest_parsed.sequence == 0) {
+      UpdateInternalKey(f.smallest_internal_key.rep(), assigned_seqno,
+                        smallest_parsed.type);
+    }
+    if (largest_parsed.sequence == 0) {
+      UpdateInternalKey(f.largest_internal_key.rep(), assigned_seqno,
+                        largest_parsed.type);
+    }
+
     status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);

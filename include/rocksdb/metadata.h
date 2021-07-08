@@ -11,9 +11,11 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct BlobMetaData;
 struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;
@@ -34,6 +36,13 @@ struct ColumnFamilyMetaData {
   std::string name;
   // The metadata of all levels in this column family.
   std::vector<LevelMetaData> levels;
+
+  // The total size of all blob files
+  uint64_t blob_file_size = 0;
+  // The number of blob files in this column family.
+  size_t blob_file_count = 0;
+  // The metadata of the blobs in this column family
+  std::vector<BlobMetaData> blob_files;
 };
 
 // The metadata that describes a level.
@@ -62,6 +71,7 @@ struct SstFileMetaData {
         being_compacted(false),
         num_entries(0),
         num_deletions(0),
+        temperature(Temperature::kUnknown),
         oldest_blob_file_number(0),
         oldest_ancester_time(0),
         file_creation_time(0) {}
@@ -71,7 +81,8 @@ struct SstFileMetaData {
                   SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno,
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
-                  bool _being_compacted, uint64_t _oldest_blob_file_number,
+                  bool _being_compacted, Temperature _temperature,
+                  uint64_t _oldest_blob_file_number,
                   uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                   std::string& _file_checksum,
                   std::string& _file_checksum_func_name)
@@ -87,6 +98,7 @@ struct SstFileMetaData {
         being_compacted(_being_compacted),
         num_entries(0),
         num_deletions(0),
+        temperature(_temperature),
         oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
@@ -111,6 +123,9 @@ struct SstFileMetaData {
 
   uint64_t num_entries;
   uint64_t num_deletions;
+
+  // This feature is experimental and subject to change.
+  Temperature temperature;
 
   uint64_t oldest_blob_file_number;  // The id of the oldest blob file
                                      // referenced by the file.
@@ -144,6 +159,44 @@ struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;                       // Level at which this file resides.
   LiveFileMetaData() : column_family_name(), level(0) {}
+};
+
+// The MetaData that describes a Blob file
+struct BlobMetaData {
+  BlobMetaData()
+      : blob_file_number(0),
+        blob_file_size(0),
+        total_blob_count(0),
+        total_blob_bytes(0),
+        garbage_blob_count(0),
+        garbage_blob_bytes(0) {}
+
+  BlobMetaData(uint64_t _file_number, const std::string& _file_name,
+               const std::string& _file_path, uint64_t _file_size,
+               uint64_t _total_blob_count, uint64_t _total_blob_bytes,
+               uint64_t _garbage_blob_count, uint64_t _garbage_blob_bytes,
+               const std::string& _file_checksum,
+               const std::string& _file_checksum_func_name)
+      : blob_file_number(_file_number),
+        blob_file_name(_file_name),
+        blob_file_path(_file_path),
+        blob_file_size(_file_size),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes),
+        garbage_blob_count(_garbage_blob_count),
+        garbage_blob_bytes(_garbage_blob_bytes),
+        checksum_method(_file_checksum),
+        checksum_value(_file_checksum_func_name) {}
+  uint64_t blob_file_number;
+  std::string blob_file_name;
+  std::string blob_file_path;
+  uint64_t blob_file_size;
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+  uint64_t garbage_blob_count;
+  uint64_t garbage_blob_bytes;
+  std::string checksum_method;
+  std::string checksum_value;
 };
 
 // Metadata returned as output from ExportColumnFamily() and used as input to

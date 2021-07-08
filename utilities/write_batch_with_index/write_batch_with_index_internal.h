@@ -23,6 +23,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 class MergeContext;
+class WBWIIteratorImpl;
+class WriteBatchWithIndexInternal;
 struct Options;
 
 // when direction == forward
@@ -33,314 +35,44 @@ struct Options;
 // * equal_keys_ <=> base_iterator == delta_iterator
 class BaseDeltaIterator : public Iterator {
  public:
-  BaseDeltaIterator(Iterator* base_iterator, WBWIIterator* delta_iterator,
+  BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
+                    WBWIIteratorImpl* delta_iterator,
                     const Comparator* comparator,
-                    const ReadOptions* read_options = nullptr)
-      : forward_(true),
-        current_at_base_(true),
-        equal_keys_(false),
-        status_(Status::OK()),
-        base_iterator_(base_iterator),
-        delta_iterator_(delta_iterator),
-        comparator_(comparator),
-        iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
-                                          : nullptr) {}
+                    const ReadOptions* read_options = nullptr);
 
   ~BaseDeltaIterator() override {}
 
-  bool Valid() const override {
-    return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid())
-                        : false;
-  }
-
-  void SeekToFirst() override {
-    forward_ = true;
-    base_iterator_->SeekToFirst();
-    delta_iterator_->SeekToFirst();
-    UpdateCurrent();
-  }
-
-  void SeekToLast() override {
-    forward_ = false;
-    base_iterator_->SeekToLast();
-    delta_iterator_->SeekToLast();
-    UpdateCurrent();
-  }
-
-  void Seek(const Slice& k) override {
-    forward_ = true;
-    base_iterator_->Seek(k);
-    delta_iterator_->Seek(k);
-    UpdateCurrent();
-  }
-
-  void SeekForPrev(const Slice& k) override {
-    forward_ = false;
-    base_iterator_->SeekForPrev(k);
-    delta_iterator_->SeekForPrev(k);
-    UpdateCurrent();
-  }
-
-  void Next() override {
-    if (!Valid()) {
-      status_ = Status::NotSupported("Next() on invalid iterator");
-      return;
-    }
-
-    if (!forward_) {
-      // Need to change direction
-      // if our direction was backward and we're not equal, we have two states:
-      // * both iterators are valid: we're already in a good state (current
-      // shows to smaller)
-      // * only one iterator is valid: we need to advance that iterator
-      forward_ = true;
-      equal_keys_ = false;
-      if (!BaseValid()) {
-        assert(DeltaValid());
-        base_iterator_->SeekToFirst();
-      } else if (!DeltaValid()) {
-        delta_iterator_->SeekToFirst();
-      } else if (current_at_base_) {
-        // Change delta from larger than base to smaller
-        AdvanceDelta();
-      } else {
-        // Change base from larger than delta to smaller
-        AdvanceBase();
-      }
-      if (DeltaValid() && BaseValid()) {
-        if (comparator_->Equal(delta_iterator_->Entry().key,
-                               base_iterator_->key())) {
-          equal_keys_ = true;
-        }
-      }
-    }
-    Advance();
-  }
-
-  void Prev() override {
-    if (!Valid()) {
-      status_ = Status::NotSupported("Prev() on invalid iterator");
-      return;
-    }
-
-    if (forward_) {
-      // Need to change direction
-      // if our direction was backward and we're not equal, we have two states:
-      // * both iterators are valid: we're already in a good state (current
-      // shows to smaller)
-      // * only one iterator is valid: we need to advance that iterator
-      forward_ = false;
-      equal_keys_ = false;
-      if (!BaseValid()) {
-        assert(DeltaValid());
-        base_iterator_->SeekToLast();
-      } else if (!DeltaValid()) {
-        delta_iterator_->SeekToLast();
-      } else if (current_at_base_) {
-        // Change delta from less advanced than base to more advanced
-        AdvanceDelta();
-      } else {
-        // Change base from less advanced than delta to more advanced
-        AdvanceBase();
-      }
-      if (DeltaValid() && BaseValid()) {
-        if (comparator_->Equal(delta_iterator_->Entry().key,
-                               base_iterator_->key())) {
-          equal_keys_ = true;
-        }
-      }
-    }
-
-    Advance();
-  }
-
-  Slice key() const override {
-    return current_at_base_ ? base_iterator_->key()
-                            : delta_iterator_->Entry().key;
-  }
-
-  Slice value() const override {
-    return current_at_base_ ? base_iterator_->value()
-                            : delta_iterator_->Entry().value;
-  }
-
-  Status status() const override {
-    if (!status_.ok()) {
-      return status_;
-    }
-    if (!base_iterator_->status().ok()) {
-      return base_iterator_->status();
-    }
-    return delta_iterator_->status();
-  }
-
-  void Invalidate(Status s) { status_ = s; }
+  bool Valid() const override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Seek(const Slice& k) override;
+  void SeekForPrev(const Slice& k) override;
+  void Next() override;
+  void Prev() override;
+  Slice key() const override;
+  Slice value() const override;
+  Status status() const override;
+  void Invalidate(Status s);
 
  private:
-  void AssertInvariants() {
-#ifndef NDEBUG
-    bool not_ok = false;
-    if (!base_iterator_->status().ok()) {
-      assert(!base_iterator_->Valid());
-      not_ok = true;
-    }
-    if (!delta_iterator_->status().ok()) {
-      assert(!delta_iterator_->Valid());
-      not_ok = true;
-    }
-    if (not_ok) {
-      assert(!Valid());
-      assert(!status().ok());
-      return;
-    }
+  void AssertInvariants();
+  void Advance();
+  void AdvanceDelta();
+  void AdvanceBase();
+  bool BaseValid() const;
+  bool DeltaValid() const;
+  void UpdateCurrent();
 
-    if (!Valid()) {
-      return;
-    }
-    if (!BaseValid()) {
-      assert(!current_at_base_ && delta_iterator_->Valid());
-      return;
-    }
-    if (!DeltaValid()) {
-      assert(current_at_base_ && base_iterator_->Valid());
-      return;
-    }
-    // we don't support those yet
-    assert(delta_iterator_->Entry().type != kMergeRecord &&
-           delta_iterator_->Entry().type != kLogDataRecord);
-    int compare = comparator_->Compare(delta_iterator_->Entry().key,
-                                       base_iterator_->key());
-    if (forward_) {
-      // current_at_base -> compare < 0
-      assert(!current_at_base_ || compare < 0);
-      // !current_at_base -> compare <= 0
-      assert(current_at_base_ && compare >= 0);
-    } else {
-      // current_at_base -> compare > 0
-      assert(!current_at_base_ || compare > 0);
-      // !current_at_base -> compare <= 0
-      assert(current_at_base_ && compare <= 0);
-    }
-    // equal_keys_ <=> compare == 0
-    assert((equal_keys_ || compare != 0) && (!equal_keys_ || compare == 0));
-#endif
-  }
-
-  void Advance() {
-    if (equal_keys_) {
-      assert(BaseValid() && DeltaValid());
-      AdvanceBase();
-      AdvanceDelta();
-    } else {
-      if (current_at_base_) {
-        assert(BaseValid());
-        AdvanceBase();
-      } else {
-        assert(DeltaValid());
-        AdvanceDelta();
-      }
-    }
-    UpdateCurrent();
-  }
-
-  void AdvanceDelta() {
-    if (forward_) {
-      delta_iterator_->Next();
-    } else {
-      delta_iterator_->Prev();
-    }
-  }
-  void AdvanceBase() {
-    if (forward_) {
-      base_iterator_->Next();
-    } else {
-      base_iterator_->Prev();
-    }
-  }
-  bool BaseValid() const { return base_iterator_->Valid(); }
-  bool DeltaValid() const { return delta_iterator_->Valid(); }
-  void UpdateCurrent() {
-// Suppress false positive clang analyzer warnings.
-#ifndef __clang_analyzer__
-    status_ = Status::OK();
-    while (true) {
-      WriteEntry delta_entry;
-      if (DeltaValid()) {
-        assert(delta_iterator_->status().ok());
-        delta_entry = delta_iterator_->Entry();
-      } else if (!delta_iterator_->status().ok()) {
-        // Expose the error status and stop.
-        current_at_base_ = false;
-        return;
-      }
-      equal_keys_ = false;
-      if (!BaseValid()) {
-        if (!base_iterator_->status().ok()) {
-          // Expose the error status and stop.
-          current_at_base_ = true;
-          return;
-        }
-
-        // Base has finished.
-        if (!DeltaValid()) {
-          // Finished
-          return;
-        }
-        if (iterate_upper_bound_) {
-          if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >=
-              0) {
-            // out of upper bound -> finished.
-            return;
-          }
-        }
-        if (delta_entry.type == kDeleteRecord ||
-            delta_entry.type == kSingleDeleteRecord) {
-          AdvanceDelta();
-        } else {
-          current_at_base_ = false;
-          return;
-        }
-      } else if (!DeltaValid()) {
-        // Delta has finished.
-        current_at_base_ = true;
-        return;
-      } else {
-        int compare =
-            (forward_ ? 1 : -1) *
-            comparator_->Compare(delta_entry.key, base_iterator_->key());
-        if (compare <= 0) {  // delta bigger or equal
-          if (compare == 0) {
-            equal_keys_ = true;
-          }
-          if (delta_entry.type != kDeleteRecord &&
-              delta_entry.type != kSingleDeleteRecord) {
-            current_at_base_ = false;
-            return;
-          }
-          // Delta is less advanced and is delete.
-          AdvanceDelta();
-          if (equal_keys_) {
-            AdvanceBase();
-          }
-        } else {
-          current_at_base_ = true;
-          return;
-        }
-      }
-    }
-
-    AssertInvariants();
-#endif  // __clang_analyzer__
-  }
-
+  std::unique_ptr<WriteBatchWithIndexInternal> wbwii_;
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
-  Status status_;
+  mutable Status status_;
   std::unique_ptr<Iterator> base_iterator_;
-  std::unique_ptr<WBWIIterator> delta_iterator_;
+  std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
   const Slice* iterate_upper_bound_;
+  mutable PinnableSlice merge_result_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
@@ -447,6 +179,7 @@ typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
 
 class WBWIIteratorImpl : public WBWIIterator {
  public:
+  enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
   WBWIIteratorImpl(uint32_t column_family_id,
                    WriteBatchEntrySkipList* skip_list,
                    const ReadableWriteBatch* write_batch,
@@ -518,6 +251,26 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   bool MatchesKey(uint32_t cf_id, const Slice& key);
 
+  // Moves the to first entry of the previous key.
+  void PrevKey();
+  // Moves the to first entry of the next key.
+  void NextKey();
+
+  // Moves the iterator to the Update (Put or Delete) for the current key
+  // If there are no Put/Delete, the Iterator will point to the first entry for
+  // this key
+  // @return kFound if a Put was found for the key
+  // @return kDeleted if a delete was found for the key
+  // @return kMergeInProgress if only merges were fouund for the key
+  // @return kError if an unsupported operation was found for the key
+  // @return kNotFound if no operations were found for this key
+  //
+  Result FindLatestUpdate(const Slice& key, MergeContext* merge_context);
+  Result FindLatestUpdate(MergeContext* merge_context);
+
+ protected:
+  void AdvanceKey(bool forward);
+
  private:
   uint32_t column_family_id_;
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
@@ -530,11 +283,11 @@ class WriteBatchWithIndexInternal {
   // For GetFromBatchAndDB or similar
   explicit WriteBatchWithIndexInternal(DB* db,
                                        ColumnFamilyHandle* column_family);
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
   // For GetFromBatch or similar
   explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
                                        ColumnFamilyHandle* column_family);
-
-  enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -544,19 +297,24 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
-                      std::string* value, bool overwrite_key, Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, overwrite_key, s);
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key, std::string* value,
+                                        Status* s) {
+    return GetFromBatch(batch, key, &merge_context_, value, s);
   }
-  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
-                      MergeContext* merge_context, std::string* value,
-                      bool overwrite_key, Status* s);
-  Status MergeKey(const Slice& key, const Slice* value, std::string* result,
-                  Slice* result_operand = nullptr) {
-    return MergeKey(key, value, merge_context_, result, result_operand);
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key,
+                                        MergeContext* merge_context,
+                                        std::string* value, Status* s);
+  Status MergeKey(const Slice& key, const Slice* value,
+                  std::string* result) const {
+    return MergeKey(key, value, merge_context_, result);
   }
-  Status MergeKey(const Slice& key, const Slice* value, MergeContext& context,
-                  std::string* result, Slice* result_operand = nullptr);
+  Status MergeKey(const Slice& key, const Slice* value,
+                  const MergeContext& context, std::string* result) const;
+  size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
+  MergeContext* GetMergeContext() { return &merge_context_; }
+  Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
 
  private:
   DB* db_;

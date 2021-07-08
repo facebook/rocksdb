@@ -32,10 +32,11 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.10)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 include(ReadVersion)
+include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
@@ -62,6 +63,7 @@ if(CCACHE_FOUND)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_LIBURING "build with liburing" ON)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
@@ -70,6 +72,12 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+
+if ($ENV{CIRCLECI})
+  message(STATUS "Build for CircieCI env, a few tests may be disabled")
+  add_definitions(-DCIRCLECI)
+endif()
+
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
@@ -122,11 +130,11 @@ else()
         set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${gflags_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-        set(GFLAGS_LIB gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
     endif()
     include_directories(${GFLAGS_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
@@ -210,7 +218,7 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -pthread")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
@@ -296,6 +304,7 @@ else()
 endif()
 
 include(CheckCXXSourceCompiles)
+set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
@@ -312,13 +321,49 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-unset(CMAKE_REQUIRED_FLAGS)
 if(HAVE_SSE42)
   add_definitions(-DHAVE_SSE42)
   add_definitions(-DHAVE_PCLMUL)
 elseif(FORCE_SSE42)
   message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
+
+# Check if -latomic is required or not
+if (NOT MSVC)
+  set(CMAKE_REQUIRED_FLAGS "--std=c++11")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <atomic>
+std::atomic<uint64_t> x(0);
+int main() {
+  uint64_t i = x.load(std::memory_order_relaxed);
+  bool b = x.is_lock_free();
+  return 0;
+}
+" BUILTIN_ATOMIC)
+if (NOT BUILTIN_ATOMIC)
+  #TODO: Check if -latomic exists
+  list(APPEND THIRDPARTY_LIBS atomic)
+endif()
+endif()
+
+if (WITH_LIBURING)
+  set(CMAKE_REQUIRED_FLAGS "-luring")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <liburing.h>
+int main() {
+  struct io_uring ring;
+  io_uring_queue_init(1, &ring, 0);
+  return 0;
+}
+" HAS_LIBURING)
+  if (HAS_LIBURING)
+    add_definitions(-DROCKSDB_IOURING_PRESENT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+  endif()
+endif()
+
+# Reset the required flags
+set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
 CHECK_CXX_SOURCE_COMPILES("
 #if defined(_MSC_VER) && !defined(__thread)
@@ -578,16 +623,19 @@ find_package(Threads REQUIRED)
 
 set(SOURCES
         cache/cache.cc
+        cache/cache_entry_roles.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
+        db/blob/blob_fetcher.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
+        db/blob/blob_garbage_meter.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
@@ -886,13 +934,8 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc)
-  if(NOT MINGW)
-    # Mingw only supports std::thread when using
-    # posix threads.
-    list(APPEND SOURCES
-      port/win/win_thread.cc)
-  endif()
+    port/win/win_logger.cc
+    port/win/win_thread.cc)
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -1076,21 +1119,25 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
+        db/blob/blob_garbage_meter_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
+        db/compaction/clipping_iterator_test.cc
         db/compaction/compaction_job_stats_test.cc
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
+        db/compaction/compaction_service_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
@@ -1281,21 +1328,21 @@ if(WITH_TESTS)
 
   foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-      set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
+      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+      set_target_properties(${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
+        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
       endif()
       if("${exename}" MATCHES "env_librados_test")
         # env_librados_test.cc uses librados directly
-        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
+        target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1321,13 +1368,15 @@ endif()
 
 if(WITH_BENCHMARK_TOOLS)
   add_executable(db_bench${ARTIFACT_SUFFIX}
+    tools/simulated_hybrid_file_system.cc
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench${ARTIFACT_SUFFIX}
-    cache/cache_bench.cc)
+    cache/cache_bench.cc
+    cache/cache_bench_tool.cc)
   target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 

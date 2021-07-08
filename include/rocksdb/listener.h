@@ -16,6 +16,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,13 +27,6 @@ class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
-
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
 
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created
@@ -339,13 +333,18 @@ struct ExternalFileIngestionInfo {
 // be used as a building block for developing custom features such as
 // stats-collector or external compaction algorithm.
 //
-// Note that callback functions should not run for an extended period of
-// time before the function returns, otherwise RocksDB may be blocked.
-// For example, it is not suggested to do DB::CompactFiles() (as it may
-// run for a long while) or issue many of DB::Put() (as Put may be blocked
-// in certain cases) in the same thread in the EventListener callback.
-// However, doing DB::CompactFiles() and DB::Put() in another thread is
-// considered safe.
+// IMPORTANT
+// Because compaction is needed to resolve a "writes stopped" condition,
+// calling or waiting for any blocking DB write function (no_slowdown=false)
+// from a compaction-related listener callback can hang RocksDB. For DB
+// writes from a callback we recommend a WriteBatch and no_slowdown=true,
+// because the WriteBatch can accumulate writes for later in case DB::Write
+// returns Status::Incomplete. Similarly, calling CompactRange or similar
+// could hang by waiting for a background worker that is occupied until the
+// callback returns.
+//
+// Otherwise, callback functions should not run for an extended period of
+// time before the function returns, because this will slow RocksDB.
 //
 // [Threading] All EventListener callback will be called using the
 // actual thread that involves in that specific event.   For example, it

@@ -188,6 +188,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
   bool initialized_;
+  std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -275,16 +276,22 @@ class DumpManifestHandler : public VersionEditHandler {
         verbose_(verbose),
         hex_(hex),
         json_(json),
-        count_(0) {}
+        count_(0) {
+    cf_to_cmp_names_.reset(new std::unordered_map<uint32_t, std::string>());
+  }
 
   ~DumpManifestHandler() override {}
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
-      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);

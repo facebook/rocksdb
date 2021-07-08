@@ -2820,6 +2820,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     const char* Name() const override { return "MyBlockCache"; }
 
+    using Cache::Insert;
     Status Insert(const Slice& key, void* value, size_t charge,
                   void (*deleter)(const Slice& key, void* value),
                   Handle** handle = nullptr,
@@ -2828,6 +2829,7 @@ class DBBasicTestMultiGet : public DBTestBase {
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
+    using Cache::Lookup;
     Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);

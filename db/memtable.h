@@ -40,7 +40,7 @@ class MergeContext;
 class SystemClock;
 
 struct ImmutableMemTableOptions {
-  explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
+  explicit ImmutableMemTableOptions(const ImmutableOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
@@ -103,7 +103,7 @@ class MemTable {
   // used, but this may prevent some transactions from succeeding until the
   // first key is inserted into the memtable.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    const ImmutableCFOptions& ioptions,
+                    const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
@@ -341,6 +341,14 @@ class MemTable {
     return first_seqno_.load(std::memory_order_relaxed);
   }
 
+  // Returns the sequence number of the first element that was inserted
+  // into the memtable.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  void SetFirstSequenceNumber(SequenceNumber first_seqno) {
+    return first_seqno_.store(first_seqno, std::memory_order_relaxed);
+  }
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
@@ -350,6 +358,15 @@ class MemTable {
   // kMaxSequenceNumber will be returned.
   SequenceNumber GetEarliestSequenceNumber() {
     return earliest_seqno_.load(std::memory_order_relaxed);
+  }
+
+  // Sets the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into this
+  // memtable. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  // Used only for MemPurge operation
+  void SetEarliestSequenceNumber(SequenceNumber earliest_seqno) {
+    return earliest_seqno_.store(earliest_seqno, std::memory_order_relaxed);
   }
 
   // DB's latest sequence ID when the memtable is created. This number
