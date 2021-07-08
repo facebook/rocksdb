@@ -519,12 +519,19 @@ Status FlushJob::MemPurge() {
       // purged_mems.push_back(new_mem);
     }
   }
-  // if (new_mem) {
-  //   delete new_mem;
-  // }
-  for (auto newm : purged_mems) {
-    mems_.push_back(newm);
+
+  // If mempurge successful, don't write input tables to level0,
+  // but write any full output table to level0.
+  if (s.ok()) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
+    for (auto& m : mems_) {
+      m->SetMempurged(true);
+    }
+    for (auto newm : purged_mems) {
+      mems_.push_back(newm);
+    }
   }
+
   // Note: if the mempurge was ineffective, meaning that there was no
   // garbage to remove, and this new_mem needs to be flushed again,
   // the new_mem->Add would have updated the flush status when it
@@ -575,20 +582,23 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
     for (MemTable* m : mems_) {
-      ROCKS_LOG_INFO(
-          db_options_.info_log,
-          "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
-          cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
-      memtables.push_back(m->NewIterator(ro, &arena));
-      auto* range_del_iter =
-          m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
-      if (range_del_iter != nullptr) {
-        range_del_iters.emplace_back(range_del_iter);
+      if (!(m->GetMempurged())) {
+        ROCKS_LOG_INFO(
+            db_options_.info_log,
+            "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
+            cfd_->GetName().c_str(), job_context_->job_id,
+            m->GetNextLogNumber());
+        memtables.push_back(m->NewIterator(ro, &arena));
+        auto* range_del_iter =
+            m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+        if (range_del_iter != nullptr) {
+          range_del_iters.emplace_back(range_del_iter);
+        }
+        total_num_entries += m->num_entries();
+        total_num_deletes += m->num_deletes();
+        total_data_size += m->get_data_size();
+        total_memory_usage += m->ApproximateMemoryUsage();
       }
-      total_num_entries += m->num_entries();
-      total_num_deletes += m->num_deletes();
-      total_data_size += m->get_data_size();
-      total_memory_usage += m->ApproximateMemoryUsage();
     }
 
     event_logger_->Log() << "job" << job_context_->job_id << "event"
@@ -710,6 +720,7 @@ Status FlushJob::WriteLevel0Table() {
   const bool has_output = meta_.fd.GetFileSize() > 0;
 
   if (s.ok() && has_output) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for

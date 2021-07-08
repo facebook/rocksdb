@@ -696,13 +696,14 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
-  // uint32_t mempurge_count = 0;
-  // uint32_t flush_count = 0;
-  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-  //     "DBImpl::MemPurge", [&](void* /*arg*/) { mempurge_count++; });
-  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-  //     "DBImpl::FlushJob:Flush", [&](void* /*arg*/) { flush_count++; });
-  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  uint32_t mempurge_count = 0;
+  uint32_t sst_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::string KEY1 = "IamKey1";
   std::string KEY2 = "IamKey2";
@@ -758,13 +759,13 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
     ASSERT_EQ(Get(KEY5), p_v5);
   }
 
-  // // Check that there was at least one mempurge
-  // const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
-  // // Check that there was no flush to storage.
-  // const uint32_t EXPECTED_FLUSH_COUNT = 0;
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no flush to storage.
+  const uint32_t EXPECTED_SST_COUNT = 0;
 
-  // EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
-  // EXPECT_EQ(flush_count, EXPECTED_FLUSH_COUNT);
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
 
   Close();
 }
@@ -974,6 +975,10 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   std::string KEY3 = "ThisIsKey3";
   std::string KEY4 = "ThisIsKey4";
   std::string KEY5 = "ThisIsKey5";
+  std::string KEY6 = "ThisIsKey6";
+  std::string KEY7 = "ThisIsKey7";
+  std::string KEY8 = "ThisIsKey8";
+  std::string KEY9 = "ThisIsKey9";
   const std::string NOT_FOUND = "NOT_FOUND";
 
   options.statistics = CreateDBStatistics();
@@ -996,37 +1001,45 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ASSERT_OK(TryReopen(options));
 
   Random rnd(53);
-  const size_t NUM_REPEAT = 25;
+  const size_t NUM_REPEAT = 100000;
   const size_t RAND_VALUES_LENGTH = 128;
-  std::string p_v1, p_v2, p_v3, p_v4, p_v5;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9;
+
+  p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+  ASSERT_OK(Put(KEY1, p_v1));
+  ASSERT_OK(Put(KEY2, p_v2));
+  ASSERT_OK(Put(KEY3, p_v3));
+  ASSERT_OK(Put(KEY4, p_v4));
+  ASSERT_OK(Put(KEY5, p_v5));
+  ASSERT_OK(Delete(KEY1));
 
   // Insertion of of K-V pairs, multiple times.
   // Also insert DeleteRange
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
-    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
-    ASSERT_OK(Put(KEY1, p_v1));
-    ASSERT_OK(Put(KEY2, p_v2));
-    ASSERT_OK(Put(KEY3, p_v3));
-    ASSERT_OK(Put(KEY4, p_v4));
-    ASSERT_OK(Put(KEY5, p_v5));
+    p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v7 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v8 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v9 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY6, p_v6));
+    ASSERT_OK(Put(KEY7, p_v7));
+    ASSERT_OK(Put(KEY8, p_v8));
+    ASSERT_OK(Put(KEY9, p_v9));
 
-    ASSERT_OK(Delete(KEY1));
-
-    // ASSERT_OK(Flush());
-
-    // Verify that the ConditionalUpdateCompactionFilter
-    // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
-    ASSERT_EQ(Get(KEY1), NOT_FOUND);
-    ASSERT_EQ(Get(KEY2), NEW_VALUE);
-    ASSERT_EQ(Get(KEY3), NEW_VALUE);
-    ASSERT_EQ(Get(KEY4), p_v4);
-    ASSERT_EQ(Get(KEY5), p_v5);
+    ASSERT_OK(Delete(KEY7));
   }
+
+  // Verify that the ConditionalUpdateCompactionFilter
+  // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
+  ASSERT_EQ(Get(KEY2), NEW_VALUE);
+  ASSERT_EQ(Get(KEY3), NEW_VALUE);
+  ASSERT_EQ(Get(KEY4), p_v4);
+  ASSERT_EQ(Get(KEY5), p_v5);
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
