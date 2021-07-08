@@ -1737,7 +1737,6 @@ VersionStorageInfo::VersionStorageInfo(
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
-      max_file_number_(0),
       base_level_(num_levels_ == 1 ? -1 : 1),
       level_multiplier_(0.0),
       files_by_compaction_pri_(num_levels_),
@@ -2822,7 +2821,6 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
   assert(file_locations_.find(file_number) == file_locations_.end());
   file_locations_.emplace(file_number,
                           FileLocation(level, level_files.size() - 1));
-  max_file_number_ = std::max(max_file_number_, file_number);
 }
 
 void VersionStorageInfo::AddBlobFile(

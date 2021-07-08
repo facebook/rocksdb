@@ -909,7 +909,8 @@ class VersionBuilder::Rep {
       auto added_iter = added_files.begin();
       auto added_end = added_files.end();
       while (added_iter != added_end || base_iter != base_end) {
-        // `added_iter` is prioritized
+        // `added_iter` is favored because `base_iter` could be masked by
+        // deleted_base_files.
         if (added_iter == added_end ||
             (base_iter != base_end && cmp(*base_iter, *added_iter))) {
           MaybeAddFile(vstorage, level, *base_iter++, true /*from_base*/);
