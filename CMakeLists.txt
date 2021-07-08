@@ -819,6 +819,7 @@ set(SOURCES
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        util/bounded_iterator.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc

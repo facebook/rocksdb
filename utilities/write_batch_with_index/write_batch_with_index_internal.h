@@ -53,6 +53,8 @@ class BaseDeltaIterator : public Iterator {
   Slice value() const override;
   Status status() const override;
   void Invalidate(Status s);
+  const Slice* lower_bound() const override;
+  const Slice* upper_bound() const override;
 
  private:
   void AssertInvariants();
@@ -71,6 +73,7 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
+  const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
   mutable PinnableSlice merge_result_;
 };

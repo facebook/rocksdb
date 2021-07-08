@@ -146,6 +146,9 @@ class TtlIterator : public Iterator {
 
   Status status() const override { return iter_->status(); }
 
+  const Slice* lower_bound() const override { return iter_->lower_bound(); }
+  const Slice* upper_bound() const override { return iter_->upper_bound(); }
+
  private:
   Iterator* iter_;
 };

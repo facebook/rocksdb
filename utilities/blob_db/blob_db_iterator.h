@@ -117,6 +117,9 @@ class BlobDBIterator : public Iterator {
 
   // Iterator::Refresh() not supported.
 
+  const Slice* lower_bound() const override { return iter_->lower_bound(); }
+  const Slice* upper_bound() const override { return iter_->upper_bound(); }
+
  private:
   // Return true if caller should continue to next value.
   bool UpdateBlobValue() {

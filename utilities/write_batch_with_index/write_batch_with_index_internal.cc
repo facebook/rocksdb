@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/bounded_iterator.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -28,16 +29,25 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
       current_at_base_(true),
       equal_keys_(false),
       status_(Status::OK()),
-      base_iterator_(base_iterator),
+      base_iterator_(
+          BoundedIterator::Create(base_iterator, comparator, read_options)),
       delta_iterator_(delta_iterator),
       comparator_(comparator),
-      iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
-                                        : nullptr) {
+      iterate_lower_bound_(base_iterator_->lower_bound()),
+      iterate_upper_bound_(base_iterator_->upper_bound()) {
   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
 
 bool BaseDeltaIterator::Valid() const {
   return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
+}
+
+const Slice* BaseDeltaIterator::lower_bound() const {
+  return iterate_lower_bound_;
+}
+
+const Slice* BaseDeltaIterator::upper_bound() const {
+  return iterate_upper_bound_;
 }
 
 void BaseDeltaIterator::SeekToFirst() {
