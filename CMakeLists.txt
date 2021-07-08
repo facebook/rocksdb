@@ -1312,7 +1312,7 @@ if(WITH_TESTS)
       table/mock_table.cc
       utilities/cassandra/test_utils.cc
   )
-  enable_testing()
+  include(CTest)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
