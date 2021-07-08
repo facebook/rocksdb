@@ -378,6 +378,7 @@ jobs:
       - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
+  # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
   build-linux-microbench:
     machine:
       image: ubuntu-2004:202010-01

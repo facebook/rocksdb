@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// this is a simple micro-benchmark for compare ribbon filter vs. other filter
+// for more comprehensive, please check the dedicate util/filter_bench.
 #include <benchmark/benchmark.h>
 
 #include "table/block_based/filter_policy_internal.h"
