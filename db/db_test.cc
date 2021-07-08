@@ -1237,11 +1237,13 @@ TEST_F(DBTest, AllMetaDataTest) {
   uint64_t start_time = static_cast<uint64_t>(temp_time);
 
   Random rnd(301);
+  dbfull()->TEST_LockMutex();
   for (int cf = 0; cf < 2; cf++) {
     AddBlobFile(handles_[cf], blob_file_number * (cf + 1),
                 total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
                 checksum_method, checksum_value);
   }
+  dbfull()->TEST_UnlockMutex();
 
   std::vector<ColumnFamilyMetaData> all_meta;
   db_->GetAllColumnFamilyMetaData(&all_meta);
@@ -3209,7 +3211,7 @@ class ModelDB : public DB {
   std::string name_ = "";
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 static std::string RandomKey(Random* rnd, int minimum = 0) {
   int len;
   do {
@@ -3364,7 +3366,7 @@ TEST_P(DBTestRandomized, Randomized) {
   if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
   if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index

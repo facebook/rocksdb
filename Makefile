@@ -344,6 +344,12 @@ ifdef ROCKSDB_VALGRIND_RUN
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
 	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
 endif
+ifdef ROCKSDB_FULL_VALGRIND_RUN
+	# Some tests are slow when run under valgrind and are only run when
+	# explicitly requested via the ROCKSDB_FULL_VALGRIND_RUN compiler flag.
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+endif
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
@@ -1045,6 +1051,12 @@ ubsan_crash_test_with_txn: clean
 ubsan_crash_test_with_best_efforts_recovery: clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
+
+full_valgrind_test:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+
+full_valgrind_test_some:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
 
 valgrind_test:
 	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check

@@ -552,8 +552,18 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
     if (!s.ok()) {
-      fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
@@ -615,8 +625,19 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->Delete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
@@ -637,8 +658,19 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     }
     return s;
@@ -684,8 +716,18 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
     if (!s.ok()) {
-      fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     int covered = shared->DeleteRange(rand_column_family, rand_key,
                                       rand_key + FLAGS_range_deletion_width,
