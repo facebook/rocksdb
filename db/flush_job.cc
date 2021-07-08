@@ -324,12 +324,10 @@ Status FlushJob::MemPurge() {
 
   // mems are ordered by increasing ID, so mems_[0]->GetID
   // returns the smallest memtable ID.
-  new_mem = new MemTable((cfd_->internal_comparator()),
-                      *(cfd_->ioptions()),
-                      mutable_cf_options_,
-                      nullptr /*cfd_->write_buffer_manager_*/,
-                      mems_[0]->GetEarliestSequenceNumber(),
-                      mems_[0]->GetID());
+  new_mem =
+      new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                   mutable_cf_options_, nullptr /*cfd_->write_buffer_manager_*/,
+                   mems_[0]->GetEarliestSequenceNumber(), mems_[0]->GetID());
   assert(new_mem != nullptr);
 
   // Create two iterators, one for the memtable data (contains
@@ -343,8 +341,7 @@ Status FlushJob::MemPurge() {
       range_del_iters;
   for (MemTable* m : mems_) {
     memtables.push_back(m->NewIterator(ro, &arena));
-    auto* range_del_iter =
-        m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
     if (range_del_iter != nullptr) {
       range_del_iters.emplace_back(range_del_iter);
     }
@@ -398,11 +395,13 @@ Status FlushJob::MemPurge() {
         env, (cfd_->internal_comparator()).user_comparator(),
         (ioptions->merge_operator).get(), compaction_filter.get(),
         ioptions->logger, true /* internal key corruption is not ok */,
-        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(), snapshot_checker_);
+        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
+        snapshot_checker_);
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
-        kMaxSequenceNumber, &existing_snapshots_, earliest_write_conflict_snapshot_,
-        snapshot_checker_, env, ShouldReportDetailedTime(env, ioptions->stats),
+        kMaxSequenceNumber, &existing_snapshots_,
+        earliest_write_conflict_snapshot_, snapshot_checker_, env,
+        ShouldReportDetailedTime(env, ioptions->stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         nullptr, ioptions->allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
