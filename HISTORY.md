@@ -17,6 +17,7 @@
 
 ### Public API change
 * Added APIs to the Customizable class to allow developers to create their own Customizable classes.  Created the utilities/customizable_util.h file to contain helper methods for developing new Customizable classes.
+* Change signature of SecondaryCache::Name().  Make SecondaryCache customizable and add SecondaryCache::CreateFromString method.
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
 * Added two additional tickers, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH and MEMTABLE_GARBAGE_BYTES_AT_FLUSH. These stats can be used to estimate the ratio of "garbage" (outdated) bytes in the memtable that are discarded at flush time.

@@ -301,7 +301,7 @@ const SstFileMetaData* PickFileRandomly(
 }
 }  // anonymous namespace
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // All the TEST_P tests run once with sub_compactions disabled (i.e.
 // options.max_subcompactions = 1) and once with it enabled
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
@@ -366,7 +366,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     }
   }
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
   //  For each options type we test following
