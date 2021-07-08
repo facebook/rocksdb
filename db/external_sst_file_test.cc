@@ -1398,6 +1398,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_EQ(1, num_sst_files);
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1455,6 +1456,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     }
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   env_->skip_fsync_ = true;
@@ -1716,6 +1718,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1757,6 +1760,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     VerifyDBFromMap(true_data, &kcnt, false);
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   Options options = CurrentOptions();

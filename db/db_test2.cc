@@ -3376,6 +3376,176 @@ TEST_F(DBTest2, CancelManualCompaction2) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+class CancelCompactionListener : public EventListener {
+ public:
+  CancelCompactionListener()
+      : num_compaction_started_(0), num_compaction_ended_(0) {}
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    num_compaction_started_++;
+  }
+
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    ASSERT_EQ(ci.status.code(), code_);
+    ASSERT_EQ(ci.status.subcode(), subcode_);
+    num_compaction_ended_++;
+  }
+
+  std::atomic<size_t> num_compaction_started_;
+  std::atomic<size_t> num_compaction_ended_;
+  Status::Code code_;
+  Status::SubCode subcode_;
+};
+
+TEST_F(DBTest2, CancelManualCompactionWithListener) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+  compact_options.max_subcompactions = 1;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CancelCompactionListener* listener = new CancelCompactionListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(i + j * 10), rnd.RandomString(50)));
+    }
+    Flush();
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator:ProcessKV", [&](void* /*arg*/) {
+        compact_options.canceled->store(true, std::memory_order_release);
+      });
+
+  int running_compaction = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinishCompactionOutputFile1",
+      [&](void* /*arg*/) { running_compaction++; });
+
+  // Case I: 1 Notify begin compaction, 2 DisableManualCompaction, 3 Compaction
+  // not run, 4 Notify compaction end.
+  listener->code_ = Status::kIncomplete;
+  listener->subcode_ = Status::SubCode::kManualCompactionPaused;
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+  ASSERT_EQ(running_compaction, 0);
+
+  listener->num_compaction_started_ = 0;
+  listener->num_compaction_ended_ = 0;
+
+  // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
+  // without notifying), 3 Notify compaction end (return without notifying).
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+  ASSERT_EQ(running_compaction, 0);
+
+  // Case III: 1 Notify begin compaction, 2 Compaction in between
+  // 3. DisableManualCompaction, , 4 Notify compaction end.
+  // compact_options.canceled->store(false, std::memory_order_release);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionIterator:ProcessKV");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:BeforeVerify", [&](void* /*arg*/) {
+        compact_options.canceled->store(true, std::memory_order_release);
+      });
+
+  listener->code_ = Status::kOk;
+  listener->subcode_ = Status::SubCode::kNone;
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+
+  // Compaction job will succeed.
+  ASSERT_GT(running_compaction, 0);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, CompactionOnBottomPriorityWithListener) {
+  int num_levels = 3;
+  const int kNumFilesTrigger = 4;
+
+  Options options = CurrentOptions();
+  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+  env_->SetBackgroundThreads(0, Env::Priority::LOW);
+  env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.env = env_;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+
+  CancelCompactionListener* listener = new CancelCompactionListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+
+  int num_bottom_thread_compaction_scheduled = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+      [&](void* /*arg*/) { num_bottom_thread_compaction_scheduled++; });
+
+  int num_compaction_jobs = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():End",
+      [&](void* /*arg*/) { num_compaction_jobs++; });
+
+  listener->code_ = Status::kOk;
+  listener->subcode_ = Status::SubCode::kNone;
+
+  Random rnd(301);
+  for (int i = 0; i < 1; ++i) {
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    }
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_GT(num_bottom_thread_compaction_scheduled, 0);
+  ASSERT_EQ(num_compaction_jobs, 1);
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();

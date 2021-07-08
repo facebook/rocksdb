@@ -237,6 +237,7 @@ class StressTest {
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  bool is_db_stopped_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
