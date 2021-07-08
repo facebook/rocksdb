@@ -30,6 +30,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const std::string kNewFileNoOverwrite = "";
+
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
   size_t found = filename.find_last_of("/\\");
@@ -415,7 +417,10 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
       open_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list.insert(dir_and_name.second);
+      // The new file could overwrite an old one. Here we simplify
+      // the implementation by assuming no file of this name after
+      // dropping unsynced files.
+      list[dir_and_name.second] = kNewFileNoOverwrite;
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -454,7 +459,7 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       open_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list.insert(dir_and_name.second);
+      list[dir_and_name.second] = kNewFileNoOverwrite;
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -492,7 +497,9 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
       open_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list.insert(dir_and_name.second);
+      // It could be overwriting an old file, but we simplify the
+      // implementation by ignoring it.
+      list[dir_and_name.second] = kNewFileNoOverwrite;
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -579,6 +586,19 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       return in_s;
     }
   }
+
+  // We preserve contents of overwritten files up to a size threshold.
+  // We could keep previous file in another name, but we need to worry about
+  // garbage collect the those files. We do it if it is needed later.
+  // We ignore I/O errors here for simplicity.
+  std::string previous_contents = kNewFileNoOverwrite;
+  if (target()->FileExists(t, IOOptions(), nullptr).ok()) {
+    uint64_t file_size;
+    if (target()->GetFileSize(t, IOOptions(), &file_size, nullptr).ok() &&
+        file_size < 1024) {
+      ReadFileToString(target(), t, &previous_contents).PermitUncheckedError();
+    }
+  }
   IOStatus io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
 
   if (io_s.ok()) {
@@ -594,7 +614,7 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
         auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
         assert(tlist.find(tdn.second) == tlist.end());
-        tlist.insert(tdn.second);
+        tlist[tdn.second] = previous_contents;
       }
     }
     IOStatus in_s = InjectMetadataWriteError();
@@ -665,7 +685,7 @@ IOStatus FaultInjectionTestFS::DropRandomUnsyncedFileData(Random* rnd) {
 IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
     const IOOptions& options, IODebugContext* dbg) {
   // Because DeleteFile access this container make a copy to avoid deadlock
-  std::map<std::string, std::set<std::string>> map_copy;
+  std::map<std::string, std::map<std::string, std::string>> map_copy;
   {
     MutexLock l(&mutex_);
     map_copy.insert(dir_to_new_files_since_last_sync_.begin(),
@@ -673,10 +693,20 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
   }
 
   for (auto& pair : map_copy) {
-    for (std::string name : pair.second) {
-      IOStatus io_s = DeleteFile(pair.first + "/" + name, options, dbg);
-      if (!io_s.ok()) {
-        return io_s;
+    for (auto& file_pair : pair.second) {
+      if (file_pair.second == kNewFileNoOverwrite) {
+        IOStatus io_s =
+            DeleteFile(pair.first + "/" + file_pair.first, options, dbg);
+        if (!io_s.ok()) {
+          return io_s;
+        }
+      } else {
+        IOStatus io_s =
+            WriteStringToFile(target(), file_pair.second,
+                              pair.first + "/" + file_pair.first, true);
+        if (!io_s.ok()) {
+          return io_s;
+        }
       }
     }
   }
