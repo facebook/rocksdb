@@ -230,7 +230,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
 
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (mems_.size() > 0)) {
+      (mems_.size() > 0) && (mems_[0] != nullptr)) {
     Status mempurge_s = MemPurge();
   }
   // This will release and re-acquire the mutex.
@@ -315,20 +315,14 @@ Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
+  assert(!mems_.empty());
+  assert(mems_[0] != nullptr);
 
   // Store the full output memtables in
   // autovector "purged_mems".
   autovector<MemTable*> purged_mems = {};
 
   MemTable* new_mem = nullptr;
-
-  // mems are ordered by increasing ID, so mems_[0]->GetID
-  // returns the smallest memtable ID.
-  new_mem =
-      new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
-                   mutable_cf_options_, nullptr /*cfd_->write_buffer_manager_*/,
-                   mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
-  assert(new_mem != nullptr);
 
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
@@ -388,6 +382,14 @@ Status FlushJob::MemPurge() {
         return s;
       }
     }
+
+    // mems are ordered by increasing ID, so mems_[0]->GetID
+    // returns the smallest memtable ID.
+    new_mem = new MemTable(
+        (cfd_->internal_comparator()), *(cfd_->ioptions()), mutable_cf_options_,
+        nullptr /*cfd_->write_buffer_manager_*/,
+        mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+    assert(new_mem != nullptr);
 
     Env* env = db_options_.env;
     assert(env);
@@ -533,6 +535,10 @@ Status FlushJob::MemPurge() {
       } else {
         purged_mems.push_back(new_mem);
       }
+    } else {
+      // In this case, the newly allocated new_mem is empty.
+      assert(new_mem != nullptr);
+      delete new_mem;
     }
   }
 
