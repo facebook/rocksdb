@@ -58,7 +58,6 @@ class TestCustomizable : public Customizable {
   // Method to allow CheckedCast to work for this class
   static const char* kClassName() {
     return "TestCustomizable";
-    ;
   }
 
   const char* Name() const override { return name_.c_str(); }
@@ -875,8 +874,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 
 class TestSecondaryCache : public SecondaryCache {
  public:
-  const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Test"; }
+  const char* Name() const override { return kClassName(); }
   Status Insert(const Slice& /*key*/, void* /*value*/,
                 const Cache::CacheItemHelper* /*helper*/) override {
     return Status::NotSupported();
@@ -922,8 +921,8 @@ class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   TestFlushBlockPolicyFactory() {}
 
-  const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,

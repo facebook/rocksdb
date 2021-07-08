@@ -265,12 +265,12 @@ class Configurable {
   // Returns true if this object has been initialized via PrepareOptions, false
   // otherwise. Once an object has been prepared, only mutable options may be
   // changed.
-  virtual bool IsPrepared() const { return prepared_; }
+  virtual bool IsPrepared() const { return is_prepared_; }
 
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
-  std::atomic<bool> prepared_;
+  std::atomic<bool> is_prepared_;
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the
