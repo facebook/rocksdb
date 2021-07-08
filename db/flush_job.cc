@@ -315,10 +315,15 @@ Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
+
+  // Store the full output memtables in
+  // autovector "purged_mems".
   autovector<MemTable*> purged_mems = {};
 
-  MemTable* new_mem = nullptr; // work on allocation.
+  MemTable* new_mem = nullptr;
 
+  // mems are ordered by increasing ID, so mems_[0]->GetID
+  // returns the smallest memtable ID.
   new_mem = new MemTable((cfd_->internal_comparator()),
                       *(cfd_->ioptions()),
                       mutable_cf_options_,
@@ -415,7 +420,6 @@ Status FlushJob::MemPurge() {
     new_mem->SetFirstSequenceNumber(first_seqno);
     SequenceNumber new_first_seqno = kMaxSequenceNumber;
 
-    // TODO: GET READY TO CREATE NEW NEW_MEMs!
     c_iter.SeekToFirst();
 
     // Key transfer
@@ -425,7 +429,8 @@ Status FlushJob::MemPurge() {
       new_first_seqno =
           ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
 
-      // Should we update "OldestKeyTime" ????
+      // Should we update "OldestKeyTime" ???? -> timestamp appear
+      // to still be an "experimental" feature.
       s = new_mem->Add(
           ikey.sequence, ikey.type, ikey.user_key, value,
           nullptr,   // KV protection info set as nullptr since it
@@ -440,6 +445,9 @@ Status FlushJob::MemPurge() {
       if (!s.ok()) {
         break;
       }
+
+      // If new_mem is full, add it to purged_mems, and allocate new
+      // memtable.
       if (new_mem->ShouldScheduleFlush()) {
         // Rectify the first sequence number, which (unlike the earliest seq
         // number) needs to be present in the new memtable.
@@ -488,6 +496,9 @@ Status FlushJob::MemPurge() {
         if (!s.ok()) {
           break;
         }
+
+        // If new_mem is full, add it to purged_mems, and allocate new
+        // memtable.
         if (new_mem->ShouldScheduleFlush()) {
           // Rectify the first sequence number, which (unlike the earliest seq
           // number) needs to be present in the new memtable.
@@ -502,23 +513,34 @@ Status FlushJob::MemPurge() {
         }
       }
     }
-    db_mutex_->Lock();
+
+    // If everything happened smoothly and new_mem contains valid data,
+    // decide if it is flushed to storage or kept in the imm()
+    // memtable list (memory).
     if (s.ok() && (new_first_seqno != kMaxSequenceNumber)) {
       // Rectify the first sequence number, which (unlike the earliest seq
       // number) needs to be present in the new memtable.
       new_mem->SetFirstSequenceNumber(new_first_seqno);
+
+      // The new_mem is added to the list of immutable memtables
+      // only if it filled at less than 10% capacity (arbitrary heuristic).
       if (new_mem->ApproximateMemoryUsage() <
           static_cast<size_t>(
               ceil(0.1 * mutable_cf_options_.write_buffer_size))) {
-        //   // Need to reinstall anything?
-        cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free,
-                         false /* need to add bool not to trigger flush?*/);
+        db_mutex_->Lock();
+        cfd_->imm()->Add(new_mem,
+                         &job_context_->memtables_to_free,
+                         false /* trigger_flush. Adding this memtable will not trigger any flush */);
         new_mem->Ref();
+        db_mutex_->Unlock();
+      } else {
+        purged_mems.push_back(new_mem);
       }
-
-      // purged_mems.push_back(new_mem);
     }
   }
+
+  // Reacquire the mutex for WriteLevel0 function.
+  db_mutex_->Lock();
 
   // If mempurge successful, don't write input tables to level0,
   // but write any full output table to level0.
@@ -530,26 +552,16 @@ Status FlushJob::MemPurge() {
     for (auto newm : purged_mems) {
       mems_.push_back(newm);
     }
+  } else {
+    // If mempurge fails, simply delete newly created memtables
+    // and leave the mems_ memtables unmarked.
+    // Note that if mempurge fails, no memtable is added
+    // to cfd_->imm() so there is no need to edit cfd_->imm().
+    for (auto newm : purged_mems) {
+      delete newm;
+    }
   }
 
-  // Note: if the mempurge was ineffective, meaning that there was no
-  // garbage to remove, and this new_mem needs to be flushed again,
-  // the new_mem->Add would have updated the flush status when it
-  // called "UpdateFlushState()" internally at the last Add() call.
-  // Therefore if the new mem needs to be flushed again, we mark
-  // the return status as "aborted", which will trigger the regular
-  // flush operation.
-  // if (s.ok() && new_mem->ShouldScheduleFlush()) {
-  //   s = Status::Aborted(Slice("No garbage collected."));
-  // }
-  // if (s.ok() && (purged_mems.size() > 0)) {
-  //   // VERY DANGEROUS: NEED TP CHAGE because some other structs might be
-  //   // pointing to these
-  //   for (MemTable* m : mems_) {
-  //     m->SetFlushCompleted(true);
-  //   }
-  //   // mems_ = purged_mems;
-  // }
   return s;
 }
 
