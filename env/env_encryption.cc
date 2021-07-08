@@ -1211,13 +1211,9 @@ Status CTREncryptionProvider::CreateCipherStream(
   }
   // Read plain text part of prefix.
   auto blockSize = cipher_->BlockSize();
-  uint64_t initialCounter;
+  uint64_t initialCounter = 0;
   Slice iv;
-  decodeCTRParameters(prefix.data(), blockSize, initialCounter, iv);
 
-  // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1
-  // with initial counter & IV are unencrypted)
-  CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
   Status status;
 
   // A completely empty prefix is tolerated here, which allows to open
@@ -1233,6 +1229,12 @@ Status CTREncryptionProvider::CreateCipherStream(
                                 ": read attempt would read beyond file bounds");
     }
 
+    // Decrypt the encrypted part of the prefix, starting from block 2 (block 0,
+    // 1 with initial counter & IV are unencrypted)
+    decodeCTRParameters(prefix.data(), blockSize, initialCounter, iv);
+
+    CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
+
     PERF_TIMER_GUARD(decrypt_data_nanos);
     status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize),
                                   prefix.size() - (2 * blockSize));
@@ -1240,6 +1242,8 @@ Status CTREncryptionProvider::CreateCipherStream(
   if (!status.ok()) {
     return status;
   }
+
+  // If prefix is empty, initialCounter is 0, and iv will be an empty Slice.
 
   // Create cipher stream
   return CreateCipherStreamFromPrefix(fname, options, initialCounter, iv,
