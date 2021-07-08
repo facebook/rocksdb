@@ -103,7 +103,7 @@ class FlushJob {
   Status WriteLevel0Table();
 
   // Memtable Garbage Collection algorithm: a MemPurge takes the list
-  // of immutablememtable and filters out (or "purge") the outdated bytes
+  // of immutable memtables and filters out (or "purge") the outdated bytes
   // out of it. The output (the filtered bytes, or "useful payload") is
   // then transfered into new memtables. If these new memtables are all
   // filled at maximum capacity, they are subsequently flushed. If the
