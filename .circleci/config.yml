@@ -348,7 +348,7 @@ jobs:
 
   build-linux-valgrind-docker:
     docker:
-      - image: cimg/base:2021.07
+      - image: gcc:latest
     resource_class: 2xlarge
     steps:
       - pre-steps
