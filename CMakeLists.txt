@@ -1312,6 +1312,9 @@ if(WITH_TESTS)
       table/mock_table.cc
       utilities/cassandra/test_utils.cc
   )
+  # set valgrind options, to run valgrind test: ctest -T memcheck
+  set(MEMORYCHECK_COMMAND_OPTIONS
+          "${MEMORYCHECK_COMMAND_OPTIONS} --leak-check=full ---error-exitcode=2")
   include(CTest)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
@@ -1427,7 +1430,3 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
-
-# set valgrind options, to run valgrind test: ctest -T memcheck
-set(MEMORYCHECK_COMMAND_OPTIONS
-        "${MEMORYCHECK_COMMAND_OPTIONS} --leak-check=full ---error-exitcode=2")
