@@ -1053,7 +1053,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
 
   Random rnd(53);
   const size_t NUM_REPEAT = 10000;
-  const size_t RAND_VALUES_LENGTH = 2048;
+  const size_t RAND_VALUES_LENGTH = 10240;
   std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9;
 
   p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);

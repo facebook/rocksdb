@@ -396,8 +396,8 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
     // returns the smallest memtable ID.
     new_mem = new MemTable(
         (cfd_->internal_comparator()), *(cfd_->ioptions()), mutable_cf_options_,
-        cfd_->write_buffer_manager(),  // nullptr
-                                       // /*cfd_->write_buffer_manager_*/,
+        cfd_->write_buffer_man(),  // nullptr
+                                   // /*cfd_->write_buffer_manager_*/,
         mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
     assert(new_mem != nullptr);
 
