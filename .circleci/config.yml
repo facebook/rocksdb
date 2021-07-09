@@ -98,6 +98,13 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
 
+  install-valgrind:
+    steps:
+      - run:
+          name: Install valgrind
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y valgrind
+
   upgrade-cmake:
     steps:
       - run:
@@ -314,7 +321,7 @@ jobs:
       - pre-steps
       - install-gflags
       - upgrade-cmake
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-cmake-ubuntu-20:
@@ -325,7 +332,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j32 && ctest -j32 && make microbench) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-valgrind:
@@ -335,7 +342,8 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20 -T memcheck --timeout 600) | .circleci/cat_ignore_eagain
+      - install-valgrind
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j32 -T memcheck --timeout 600) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-valgrind-make:
@@ -345,7 +353,41 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: make -j20 full_valgrind_test | .circleci/cat_ignore_eagain
+      - install-valgrind
+      - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-valgrind-make2:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-valgrind
+      - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-valgrind-make3:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-valgrind
+      - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-valgrind-make4:
+    machine:
+      image: ubuntu-1604:202104-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-valgrind
+      - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity:
@@ -714,6 +756,9 @@ workflows:
     jobs:
       - build-linux-valgrind
       - build-linux-valgrind-make
+      - build-linux-valgrind-make2
+      - build-linux-valgrind-make3
+      - build-linux-valgrind-make4
 #  build-linux:
 #    jobs:
 #      - build-linux
