@@ -347,9 +347,7 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
       range_del_iters.emplace_back(range_del_iter);
     }
   }
-  for (auto ii : memtables) {
-    assert(ii != nullptr);
-  }
+
   assert(!memtables.empty());
   SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
   SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
