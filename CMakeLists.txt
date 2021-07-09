@@ -1427,3 +1427,7 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
+
+# set valgrind options, to run valgrind test: ctest -T memcheck
+set(MEMORYCHECK_COMMAND_OPTIONS
+        "${MEMORYCHECK_COMMAND_OPTIONS} --leak-check=full ---error-exitcode=2")
