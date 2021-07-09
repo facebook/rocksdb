@@ -720,9 +720,9 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Heavy overwrite workload,
   // more than would fit in maximum allowed memtables.
   Random rnd(719);
-  const size_t NUM_REPEAT = 100000;
+  const size_t NUM_REPEAT = 2000;
   const size_t RAND_KEYS_LENGTH = 57;
-  const size_t RAND_VALUES_LENGTH = 512;
+  const size_t RAND_VALUES_LENGTH = 20480;
   std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_rv1,
       p_rv2, p_rv3;
 
@@ -778,7 +778,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   const uint32_t mempurge_count_record = mempurge_count;
 
   // Insertion of of K-V pairs, multiple times.
-  while ((sst_count == 0) || (mempurge_count_record == mempurge_count)) {
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     RNDKEY1 = rnd.RandomString(RAND_KEYS_LENGTH);
     RNDKEY2 = rnd.RandomString(RAND_KEYS_LENGTH);
@@ -804,6 +804,11 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
     ASSERT_EQ(Get(RNDKEY2), p_rv2);
     ASSERT_EQ(Get(RNDKEY3), p_rv3);
   }
+
+  // Assert that at least one flush to storage has been performed
+  ASSERT_GT(sst_count, EXPECTED_SST_COUNT);
+  // (which will consequently increase the number of mempurges recorded too).
+  ASSERT_GT(mempurge_count, mempurge_count_record);
 
   // Assert that there is no data corruption, even with
   // a flush to storage.
@@ -856,8 +861,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   const std::string NOT_FOUND = "NOT_FOUND";
 
   Random rnd(117);
-  const size_t NUM_REPEAT = 4000;
-  const size_t RAND_VALUES_LENGTH = 5120;
+  const size_t NUM_REPEAT = 1000;
+  const size_t RAND_VALUES_LENGTH = 20480;
 
   std::string key, value, p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
   int count = 0;

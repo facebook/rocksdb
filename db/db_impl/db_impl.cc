@@ -549,13 +549,20 @@ Status DBImpl::CloseHelper() {
   trim_history_scheduler_.Clear();
 
   // For now, simply trigger a manual flush at close time
-  // on the default column.
+  // on all the column families.
   if (immutable_db_options_.experimental_allow_mempurge) {
-    auto cfh =
-        static_cast_with_check<ColumnFamilyHandleImpl>(default_cf_handle_);
-    assert(cfh);
+    Status flush_ret;
     mutex_.Unlock();
-    Flush(FlushOptions(), cfh);
+    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
+      if (immutable_db_options_.atomic_flush) {
+        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
+                                         FlushReason::kManualFlush);
+      } else {
+        flush_ret =
+            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
+      }
+    }
+    (void)flush_ret;
     mutex_.Lock();
   }
 
