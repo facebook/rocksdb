@@ -36,9 +36,13 @@ class EnvBasicTestWithParam : public testing::Test,
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
+class EnvEmptyFileTestWithParam : public EnvBasicTestWithParam {};
+
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
                         ::testing::Values(Env::Default()));
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
+                        ::testing::Values(Env::Default()));
+INSTANTIATE_TEST_CASE_P(EnvDefault, EnvEmptyFileTestWithParam,
                         ::testing::Values(Env::Default()));
 
 static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
@@ -59,6 +63,8 @@ static std::unique_ptr<Env> ctr_encrypt_env(NewTestEncryptedEnv(Env::Default(),
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(ctr_encrypt_env.get()));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
+                        ::testing::Values(ctr_encrypt_env.get()));
+INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvEmptyFileTestWithParam,
                         ::testing::Values(ctr_encrypt_env.get()));
 #endif  // ROCKSDB_LITE
 
@@ -354,6 +360,36 @@ TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
   // expect only one file named `test_data`, i.e. no `.` or `..` names
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result.at(0), "test_file");
+}
+
+TEST_P(EnvEmptyFileTestWithParam, ReadEmptyFile) {
+  std::unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
+  Slice result;
+  char scratch[100];
+
+  // Make sure this file is really empty, so always use the
+  // Default env here.
+  ASSERT_OK(Env::Default()->NewWritableFile(test_dir_ + "/empty",
+                                            &writable_file, soptions_));
+  writable_file.reset();
+
+  uint64_t file_size;
+  ASSERT_TRUE(env_->GetFileSize(test_dir_ + "/empty", &file_size).ok());
+  ASSERT_EQ(0U, file_size);
+
+  // Read sequentially.
+  ASSERT_OK(
+      env_->NewSequentialFile(test_dir_ + "/empty", &seq_file, soptions_));
+  ASSERT_OK(seq_file->Read(10, &result, scratch));  // Try reading beyond end
+  ASSERT_EQ(0U, result.size());
+
+  // Random reads.
+  ASSERT_OK(
+      env_->NewRandomAccessFile(test_dir_ + "/empty", &rand_file, soptions_));
+  ASSERT_OK(rand_file->Read(0, 5, &result, scratch));  // Read "world".
+  ASSERT_EQ(0U, result.size());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
