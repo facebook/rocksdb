@@ -520,6 +520,7 @@ class ColumnFamilyData {
   }
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
+  WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
 
  private:
   friend class ColumnFamilySet;

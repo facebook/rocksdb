@@ -227,11 +227,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
+  autovector<MemTable*> purged_mems = {};
 
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
       (mems_.size() > 0) && (mems_[0] != nullptr)) {
-    Status mempurge_s = MemPurge();
+    Status mempurge_s = MemPurge(purged_mems);
   }
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
@@ -302,6 +303,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
+  // Clean up mempurge output memtables flushed to SST.
+  for (MemTable* m : purged_mems) {
+    (job_context_->memtables_to_free).push_back(m);
+  }
+
   return s;
 }
 
@@ -311,7 +317,7 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-Status FlushJob::MemPurge() {
+Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
@@ -320,7 +326,8 @@ Status FlushJob::MemPurge() {
 
   // Store the full output memtables in
   // autovector "purged_mems".
-  autovector<MemTable*> purged_mems = {};
+  // autovector<MemTable*> purged_mems = {};
+  purged_mems = {};
 
   MemTable* new_mem = nullptr;
 
@@ -340,6 +347,10 @@ Status FlushJob::MemPurge() {
       range_del_iters.emplace_back(range_del_iter);
     }
   }
+  for (auto ii : memtables) {
+    assert(ii != nullptr);
+  }
+  assert(!memtables.empty());
   SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
   SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
 
@@ -387,7 +398,8 @@ Status FlushJob::MemPurge() {
     // returns the smallest memtable ID.
     new_mem = new MemTable(
         (cfd_->internal_comparator()), *(cfd_->ioptions()), mutable_cf_options_,
-        nullptr /*cfd_->write_buffer_manager_*/,
+        cfd_->write_buffer_manager(),  // nullptr
+                                       // /*cfd_->write_buffer_manager_*/,
         mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
     assert(new_mem != nullptr);
 
@@ -456,7 +468,9 @@ Status FlushJob::MemPurge() {
         purged_mems.push_back(new_mem);
         new_mem = new MemTable(
             (cfd_->internal_comparator()), *(cfd_->ioptions()),
-            mutable_cf_options_, nullptr /*cfd_->write_buffer_manager_*/,
+            mutable_cf_options_,
+            cfd_->write_buffer_manager(),  // nullptr
+                                           // /*cfd_->write_buffer_manager_*/,
             mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
         new_first_seqno = kMaxSequenceNumber;
       }
@@ -506,7 +520,9 @@ Status FlushJob::MemPurge() {
           purged_mems.push_back(new_mem);
           new_mem = new MemTable(
               (cfd_->internal_comparator()), *(cfd_->ioptions()),
-              mutable_cf_options_, nullptr /*cfd_->write_buffer_manager_*/,
+              mutable_cf_options_,
+              cfd_->write_buffer_manager(),  // nullptr
+                                             // /*cfd_->write_buffer_manager_*/,
               mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
           new_first_seqno = kMaxSequenceNumber;
         }

@@ -548,12 +548,24 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
+  // For now, simply trigger a manual flush at close time
+  // on the default column.
+  if (immutable_db_options_.experimental_allow_mempurge) {
+    auto cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(default_cf_handle_);
+    assert(cfh);
+    mutex_.Unlock();
+    Flush(FlushOptions(), cfh);
+    mutex_.Lock();
+  }
+
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
       iter.first->UnrefAndTryDelete();
     }
   }
+
   while (!compaction_queue_.empty()) {
     auto cfd = PopFirstFromCompactionQueue();
     cfd->UnrefAndTryDelete();

@@ -123,7 +123,7 @@ class FlushJob {
   // first go through the MemPurge process. herefore, we strongly
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
-  Status MemPurge();
+  Status MemPurge(autovector<MemTable*>& purged_mems);
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE
