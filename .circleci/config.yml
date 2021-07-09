@@ -346,9 +346,9 @@ jobs:
       - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j32 -T memcheck --timeout 600) | .circleci/cat_ignore_eagain
       - post-steps
 
-  build-linux-valgrind-make:
-    machine:
-      image: ubuntu-2004:202104-01
+  build-linux-valgrind-docker:
+    docker:
+      - image: cimg/base:2021.07
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -754,11 +754,11 @@ workflows:
   version: 2
   build-linux-valgrind:
     jobs:
-      - build-linux-valgrind
-      - build-linux-valgrind-make
-      - build-linux-valgrind-make2
-      - build-linux-valgrind-make3
-      - build-linux-valgrind-make4
+      - build-linux-valgrind-docker
+#      - build-linux-valgrind-make
+#      - build-linux-valgrind-make2
+#      - build-linux-valgrind-make3
+#      - build-linux-valgrind-make4
 #  build-linux:
 #    jobs:
 #      - build-linux
