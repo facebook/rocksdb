@@ -227,17 +227,25 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
-
+  Status mempurge_s = Status::NotFound("No MemPurge.");
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
       (!mems_.empty())) {
-    Status mempurge_s = MemPurge();
+    mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
-      ROCKS_LOG_INFO(db_options_.info_log, "Mempurge process unsuccessful.");
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Mempurge process unsuccessful: %s\n",
+                     mempurge_s.ToString().c_str());
     }
   }
-  // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table();
+  Status s;
+  if (mempurge_s.ok()) {
+    base_->Unref();
+    s = Status::OK();
+  } else {
+    // This will release and re-acquire the mutex.
+    s = WriteLevel0Table();
+  }
 
   if (s.ok() && cfd_->IsDropped()) {
     s = Status::ColumnFamilyDropped("Column family dropped during compaction");
@@ -363,7 +371,7 @@ Status FlushJob::MemPurge() {
   // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     // Arbitrary heuristic: maxSize is 60% cpacity.
-    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6ULL) / 10ULL);
+    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
         ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -452,7 +460,7 @@ Status FlushJob::MemPurge() {
       // then rollback to regular flush operation,
       // and destroy new_mem.
       if (new_mem->ApproximateMemoryUsage() > maxSize) {
-        s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        s = Status::Aborted("Mempurge filled more than one memtable.");
         break;
       }
     }
@@ -538,14 +546,8 @@ Status FlushJob::MemPurge() {
   // but write any full output table to level0.
   if (s.ok()) {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
-    for (MemTable* m : mems_) {
-      if (m != nullptr) {
-        TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
-        m->SetMempurged(true);
-      }
-    }
   } else {
-    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
 
   return s;
@@ -580,23 +582,20 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
     for (MemTable* m : mems_) {
-      if (!(m->GetMempurged())) {
-        ROCKS_LOG_INFO(
-            db_options_.info_log,
-            "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
-            cfd_->GetName().c_str(), job_context_->job_id,
-            m->GetNextLogNumber());
-        memtables.push_back(m->NewIterator(ro, &arena));
-        auto* range_del_iter =
-            m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
-        if (range_del_iter != nullptr) {
-          range_del_iters.emplace_back(range_del_iter);
-        }
-        total_num_entries += m->num_entries();
-        total_num_deletes += m->num_deletes();
-        total_data_size += m->get_data_size();
-        total_memory_usage += m->ApproximateMemoryUsage();
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
+          cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
+      memtables.push_back(m->NewIterator(ro, &arena));
+      auto* range_del_iter =
+          m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+      if (range_del_iter != nullptr) {
+        range_del_iters.emplace_back(range_del_iter);
       }
+      total_num_entries += m->num_entries();
+      total_num_deletes += m->num_deletes();
+      total_data_size += m->get_data_size();
+      total_memory_usage += m->ApproximateMemoryUsage();
     }
 
     event_logger_->Log() << "job" << job_context_->job_id << "event"
@@ -608,10 +607,7 @@ Status FlushJob::WriteLevel0Table() {
                          << total_memory_usage << "flush_reason"
                          << GetFlushReasonString(cfd_->GetFlushReason());
 
-    // In certain situations, a non-empty mems_ can still lead
-    // to memtables.empty(). For example, if mems_ is made of
-    // memtables that have been mempurged.
-    if (!memtables.empty()) {
+    {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));

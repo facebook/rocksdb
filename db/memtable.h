@@ -452,8 +452,6 @@ class MemTable {
   uint64_t GetID() const { return id_; }
 
   void SetFlushCompleted(bool completed) { flush_completed_ = completed; }
-  void SetMempurged(const bool completed) { mempurged_ = completed; }
-  bool GetMempurged() { return mempurged_; }
 
   uint64_t GetFileNumber() const { return file_number_; }
 
@@ -501,7 +499,6 @@ class MemTable {
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush
   bool flush_completed_;   // finished the flush
-  bool mempurged_;         // mempurged
   uint64_t file_number_;    // filled up after flush is complete
 
   // The updates to be applied to the transaction log when this

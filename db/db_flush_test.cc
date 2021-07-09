@@ -808,7 +808,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Assert that at least one flush to storage has been performed
   ASSERT_GT(sst_count, EXPECTED_SST_COUNT);
   // (which will consequently increase the number of mempurges recorded too).
-  ASSERT_GT(mempurge_count, mempurge_count_record);
+  ASSERT_EQ(mempurge_count, mempurge_count_record);
 
   // Assert that there is no data corruption, even with
   // a flush to storage.
