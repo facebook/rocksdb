@@ -231,7 +231,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
 
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (mems_.size() > 0) && (mems_[0] != nullptr)) {
+      (!mems_.empty())) {
     Status mempurge_s = MemPurge(purged_mems);
   }
   // This will release and re-acquire the mutex.
@@ -322,7 +322,6 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
   assert(!mems_.empty());
-  assert(mems_[0] != nullptr);
 
   // Store the full output memtables in
   // autovector "purged_mems".
@@ -351,7 +350,6 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
   assert(!memtables.empty());
   SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
   SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
-
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
@@ -394,11 +392,10 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
 
     // mems are ordered by increasing ID, so mems_[0]->GetID
     // returns the smallest memtable ID.
-    new_mem = new MemTable(
-        (cfd_->internal_comparator()), *(cfd_->ioptions()), mutable_cf_options_,
-        cfd_->write_buffer_man(),  // nullptr
-                                   // /*cfd_->write_buffer_manager_*/,
-        mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+    new_mem =
+        new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                     mutable_cf_options_, cfd_->write_buffer_mgr(),
+                     mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;
@@ -464,12 +461,10 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
         // number) needs to be present in the new memtable.
         new_mem->SetFirstSequenceNumber(new_first_seqno);
         purged_mems.push_back(new_mem);
-        new_mem = new MemTable(
-            (cfd_->internal_comparator()), *(cfd_->ioptions()),
-            mutable_cf_options_,
-            cfd_->write_buffer_man(),  // nullptr
-                                       // /*cfd_->write_buffer_manager_*/,
-            mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+        new_mem =
+            new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                         mutable_cf_options_, cfd_->write_buffer_mgr(),
+                         mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
         new_first_seqno = kMaxSequenceNumber;
       }
     }
@@ -518,9 +513,7 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
           purged_mems.push_back(new_mem);
           new_mem = new MemTable(
               (cfd_->internal_comparator()), *(cfd_->ioptions()),
-              mutable_cf_options_,
-              cfd_->write_buffer_man(),  // nullptr
-                                         // /*cfd_->write_buffer_manager_*/,
+              mutable_cf_options_, cfd_->write_buffer_mgr(),
               mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
           new_first_seqno = kMaxSequenceNumber;
         }
@@ -563,11 +556,16 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
   // but write any full output table to level0.
   if (s.ok()) {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
-    for (auto& m : mems_) {
-      m->SetMempurged(true);
+    for (MemTable* m : mems_) {
+      if (m != nullptr) {
+        TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
+        m->SetMempurged(true);
+      }
     }
-    for (auto newm : purged_mems) {
-      mems_.push_back(newm);
+    for (MemTable* newm : purged_mems) {
+      if (newm != nullptr) {
+        mems_.push_back(newm);
+      }
     }
   } else {
     // If mempurge fails, simply delete newly created memtables
@@ -575,7 +573,10 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
     // Note that if mempurge fails, no memtable is added
     // to cfd_->imm() so there is no need to edit cfd_->imm().
     for (auto newm : purged_mems) {
-      delete newm;
+      // Paranoia
+      if (newm != nullptr) {
+        delete newm;
+      }
     }
   }
 
@@ -639,9 +640,12 @@ Status FlushJob::WriteLevel0Table() {
                          << total_memory_usage << "flush_reason"
                          << GetFlushReasonString(cfd_->GetFlushReason());
 
-    {
+    // In certain situations, a non-empty mems_ can still lead
+    // to memtables.empty(). For example, if mems_ is made of
+    // memtables that have been mempurged.
+    if (!memtables.empty()) {
       ScopedArenaIterator iter(
-          NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
+          NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",

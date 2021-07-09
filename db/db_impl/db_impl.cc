@@ -557,12 +557,20 @@ Status DBImpl::CloseHelper() {
       if (immutable_db_options_.atomic_flush) {
         flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
                                          FlushReason::kManualFlush);
+        if (!flush_ret.ok()) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "Atomic flush memtables failed upon closing (mempurge).");
+        }
       } else {
         flush_ret =
             FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
+        if (!flush_ret.ok()) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Flush memtables failed upon closing (mempurge).");
+        }
       }
     }
-    (void)flush_ret;
     mutex_.Lock();
   }
 
