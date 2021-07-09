@@ -357,6 +357,17 @@ jobs:
       - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
       - post-steps
 
+  build-linux-valgrind-docker2:
+    docker:
+      - image: gcc:7
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-valgrind
+      - run: make V=1 J=32 -j32 valgrind_test | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux-valgrind-make2:
     machine:
       image: ubuntu-2004:202101-01
@@ -755,6 +766,7 @@ workflows:
   build-linux-valgrind:
     jobs:
       - build-linux-valgrind-docker
+      - build-linux-valgrind-docker2
 #      - build-linux-valgrind-make
 #      - build-linux-valgrind-make2
 #      - build-linux-valgrind-make3
