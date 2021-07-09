@@ -338,7 +338,7 @@ jobs:
   build-linux-valgrind:
     machine:
       image: ubuntu-2004:202104-01
-    resource_class: medium
+    resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
