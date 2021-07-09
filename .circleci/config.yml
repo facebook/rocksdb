@@ -349,7 +349,6 @@ jobs:
   build-linux-valgrind-docker:
     docker:
       - image: gcc:latest
-    resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
@@ -766,7 +765,7 @@ workflows:
   build-linux-valgrind:
     jobs:
       - build-linux-valgrind-docker
-      - build-linux-valgrind-docker2
+#      - build-linux-valgrind-docker2
 #      - build-linux-valgrind-make
 #      - build-linux-valgrind-make2
 #      - build-linux-valgrind-make3
