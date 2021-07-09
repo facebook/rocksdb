@@ -338,7 +338,7 @@ jobs:
   build-linux-valgrind:
     machine:
       image: ubuntu-2004:202104-01
-    resource_class: 2xlarge
+    resource_class: medium
     steps:
       - pre-steps
       - install-gflags
@@ -764,7 +764,7 @@ workflows:
   version: 2
   build-linux-valgrind:
     jobs:
-      - build-linux-valgrind-docker
+      - build-linux-valgrind
 #      - build-linux-valgrind-docker2
 #      - build-linux-valgrind-make
 #      - build-linux-valgrind-make2
