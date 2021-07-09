@@ -1257,7 +1257,7 @@ Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
     uint64_t initialCounter, const Slice& iv, const Slice& /*prefix*/,
     std::unique_ptr<BlockAccessCipherStream>* result) {
   (*result) = std::unique_ptr<BlockAccessCipherStream>(
-      new CTRCipherStream(cipher_, iv.data(), initialCounter));
+      new CTRCipherStream(cipher_, iv, initialCounter));
   return Status::OK();
 }
 

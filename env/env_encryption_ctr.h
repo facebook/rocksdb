@@ -48,6 +48,12 @@ class CTRCipherStream final : public BlockAccessCipherStream {
   uint64_t initialCounter_;
 
  public:
+  CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const Slice& iv,
+                  uint64_t initialCounter)
+      : cipher_(c),
+        iv_(iv.data(), iv.size()),
+        initialCounter_(initialCounter){};
+
   CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const char* iv,
                   uint64_t initialCounter)
       : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){};
