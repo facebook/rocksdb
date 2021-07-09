@@ -415,6 +415,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
+      assert(pre_release_cb_status.ok());
       IOStatusCheck(io_s);
     } else {
       WriteStatusCheck(pre_release_cb_status);
