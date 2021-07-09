@@ -227,12 +227,14 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
-  autovector<MemTable*> purged_mems = {};
 
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
       (!mems_.empty())) {
-    Status mempurge_s = MemPurge(purged_mems);
+    Status mempurge_s = MemPurge();
+    if (!mempurge_s.ok()) {
+      ROCKS_LOG_INFO(db_options_.info_log, "Mempurge process unsuccessful.");
+    }
   }
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
@@ -303,11 +305,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
-  // Clean up mempurge output memtables flushed to SST.
-  for (MemTable* m : purged_mems) {
-    (job_context_->memtables_to_free).push_back(m);
-  }
-
   return s;
 }
 
@@ -317,16 +314,11 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
+Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
   assert(!mems_.empty());
-
-  // Store the full output memtables in
-  // autovector "purged_mems".
-  // autovector<MemTable*> purged_mems = {};
-  purged_mems = {};
 
   MemTable* new_mem = nullptr;
 
@@ -370,6 +362,8 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
   // or at least range tombstones, copy over the info
   // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    // Arbitrary heuristic: maxSize is 60% cpacity.
+    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6ULL) / 10ULL);
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
         ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -454,18 +448,12 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
         break;
       }
 
-      // If new_mem is full, add it to purged_mems, and allocate new
-      // memtable.
-      if (new_mem->ShouldScheduleFlush()) {
-        // Rectify the first sequence number, which (unlike the earliest seq
-        // number) needs to be present in the new memtable.
-        new_mem->SetFirstSequenceNumber(new_first_seqno);
-        purged_mems.push_back(new_mem);
-        new_mem =
-            new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
-                         mutable_cf_options_, cfd_->write_buffer_mgr(),
-                         mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
-        new_first_seqno = kMaxSequenceNumber;
+      // If new_mem has size greater than maxSize,
+      // then rollback to regular flush operation,
+      // and destroy new_mem.
+      if (new_mem->ApproximateMemoryUsage() > maxSize) {
+        s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        break;
       }
     }
 
@@ -504,18 +492,12 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
           break;
         }
 
-        // If new_mem is full, add it to purged_mems, and allocate new
-        // memtable.
-        if (new_mem->ShouldScheduleFlush()) {
-          // Rectify the first sequence number, which (unlike the earliest seq
-          // number) needs to be present in the new memtable.
-          new_mem->SetFirstSequenceNumber(new_first_seqno);
-          purged_mems.push_back(new_mem);
-          new_mem = new MemTable(
-              (cfd_->internal_comparator()), *(cfd_->ioptions()),
-              mutable_cf_options_, cfd_->write_buffer_mgr(),
-              mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
-          new_first_seqno = kMaxSequenceNumber;
+        // If new_mem has size greater than maxSize,
+        // then rollback to regular flush operation,
+        // and destroy new_mem.
+        if (new_mem->ApproximateMemoryUsage() > maxSize) {
+          s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+          break;
         }
       }
     }
@@ -529,23 +511,23 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
       new_mem->SetFirstSequenceNumber(new_first_seqno);
 
       // The new_mem is added to the list of immutable memtables
-      // only if it filled at less than 10% capacity (arbitrary heuristic).
-      if (new_mem->ApproximateMemoryUsage() <
-          static_cast<size_t>(
-              ceil(0.1 * mutable_cf_options_.write_buffer_size))) {
+      // only if it filled at less than 60% capacity (arbitrary heuristic).
+      if (new_mem->ApproximateMemoryUsage() < maxSize) {
         db_mutex_->Lock();
-        cfd_->imm()->Add(new_mem,
-                         &job_context_->memtables_to_free,
-                         false /* trigger_flush. Adding this memtable will not trigger any flush */);
+        cfd_->imm()
+            ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {
-        purged_mems.push_back(new_mem);
+        s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        if (new_mem) {
+          job_context_->memtables_to_free.push_back(new_mem);
+        }
       }
     } else {
       // In this case, the newly allocated new_mem is empty.
       assert(new_mem != nullptr);
-      delete new_mem;
+      job_context_->memtables_to_free.push_back(new_mem);
     }
   }
 
@@ -562,22 +544,8 @@ Status FlushJob::MemPurge(autovector<MemTable*>& purged_mems) {
         m->SetMempurged(true);
       }
     }
-    for (MemTable* newm : purged_mems) {
-      if (newm != nullptr) {
-        mems_.push_back(newm);
-      }
-    }
   } else {
-    // If mempurge fails, simply delete newly created memtables
-    // and leave the mems_ memtables unmarked.
-    // Note that if mempurge fails, no memtable is added
-    // to cfd_->imm() so there is no need to edit cfd_->imm().
-    for (auto newm : purged_mems) {
-      // Paranoia
-      if (newm != nullptr) {
-        delete newm;
-      }
-    }
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
   }
 
   return s;

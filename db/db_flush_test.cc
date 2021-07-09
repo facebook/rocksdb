@@ -692,7 +692,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   options.allow_concurrent_memtable_write = true;
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
-  options.write_buffer_size = 64 << 20;
+  options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
@@ -720,9 +720,9 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Heavy overwrite workload,
   // more than would fit in maximum allowed memtables.
   Random rnd(719);
-  const size_t NUM_REPEAT = 2000;
+  const size_t NUM_REPEAT = 100;
   const size_t RAND_KEYS_LENGTH = 57;
-  const size_t RAND_VALUES_LENGTH = 20480;
+  const size_t RAND_VALUES_LENGTH = 10240;
   std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_rv1,
       p_rv2, p_rv3;
 
@@ -741,7 +741,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_EQ(Get(KEY3), p_v3);
   ASSERT_EQ(Get(KEY4), p_v4);
 
-  // Insertion of of K-V pairs, multiple times.
+  // Insertion of of K-V pairs, multiple times (overwrites).
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
@@ -777,7 +777,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 
   const uint32_t mempurge_count_record = mempurge_count;
 
-  // Insertion of of K-V pairs, multiple times.
+  // Insertion of of K-V pairs, no overwrites.
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     RNDKEY1 = rnd.RandomString(RAND_KEYS_LENGTH);
@@ -839,7 +839,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.allow_concurrent_memtable_write = true;
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
-  options.write_buffer_size = 64 << 20;
+  options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
@@ -861,8 +861,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   const std::string NOT_FOUND = "NOT_FOUND";
 
   Random rnd(117);
-  const size_t NUM_REPEAT = 1000;
-  const size_t RAND_VALUES_LENGTH = 20480;
+  const size_t NUM_REPEAT = 100;
+  const size_t RAND_VALUES_LENGTH = 10240;
 
   std::string key, value, p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
   int count = 0;
@@ -1042,7 +1042,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
       std::make_shared<ConditionalUpdateFilterFactory>(KEY4);
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
-  options.write_buffer_size = 64 << 20;
+  options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
@@ -1057,7 +1057,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(53);
-  const size_t NUM_REPEAT = 10000;
+  const size_t NUM_REPEAT = 1000;
   const size_t RAND_VALUES_LENGTH = 10240;
   std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9;
 
@@ -1074,10 +1074,9 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ASSERT_OK(Delete(KEY1));
 
   // Insertion of of K-V pairs, multiple times.
-  // Also insert DeleteRange
-  // while(mempurge_count == 0){
   for (size_t i = 0; i < NUM_REPEAT; i++) {
-    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    // Create value strings of arbitrary
+    // length RAND_VALUES_LENGTH bytes.
     p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
     p_v7 = rnd.RandomString(RAND_VALUES_LENGTH);
     p_v8 = rnd.RandomString(RAND_VALUES_LENGTH);

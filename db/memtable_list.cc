@@ -377,6 +377,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 
     m->flush_in_progress_ = false;
     m->flush_completed_ = false;
+    m->mempurged_ = false;
     m->edit_.Clear();
     num_flush_not_started_++;
   }
