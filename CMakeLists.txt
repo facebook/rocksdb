@@ -1314,7 +1314,7 @@ if(WITH_TESTS)
   )
   # set valgrind options, to run valgrind test: ctest -T memcheck
   set(MEMORYCHECK_COMMAND_OPTIONS
-          "${MEMORYCHECK_COMMAND_OPTIONS} --leak-check=full ---error-exitcode=2")
+          "${MEMORYCHECK_COMMAND_OPTIONS} --leak-check=full --error-exitcode=2")
   include(CTest)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
