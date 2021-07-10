@@ -1938,15 +1938,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
                                 fp.GetHitFileLevel());
     }
+    if (!status->ok()) {
+      if (db_statistics_ != nullptr) {
+        get_context.ReportCounters();
+      }
+      return;
+    }
+
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
         get_context.State() != GetContext::kMerge &&
         db_statistics_ != nullptr) {
       get_context.ReportCounters();
-    }
-
-    if (!status->ok()) {
-      return;
     }
     switch (get_context.State()) {
       case GetContext::kNotFound:
