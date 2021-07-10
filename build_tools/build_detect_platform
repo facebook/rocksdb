@@ -820,18 +820,11 @@ EOF
   fi
 fi
 
-
-if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
-  $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
-  void dummy_func() {}
-EOF
-  if [ "$?" = 0 ]; then
-    $CXX $COMMON_FLAGS $PLATFORM_SHARED_LDFLAGS test_dl.o -o /dev/null 2>/dev/null
-    if [ "$?" = 0 ]; then
-      EXEC_LDFLAGS+="-ldl"
-      rm -f test_dl.o
-    fi
-  fi
+# Check whether or not dynamic extensions should be enabled or not
+if test $DISABLE_DYNAMIC_EXTENSION; then
+    COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_NO_DYNAMIC_EXTENSION"
+elif [ "$PLATFORM" = OS_LINUX ]; then
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ldl"
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
