@@ -227,9 +227,25 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
-
-  // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table();
+  Status mempurge_s = Status::NotFound("No MemPurge.");
+  if (db_options_.experimental_allow_mempurge &&
+      (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
+      (!mems_.empty())) {
+    mempurge_s = MemPurge();
+    if (!mempurge_s.ok()) {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Mempurge process unsuccessful: %s\n",
+                     mempurge_s.ToString().c_str());
+    }
+  }
+  Status s;
+  if (mempurge_s.ok()) {
+    base_->Unref();
+    s = Status::OK();
+  } else {
+    // This will release and re-acquire the mutex.
+    s = WriteLevel0Table();
+  }
 
   if (s.ok() && cfd_->IsDropped()) {
     s = Status::ColumnFamilyDropped("Column family dropped during compaction");
@@ -306,6 +322,237 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
+Status FlushJob::MemPurge() {
+  Status s;
+  db_mutex_->AssertHeld();
+  db_mutex_->Unlock();
+  assert(!mems_.empty());
+
+  MemTable* new_mem = nullptr;
+
+  // Create two iterators, one for the memtable data (contains
+  // info from puts + deletes), and one for the memtable
+  // Range Tombstones (from DeleteRanges).
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Arena arena;
+  std::vector<InternalIterator*> memtables;
+  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      range_del_iters;
+  for (MemTable* m : mems_) {
+    memtables.push_back(m->NewIterator(ro, &arena));
+    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    if (range_del_iter != nullptr) {
+      range_del_iters.emplace_back(range_del_iter);
+    }
+  }
+
+  assert(!memtables.empty());
+  SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
+  SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
+  ScopedArenaIterator iter(
+      NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
+                         static_cast<int>(memtables.size()), &arena));
+
+  auto* ioptions = cfd_->ioptions();
+
+  // Place iterator at the First (meaning most recent) key node.
+  iter->SeekToFirst();
+
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&(cfd_->internal_comparator()),
+                                       existing_snapshots_));
+  for (auto& rd_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(rd_iter));
+  }
+
+  // If there is valid data in the memtable,
+  // or at least range tombstones, copy over the info
+  // to the new memtable.
+  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    // Arbitrary heuristic: maxSize is 60% cpacity.
+    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions->compaction_filter_factory != nullptr &&
+        ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
+            TableFileCreationReason::kFlush)) {
+      CompactionFilter::Context ctx;
+      ctx.is_full_compaction = false;
+      ctx.is_manual_compaction = false;
+      ctx.column_family_id = cfd_->GetID();
+      ctx.reason = TableFileCreationReason::kFlush;
+      compaction_filter =
+          ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s = Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+        return s;
+      }
+    }
+
+    // mems are ordered by increasing ID, so mems_[0]->GetID
+    // returns the smallest memtable ID.
+    new_mem =
+        new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                     mutable_cf_options_, cfd_->write_buffer_mgr(),
+                     mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+    assert(new_mem != nullptr);
+
+    Env* env = db_options_.env;
+    assert(env);
+    MergeHelper merge(
+        env, (cfd_->internal_comparator()).user_comparator(),
+        (ioptions->merge_operator).get(), compaction_filter.get(),
+        ioptions->logger, true /* internal key corruption is not ok */,
+        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
+        snapshot_checker_);
+    CompactionIterator c_iter(
+        iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
+        kMaxSequenceNumber, &existing_snapshots_,
+        earliest_write_conflict_snapshot_, snapshot_checker_, env,
+        ShouldReportDetailedTime(env, ioptions->stats),
+        true /* internal key corruption is not ok */, range_del_agg.get(),
+        nullptr, ioptions->allow_data_in_errors,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
+        &(cfd_->GetFullHistoryTsLow()));
+
+    // Set earliest sequence number in the new memtable
+    // to be equal to the earliest sequence number of the
+    // memtable being flushed (See later if there is a need
+    // to update this number!).
+    new_mem->SetEarliestSequenceNumber(earliest_seqno);
+    // Likewise for first seq number.
+    new_mem->SetFirstSequenceNumber(first_seqno);
+    SequenceNumber new_first_seqno = kMaxSequenceNumber;
+
+    c_iter.SeekToFirst();
+
+    // Key transfer
+    for (; c_iter.Valid(); c_iter.Next()) {
+      const ParsedInternalKey ikey = c_iter.ikey();
+      const Slice value = c_iter.value();
+      new_first_seqno =
+          ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
+
+      // Should we update "OldestKeyTime" ???? -> timestamp appear
+      // to still be an "experimental" feature.
+      s = new_mem->Add(
+          ikey.sequence, ikey.type, ikey.user_key, value,
+          nullptr,   // KV protection info set as nullptr since it
+                     // should only be useful for the first add to
+                     // the original memtable.
+          false,     // : allow concurrent_memtable_writes_
+                     // Not seen as necessary for now.
+          nullptr,   // get_post_process_info(m) must be nullptr
+                     // when concurrent_memtable_writes is switched off.
+          nullptr);  // hint, only used when concurrent_memtable_writes_
+                     // is switched on.
+      if (!s.ok()) {
+        break;
+      }
+
+      // If new_mem has size greater than maxSize,
+      // then rollback to regular flush operation,
+      // and destroy new_mem.
+      if (new_mem->ApproximateMemoryUsage() > maxSize) {
+        s = Status::Aborted("Mempurge filled more than one memtable.");
+        break;
+      }
+    }
+
+    // Check status and propagate
+    // potential error status from c_iter
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
+    }
+
+    // Range tombstone transfer.
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        new_first_seqno =
+            tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        s = new_mem->Add(
+            tombstone.seq_,        // Sequence number
+            kTypeRangeDeletion,    // KV type
+            tombstone.start_key_,  // Key is start key.
+            tombstone.end_key_,    // Value is end key.
+            nullptr,               // KV protection info set as nullptr since it
+                                   // should only be useful for the first add to
+                                   // the original memtable.
+            false,                 // : allow concurrent_memtable_writes_
+                                   // Not seen as necessary for now.
+            nullptr,               // get_post_process_info(m) must be nullptr
+                      // when concurrent_memtable_writes is switched off.
+            nullptr);  // hint, only used when concurrent_memtable_writes_
+                       // is switched on.
+
+        if (!s.ok()) {
+          break;
+        }
+
+        // If new_mem has size greater than maxSize,
+        // then rollback to regular flush operation,
+        // and destroy new_mem.
+        if (new_mem->ApproximateMemoryUsage() > maxSize) {
+          s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+          break;
+        }
+      }
+    }
+
+    // If everything happened smoothly and new_mem contains valid data,
+    // decide if it is flushed to storage or kept in the imm()
+    // memtable list (memory).
+    if (s.ok() && (new_first_seqno != kMaxSequenceNumber)) {
+      // Rectify the first sequence number, which (unlike the earliest seq
+      // number) needs to be present in the new memtable.
+      new_mem->SetFirstSequenceNumber(new_first_seqno);
+
+      // The new_mem is added to the list of immutable memtables
+      // only if it filled at less than 60% capacity (arbitrary heuristic).
+      if (new_mem->ApproximateMemoryUsage() < maxSize) {
+        db_mutex_->Lock();
+        cfd_->imm()
+            ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
+        new_mem->Ref();
+        db_mutex_->Unlock();
+      } else {
+        s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        if (new_mem) {
+          job_context_->memtables_to_free.push_back(new_mem);
+        }
+      }
+    } else {
+      // In this case, the newly allocated new_mem is empty.
+      assert(new_mem != nullptr);
+      job_context_->memtables_to_free.push_back(new_mem);
+    }
+  }
+
+  // Reacquire the mutex for WriteLevel0 function.
+  db_mutex_->Lock();
+
+  // If mempurge successful, don't write input tables to level0,
+  // but write any full output table to level0.
+  if (s.ok()) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
+  } else {
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
+  }
+
+  return s;
+}
+
 Status FlushJob::WriteLevel0Table() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
@@ -362,7 +609,7 @@ Status FlushJob::WriteLevel0Table() {
 
     {
       ScopedArenaIterator iter(
-          NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
+          NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
@@ -470,6 +717,7 @@ Status FlushJob::WriteLevel0Table() {
   const bool has_output = meta_.fd.GetFileSize() > 0;
 
   if (s.ok() && has_output) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
