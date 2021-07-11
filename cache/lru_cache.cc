@@ -407,11 +407,10 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     }
   } else {
     // Since the secondary cache lookup failed, mark the item as not in cache
-    // and charge the cache only for metadata usage, i.e handle, key etc
+    // Don't charge the cache as its only metadata that'll shortly be released
     MutexLock l(&mutex_);
     e->charge = 0;
     e->SetInCache(false);
-    usage_ += e->CalcTotalCharge(metadata_charge_policy_);
   }
 }
 
@@ -522,7 +521,12 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
         last_reference = false;
       }
     }
-    if (last_reference) {
+    // If it was the last reference, and the entry is either not secondary
+    // cache compatible (i.e a dummy entry for accounting), or is secondary
+    // cache compatible and has a non-null value, then decrement the cache
+    // usage. If value is null in the latter case, taht means the lookup
+    // failed and we didn't charge the cache.
+    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
       size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
       assert(usage_ >= total_charge);
       usage_ -= total_charge;

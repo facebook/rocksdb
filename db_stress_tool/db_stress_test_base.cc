@@ -62,7 +62,8 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      cmp_db_(nullptr) {
+      cmp_db_(nullptr),
+      is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
     db_stress_env->GetChildren(FLAGS_db, &files);
@@ -118,6 +119,7 @@ StressTest::~StressTest() {
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                                             int32_t num_shard_bits) {
+  ConfigOptions config_options;
   if (capacity <= 0) {
     return nullptr;
   }
@@ -135,8 +137,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
 #ifndef ROCKSDB_LITE
     std::shared_ptr<SecondaryCache> secondary_cache;
     if (!FLAGS_secondary_cache_uri.empty()) {
-      Status s = ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-          FLAGS_secondary_cache_uri, &secondary_cache);
+      Status s = SecondaryCache::CreateFromString(
+          config_options, FLAGS_secondary_cache_uri, &secondary_cache);
       if (secondary_cache == nullptr) {
         fprintf(stderr,
                 "No secondary cache registered matching string: %s status=%s\n",
@@ -614,13 +616,21 @@ void StressTest::OperateDb(ThreadState* thread) {
                                             FLAGS_read_fault_one_in);
   }
   if (FLAGS_write_fault_one_in) {
-    IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
-    error_msg.SetRetryable(true);
+    IOStatus error_msg;
+    if (FLAGS_injest_error_severity <= 1 || FLAGS_injest_error_severity > 2) {
+      error_msg = IOStatus::IOError("Retryable IO Error");
+      error_msg.SetRetryable(true);
+    } else if (FLAGS_injest_error_severity == 2) {
+      // Ingest the fatal error
+      error_msg = IOStatus::IOError("Fatal IO Error");
+      error_msg.SetDataLoss(true);
+    }
     std::vector<FileType> types = {FileType::kTableFile,
                                    FileType::kDescriptorFile,
                                    FileType::kCurrentFile};
     fault_fs_guard->SetRandomWriteError(
-        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg, types);
+        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
+        /*inject_for_all_file_types=*/false, types);
   }
 #endif // NDEBUG
   thread->stats.Start();
@@ -2464,15 +2474,33 @@ void StressTest::Open() {
       // Only ingest metadata error if it is reopening, as initial open
       // failure doesn't need to be handled.
       // TODO cover transaction DB is not covered in this fault test too.
-      bool ingest_meta_error =
-          FLAGS_open_metadata_write_fault_one_in &&
+      bool ingest_meta_error = false;
+      bool ingest_write_error = false;
+      bool ingest_read_error = false;
+      if ((FLAGS_open_metadata_write_fault_one_in ||
+           FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) &&
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
-              .ok();
-      if (ingest_meta_error) {
-        fault_fs_guard->EnableMetadataWriteErrorInjection();
-        fault_fs_guard->SetRandomMetadataWriteError(
-            FLAGS_open_metadata_write_fault_one_in);
+              .ok()) {
+        ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
+        ingest_write_error = FLAGS_open_write_fault_one_in;
+        ingest_read_error = FLAGS_open_read_fault_one_in;
+        if (ingest_meta_error) {
+          fault_fs_guard->EnableMetadataWriteErrorInjection();
+          fault_fs_guard->SetRandomMetadataWriteError(
+              FLAGS_open_metadata_write_fault_one_in);
+        }
+        if (ingest_write_error) {
+          fault_fs_guard->SetFilesystemDirectWritable(false);
+          fault_fs_guard->EnableWriteErrorInjection();
+          fault_fs_guard->SetRandomWriteError(
+              static_cast<uint32_t>(FLAGS_seed), FLAGS_open_write_fault_one_in,
+              IOStatus::IOError("Injected Open Error"),
+              /*inject_for_all_file_types=*/true, /*types=*/{});
+        }
+        if (ingest_read_error) {
+          fault_fs_guard->SetRandomReadError(FLAGS_open_read_fault_one_in);
+        }
       }
       while (true) {
 #endif  // NDEBUG
@@ -2506,8 +2534,11 @@ void StressTest::Open() {
         }
 
 #ifndef NDEBUG
-        if (ingest_meta_error) {
+        if (ingest_meta_error || ingest_write_error || ingest_read_error) {
+          fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
+          fault_fs_guard->DisableWriteErrorInjection();
+          fault_fs_guard->SetRandomReadError(0);
           if (s.ok()) {
             // Ingested errors might happen in background compactions. We
             // wait for all compactions to finish to make sure DB is in
@@ -2523,6 +2554,8 @@ void StressTest::Open() {
             // successfully open the DB with correct data if no IO error shows
             // up.
             ingest_meta_error = false;
+            ingest_write_error = false;
+            ingest_read_error = false;
 
             Random rand(static_cast<uint32_t>(FLAGS_seed));
             if (rand.OneIn(2)) {

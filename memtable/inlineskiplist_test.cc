@@ -309,7 +309,7 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
   Validate(&list);
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a
 // reader's iterator is created), the reader always observes all the
@@ -654,7 +654,7 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
   RunConcurrentInsert(3, true);
 }
 
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
