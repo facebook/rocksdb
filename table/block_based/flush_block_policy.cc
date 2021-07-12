@@ -117,7 +117,6 @@ static bool LoadFlushPolicyFactory(
     const std::string& id, std::shared_ptr<FlushBlockPolicyFactory>* result) {
   if (id.empty()) {
     result->reset(new FlushBlockBySizePolicyFactory());
-    return true;
 #ifdef ROCKSDB_LITE
   } else if (id == FlushBlockBySizePolicyFactory::kClassName()) {
     result->reset(new FlushBlockBySizePolicyFactory());
