@@ -1612,23 +1612,6 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
-  // Memtable Garbage Collection algorithm: a MemPurge takes the memtable
-  // and filters (or "purge") the outdated bytes out of it. The output
-  // (the filtered bytes, or "useful payload") is then transfered into
-  // the new memtable "new_mem". This process is typically intended for
-  // workloads with heavy overwrites to save on IO cost resulting from
-  // expensive flush operations.
-  // "MemPurge" is an experimental feature still at a very early stage
-  // of development. At the moment it is only compatible with the Get, Put,
-  // Delete operations as well as Iterators and CompactionFilters.
-  // For this early version, "MemPurge" is called by setting the
-  // options.experimental_allow_mempurge flag as "true". When this is
-  // the case, ALL flush operations will be replaced by MemPurge operations.
-  // (for prototype stress-testing purposes). Therefore, we strongly
-  // recommend all users not to set this flag as true given that the MemPurge
-  // process has not matured yet.
-  Status MemPurge(ColumnFamilyData* cfd, MemTable* new_mem);
-
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 
   // Force current memtable contents to be flushed.
@@ -1854,7 +1837,7 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options, bool fromMemPurge = false);
+      const MutableCFOptions& mutable_cf_options);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
