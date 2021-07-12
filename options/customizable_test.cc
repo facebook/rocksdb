@@ -1194,7 +1194,6 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
 #endif  // ROCKSDB_LITE
 }
 
-
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

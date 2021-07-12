@@ -68,9 +68,8 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
 #else
   (void)opts;
 #endif  // ROCKSDB_LITE
-    if (status.ok()) {
-      is_prepared_ = true;
-    }
+  if (status.ok()) {
+    is_prepared_ = true;
   }
   return status;
 }
