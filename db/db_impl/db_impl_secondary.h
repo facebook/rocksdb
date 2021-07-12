@@ -278,6 +278,16 @@ class DBImplSecondary : public DBImpl {
       return AddColumnFamilyId(column_family_id);
     }
 
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
+
+    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+
+    Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+    Status MarkCommit(const Slice&) override { return Status::OK(); }
+
+    Status MarkNoop(bool) override { return Status::OK(); }
+
     const std::unordered_set<uint32_t>& column_families() const {
       return column_family_ids_;
     }
