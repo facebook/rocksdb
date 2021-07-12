@@ -5461,6 +5461,7 @@ class Benchmark {
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
     int64_t read = 0;
+    int64_t bytes = 0;
     int64_t num_multireads = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -5511,6 +5512,7 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (statuses[i].ok()) {
+            bytes += keys[i].size() + values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!statuses[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5526,6 +5528,8 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (stat_list[i].ok()) {
+            bytes +=
+                keys[i].size() + pin_values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!stat_list[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5548,6 +5552,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 
