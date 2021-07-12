@@ -10,7 +10,7 @@ if [ $# -lt 1 ]; then
 fi
 bench_cmd=$1
 shift
-bench_args=$@
+bench_args=$*
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from
