@@ -387,6 +387,10 @@ class MemTable {
   // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
+  // Returns the earliest log file number that (possibly)
+  // contains entries from this memtable.
+  uint64_t MinLogFileNumber() { return mem_min_logfile_number_; }
+
   // if this memtable contains data from a committed
   // two phase transaction we must take note of the
   // log which contains that data so we can know
@@ -516,6 +520,10 @@ class MemTable {
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
+
+  // The earliest log containing entries inserted into
+  // this memtable.
+  uint64_t mem_min_logfile_number_;
 
   // the earliest log containing a prepared section
   // which has been inserted into this memtable.
