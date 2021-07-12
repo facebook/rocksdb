@@ -211,14 +211,18 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
-  // contain files.
+  // contain files. The behavior for num_levels = 1 is not well defined.
+  // Right now, with num_levels = 1,  all compaction outputs will use
+  // bottommost_compression and all flush outputs still use options.compression,
+  // but the behavior is subject to change.
   //
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
 
   // different options for compression algorithms used by bottommost_compression
   // if it is enabled. To enable it, please see the definition of
-  // CompressionOptions.
+  // CompressionOptions. Behavior for num_levels = 1 is the same as
+  // options.bottommost_compression.
   CompressionOptions bottommost_compression_opts;
 
   // different options for compression algorithms

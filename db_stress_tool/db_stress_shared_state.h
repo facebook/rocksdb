@@ -32,6 +32,7 @@ DECLARE_int32(read_fault_one_in);
 DECLARE_int32(write_fault_one_in);
 DECLARE_int32(open_metadata_write_fault_one_in);
 DECLARE_int32(open_write_fault_one_in);
+DECLARE_int32(open_read_fault_one_in);
 
 DECLARE_int32(injest_error_severity);
 
