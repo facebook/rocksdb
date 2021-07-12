@@ -1060,7 +1060,7 @@ DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
 DEFINE_int64(report_interval_seconds, 0,
-             "If greater than zero, it will write simple stats in CVS format "
+             "If greater than zero, it will write simple stats in CSV format "
              "to --report_file every N seconds");
 
 DEFINE_string(report_file, "report.csv",
@@ -2869,9 +2869,8 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s =
-            ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-                FLAGS_secondary_cache_uri, &secondary_cache);
+        Status s = SecondaryCache::CreateFromString(
+            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,

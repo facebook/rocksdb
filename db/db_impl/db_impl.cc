@@ -548,12 +548,45 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
+  // For now, simply trigger a manual flush at close time
+  // on all the column families.
+  // TODO(bjlemaire): Check if this is needed. Also, in the
+  // future we can contemplate doing a more fine-grained
+  // flushing by first checking if there is a need for
+  // flushing (but need to implement something
+  // else than imm()->IsFlushPending() because the output
+  // memtables added to imm() dont trigger flushes).
+  if (immutable_db_options_.experimental_allow_mempurge) {
+    Status flush_ret;
+    mutex_.Unlock();
+    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
+      if (immutable_db_options_.atomic_flush) {
+        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
+                                         FlushReason::kManualFlush);
+        if (!flush_ret.ok()) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "Atomic flush memtables failed upon closing (mempurge).");
+        }
+      } else {
+        flush_ret =
+            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
+        if (!flush_ret.ok()) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Flush memtables failed upon closing (mempurge).");
+        }
+      }
+    }
+    mutex_.Lock();
+  }
+
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
       iter.first->UnrefAndTryDelete();
     }
   }
+
   while (!compaction_queue_.empty()) {
     auto cfd = PopFirstFromCompactionQueue();
     cfd->UnrefAndTryDelete();
