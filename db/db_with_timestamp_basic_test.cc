@@ -1494,6 +1494,7 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   Close();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class DBBasicTestWithTimestampFilterPrefixSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
@@ -1625,6 +1626,7 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:
@@ -2215,6 +2217,7 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   Close();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
@@ -2954,6 +2957,7 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 }  // namespace ROCKSDB_NAMESPACE
 

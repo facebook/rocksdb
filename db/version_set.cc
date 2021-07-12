@@ -3390,7 +3390,7 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
   return scratch->buffer;
 }
 
-int64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
+uint64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
   uint64_t result = 0;
   std::vector<FileMetaData*> overlaps;
   for (int level = 1; level < num_levels() - 1; level++) {
