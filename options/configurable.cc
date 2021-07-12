@@ -17,6 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Configurable::Configurable() : is_prepared_(false) {}
+
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
@@ -66,8 +68,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
 #else
   (void)opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    prepared_ = true;
+    if (status.ok()) {
+      is_prepared_ = true;
+    }
   }
   return status;
 }
