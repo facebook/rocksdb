@@ -10,6 +10,7 @@
 #include <string>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -42,13 +43,14 @@ class SecondaryCacheResultHandle {
 //
 // Cache interface for caching blocks on a secondary tier (which can include
 // non-volatile media, or alternate forms of caching such as compressed data)
-class SecondaryCache {
+class SecondaryCache : public Customizable {
  public:
   virtual ~SecondaryCache() {}
 
-  virtual std::string Name() = 0;
-
-  static const std::string Type() { return "SecondaryCache"; }
+  static const char* Type() { return "SecondaryCache"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<SecondaryCache>* result);
 
   // Insert the given value into this cache. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be

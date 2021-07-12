@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -152,6 +153,31 @@ class AlwaysKeepFilter : public CompactionFilter {
     return CompactionFilter::Decision::kKeep;
   }
 };
+
+class SkipUntilFilter : public CompactionFilter {
+ public:
+  explicit SkipUntilFilter(std::string skip_until)
+      : skip_until_(std::move(skip_until)) {}
+
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.skip.until";
+  }
+
+  CompactionFilter::Decision FilterV2(int /* level */, const Slice& /* key */,
+                                      ValueType /* value_type */,
+                                      const Slice& /* existing_value */,
+                                      std::string* /* new_value */,
+                                      std::string* skip_until) const override {
+    assert(skip_until);
+    *skip_until = skip_until_;
+
+    return CompactionFilter::Decision::kRemoveAndSkipUntil;
+  }
+
+ private:
+  std::string skip_until_;
+};
+
 }  // anonymous namespace
 
 class DBBlobBadCompactionFilterTest
@@ -250,6 +276,49 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
   ASSERT_GT(compaction_stats[1].bytes_written_blob, 0);
 #endif  // ROCKSDB_LITE
+
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new SkipUntilFilter("z"));
+  options.compaction_filter = compaction_filter_guard.get();
+
+  Reopen(options);
+
+  const std::vector<std::string> keys{"a", "b", "c"};
+  const std::vector<std::string> values{"a_value", "b_value", "c_value"};
+  assert(keys.size() == values.size());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  ASSERT_OK(Flush());
+
+  int process_in_flow_called = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobCountingIterator::UpdateAndCountBlobIfNeeded:ProcessInFlow",
+      [&process_in_flow_called](void* /* arg */) { ++process_in_flow_called; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /* begin */ nullptr,
+                              /* end */ nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (const auto& key : keys) {
+    ASSERT_EQ(Get(key), "NOT_FOUND");
+  }
+
+  // Make sure SkipUntil was performed using iteration rather than Seek
+  ASSERT_EQ(process_in_flow_called, keys.size());
 
   Close();
 }
@@ -387,6 +456,138 @@ TEST_F(DBBlobCompactionTest, CompactionFilterReadBlobAndKeep) {
   ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
 #endif  // ROCKSDB_LITE
 
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, TrackGarbage) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  // First table+blob file pair: 4 blobs with different keys
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char fourth_value[] = "fourth_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_OK(Put(fourth_key, fourth_value));
+  ASSERT_OK(Flush());
+
+  // Second table+blob file pair: overwrite 2 existing keys
+  constexpr char new_first_value[] = "new_first_value";
+  constexpr char new_second_value[] = "new_second_value";
+
+  ASSERT_OK(Put(first_key, new_first_value));
+  ASSERT_OK(Put(second_key, new_second_value));
+  ASSERT_OK(Flush());
+
+  // Compact them together. The first blob file should have 2 garbage blobs
+  // corresponding to the 2 overwritten keys.
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 2);
+
+  {
+    auto it = blob_files.begin();
+    const auto& meta = it->second;
+    assert(meta);
+
+    constexpr uint64_t first_expected_bytes =
+        sizeof(first_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(first_key) -
+                                                          1);
+    constexpr uint64_t second_expected_bytes =
+        sizeof(second_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(second_key) -
+                                                          1);
+    constexpr uint64_t third_expected_bytes =
+        sizeof(third_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(third_key) -
+                                                          1);
+    constexpr uint64_t fourth_expected_bytes =
+        sizeof(fourth_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(fourth_key) -
+                                                          1);
+
+    ASSERT_EQ(meta->GetTotalBlobCount(), 4);
+    ASSERT_EQ(meta->GetTotalBlobBytes(),
+              first_expected_bytes + second_expected_bytes +
+                  third_expected_bytes + fourth_expected_bytes);
+    ASSERT_EQ(meta->GetGarbageBlobCount(), 2);
+    ASSERT_EQ(meta->GetGarbageBlobBytes(),
+              first_expected_bytes + second_expected_bytes);
+  }
+
+  {
+    auto it = blob_files.rbegin();
+    const auto& meta = it->second;
+    assert(meta);
+
+    constexpr uint64_t new_first_expected_bytes =
+        sizeof(new_first_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(first_key) -
+                                                          1);
+    constexpr uint64_t new_second_expected_bytes =
+        sizeof(new_second_value) - 1 +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(sizeof(second_key) -
+                                                          1);
+
+    ASSERT_EQ(meta->GetTotalBlobCount(), 2);
+    ASSERT_EQ(meta->GetTotalBlobBytes(),
+              new_first_expected_bytes + new_second_expected_bytes);
+    ASSERT_EQ(meta->GetGarbageBlobCount(), 0);
+    ASSERT_EQ(meta->GetGarbageBlobBytes(), 0);
+  }
+}
+
+TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+  ASSERT_OK(Put("Key1", "v1_1"));
+  ASSERT_OK(Put("Key2", "v2_1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("Key1", "v1_2"));
+  ASSERT_OK(Merge("Key2", "v2_2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("Key1", "v1_3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_EQ(Get("Key1"), "v1_1,v1_2,v1_3");
+  ASSERT_EQ(Get("Key2"), "v2_1,v2_2");
   Close();
 }
 

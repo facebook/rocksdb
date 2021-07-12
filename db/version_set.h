@@ -447,7 +447,7 @@ class VersionStorageInfo {
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t MaxNextLevelOverlappingBytes();
+  uint64_t MaxNextLevelOverlappingBytes();
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false) const;

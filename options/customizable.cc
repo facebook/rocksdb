@@ -6,6 +6,7 @@
 #include "rocksdb/customizable.h"
 
 #include "options/configurable_helper.h"
+#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "util/string_util.h"
@@ -74,4 +75,45 @@ bool Customizable::AreEquivalent(const ConfigOptions& config_options,
   return true;
 }
 
+Status Customizable::GetOptionsMap(
+    const ConfigOptions& config_options, const Customizable* customizable,
+    const std::string& value, std::string* id,
+    std::unordered_map<std::string, std::string>* props) {
+  if (customizable != nullptr) {
+    Status status = ConfigurableHelper::GetOptionsMap(
+        value, customizable->GetId(), id, props);
+#ifdef ROCKSDB_LITE
+    (void)config_options;
+#else
+    if (status.ok() && customizable->IsInstanceOf(*id)) {
+      // The new ID and the old ID match, so the objects are the same type.
+      // Try to get the existing options, ignoring any errors
+      ConfigOptions embedded = config_options;
+      embedded.delimiter = ";";
+      std::string curr_opts;
+      if (customizable->GetOptionString(embedded, &curr_opts).ok()) {
+        std::unordered_map<std::string, std::string> curr_props;
+        if (StringToMap(curr_opts, &curr_props).ok()) {
+          props->insert(curr_props.begin(), curr_props.end());
+        }
+      }
+    }
+#endif  // ROCKSDB_LITE
+    return status;
+  } else {
+    return ConfigurableHelper::GetOptionsMap(value, "", id, props);
+  }
+}
+
+Status Customizable::ConfigureNewObject(
+    const ConfigOptions& config_options, Customizable* object,
+    const std::unordered_map<std::string, std::string>& opt_map) {
+  Status status;
+  if (object != nullptr) {
+    status = object->ConfigureFromMap(config_options, opt_map);
+  } else if (!opt_map.empty()) {
+    status = Status::InvalidArgument("Cannot configure null object ");
+  }
+  return status;
+}
 }  // namespace ROCKSDB_NAMESPACE

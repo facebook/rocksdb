@@ -139,7 +139,9 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
-    "open_metadata_write_fault_one_in": lambda: random.choice([0, 8]),
+    "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
+    "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
+    "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
@@ -151,6 +153,7 @@ default_params = {
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
 _DEBUG_LEVEL_ENV_VAR = 'DEBUG_LEVEL'
 
+stress_cmd = "./db_stress"
 
 def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
@@ -280,8 +283,6 @@ blob_params = {
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
-    # The following are currently incompatible with the integrated BlobDB
-    "use_merge": 0,
 }
 
 ts_params = {
@@ -415,12 +416,12 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    cmd = ['./db_stress'] + [
+    cmd = [stress_cmd] + [
         '--{0}={1}'.format(k, v)
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery', 'enable_ts'])
+                         'test_best_efforts_recovery', 'enable_ts', 'stress_cmd'])
         and v is not None] + unknown_params
     return cmd
 
@@ -500,7 +501,7 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['interval'])
 
         if not hit_timeout:
-            print('Exit Before Killing') 
+            print('Exit Before Killing')
             print('stdout:')
             print(outs)
             print('stderr:')
@@ -671,6 +672,8 @@ def whitebox_crash_main(args, unknown_args):
 
 
 def main():
+    global stress_cmd
+
     parser = argparse.ArgumentParser(description="This script runs and kills \
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
@@ -679,6 +682,7 @@ def main():
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
     parser.add_argument("--enable_ts", action='store_true')
+    parser.add_argument("--stress_cmd")
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -700,6 +704,8 @@ def main():
                 (_TEST_DIR_ENV_VAR, test_tmpdir))
         sys.exit(1)
 
+    if args.stress_cmd:
+        stress_cmd = args.stress_cmd
     if args.test_type == 'blackbox':
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':

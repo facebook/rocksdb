@@ -165,7 +165,7 @@ Status BuildTable(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.stats, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
-          tmp_set.Contains(FileType::kTableFile)));
+          tmp_set.Contains(FileType::kTableFile), false));
 
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
@@ -204,6 +204,8 @@ Status BuildTable(
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
       // Generate a rolling 64-bit hash of the key and values
+      // Note :
+      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
       s = output_validator.Add(key, value);
       if (!s.ok()) {
         break;

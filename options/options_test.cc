@@ -140,6 +140,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
+      {"experimental_allow_mempurge", "false"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -298,6 +299,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
+  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
@@ -1782,6 +1784,9 @@ TEST_F(OptionsTest, OnlyMutableDBOptions) {
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mdb_config->AreEquivalent(cfg_opts, db_config.get(), &mismatch));
   ASSERT_FALSE(db_config->AreEquivalent(cfg_opts, mdb_config.get(), &mismatch));
+
+  // Make sure there are only mutable options being configured
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, DBOptions(), opt_str, &db_opts));
 }
 
 TEST_F(OptionsTest, OnlyMutableCFOptions) {
@@ -1795,6 +1800,7 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   std::unordered_set<std::string> a_names;
 
   test::RandomInitCFOptions(&cf_opts, db_opts, &rnd);
+  cf_opts.comparator = ReverseBytewiseComparator();
   auto cf_config = CFOptionsAsConfigurable(cf_opts);
 
   // Get all of the CF Option names (mutable or not)
@@ -1826,7 +1832,11 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
   ASSERT_FALSE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
+  delete cf_opts.compaction_filter;
 
+  // Make sure the options string contains only mutable options
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, ColumnFamilyOptions(),
+                                             opt_str, &cf_opts));
   delete cf_opts.compaction_filter;
 }
 #endif  // !ROCKSDB_LITE
@@ -1973,6 +1983,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
+      {"experimental_allow_mempurge", "false"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -2125,6 +2136,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
+  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);

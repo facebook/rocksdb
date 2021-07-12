@@ -266,6 +266,11 @@ class Compaction {
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
 
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
+
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
   static bool TEST_IsBottommostLevel(
@@ -297,6 +302,16 @@ class Compaction {
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
   uint64_t MinInputFileOldestAncesterTime() const;
+
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -381,6 +396,10 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
 };
 
 // Return sum of sizes of all files in `files`.

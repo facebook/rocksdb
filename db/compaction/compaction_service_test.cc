@@ -12,16 +12,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class MyTestCompactionService : public CompactionService {
  public:
-  MyTestCompactionService(const std::string& db_path,
-                          std::shared_ptr<FileSystem> fs, Options& options)
-      : db_path_(db_path), fs_(fs), options_(options) {}
+  MyTestCompactionService(const std::string& db_path, Options& options,
+                          std::shared_ptr<Statistics> statistics = nullptr)
+      : db_path_(db_path), options_(options), statistics_(statistics) {}
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
   const char* Name() const override { return kClassName(); }
 
   CompactionServiceJobStatus Start(const std::string& compaction_service_input,
-                                   int job_id) override {
+                                   uint64_t job_id) override {
     InstrumentedMutexLock l(&mutex_);
     jobs_.emplace(job_id, compaction_service_input);
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
@@ -30,7 +30,7 @@ class MyTestCompactionService : public CompactionService {
   }
 
   CompactionServiceJobStatus WaitForComplete(
-      int job_id, std::string* compaction_service_result) override {
+      uint64_t job_id, std::string* compaction_service_result) override {
     std::string compaction_input;
     {
       InstrumentedMutexLock l(&mutex_);
@@ -54,6 +54,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.prefix_extractor = options_.prefix_extractor;
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
+    options_override.statistics = statistics_;
 
     Status s = DB::OpenAndCompact(
         db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
@@ -73,10 +74,10 @@ class MyTestCompactionService : public CompactionService {
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
-  std::map<int, std::string> jobs_;
+  std::map<uint64_t, std::string> jobs_;
   const std::string db_path_;
-  std::shared_ptr<FileSystem> fs_;
   Options options_;
+  std::shared_ptr<Statistics> statistics_;
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -123,8 +124,10 @@ class CompactionServiceTest : public DBTestBase {
 TEST_F(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
   options.env = env_;
+  options.statistics = CreateDBStatistics();
+  std::shared_ptr<Statistics> compactor_statistics = CreateDBStatistics();
   options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+      dbname_, options, compactor_statistics);
 
   DestroyAndReopen(options);
 
@@ -157,6 +160,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   auto my_cs =
       dynamic_cast<MyTestCompactionService*>(options.compaction_service.get());
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
+
+  // make sure the compaction statistics is only recorded on remote side
+  ASSERT_GE(
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY), 1);
+  ASSERT_EQ(options.statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+            0);
 
   // Test failed compaction
   SyncPoint::GetInstance()->SetCallBack(
@@ -195,8 +204,8 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
   DestroyAndReopen(options);
   GenerateTestData();
 
@@ -236,8 +245,8 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
   DestroyAndReopen(options);
   GenerateTestData();
 
@@ -261,8 +270,8 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
   DestroyAndReopen(options);
   GenerateTestData();
 
@@ -282,22 +291,31 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   ASSERT_FALSE(s.ok());
 }
 
-// TODO: support sub-compaction
-TEST_F(CompactionServiceTest, DISABLED_SubCompaction) {
+TEST_F(CompactionServiceTest, SubCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
   options.max_subcompactions = 10;
   options.target_file_size_base = 1 << 10;  // 1KB
   options.disable_auto_compactions = true;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
 
   DestroyAndReopen(options);
   GenerateTestData();
+  VerifyTestData();
+
+  auto my_cs =
+      dynamic_cast<MyTestCompactionService*>(options.compaction_service.get());
+  int compaction_num_before = my_cs->GetCompactionNum();
 
   auto cro = CompactRangeOptions();
   cro.max_subcompactions = 10;
-  db_->CompactRange(cro, nullptr, nullptr);
+  Status s = db_->CompactRange(cro, nullptr, nullptr);
+  ASSERT_OK(s);
+  VerifyTestData();
+  int compaction_num = my_cs->GetCompactionNum() - compaction_num_before;
+  // make sure there's sub-compaction by checking the compaction number
+  ASSERT_GE(compaction_num, 2);
 }
 
 class PartialDeleteCompactionFilter : public CompactionFilter {
@@ -321,8 +339,8 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   options.env = env_;
   auto delete_comp_filter = PartialDeleteCompactionFilter();
   options.compaction_filter = &delete_comp_filter;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
 
   DestroyAndReopen(options);
 
@@ -364,8 +382,8 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
 TEST_F(CompactionServiceTest, Snapshot) {
   Options options = CurrentOptions();
   options.env = env_;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
 
   DestroyAndReopen(options);
 
@@ -391,8 +409,8 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 100;
   options.env = env_;
-  options.compaction_service = std::make_shared<MyTestCompactionService>(
-      dbname_, env_->GetFileSystem(), options);
+  options.compaction_service =
+      std::make_shared<MyTestCompactionService>(dbname_, options);
   options.max_background_jobs = 20;
 
   DestroyAndReopen(options);

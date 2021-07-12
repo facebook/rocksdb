@@ -767,6 +767,7 @@ Status DB::OpenAndCompact(
   compaction_input.db_options.env = override_options.env;
   compaction_input.db_options.file_checksum_gen_factory =
       override_options.file_checksum_gen_factory;
+  compaction_input.db_options.statistics = override_options.statistics;
   compaction_input.column_family.options.comparator =
       override_options.comparator;
   compaction_input.column_family.options.merge_operator =
