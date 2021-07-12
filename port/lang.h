@@ -27,6 +27,10 @@
 #endif  // __SANITIZE_ADDRESS__
 #endif  // __clang__
 
+#ifdef ROCKSDB_VALGRIND_RUN
+#define MUST_FREE_HEAP_ALLOCATIONS 1
+#endif  // ROCKSDB_VALGRIND_RUN
+
 // Coding guidelines say to avoid static objects with non-trivial destructors,
 // because it's easy to cause trouble (UB) in static destruction. This
 // macro makes it easier to define static objects that are normally never
