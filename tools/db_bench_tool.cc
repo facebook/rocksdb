@@ -7580,7 +7580,7 @@ class Benchmark {
           fprintf(stdout,
                   "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
                   db.db->GetName().c_str(), k.c_str());
-          FLAGS_env->SleepForMicroseconds(10 * 1000000);;
+          FLAGS_env->SleepForMicroseconds(10 * 1000000);
           retry = true;
           break;
         }
