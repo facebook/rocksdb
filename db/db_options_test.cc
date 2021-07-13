@@ -95,6 +95,9 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+// RocksDB lite don't support dynamic options.
+#ifndef ROCKSDB_LITE
+
 TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
   Options options;
   options.env = env_;
@@ -150,9 +153,6 @@ TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
       {{"max_open_files", "100"}, {"stats_dump_period_sec", "600"}}));
   ASSERT_TRUE(is_changed());
 }
-
-// RocksDB lite don't support dynamic options.
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, GetLatestDBOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
