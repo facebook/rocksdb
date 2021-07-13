@@ -95,6 +95,62 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
+  Options options;
+  options.env = env_;
+  options.max_background_jobs = 4;
+  options.delayed_write_rate = 1024;
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool is_changed_stats = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteOptionsFile:PersistOptions", [&](void* /*arg*/) {
+        ASSERT_FALSE(is_changed_stats);  // should only save options file once
+        is_changed_stats = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // helper function to check the status and reset after each check
+  auto is_changed = [&] {
+    bool ret = is_changed_stats;
+    is_changed_stats = false;
+    return ret;
+  };
+
+  // without changing the value
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_jobs", "4"}}));
+  ASSERT_FALSE(is_changed());
+
+  // changing the value
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "123"}}));
+  ASSERT_TRUE(is_changed());
+
+  // update again
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "123"}}));
+  ASSERT_FALSE(is_changed());
+
+  // without changing a default value
+  ASSERT_OK(dbfull()->SetDBOptions({{"strict_bytes_per_sync", "false"}}));
+  ASSERT_FALSE(is_changed());
+
+  // now change
+  ASSERT_OK(dbfull()->SetDBOptions({{"strict_bytes_per_sync", "true"}}));
+  ASSERT_TRUE(is_changed());
+
+  // multiple values without change
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"max_total_wal_size", "0"}, {"stats_dump_period_sec", "600"}}));
+  ASSERT_FALSE(is_changed());
+
+  // multiple values with change
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"max_open_files", "100"}, {"stats_dump_period_sec", "600"}}));
+  ASSERT_TRUE(is_changed());
+}
+
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 
