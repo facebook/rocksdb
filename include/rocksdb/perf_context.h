@@ -12,6 +12,7 @@
 #include "rocksdb/perf_level.h"
 
 namespace ROCKSDB_NAMESPACE {
+// test-only: try touching the perf_context.h file
 
 // A thread local context for gathering performance counter efficiently
 // and transparently.
