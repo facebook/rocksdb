@@ -5639,7 +5639,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
   new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
-                             LastSequence(), new_cfd->GetLogNumber());
+                             LastSequence(), edit->log_number_);
   new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
 }

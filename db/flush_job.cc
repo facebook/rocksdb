@@ -361,6 +361,13 @@ Status FlushJob::MemPurge() {
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
+  uint64_t earliest_logno = 0;
+  for (MemTable* m : mems_) {
+    uint64_t logno = m->GetEarliestLogFileNumber();
+    if (logno > 0 && (earliest_logno == 0 || logno < earliest_logno)) {
+      earliest_logno = logno;
+    }
+  }
 
   auto* ioptions = cfd_->ioptions();
 
@@ -402,10 +409,10 @@ Status FlushJob::MemPurge() {
 
     // mems are ordered by increasing ID, so mems_[0]->GetID
     // returns the smallest memtable ID.
-    new_mem =
-        new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
-                     mutable_cf_options_, cfd_->write_buffer_mgr(),
-                     mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+    new_mem = new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                           mutable_cf_options_, cfd_->write_buffer_mgr(),
+                           mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID(),
+                           earliest_logno);
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;

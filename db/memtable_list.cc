@@ -489,6 +489,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
           min_wal_number_to_keep =
               PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
         }
+        // If mempurge is activated, then there may be an imm memtable
+        // with unflushed data that will not be flushed anytime soon.
+        if (vset->db_options()->experimental_allow_mempurge) {
+          uint64_t log_num = EarliestLogContainingData();
+          if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
+            min_wal_number_to_keep = log_num;
+          }
+        }
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
@@ -674,6 +682,21 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
       ++mem_id;
     }
   }
+}
+
+// Returns the earliest log that possibly contain entries
+// from one of the memtables of this memtable_list.
+uint64_t MemTableList::EarliestLogContainingData() {
+  uint64_t min_log = 0;
+
+  for (auto& m : current_->memlist_) {
+    uint64_t log = m->GetEarliestLogFileNumber();
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(

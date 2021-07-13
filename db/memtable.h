@@ -106,7 +106,8 @@ class MemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+                    SequenceNumber earliest_seq, uint32_t column_family_id,
+                    uint64_t current_logfile_number = 0);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -387,9 +388,15 @@ class MemTable {
   // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
-  // Returns the earliest log file number that (possibly)
+  // Set the earliest log file number that (possibly)
   // contains entries from this memtable.
-  uint64_t MinLogFileNumber() { return mem_min_logfile_number_; }
+  void SetEarliestLogFileNumber(uint64_t logno) {
+    mem_min_logfile_number_ = logno;
+  }
+
+  // Return the earliest log file number that (possibly)
+  // contains entries from this memtable.
+  uint64_t GetEarliestLogFileNumber() { return mem_min_logfile_number_; }
 
   // if this memtable contains data from a committed
   // two phase transaction we must take note of the
