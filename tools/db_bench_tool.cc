@@ -7580,7 +7580,7 @@ class Benchmark {
           fprintf(stdout,
                   "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
                   db.db->GetName().c_str(), k.c_str());
-          sleep(10);
+          FLAGS_env->SleepForMicroseconds(10 * 1000000);;
           retry = true;
           break;
         }
@@ -7596,7 +7596,7 @@ class Benchmark {
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
-    sleep(5);
+    FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
     // I am skeptical that this check race free. I hope that checking twice
     // reduces the chance.
