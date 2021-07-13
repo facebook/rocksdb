@@ -272,7 +272,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s);
+        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
+        !(mempurge_s.ok()));
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -330,6 +331,17 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
+uint64_t FlushJob::ExtractEarliestLogFileNumber() {
+  uint64_t earliest_logno = 0;
+  for (MemTable* m : mems_) {
+    uint64_t logno = m->GetEarliestLogFileNumber();
+    if (logno > 0 && (earliest_logno == 0 || logno < earliest_logno)) {
+      earliest_logno = logno;
+    }
+  }
+  return earliest_logno;
+}
+
 Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
@@ -361,13 +373,8 @@ Status FlushJob::MemPurge() {
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
-  uint64_t earliest_logno = 0;
-  for (MemTable* m : mems_) {
-    uint64_t logno = m->GetEarliestLogFileNumber();
-    if (logno > 0 && (earliest_logno == 0 || logno < earliest_logno)) {
-      earliest_logno = logno;
-    }
-  }
+
+  uint64_t earliest_logno = ExtractEarliestLogFileNumber();
 
   auto* ioptions = cfd_->ioptions();
 

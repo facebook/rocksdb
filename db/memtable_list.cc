@@ -392,7 +392,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-    IOStatus* io_s) {
+    IOStatus* io_s, bool write_edits) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -478,6 +478,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
         assert(edit_list.size() > 0);
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
+        // // If mempurge is activated, then there may be an imm memtable
+        // // with unflushed data that will not be flushed anytime soon.
+        // if (vset->db_options()->experimental_allow_mempurge) {
+        //   uint64_t log_num = EarliestLogContainingData();
+        //   if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
+        //     min_wal_number_to_keep = log_num;
+        //   }
+        // }
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
@@ -489,14 +497,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
           min_wal_number_to_keep =
               PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
         }
-        // If mempurge is activated, then there may be an imm memtable
-        // with unflushed data that will not be flushed anytime soon.
-        if (vset->db_options()->experimental_allow_mempurge) {
-          uint64_t log_num = EarliestLogContainingData();
-          if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
-            min_wal_number_to_keep = log_num;
-          }
-        }
+        // // If mempurge is activated, then there may be an imm memtable
+        // // with unflushed data that will not be flushed anytime soon.
+        // if (vset->db_options()->experimental_allow_mempurge) {
+        //   uint64_t log_num = EarliestLogContainingData();
+        //   if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
+        //     min_wal_number_to_keep = log_num;
+        //   }
+        // }
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
@@ -510,13 +518,21 @@ Status MemTableList::TryInstallMemtableFlushResults(
         RemoveMemTablesOrRestoreFlags(status, cfd, batch_count, log_buffer,
                                       to_delete, mu);
       };
-
-      // this can release and reacquire the mutex.
-      s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                            db_directory, /*new_descriptor_log=*/false,
-                            /*column_family_options=*/nullptr,
-                            manifest_write_cb);
-      *io_s = vset->io_status();
+      if (write_edits) {
+        // this can release and reacquire the mutex.
+        s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
+                              db_directory, /*new_descriptor_log=*/false,
+                              /*column_family_options=*/nullptr,
+                              manifest_write_cb);
+        *io_s = vset->io_status();
+      } else {
+        // Notify new head of manifest write queue.
+        // wake up all the waiting writers
+        const int num_cfds = 1;
+        vset->WakeUpWaitingManifestWriters(num_cfds);
+        (void)num_cfds;
+        *io_s = IOStatus::OK();
+      }
     }
   }
   commit_in_progress_ = false;
