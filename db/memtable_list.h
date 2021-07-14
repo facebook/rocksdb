@@ -221,7 +221,8 @@ class MemTableList {
         flush_requested_(false),
         current_memory_usage_(0),
         current_memory_usage_excluding_last_(0),
-        current_has_history_(false) {
+        current_has_history_(false),
+        has_silent_memtables_(false) {
     current_->Ref();
   }
 
@@ -247,7 +248,7 @@ class MemTableList {
 
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
-  bool IsFlushPending() const;
+  bool IsFlushPending();
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
@@ -312,7 +313,14 @@ class MemTableList {
   // non-empty (regardless of the min_write_buffer_number_to_merge
   // parameter). This flush request will persist until the next time
   // PickMemtablesToFlush() is called.
-  void FlushRequested() { flush_requested_ = true; }
+  void FlushRequested() {
+    flush_requested_ = true;
+    // If there are some memtables stored in imm() that dont trigger
+    // flush (eg: mempurge output memtable), then update imm_flush_needed.
+    if (num_flush_not_started_ > 0) {
+      imm_flush_needed.store(true, std::memory_order_release);
+    }
+  }
 
   bool HasFlushRequested() { return flush_requested_; }
 
@@ -383,6 +391,13 @@ class MemTableList {
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
 
+  void SetHasSilentMemtables(const bool silent_memtables) {
+    has_silent_memtables_ = silent_memtables;
+  }
+  bool GetHasSilentMemtables() { return has_silent_memtables_; }
+  int NumFlushNotStarted() { return num_flush_not_started_; }
+  int MinWriteBufferNumToMerge() { return min_write_buffer_number_to_merge_; }
+
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
@@ -426,6 +441,8 @@ class MemTableList {
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;
+
+  bool has_silent_memtables_;
 };
 
 // Installs memtable atomic flush results.

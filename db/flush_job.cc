@@ -544,9 +544,20 @@ Status FlushJob::MemPurge() {
       // only if it filled at less than 60% capacity (arbitrary heuristic).
       if (new_mem->ApproximateMemoryUsage() < maxSize) {
         db_mutex_->Lock();
+        // Indicate that imm() contains silent memtables,
+        // meaning a memtable that does not trigger flush upon addition.
+        // if (cfd_->imm()->NumFlushNotStarted() >=
+        // cfd_->imm()->MinWriteBufferNumToMerge()){
+        //   s = Status::Aborted(Slice("Mempurge filled more than one
+        //   memtable.")); if (new_mem) {
+        //     job_context_->memtables_to_free.push_back(new_mem);
+        //   }
+        // }else {
+        cfd_->imm()->SetHasSilentMemtables(true);
         cfd_->imm()
-            ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
+              ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
         new_mem->Ref();
+        // }
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));

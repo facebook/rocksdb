@@ -324,9 +324,18 @@ bool MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
 
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
-bool MemTableList::IsFlushPending() const {
-  if ((flush_requested_ && num_flush_not_started_ > 0) ||
-      (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
+bool MemTableList::IsFlushPending() {
+  if (flush_requested_ && num_flush_not_started_ > 0) {
+    // if ((flush_requested_ && num_flush_not_started_ > 0) ||
+    //     (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
+    // if (has_silent_memtables_ &&
+    // !imm_flush_needed.load(std::memory_order_relaxed)){
+    //   imm_flush_needed.store(true, std::memory_order_release);
+    // }
+    assert(imm_flush_needed.load(std::memory_order_relaxed));
+    return true;
+  }
+  if (num_flush_not_started_ >= min_write_buffer_number_to_merge_) {
     assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
   }
@@ -353,6 +362,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       num_flush_not_started_--;
       if (num_flush_not_started_ == 0) {
         imm_flush_needed.store(false, std::memory_order_release);
+        // has_silent_memtables_ = false;
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
@@ -476,6 +486,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
       uint64_t min_wal_number_to_keep = 0;
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
+        // // If mempurge is activated, then there may be an imm memtable
+        // // with unflushed data that will not be flushed anytime soon.
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
         // // If mempurge is activated, then there may be an imm memtable
@@ -554,6 +566,15 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
   current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
+
+  // // If this is the only memtable and it must not
+  // // trigger flush, then make sure there is no flush needed.
+  // // Note: should not happen because in mempurge, old memtables
+  // // are deleted after the Add(mempurge_new_mem).
+  // if (num_flush_not_started_ == 1 && !trigger_flush){
+  //   imm_flush_needed.store(false, std::memory_order_release);
+  //   has_silent_memtables_ = false;
+  // }
 
   if (num_flush_not_started_ > 0 && trigger_flush) {
     imm_flush_needed.store(true, std::memory_order_release);
