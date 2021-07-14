@@ -2397,13 +2397,17 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     assert(flush_req.size() == 1);
     ColumnFamilyData* cfd = flush_req[0].first;
     assert(cfd);
-    // if kWriteBufferFull, then IsFlushPending shiuld work
-    // else (eg: WALFull), #_not_started_flushes >= min_wf_to_merge
-    // so we need to schedule
-    // if (immutable_db_options_.experimental_allow_mempurge &&
-    //     flush_reason != FlushReason::kWriteBufferFull) {
-    //   cfd->imm()->FlushRequested();
-    // }
+    // Note: SchedulePendingFlush is always preceded
+    // with an imm()->FlushRequested() call. However,
+    // we want to make this code snipper more resilient to
+    // future changes. Therefore, we add the following if
+    // statement - note that calling it twice (or more)
+    // doesn't break anything.
+    if (immutable_db_options_.experimental_allow_mempurge) {
+      // If imm() contains silent memtables,
+      // requesting a flush will mark the imm_needed as true.
+      cfd->imm()->FlushRequested();
+    }
     if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
       cfd->Ref();
       cfd->set_queued_for_flush(true);

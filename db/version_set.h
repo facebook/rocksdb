@@ -1014,7 +1014,7 @@ class VersionSet {
                                        FileSystem* fs,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
-  void WakeUpWaitingManifestWriters(const int num_cfds);
+  void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families

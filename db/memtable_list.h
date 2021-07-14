@@ -221,8 +221,7 @@ class MemTableList {
         flush_requested_(false),
         current_memory_usage_(0),
         current_memory_usage_excluding_last_(0),
-        current_has_history_(false),
-        has_silent_memtables_(false) {
+        current_has_history_(false) {
     current_->Ref();
   }
 
@@ -317,6 +316,10 @@ class MemTableList {
     flush_requested_ = true;
     // If there are some memtables stored in imm() that dont trigger
     // flush (eg: mempurge output memtable), then update imm_flush_needed.
+    // Note: if race condition and imm_flush_needed is set to true
+    // when there is num_flush_not_started_==0, then there is no
+    // impact whatsoever. Imm_flush_needed is only used in an assert
+    // in IsFlushPending().
     if (num_flush_not_started_ > 0) {
       imm_flush_needed.store(true, std::memory_order_release);
     }
@@ -391,13 +394,6 @@ class MemTableList {
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
 
-  void SetHasSilentMemtables(const bool silent_memtables) {
-    has_silent_memtables_ = silent_memtables;
-  }
-  bool GetHasSilentMemtables() { return has_silent_memtables_; }
-  int NumFlushNotStarted() { return num_flush_not_started_; }
-  int MinWriteBufferNumToMerge() { return min_write_buffer_number_to_merge_; }
-
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
@@ -441,8 +437,6 @@ class MemTableList {
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;
-
-  bool has_silent_memtables_;
 };
 
 // Installs memtable atomic flush results.

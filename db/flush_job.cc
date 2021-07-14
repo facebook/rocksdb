@@ -273,7 +273,9 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
         log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
-        !(mempurge_s.ok()));
+        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+                              but 'false' if mempurge successful: no new min log number
+                              or new level 0 file path to write to manifest. */);
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -544,20 +546,13 @@ Status FlushJob::MemPurge() {
       // only if it filled at less than 60% capacity (arbitrary heuristic).
       if (new_mem->ApproximateMemoryUsage() < maxSize) {
         db_mutex_->Lock();
-        // Indicate that imm() contains silent memtables,
-        // meaning a memtable that does not trigger flush upon addition.
-        // if (cfd_->imm()->NumFlushNotStarted() >=
-        // cfd_->imm()->MinWriteBufferNumToMerge()){
-        //   s = Status::Aborted(Slice("Mempurge filled more than one
-        //   memtable.")); if (new_mem) {
-        //     job_context_->memtables_to_free.push_back(new_mem);
-        //   }
-        // }else {
-        cfd_->imm()->SetHasSilentMemtables(true);
-        cfd_->imm()
-              ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
+        cfd_->imm()->Add(new_mem,
+                         &job_context_->memtables_to_free,
+                         false /* -> trigger_flush=false:
+                                * adding this memtable
+                                * will not trigger a flush.
+                                */);
         new_mem->Ref();
-        // }
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));

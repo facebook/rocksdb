@@ -4414,10 +4414,9 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
-void VersionSet::WakeUpWaitingManifestWriters(const int num_cfds) {
+void VersionSet::WakeUpWaitingManifestWriters() {
   // wake up all the waiting writers
   // Notify new head of manifest write queue.
-  (void)num_cfds;
   if (!manifest_writers_.empty()) {
     manifest_writers_.front()->cv.Signal();
   }

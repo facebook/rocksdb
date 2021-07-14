@@ -353,7 +353,6 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       num_flush_not_started_--;
       if (num_flush_not_started_ == 0) {
         imm_flush_needed.store(false, std::memory_order_release);
-        // has_silent_memtables_ = false;
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
@@ -477,18 +476,11 @@ Status MemTableList::TryInstallMemtableFlushResults(
       uint64_t min_wal_number_to_keep = 0;
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
-        // // If mempurge is activated, then there may be an imm memtable
-        // // with unflushed data that will not be flushed anytime soon.
+        // Note that if mempurge is successful, the edit_list will
+        // not be written to the manifest file.
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
-        // // If mempurge is activated, then there may be an imm memtable
-        // // with unflushed data that will not be flushed anytime soon.
-        // if (vset->db_options()->experimental_allow_mempurge) {
-        //   uint64_t log_num = EarliestLogContainingData();
-        //   if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
-        //     min_wal_number_to_keep = log_num;
-        //   }
-        // }
+
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
@@ -500,14 +492,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
           min_wal_number_to_keep =
               PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
         }
-        // // If mempurge is activated, then there may be an imm memtable
-        // // with unflushed data that will not be flushed anytime soon.
-        // if (vset->db_options()->experimental_allow_mempurge) {
-        //   uint64_t log_num = EarliestLogContainingData();
-        //   if (log_num > 0 && (log_num < min_wal_number_to_keep)) {
-        //     min_wal_number_to_keep = log_num;
-        //   }
-        // }
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
@@ -529,13 +513,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
                               manifest_write_cb);
         *io_s = vset->io_status();
       } else {
+        // If write_edit is false (e.g: successful mempurge),
+        // then remove old memtables, wake up manifest write queue threads,
+        // and don't commit anything to the manifest file.
         // Notify new head of manifest write queue.
         // wake up all the waiting writers
-        const int num_cfds = 1;
         RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
                                       to_delete, mu);
-        vset->WakeUpWaitingManifestWriters(num_cfds);
-        (void)num_cfds;
+        vset->WakeUpWaitingManifestWriters();
         *io_s = IOStatus::OK();
       }
     }
@@ -557,15 +542,6 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
   current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
-
-  // // If this is the only memtable and it must not
-  // // trigger flush, then make sure there is no flush needed.
-  // // Note: should not happen because in mempurge, old memtables
-  // // are deleted after the Add(mempurge_new_mem).
-  // if (num_flush_not_started_ == 1 && !trigger_flush){
-  //   imm_flush_needed.store(false, std::memory_order_release);
-  //   has_silent_memtables_ = false;
-  // }
 
   if (num_flush_not_started_ > 0 && trigger_flush) {
     imm_flush_needed.store(true, std::memory_order_release);
