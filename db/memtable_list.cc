@@ -529,6 +529,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // Notify new head of manifest write queue.
         // wake up all the waiting writers
         const int num_cfds = 1;
+        RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
+                                      to_delete, mu);
         vset->WakeUpWaitingManifestWriters(num_cfds);
         (void)num_cfds;
         *io_s = IOStatus::OK();
