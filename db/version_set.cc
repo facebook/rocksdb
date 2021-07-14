@@ -1939,6 +1939,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                                 fp.GetHitFileLevel());
     }
     if (!status->ok()) {
+      if (db_statistics_ != nullptr) {
+        get_context.ReportCounters();
+      }
       return;
     }
 
