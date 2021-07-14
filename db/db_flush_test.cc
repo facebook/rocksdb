@@ -1132,6 +1132,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
 
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v5", Get(1, "baz"));
+    ASSERT_OK(Put(0, "bar", "v2"));
     ASSERT_OK(Put(1, "bar", "v2"));
     ASSERT_OK(Put(1, "foo", "v3"));
     uint32_t mempurge_count = 0;
@@ -1160,8 +1161,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     Random rnd(719);
     const size_t NUM_REPEAT = 100;
     const size_t RAND_VALUES_LENGTH = 10240;
-    std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_rv1,
-        p_rv2, p_rv3;
+    std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_v5_1,
+        p_v6_1, p_v7_1, p_v8_1, p_v9_1;
 
     // Insert a very first set of keys that will be
     // mempurged at least once.
@@ -1169,16 +1170,30 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
     p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
     p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
-    ASSERT_OK(Put(KEY1, p_v1));
-    ASSERT_OK(Put(KEY2, p_v2));
-    ASSERT_OK(Put(KEY3, p_v3));
-    ASSERT_OK(Put(KEY4, p_v4));
-    ASSERT_EQ(Get(KEY1), p_v1);
-    ASSERT_EQ(Get(KEY2), p_v2);
-    ASSERT_EQ(Get(KEY3), p_v3);
-    ASSERT_EQ(Get(KEY4), p_v4);
 
-    // Insertion of of K-V pairs, multiple times (overwrites).
+    // Insert KEY1, KEY2, KEY3, KEY4 to
+    // both 'default' and 'pikachu' CFs.
+    ASSERT_OK(Put(0, KEY1, p_v1));
+    ASSERT_OK(Put(0, KEY2, p_v2));
+    ASSERT_OK(Put(0, KEY3, p_v3));
+    ASSERT_OK(Put(0, KEY4, p_v4));
+    ASSERT_OK(Put(1, KEY1, p_v1));
+    ASSERT_OK(Put(1, KEY2, p_v2));
+    ASSERT_OK(Put(1, KEY3, p_v3));
+    ASSERT_OK(Put(1, KEY4, p_v4));
+
+    // Check that the insertion was seamless.
+    ASSERT_EQ(Get(0, KEY1), p_v1);
+    ASSERT_EQ(Get(0, KEY2), p_v2);
+    ASSERT_EQ(Get(0, KEY3), p_v3);
+    ASSERT_EQ(Get(0, KEY4), p_v4);
+    ASSERT_EQ(Get(1, KEY1), p_v1);
+    ASSERT_EQ(Get(1, KEY2), p_v2);
+    ASSERT_EQ(Get(1, KEY3), p_v3);
+    ASSERT_EQ(Get(1, KEY4), p_v4);
+
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'default' CF. Will trigger mempurge.
     for (size_t i = 0; i < NUM_REPEAT; i++) {
       // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
       p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
@@ -1193,6 +1208,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
       ASSERT_OK(Put(KEY8, p_v8));
       ASSERT_OK(Put(KEY9, p_v9));
 
+      // Check key validity.
       ASSERT_EQ(Get(KEY1), p_v1);
       ASSERT_EQ(Get(KEY2), p_v2);
       ASSERT_EQ(Get(KEY3), p_v3);
@@ -1204,6 +1220,36 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
       ASSERT_EQ(Get(KEY9), p_v9);
     }
 
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'pikachu' CF. Will trigger mempurge.
+    // Check that we keep the older logs for 'default' imm().
+    for (size_t i = 0; i < NUM_REPEAT; i++) {
+      // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+      p_v5_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+      p_v6_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+      p_v7_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+      p_v8_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+      p_v9_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+
+      // Insertion into 'Pikachu' CF.
+      ASSERT_OK(Put(1, KEY5, p_v5_1));
+      ASSERT_OK(Put(1, KEY6, p_v6_1));
+      ASSERT_OK(Put(1, KEY7, p_v7_1));
+      ASSERT_OK(Put(1, KEY8, p_v8_1));
+      ASSERT_OK(Put(1, KEY9, p_v9_1));
+
+      // Check key validity.
+      ASSERT_EQ(Get(1, KEY1), p_v1);
+      ASSERT_EQ(Get(1, KEY2), p_v2);
+      ASSERT_EQ(Get(1, KEY3), p_v3);
+      ASSERT_EQ(Get(1, KEY4), p_v4);
+      ASSERT_EQ(Get(1, KEY5), p_v5_1);
+      ASSERT_EQ(Get(1, KEY6), p_v6_1);
+      ASSERT_EQ(Get(1, KEY7), p_v7_1);
+      ASSERT_EQ(Get(1, KEY8), p_v8_1);
+      ASSERT_EQ(Get(1, KEY9), p_v9_1);
+    }
+
     // Check that there was at least one mempurge
     const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
     // Check that there was no SST files created during flush.
@@ -1213,11 +1259,16 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
 
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    // Check that there was no data corruption anywhere,
+    // not in 'default' nor in 'Pikachu' CFs.
     ASSERT_EQ("v3", Get(1, "foo"));
     ASSERT_OK(Put(1, "foo", "v4"));
     ASSERT_EQ("v4", Get(1, "foo"));
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
+    // Check keys in 'Default'.
+    // KEY1-KEY4 were for sure contained
+    // in the imm() at Reopen/recovery time.
     ASSERT_EQ(Get(KEY1), p_v1);
     ASSERT_EQ(Get(KEY2), p_v2);
     ASSERT_EQ(Get(KEY3), p_v3);
@@ -1227,6 +1278,18 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     ASSERT_EQ(Get(KEY7), p_v7);
     ASSERT_EQ(Get(KEY8), p_v8);
     ASSERT_EQ(Get(KEY9), p_v9);
+    // Check keys in 'Pikachu'.
+    // KEY1-KEY4 were for sure contained
+    // in the imm() at Reopen/recovery time.
+    ASSERT_EQ(Get(1, KEY1), p_v1);
+    ASSERT_EQ(Get(1, KEY2), p_v2);
+    ASSERT_EQ(Get(1, KEY3), p_v3);
+    ASSERT_EQ(Get(1, KEY4), p_v4);
+    ASSERT_EQ(Get(1, KEY5), p_v5_1);
+    ASSERT_EQ(Get(1, KEY6), p_v6_1);
+    ASSERT_EQ(Get(1, KEY7), p_v7_1);
+    ASSERT_EQ(Get(1, KEY8), p_v8_1);
+    ASSERT_EQ(Get(1, KEY9), p_v9_1);
   } while (ChangeWalOptions());
 }
 
