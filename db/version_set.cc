@@ -4416,42 +4416,6 @@ Status VersionSet::ProcessManifestWrites(
 
 void VersionSet::WakeUpWaitingManifestWriters(const int num_cfds) {
   // wake up all the waiting writers
-  // while (true) {
-  //   ManifestWriter* ready = manifest_writers_.front();
-  //   manifest_writers_.pop_front();
-  //   bool need_signal = true;
-  //   for (const auto& w : writers) {
-  //     if (&w == ready) {
-  //       need_signal = false;
-  //       break;
-  //     }
-  //   }
-  //   ready->status = s;
-  //   ready->done = true;
-  //   if (ready->manifest_write_callback) {
-  //     (ready->manifest_write_callback)(s);
-  //   }
-  //   if (need_signal) {
-  //     ready->cv.Signal();
-  //   }
-  //   if (ready == last_writer) {
-  //     break;
-  //   }
-  // }
-  // if (!manifest_writers_.empty()) {
-  //   manifest_writers_.front()->cv.Signal();
-  // }
-  // int num_cfds = static_cast<int>(column_family_datas.size());
-
-  // while (!first_writer.done && &first_writer != manifest_writers_.front()) {
-  //   first_writer.cv.Wait();
-  // }
-  // if (first_writer.done) {
-  //   return;
-  // }
-  // for (int i = 0; i != num_cfds; ++i) {
-  //   manifest_writers_.pop_front();
-  // }
   // Notify new head of manifest write queue.
   (void)num_cfds;
   if (!manifest_writers_.empty()) {

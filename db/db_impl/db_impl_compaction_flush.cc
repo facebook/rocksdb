@@ -2400,10 +2400,10 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     // if kWriteBufferFull, then IsFlushPending shiuld work
     // else (eg: WALFull), #_not_started_flushes >= min_wf_to_merge
     // so we need to schedule
-    if (immutable_db_options_.experimental_allow_mempurge &&
-        flush_reason != FlushReason::kWriteBufferFull) {
-      cfd->imm()->FlushRequested();
-    }
+    // if (immutable_db_options_.experimental_allow_mempurge &&
+    //     flush_reason != FlushReason::kWriteBufferFull) {
+    //   cfd->imm()->FlushRequested();
+    // }
     if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
       cfd->Ref();
       cfd->set_queued_for_flush(true);
