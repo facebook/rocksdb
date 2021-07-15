@@ -1,8 +1,11 @@
 # Rocksdb Change Log
+## 6.22.2 (2021-07-14)
+### Bug Fixes
+* Fix continuous logging of an existing background error on every user write
+
 ## 6.22.1 (2021-06-25)
 ### Bug Fixes
 * `GetLiveFilesMetaData()` now populates the `temperature`, `oldest_ancester_time`, and `file_creation_time` fields of its `LiveFileMetaData` results when the information is available. Previously these fields always contained zero indicating unknown.
-* Fix continuous logging of an existing background error on every user write
 
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
