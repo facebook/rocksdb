@@ -137,6 +137,7 @@ class CacheEntryStatsCollector {
                                  Cache::Priority::HIGH);
         if (!s.ok()) {
           assert(h == nullptr);
+          delete new_ptr;
           return s;
         }
       }
