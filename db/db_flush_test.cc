@@ -1151,13 +1151,14 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
       keys.push_back("IamKey" + std::to_string(k));
     }
 
-    std::string RNDKEY1, RNDKEY2, RNDKEY3;
+    std::string RNDKEY, RNDVALUE;
     const std::string NOT_FOUND = "NOT_FOUND";
 
     // Heavy overwrite workload,
     // more than would fit in maximum allowed memtables.
     Random rnd(719);
     const size_t NUM_REPEAT = 100;
+    const size_t RAND_KEY_LENGTH = 8192;
     const size_t RAND_VALUES_LENGTH = 1024;
     std::vector<std::string> values_default(KVSIZE), values_pikachu(KVSIZE);
 
@@ -1251,6 +1252,27 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
       ASSERT_EQ(Get(0, keys[k]), values_default[k]);
       ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
     }
+    // Insertion of random K-V pairs to trigger
+    // a flush in the Pikachu CF.
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      RNDKEY = rnd.RandomString(RAND_KEY_LENGTH);
+      RNDVALUE = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(1, RNDKEY, RNDVALUE));
+    }
+    // ASsert than there was at least one flush to storage.
+    EXPECT_GT(sst_count, EXPECTED_SST_COUNT);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v4", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    // Since values in default are held in mutable mem()
+    // and imm(), check if the flush in pikachu didn't
+    // affect these values.
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+    ASSERT_EQ(Get(1, RNDKEY), RNDVALUE);
   } while (ChangeWalOptions());
 }
 
