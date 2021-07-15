@@ -2558,16 +2558,10 @@ void StressTest::Open() {
             ingest_read_error = false;
 
             Random rand(static_cast<uint32_t>(FLAGS_seed));
-// TODO: This is disabled for now as deleting the CURRENT file after open
-// failure causes the DB to not be reopened again due to the presence of
-// WAL files, which DB::Open considers to be a corruption. Re-enable once
-// we figure out a proper fix
-#if 0
             if (rand.OneIn(2)) {
               fault_fs_guard->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
                                                                  nullptr);
             }
-#endif
             if (rand.OneIn(3)) {
               fault_fs_guard->DropUnsyncedFileData();
             } else if (rand.OneIn(2)) {

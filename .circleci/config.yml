@@ -91,6 +91,13 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
 
+  install-benchmark:
+    steps:
+      - run: # currently doesn't support ubuntu-1604 which doesn't have libbenchmark package, user can still install by building it youself
+          name: Install benchmark
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
+
   upgrade-cmake:
     steps:
       - run:
@@ -317,7 +324,8 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - install-gflags
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) | .circleci/cat_ignore_eagain
+      - install-benchmark
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity:
@@ -368,6 +376,17 @@ jobs:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
       - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
+  build-linux-microbench:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: xlarge
+    steps:
+      - pre-steps
+      - install-benchmark
+      - run: DEBUG_LEVEL=0 make microbench | .circleci/cat_ignore_eagain
       - post-steps
 
   build-windows:
@@ -778,6 +797,9 @@ workflows:
   build-linux-arm:
     jobs:
       - build-linux-arm
+  build-microbench:
+    jobs:
+      - build-linux-microbench
   nightly:
     triggers:
       - schedule:
