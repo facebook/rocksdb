@@ -36,6 +36,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/block_like_traits.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -1248,13 +1249,12 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
-      if (is_data_block &&
-          r->table_options.prepopulate_block_cache ==
-              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
+      if (r->table_options.prepopulate_block_cache ==
+          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
         if (type == kNoCompression) {
-          s = InsertBlockInCache(block_contents, handle);
+          s = InsertBlockInCacheHelper(block_contents, handle, block_type);
         } else if (raw_block_contents != nullptr) {
-          s = InsertBlockInCache(*raw_block_contents, handle);
+          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type);
         }
         if (!s.ok()) {
           r->SetStatus(s);
@@ -1329,7 +1329,6 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     }
 
     r->pc_rep->file_size_estimator.SetCurrBlockRawSize(block_rep->data->size());
-
     WriteRawBlock(block_rep->compressed_contents, block_rep->compression_type,
                   &r->pending_handle, BlockType::kData, &block_rep->contents);
     if (!ok()) {
@@ -1460,8 +1459,27 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
   return s;
 }
 
+Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
+    const Slice& block_contents, const BlockHandle* handle,
+    BlockType block_type) {
+  Status s;
+  if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
+    return InsertBlockInCache<Block>(block_contents, handle, block_type);
+  } else if (block_type == BlockType::kFilter) {
+    if (rep_->filter_builder->IsBlockBased()) {
+      return InsertBlockInCache<Block>(block_contents, handle, block_type);
+    } else {
+      return InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
+                                                       block_type);
+    }
+  }
+  return s;
+}
+
+template <typename TBlocklike>
 Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
-                                                  const BlockHandle* handle) {
+                                                  const BlockHandle* handle,
+                                                  BlockType block_type) {
   // Uncompressed regular block cache
   Cache* block_cache = rep_->table_options.block_cache.get();
   Status s;
@@ -1479,15 +1497,25 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
     const size_t read_amp_bytes_per_bit =
         rep_->table_options.read_amp_bytes_per_bit;
-    Block* block = new Block(std::move(results), read_amp_bytes_per_bit);
-    size_t charge = block->ApproximateMemoryUsage();
-    s = block_cache->Insert(key, block, charge, &DeleteEntryCached<Block>);
-    if (s.ok()) {
-      BlockBasedTable::UpdateCacheInsertionMetrics(
-          BlockType::kData, nullptr /*get_context*/, charge,
-          s.IsOkOverwritten(), rep_->ioptions.stats);
-    } else {
-      RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
+
+    TBlocklike* block_holder = BlocklikeTraits<TBlocklike>::Create(
+        std::move(results), read_amp_bytes_per_bit,
+        rep_->ioptions.statistics.get(),
+        false /*rep_->blocks_definitely_zstd_compressed*/,
+        rep_->table_options.filter_policy.get());
+
+    if (block_holder->own_bytes()) {
+      size_t charge = block_holder->ApproximateMemoryUsage();
+      s = block_cache->Insert(key, block_holder, charge,
+                              &DeleteEntryCached<TBlocklike>);
+
+      if (s.ok()) {
+        BlockBasedTable::UpdateCacheInsertionMetrics(
+            block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
+            rep_->ioptions.stats);
+      } else {
+        RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
+      }
     }
   }
   return s;

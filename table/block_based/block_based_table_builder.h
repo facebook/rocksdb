@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <limits>
 #include <string>
 #include <utility>
@@ -116,12 +117,20 @@ class BlockBasedTableBuilder : public TableBuilder {
                   BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
+
                      BlockType block_type, const Slice* raw_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
+  template <typename TBlocklike>
   Status InsertBlockInCache(const Slice& block_contents,
-                            const BlockHandle* handle);
+                            const BlockHandle* handle,
+                            BlockType block_type);
+
+  Status InsertBlockInCacheHelper(const Slice& block_contents,
+                                  const BlockHandle* handle,
+                                  BlockType block_type);
+
   Status InsertBlockInCompressedCache(const Slice& block_contents,
                                       const CompressionType type,
                                       const BlockHandle* handle);
