@@ -5,8 +5,6 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 
-#include <bits/stdint-uintn.h>
-
 #include <cstdlib>
 
 #include "db/db_test_util.h"
