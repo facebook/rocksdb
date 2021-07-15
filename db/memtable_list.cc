@@ -477,7 +477,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
         // Note that if mempurge is successful, the edit_list will
-        // not be written to the manifest file.
+        // not be applicable (contains info of new min_log number to keep,
+        // and level 0 file path of SST file created during normal flush,
+        // so both pieces of information are irrelevant after a successful
+        // mempurge operation).
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
 
@@ -516,10 +519,11 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
         // and don't commit anything to the manifest file.
-        // Notify new head of manifest write queue.
-        // wake up all the waiting writers
         RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
                                       to_delete, mu);
+        // Notify new head of manifest write queue.
+        // wake up all the waiting writers
+        // TODO(bjlemaire): explain full reason needed or investigate more.
         vset->WakeUpWaitingManifestWriters();
         *io_s = IOStatus::OK();
       }

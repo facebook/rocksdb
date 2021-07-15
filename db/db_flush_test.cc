@@ -1116,11 +1116,13 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
 
-  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
-  options.write_buffer_size = 1 << 20;
+  // Enforce size of a single MemTable to 1MB.
+  options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
   ASSERT_OK(TryReopen(options));
+
+  const size_t KVSIZE = 10;
 
   do {
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -1144,15 +1146,11 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
         "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-    std::string KEY1 = "IamKey1";
-    std::string KEY2 = "IamKey2";
-    std::string KEY3 = "IamKey3";
-    std::string KEY4 = "IamKey4";
-    std::string KEY5 = "IamKey5";
-    std::string KEY6 = "IamKey6";
-    std::string KEY7 = "IamKey7";
-    std::string KEY8 = "IamKey8";
-    std::string KEY9 = "IamKey9";
+    std::vector<std::string> keys;
+    for (size_t k = 0; k < KVSIZE; k++) {
+      keys.push_back("IamKey" + std::to_string(k));
+    }
+
     std::string RNDKEY1, RNDKEY2, RNDKEY3;
     const std::string NOT_FOUND = "NOT_FOUND";
 
@@ -1160,94 +1158,74 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     // more than would fit in maximum allowed memtables.
     Random rnd(719);
     const size_t NUM_REPEAT = 100;
-    const size_t RAND_VALUES_LENGTH = 10240;
-    std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_v5_1,
-        p_v6_1, p_v7_1, p_v8_1, p_v9_1;
+    const size_t RAND_VALUES_LENGTH = 1024;
+    std::vector<std::string> values_default(KVSIZE), values_pikachu(KVSIZE);
 
     // Insert a very first set of keys that will be
     // mempurged at least once.
-    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
-    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+    }
 
-    // Insert KEY1, KEY2, KEY3, KEY4 to
+    // Insert keys[0:KVSIZE/2] to
     // both 'default' and 'pikachu' CFs.
-    ASSERT_OK(Put(0, KEY1, p_v1));
-    ASSERT_OK(Put(0, KEY2, p_v2));
-    ASSERT_OK(Put(0, KEY3, p_v3));
-    ASSERT_OK(Put(0, KEY4, p_v4));
-    ASSERT_OK(Put(1, KEY1, p_v1));
-    ASSERT_OK(Put(1, KEY2, p_v2));
-    ASSERT_OK(Put(1, KEY3, p_v3));
-    ASSERT_OK(Put(1, KEY4, p_v4));
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_OK(Put(0, keys[k], values_default[k]));
+      ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+    }
 
     // Check that the insertion was seamless.
-    ASSERT_EQ(Get(0, KEY1), p_v1);
-    ASSERT_EQ(Get(0, KEY2), p_v2);
-    ASSERT_EQ(Get(0, KEY3), p_v3);
-    ASSERT_EQ(Get(0, KEY4), p_v4);
-    ASSERT_EQ(Get(1, KEY1), p_v1);
-    ASSERT_EQ(Get(1, KEY2), p_v2);
-    ASSERT_EQ(Get(1, KEY3), p_v3);
-    ASSERT_EQ(Get(1, KEY4), p_v4);
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
 
     // Insertion of of K-V pairs, multiple times (overwrites)
     // into 'default' CF. Will trigger mempurge.
-    for (size_t i = 0; i < NUM_REPEAT; i++) {
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
       // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
-      p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v7 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v8 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v9 = rnd.RandomString(RAND_VALUES_LENGTH);
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
 
-      ASSERT_OK(Put(KEY5, p_v5));
-      ASSERT_OK(Put(KEY6, p_v6));
-      ASSERT_OK(Put(KEY7, p_v7));
-      ASSERT_OK(Put(KEY8, p_v8));
-      ASSERT_OK(Put(KEY9, p_v9));
+      // Insert K-V into default CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(0, keys[k], values_default[k]));
+      }
 
-      // Check key validity.
-      ASSERT_EQ(Get(KEY1), p_v1);
-      ASSERT_EQ(Get(KEY2), p_v2);
-      ASSERT_EQ(Get(KEY3), p_v3);
-      ASSERT_EQ(Get(KEY4), p_v4);
-      ASSERT_EQ(Get(KEY5), p_v5);
-      ASSERT_EQ(Get(KEY6), p_v6);
-      ASSERT_EQ(Get(KEY7), p_v7);
-      ASSERT_EQ(Get(KEY8), p_v8);
-      ASSERT_EQ(Get(KEY9), p_v9);
+      // Check key validity, for all keys, both in
+      // default and pikachu CFs.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      }
+      // Note that at this point, only keys[0:KVSIZE/2]
+      // have been inserted into Pikachu.
+      for (size_t k = 0; k < KVSIZE / 2; k++) {
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
     }
 
     // Insertion of of K-V pairs, multiple times (overwrites)
     // into 'pikachu' CF. Will trigger mempurge.
     // Check that we keep the older logs for 'default' imm().
-    for (size_t i = 0; i < NUM_REPEAT; i++) {
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
       // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
-      p_v5_1 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v6_1 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v7_1 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v8_1 = rnd.RandomString(RAND_VALUES_LENGTH);
-      p_v9_1 = rnd.RandomString(RAND_VALUES_LENGTH);
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
 
-      // Insertion into 'Pikachu' CF.
-      ASSERT_OK(Put(1, KEY5, p_v5_1));
-      ASSERT_OK(Put(1, KEY6, p_v6_1));
-      ASSERT_OK(Put(1, KEY7, p_v7_1));
-      ASSERT_OK(Put(1, KEY8, p_v8_1));
-      ASSERT_OK(Put(1, KEY9, p_v9_1));
+      // Insert K-V into pikachu CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+      }
 
-      // Check key validity.
-      ASSERT_EQ(Get(1, KEY1), p_v1);
-      ASSERT_EQ(Get(1, KEY2), p_v2);
-      ASSERT_EQ(Get(1, KEY3), p_v3);
-      ASSERT_EQ(Get(1, KEY4), p_v4);
-      ASSERT_EQ(Get(1, KEY5), p_v5_1);
-      ASSERT_EQ(Get(1, KEY6), p_v6_1);
-      ASSERT_EQ(Get(1, KEY7), p_v7_1);
-      ASSERT_EQ(Get(1, KEY8), p_v8_1);
-      ASSERT_EQ(Get(1, KEY9), p_v9_1);
+      // Check key validity, for all keys,
+      // both in default and pikachu.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
     }
 
     // Check that there was at least one mempurge
@@ -1266,30 +1244,13 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     ASSERT_EQ("v4", Get(1, "foo"));
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
-    // Check keys in 'Default'.
-    // KEY1-KEY4 were for sure contained
+    // Check keys in 'Default' and 'Pikachu'.
+    // keys[0:KVSIZE/2] were for sure contained
     // in the imm() at Reopen/recovery time.
-    ASSERT_EQ(Get(KEY1), p_v1);
-    ASSERT_EQ(Get(KEY2), p_v2);
-    ASSERT_EQ(Get(KEY3), p_v3);
-    ASSERT_EQ(Get(KEY4), p_v4);
-    ASSERT_EQ(Get(KEY5), p_v5);
-    ASSERT_EQ(Get(KEY6), p_v6);
-    ASSERT_EQ(Get(KEY7), p_v7);
-    ASSERT_EQ(Get(KEY8), p_v8);
-    ASSERT_EQ(Get(KEY9), p_v9);
-    // Check keys in 'Pikachu'.
-    // KEY1-KEY4 were for sure contained
-    // in the imm() at Reopen/recovery time.
-    ASSERT_EQ(Get(1, KEY1), p_v1);
-    ASSERT_EQ(Get(1, KEY2), p_v2);
-    ASSERT_EQ(Get(1, KEY3), p_v3);
-    ASSERT_EQ(Get(1, KEY4), p_v4);
-    ASSERT_EQ(Get(1, KEY5), p_v5_1);
-    ASSERT_EQ(Get(1, KEY6), p_v6_1);
-    ASSERT_EQ(Get(1, KEY7), p_v7_1);
-    ASSERT_EQ(Get(1, KEY8), p_v8_1);
-    ASSERT_EQ(Get(1, KEY9), p_v9_1);
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
   } while (ChangeWalOptions());
 }
 

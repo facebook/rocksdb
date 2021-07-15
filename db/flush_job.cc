@@ -370,8 +370,19 @@ Status FlushJob::MemPurge() {
   }
 
   assert(!memtables.empty());
-  SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
-  SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
+  SequenceNumber first_seqno = kMaxSequenceNumber;
+  SequenceNumber earliest_seqno = kMaxSequenceNumber;
+  // Pick first and earliest seqno as min of all first_seqno
+  // and earliest_seqno of the mempurged memtables.
+  for (const auto& mem : mems_) {
+    first_seqno = mem->GetFirstSequenceNumber() < first_seqno
+                      ? mem->GetFirstSequenceNumber()
+                      : first_seqno;
+    earliest_seqno = mem->GetEarliestSequenceNumber() < earliest_seqno
+                         ? mem->GetEarliestSequenceNumber()
+                         : earliest_seqno;
+  }
+
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
@@ -416,12 +427,9 @@ Status FlushJob::MemPurge() {
       }
     }
 
-    // mems are ordered by increasing ID, so mems_[0]->GetID
-    // returns the smallest memtable ID.
     new_mem = new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
                            mutable_cf_options_, cfd_->write_buffer_mgr(),
-                           mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID(),
-                           earliest_logno);
+                           earliest_seqno, cfd_->GetID(), earliest_logno);
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;
