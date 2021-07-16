@@ -1163,6 +1163,48 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
 
       cache->Release(h);
+
+      // Now we test that the DB mutex is not held during scans, for the ways
+      // we know how to (possibly) trigger them. Without a better good way to
+      // check this, we simply inject an acquire & release of the DB mutex
+      // deep in the stat collection code. If we were already holding the
+      // mutex, that is UB that would at least be found by TSAN.
+      int scan_count = 0;
+      SyncPoint::GetInstance()->SetCallBack(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries",
+          [this, &scan_count](void*) {
+            dbfull()->TEST_LockMutex();
+            dbfull()->TEST_UnlockMutex();
+            ++scan_count;
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      // Different things that might trigger a scan, with mock sleeps to
+      // force a miss.
+      env_->MockSleepForSeconds(10000);
+      dbfull()->DumpStats();
+      ASSERT_EQ(scan_count, 1);
+
+      env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(
+          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+      ASSERT_EQ(scan_count, 2);
+
+      env_->MockSleepForSeconds(10000);
+      std::string value_str;
+      ASSERT_TRUE(
+          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_EQ(scan_count, 3);
+
+      env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kCFStats, &value_str));
+      // To match historical speed, querying this property no longer triggers
+      // a scan, even if results are old. But periodic dump stats should keep
+      // things reasonably updated.
+      ASSERT_EQ(scan_count, /*unchanged*/ 3);
+
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
     }
     EXPECT_GE(iterations_tested, 1);
   }
