@@ -11,6 +11,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/lru_cache.h"
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/table.h"
@@ -152,13 +153,15 @@ class DBBlockCacheTest : public DBTestBase {
   }
 
 #ifndef ROCKSDB_LITE
-  const std::array<size_t, kNumCacheEntryRoles>& GetCacheEntryRoleCountsBg() {
+  const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
     ColumnFamilyHandleImpl* cfh =
         static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
     InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
-    return internal_stats_ptr->TEST_GetCacheEntryRoleStats(/*foreground=*/false)
-        .entry_counts;
+    InternalStats::CacheEntryRoleStats stats;
+    internal_stats_ptr->TEST_GetCacheEntryRoleStats(&stats,
+                                                    /*foreground=*/false);
+    return stats.entry_counts;
   }
 #endif  // ROCKSDB_LITE
 };
@@ -170,7 +173,13 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   auto options = GetOptions(table_options);
   InitTable(options);
 
-  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  LRUCacheOptions co;
+  co.capacity = 0;
+  co.num_shard_bits = 0;
+  co.strict_capacity_limit = false;
+  // Needed not to count entry stats collector
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
@@ -194,7 +203,13 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   auto options = GetOptions(table_options);
   InitTable(options);
 
-  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  LRUCacheOptions co;
+  co.capacity = 0;
+  co.num_shard_bits = 0;
+  co.strict_capacity_limit = false;
+  // Needed not to count entry stats collector
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
@@ -265,7 +280,13 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
 
   ReadOptions read_options;
   std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
-  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  LRUCacheOptions co;
+  co.capacity = 0;
+  co.num_shard_bits = 0;
+  co.strict_capacity_limit = false;
+  // Needed not to count entry stats collector
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   table_options.no_block_cache = false;
   table_options.block_cache_compressed = compressed_cache;
@@ -944,10 +965,15 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 }
 
 static void ClearCache(Cache* cache) {
+  auto roles = CopyCacheDeleterRoleMap();
   std::deque<std::string> keys;
   Cache::ApplyToAllEntriesOptions opts;
   auto callback = [&](const Slice& key, void* /*value*/, size_t /*charge*/,
-                      Cache::DeleterFn /*deleter*/) {
+                      Cache::DeleterFn deleter) {
+    if (roles.find(deleter) == roles.end()) {
+      // Keep the stats collector
+      return;
+    }
     keys.push_back(key.ToString());
   };
   cache->ApplyToAllEntries(callback, opts);
@@ -1126,6 +1152,9 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
                               &h, Cache::Priority::HIGH));
       ASSERT_GT(cache->GetUsage(), cache->GetCapacity());
       expected = {};
+      // For CacheEntryStatsCollector
+      expected[static_cast<size_t>(CacheEntryRole::kMisc)] = 1;
+      // For Fill-it-up
       expected[static_cast<size_t>(CacheEntryRole::kMisc)]++;
       // Still able to hit on saved stats
       EXPECT_EQ(prev_expected, GetCacheEntryRoleCountsBg());
@@ -1134,6 +1163,48 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       EXPECT_EQ(expected, GetCacheEntryRoleCountsBg());
 
       cache->Release(h);
+
+      // Now we test that the DB mutex is not held during scans, for the ways
+      // we know how to (possibly) trigger them. Without a better good way to
+      // check this, we simply inject an acquire & release of the DB mutex
+      // deep in the stat collection code. If we were already holding the
+      // mutex, that is UB that would at least be found by TSAN.
+      int scan_count = 0;
+      SyncPoint::GetInstance()->SetCallBack(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries",
+          [this, &scan_count](void*) {
+            dbfull()->TEST_LockMutex();
+            dbfull()->TEST_UnlockMutex();
+            ++scan_count;
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      // Different things that might trigger a scan, with mock sleeps to
+      // force a miss.
+      env_->MockSleepForSeconds(10000);
+      dbfull()->DumpStats();
+      ASSERT_EQ(scan_count, 1);
+
+      env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(
+          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+      ASSERT_EQ(scan_count, 2);
+
+      env_->MockSleepForSeconds(10000);
+      std::string value_str;
+      ASSERT_TRUE(
+          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_EQ(scan_count, 3);
+
+      env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kCFStats, &value_str));
+      // To match historical speed, querying this property no longer triggers
+      // a scan, even if results are old. But periodic dump stats should keep
+      // things reasonably updated.
+      ASSERT_EQ(scan_count, /*unchanged*/ 3);
+
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
     }
     EXPECT_GE(iterations_tested, 1);
   }
