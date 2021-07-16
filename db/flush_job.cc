@@ -272,7 +272,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s);
+        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
+        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+                              but 'false' if mempurge successful: no new min log number
+                              or new level 0 file path to write to manifest. */);
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -330,6 +333,17 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
+uint64_t FlushJob::ExtractEarliestLogFileNumber() {
+  uint64_t earliest_logno = 0;
+  for (MemTable* m : mems_) {
+    uint64_t logno = m->GetEarliestLogFileNumber();
+    if (logno > 0 && (earliest_logno == 0 || logno < earliest_logno)) {
+      earliest_logno = logno;
+    }
+  }
+  return earliest_logno;
+}
+
 Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
@@ -356,11 +370,24 @@ Status FlushJob::MemPurge() {
   }
 
   assert(!memtables.empty());
-  SequenceNumber first_seqno = mems_[0]->GetFirstSequenceNumber();
-  SequenceNumber earliest_seqno = mems_[0]->GetEarliestSequenceNumber();
+  SequenceNumber first_seqno = kMaxSequenceNumber;
+  SequenceNumber earliest_seqno = kMaxSequenceNumber;
+  // Pick first and earliest seqno as min of all first_seqno
+  // and earliest_seqno of the mempurged memtables.
+  for (const auto& mem : mems_) {
+    first_seqno = mem->GetFirstSequenceNumber() < first_seqno
+                      ? mem->GetFirstSequenceNumber()
+                      : first_seqno;
+    earliest_seqno = mem->GetEarliestSequenceNumber() < earliest_seqno
+                         ? mem->GetEarliestSequenceNumber()
+                         : earliest_seqno;
+  }
+
   ScopedArenaIterator iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
+
+  uint64_t earliest_logno = ExtractEarliestLogFileNumber();
 
   auto* ioptions = cfd_->ioptions();
 
@@ -400,12 +427,9 @@ Status FlushJob::MemPurge() {
       }
     }
 
-    // mems are ordered by increasing ID, so mems_[0]->GetID
-    // returns the smallest memtable ID.
-    new_mem =
-        new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
-                     mutable_cf_options_, cfd_->write_buffer_mgr(),
-                     mems_[0]->GetEarliestSequenceNumber(), cfd_->GetID());
+    new_mem = new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                           mutable_cf_options_, cfd_->write_buffer_mgr(),
+                           earliest_seqno, cfd_->GetID(), earliest_logno);
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;
@@ -530,8 +554,12 @@ Status FlushJob::MemPurge() {
       // only if it filled at less than 60% capacity (arbitrary heuristic).
       if (new_mem->ApproximateMemoryUsage() < maxSize) {
         db_mutex_->Lock();
-        cfd_->imm()
-            ->Add(new_mem, &job_context_->memtables_to_free, false /* trigger_flush. Adding this memtable will not trigger any flush */);
+        cfd_->imm()->Add(new_mem,
+                         &job_context_->memtables_to_free,
+                         false /* -> trigger_flush=false:
+                                * adding this memtable
+                                * will not trigger a flush.
+                                */);
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {

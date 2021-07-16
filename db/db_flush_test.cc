@@ -1106,6 +1106,176 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ASSERT_EQ(Get(KEY5), p_v5);
 }
 
+TEST_F(DBFlushTest, MemPurgeWALSupport) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 1MB.
+  options.write_buffer_size = 128 << 10;
+  // Activate the MemPurge prototype.
+  options.experimental_allow_mempurge = true;
+  ASSERT_OK(TryReopen(options));
+
+  const size_t KVSIZE = 10;
+
+  do {
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(Put(1, "foo", "v1"));
+    ASSERT_OK(Put(1, "baz", "v5"));
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v1", Get(1, "foo"));
+
+    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    ASSERT_OK(Put(0, "bar", "v2"));
+    ASSERT_OK(Put(1, "bar", "v2"));
+    ASSERT_OK(Put(1, "foo", "v3"));
+    uint32_t mempurge_count = 0;
+    uint32_t sst_count = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::FlushJob:MemPurgeSuccessful",
+        [&](void* /*arg*/) { mempurge_count++; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    std::vector<std::string> keys;
+    for (size_t k = 0; k < KVSIZE; k++) {
+      keys.push_back("IamKey" + std::to_string(k));
+    }
+
+    std::string RNDKEY, RNDVALUE;
+    const std::string NOT_FOUND = "NOT_FOUND";
+
+    // Heavy overwrite workload,
+    // more than would fit in maximum allowed memtables.
+    Random rnd(719);
+    const size_t NUM_REPEAT = 100;
+    const size_t RAND_KEY_LENGTH = 8192;
+    const size_t RAND_VALUES_LENGTH = 1024;
+    std::vector<std::string> values_default(KVSIZE), values_pikachu(KVSIZE);
+
+    // Insert a very first set of keys that will be
+    // mempurged at least once.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+    }
+
+    // Insert keys[0:KVSIZE/2] to
+    // both 'default' and 'pikachu' CFs.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_OK(Put(0, keys[k], values_default[k]));
+      ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+    }
+
+    // Check that the insertion was seamless.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'default' CF. Will trigger mempurge.
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
+
+      // Insert K-V into default CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(0, keys[k], values_default[k]));
+      }
+
+      // Check key validity, for all keys, both in
+      // default and pikachu CFs.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      }
+      // Note that at this point, only keys[0:KVSIZE/2]
+      // have been inserted into Pikachu.
+      for (size_t k = 0; k < KVSIZE / 2; k++) {
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
+    }
+
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'pikachu' CF. Will trigger mempurge.
+    // Check that we keep the older logs for 'default' imm().
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
+
+      // Insert K-V into pikachu CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+      }
+
+      // Check key validity, for all keys,
+      // both in default and pikachu.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
+    }
+
+    // Check that there was at least one mempurge
+    const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+    // Check that there was no SST files created during flush.
+    const uint32_t EXPECTED_SST_COUNT = 0;
+
+    EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+    EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    // Check that there was no data corruption anywhere,
+    // not in 'default' nor in 'Pikachu' CFs.
+    ASSERT_EQ("v3", Get(1, "foo"));
+    ASSERT_OK(Put(1, "foo", "v4"));
+    ASSERT_EQ("v4", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    // Check keys in 'Default' and 'Pikachu'.
+    // keys[0:KVSIZE/2] were for sure contained
+    // in the imm() at Reopen/recovery time.
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+    // Insertion of random K-V pairs to trigger
+    // a flush in the Pikachu CF.
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      RNDKEY = rnd.RandomString(RAND_KEY_LENGTH);
+      RNDVALUE = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(1, RNDKEY, RNDVALUE));
+    }
+    // ASsert than there was at least one flush to storage.
+    EXPECT_GT(sst_count, EXPECTED_SST_COUNT);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v4", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    // Since values in default are held in mutable mem()
+    // and imm(), check if the flush in pikachu didn't
+    // affect these values.
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+    ASSERT_EQ(Get(1, RNDKEY), RNDVALUE);
+  } while (ChangeWalOptions());
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
