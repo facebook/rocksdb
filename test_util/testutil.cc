@@ -672,7 +672,8 @@ class SpecialSkipListFactory : public MemTableRepFactory {
       const MemTableRep::KeyComparator& compare, Allocator* allocator,
       const SliceTransform* transform, Logger* /*logger*/) override {
     return new SpecialMemTableRep(
-        allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
+        allocator,
+        factory_.CreateMemTableRep(compare, allocator, transform, nullptr),
         num_entries_flush_);
   }
   static const char* kClassName() { return "SpecialSkipListFactory"; }

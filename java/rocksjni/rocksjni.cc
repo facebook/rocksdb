@@ -2692,7 +2692,7 @@ jobjectArray Java_org_rocksdb_RocksDB_compactFiles(
 void Java_org_rocksdb_RocksDB_cancelAllBackgroundWork(
         JNIEnv*, jobject, jlong jdb_handle, jboolean jwait) {
     auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-    rocksdb::CancelAllBackgroundWork(db, jwait);
+    ROCKSDB_NAMESPACE::CancelAllBackgroundWork(db, jwait);
 }
 
 /*

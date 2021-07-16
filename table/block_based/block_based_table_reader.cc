@@ -2341,6 +2341,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Update Saver.state to Found because we are only looking for
         // whether we can guarantee the key is not there when "no_io" is set
         get_context->MarkKeyMayExist();
+        s = biter.status();
         break;
       }
       if (!biter.status().ok()) {

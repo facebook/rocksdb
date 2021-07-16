@@ -12,6 +12,7 @@
 #include "db/dbformat.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/plain/plain_table_builder.h"
@@ -156,6 +157,9 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
+  // The MemTableRepFactory built-in classes will be either a class
+  // (VectorRepFactory) or a nickname (vector), followed optionally by ":#",
+  // where # is the "size" of the factory.
   auto AsRegex = [](const std::string& name, const std::string& alt) {
     std::string regex;
     regex.append("(").append(name);
@@ -218,7 +222,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MemTableRepFactory>(
-      AsRegex("cuckoo", "cuckoo"),
+      "cuckoo",
       [](const std::string& /*uri*/,
          std::unique_ptr<MemTableRepFactory>* /*guard*/, std::string* errmsg) {
         *errmsg = "cuckoo hash memtable is not supported anymore.";
@@ -259,10 +263,14 @@ Status MemTableRepFactory::CreateFromString(
     return Status::NotSupported("Cannot reset object ", id);
   } else {
 #ifndef ROCKSDB_LITE
-    status = config_options.registry->NewUniqueObject(id, result);
+    status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
+                                                 result);
 #else
+    // To make it possible to configure the memtables in LITE mode, the ID
+    // is of the form <name>:<size>, where name is the name of the class and
+    // <size> is the length of the object (e.g. skip_list:10).
     std::vector<std::string> opts_list = StringSplit(id, ':');
-    if (opts_list.empty() || opts_list.size() > 2) {
+    if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {
       status = Status::InvalidArgument("Can't parse memtable_factory option ",
                                        value);
     } else if (opts_list[0] == "skip_list" ||
@@ -275,30 +283,10 @@ Status MemTableRepFactory::CreateFromString(
       } else {
         result->reset(new SkipListFactory());
       }
-    } else if (opts_list[0] == "cuckoo") {
-      status = Status::NotSupported(
-          "cuckoo hash memtable is not supported anymore.");
-    } else {
+    } else if (!config_options.ignore_unsupported_options) {
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
     }
 #endif  // ROCKSDB_LITE
-  }
-  if (!status.ok()) {
-    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      return Status::OK();
-    } else {
-      return status;
-    }
-  } else if (result->get() != nullptr) {
-    //**TODO: Use Customizable::NewObject
-    if (!opt_map.empty()) {
-      status = result->get()->ConfigureFromMap(config_options, opt_map);
-    }
-    if (status.ok() && config_options.invoke_prepare_options) {
-      status = result->get()->PrepareOptions(config_options);
-    }
-  } else if (!opt_map.empty()) {
-    status = Status::InvalidArgument("Cannot configure null object");
   }
   return status;
 }

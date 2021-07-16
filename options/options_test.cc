@@ -579,6 +579,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
+  ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 }
 
 TEST_F(OptionsTest, CompressionOptionsFromString) {
@@ -2447,7 +2448,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             "memtable=skip_list:10;arena_block_size=1024",
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
-  ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
+  ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 }
 
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
