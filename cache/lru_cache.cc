@@ -557,6 +557,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     e->SetSecondaryCacheCompatible(true);
     e->info_.helper = helper;
   } else {
+#ifdef __SANITIZE_THREAD__
+    e->is_secondary_cache_compatible_for_tsan = false;
+#endif  // __SANITIZE_THREAD__
     e->info_.deleter = deleter;
   }
   e->charge = charge;

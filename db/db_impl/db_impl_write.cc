@@ -251,6 +251,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
   IOStatus io_s;
+  Status pre_release_cb_status;
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
@@ -361,7 +362,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               writer->sequence, disable_memtable, writer->log_used, index++,
               pre_release_callback_cnt);
           if (!ws.ok()) {
-            status = ws;
+            status = pre_release_cb_status = ws;
             break;
           }
         }
@@ -414,10 +415,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
+      assert(pre_release_cb_status.ok());
       IOStatusCheck(io_s);
     } else {
-      WriteStatusCheck(status);
+      WriteStatusCheck(pre_release_cb_status);
     }
+  } else {
+    assert(io_s.ok() && pre_release_cb_status.ok());
   }
 
   if (need_log_sync) {

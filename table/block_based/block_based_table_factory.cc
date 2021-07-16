@@ -230,9 +230,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
          */
         {"flush_block_policy_factory",
-         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
-          OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kCompareNever}},
+         OptionTypeInfo::AsCustomSharedPtr<FlushBlockPolicyFactory>(
+             offsetof(struct BlockBasedTableOptions,
+                      flush_block_policy_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareNever)},
         {"cache_index_and_filter_blocks",
          {offsetof(struct BlockBasedTableOptions,
                    cache_index_and_filter_blocks),

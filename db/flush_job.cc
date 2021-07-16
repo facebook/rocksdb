@@ -233,9 +233,17 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
       (!mems_.empty())) {
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "Mempurge process unsuccessful: %s\n",
-                     mempurge_s.ToString().c_str());
+      // Mempurge is typically aborted when the new_mem output memtable
+      // is filled at more than XX % capacity (currently: 60%).
+      if (mempurge_s.IsAborted()) {
+        ROCKS_LOG_INFO(db_options_.info_log, "Mempurge process aborted: %s\n",
+                       mempurge_s.ToString().c_str());
+      } else {
+        // However the mempurge process can also fail for
+        // other reasons (eg: new_mem->Add() fails).
+        ROCKS_LOG_WARN(db_options_.info_log, "Mempurge process failed: %s\n",
+                       mempurge_s.ToString().c_str());
+      }
     }
   }
   Status s;

@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
 
@@ -1115,6 +1116,39 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   Status s = db_secondary_->TryCatchUpWithPrimary();
   ASSERT_TRUE(s.IsCorruption());
 }
+
+TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db;
+
+  std::vector<std::string> cfs = {"new_CF"};
+  CreateColumnFamilies(cfs, options);
+  ASSERT_EQ(handles_.size(), 1);
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn1, nullptr);
+  ASSERT_OK(txn1->Put(handles_[0], "k1", "v1"));
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  ASSERT_OK(TryOpenSecondary(options));
+}
+
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
