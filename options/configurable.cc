@@ -747,15 +747,20 @@ Status ConfigurableHelper::GetOptionsMap(
 #ifndef ROCKSDB_LITE
   } else {
     status = StringToMap(value, props);
-    if (status.ok()) {
+    if (!status.ok()) {       // There was an error creating the map.
+      *id = value;            // Treat the value as id
+      props->clear();         // Clear the properties
+      status = Status::OK();  // and ignore the error
+    } else {
       auto iter = props->find(ConfigurableHelper::kIdPropName);
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);
-      } else if (default_id.empty()) {  // Should this be an error??
-        status = Status::InvalidArgument("Name property is missing");
-      } else {
+      } else if (!default_id.empty()) {
         *id = default_id;
+      } else {           // No id property and no default
+        *id = value;     // Treat the value as id
+        props->clear();  // Clear the properties
       }
     }
 #else
