@@ -1229,6 +1229,9 @@ DEFINE_bool(
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_bool(experimental_allow_mempurge, false,
+            "Allow memtable garbage collection.");
+
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
             "Support in-place memtable update for smaller or same-size values");
