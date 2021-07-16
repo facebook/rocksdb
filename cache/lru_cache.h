@@ -12,6 +12,7 @@
 #include <string>
 
 #include "cache/sharded_cache.h"
+#include "port/lang.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"

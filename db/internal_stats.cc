@@ -394,7 +394,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kDBStats,
          {false, &InternalStats::HandleDBStats, nullptr, nullptr, nullptr}},
         {DB::Properties::kBlockCacheEntryStats,
-         {false, &InternalStats::HandleBlockCacheEntryStats, nullptr,
+         {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
           &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
@@ -510,7 +510,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
           nullptr}},
         {DB::Properties::kOptionsStatistics,
-         {false, nullptr, nullptr, nullptr,
+         {true, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
 };
 
@@ -526,29 +526,41 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       number_levels_(num_levels),
       clock_(clock),
       cfd_(cfd),
-      started_at_(clock->NowMicros()) {}
-
-Status InternalStats::CollectCacheEntryStats(bool foreground) {
-  // Lazy initialize/reference the collector. It is pinned in cache (through
-  // a shared_ptr) so that it does not get immediately ejected from a full
-  // cache, which would force a re-scan on the next GetStats.
-  if (!cache_entry_stats_collector_) {
-    Cache* block_cache;
-    bool ok = HandleBlockCacheStat(&block_cache);
-    if (ok) {
-      // Extract or create stats collector.
-      Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
-          block_cache, clock_, &cache_entry_stats_collector_);
-      if (!s.ok()) {
-        // Block cache likely under pressure. Scanning could make it worse,
-        // so skip.
-        return s;
-      }
+      started_at_(clock->NowMicros()) {
+  Cache* block_cache = nullptr;
+  bool ok = GetBlockCacheForStats(&block_cache);
+  if (ok) {
+    assert(block_cache);
+    // Extract or create stats collector. Could fail in rare cases.
+    Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
+        block_cache, clock_, &cache_entry_stats_collector_);
+    if (s.ok()) {
+      assert(cache_entry_stats_collector_);
     } else {
-      return Status::NotFound("block cache not configured");
+      assert(!cache_entry_stats_collector_);
     }
+  } else {
+    assert(!block_cache);
   }
-  assert(cache_entry_stats_collector_);
+}
+
+void InternalStats::TEST_GetCacheEntryRoleStats(CacheEntryRoleStats* stats,
+                                                bool foreground) {
+  CollectCacheEntryStats(foreground);
+  if (cache_entry_stats_collector_) {
+    cache_entry_stats_collector_->GetStats(stats);
+  }
+}
+
+void InternalStats::CollectCacheEntryStats(bool foreground) {
+  // This function is safe to call from any thread because
+  // cache_entry_stats_collector_ field is const after constructor
+  // and ->GetStats does its own synchronization, which also suffices for
+  // cache_entry_stats_.
+
+  if (!cache_entry_stats_collector_) {
+    return;  // nothing to do (e.g. no block cache)
+  }
 
   // For "background" collections, strictly cap the collection time by
   // expanding effective cache TTL. For foreground, be more aggressive about
@@ -556,9 +568,8 @@ Status InternalStats::CollectCacheEntryStats(bool foreground) {
   int min_interval_seconds = foreground ? 10 : 180;
   // 1/500 = max of 0.2% of one CPU thread
   int min_interval_factor = foreground ? 10 : 500;
-  cache_entry_stats_collector_->GetStats(
-      &cache_entry_stats_, min_interval_seconds, min_interval_factor);
-  return Status::OK();
+  cache_entry_stats_collector_->CollectStats(min_interval_seconds,
+                                             min_interval_factor);
 }
 
 std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
@@ -649,21 +660,25 @@ void InternalStats::CacheEntryRoleStats::ToMap(
 
 bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
                                                Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats(/*foreground*/ true);
-  if (!s.ok()) {
+  if (!cache_entry_stats_collector_) {
     return false;
   }
-  *value = cache_entry_stats_.ToString(clock_);
+  CollectCacheEntryStats(/*foreground*/ true);
+  CacheEntryRoleStats stats;
+  cache_entry_stats_collector_->GetStats(&stats);
+  *value = stats.ToString(clock_);
   return true;
 }
 
 bool InternalStats::HandleBlockCacheEntryStatsMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats(/*foreground*/ true);
-  if (!s.ok()) {
+  if (!cache_entry_stats_collector_) {
     return false;
   }
-  cache_entry_stats_.ToMap(values, clock_);
+  CollectCacheEntryStats(/*foreground*/ true);
+  CacheEntryRoleStats stats;
+  cache_entry_stats_collector_->GetStats(&stats);
+  stats.ToMap(values, clock_);
   return true;
 }
 
@@ -1123,7 +1138,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
 }
 
-bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
+bool InternalStats::GetBlockCacheForStats(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory.get();
   assert(table_factory != nullptr);
@@ -1135,7 +1150,7 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
                                              Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1146,7 +1161,7 @@ bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
                                           Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1157,7 +1172,7 @@ bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
                                                 Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1504,7 +1519,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            vstorage->GetTotalBlobFileSize() / kGB);
   value->append(buf);
 
-  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  uint64_t now_micros = clock_->NowMicros();
+  double seconds_up = (now_micros - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
@@ -1619,14 +1635,20 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   cf_stats_snapshot_.comp_stats = compaction_stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
 
-  // Always treat CFStats context as "background"
-  Status s = CollectCacheEntryStats(/*foreground=*/false);
-  if (s.ok()) {
-    value->append(cache_entry_stats_.ToString(clock_));
-  } else {
-    value->append("Block cache: ");
-    value->append(s.ToString());
-    value->append("\n");
+  // Do not gather cache entry stats during CFStats because DB
+  // mutex is held. Only dump last cached collection (rely on DB
+  // periodic stats dump to update)
+  if (cache_entry_stats_collector_) {
+    CacheEntryRoleStats stats;
+    // thread safe
+    cache_entry_stats_collector_->GetStats(&stats);
+
+    constexpr uint64_t kDayInMicros = uint64_t{86400} * 1000000U;
+
+    // Skip if stats are extremely old (> 1 day, incl not yet populated)
+    if (now_micros - stats.last_end_time_micros_ < kDayInMicros) {
+      value->append(stats.ToString(clock_));
+    }
   }
 }
 
