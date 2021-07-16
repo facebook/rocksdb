@@ -2492,6 +2492,13 @@ void StressTest::Open() {
               FLAGS_open_metadata_write_fault_one_in);
         }
         if (ingest_write_error) {
+          if (!FLAGS_sync) {
+            // When DB Stress is not sync mode, we expect all WAL writes to
+            // WAL is durable. Buffering unsynced writes will cause false
+            // positive in crash tests. Before we figure out a way to
+            // solve it, skip WAL from failure injection.
+            fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
+          }
           fault_fs_guard->SetFilesystemDirectWritable(false);
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
@@ -2539,6 +2546,7 @@ void StressTest::Open() {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           fault_fs_guard->DisableWriteErrorInjection();
+          fault_fs_guard->SetSkipDirectWritableTypes({});
           fault_fs_guard->SetRandomReadError(0);
           if (s.ok()) {
             // Ingested errors might happen in background compactions. We

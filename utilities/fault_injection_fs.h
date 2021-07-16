@@ -286,6 +286,19 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     return filesystem_writable_;
   }
+  bool ShouldUseDiretWritable(const std::string& file_name) {
+    MutexLock l(&mutex_);
+    if (filesystem_writable_) {
+      return true;
+    }
+    FileType file_type = kTempFile;
+    uint64_t file_number = 0;
+    if (!TryParseFileName(file_name, &file_number, &file_type)) {
+      return false;
+    }
+    return skip_direct_writable_types_.find(file_type) !=
+           skip_direct_writable_types_.end();
+  }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     error.PermitUncheckedError();
@@ -394,6 +407,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     write_error_one_in_ = one_in;
     inject_for_all_file_types_ = inject_for_all_file_types;
     write_error_allowed_types_ = types;
+  }
+
+  void SetSkipDirectWritableTypes(const std::set<FileType>& types) {
+    MutexLock l(&mutex_);
+    skip_direct_writable_types_ = types;
   }
 
   void SetRandomMetadataWriteError(int one_in) {
@@ -528,9 +546,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   std::atomic<int> read_error_one_in_;
   bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
+  // File types where direct writable is skipped.
+  std::set<FileType> skip_direct_writable_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;
   bool fail_get_file_unique_id_;
+
+  // Extract number of type from file name. Return false if failing to fine
+  // them.
+  bool TryParseFileName(const std::string& file_name, uint64_t* number,
+                        FileType* type);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
