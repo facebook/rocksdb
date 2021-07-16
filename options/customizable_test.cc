@@ -785,6 +785,23 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_EQ(pointer, nullptr);
 }
 
+TEST_F(CustomizableTest, URLFactoryTest) {
+  std::unique_ptr<TestCustomizable> unique;
+  ConfigOptions ignore = config_options_;
+  ignore.ignore_unsupported_options = false;
+  ignore.ignore_unsupported_options = false;
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1;x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A=1;x=y");
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A;x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A;x=y");
+  unique.reset();
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1?x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A=1?x=y");
+}
+
 TEST_F(CustomizableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> mutable_option_info = {
       {"mutable",
