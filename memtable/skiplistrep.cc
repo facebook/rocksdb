@@ -277,7 +277,7 @@ static std::unordered_map<std::string, OptionTypeInfo> skiplist_factory_info = {
 #ifndef ROCKSDB_LITE
     {"lookahead",
      {0, OptionType::kSizeT, OptionVerificationType::kNormal,
-      OptionTypeFlags::kDontSerialize /*Since it is part of the ID*/, 0}},
+      OptionTypeFlags::kDontSerialize /*Since it is part of the ID*/}},
 #endif
 };
 
