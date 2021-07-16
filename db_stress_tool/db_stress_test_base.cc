@@ -2259,6 +2259,7 @@ void StressTest::Open() {
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options_.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
+    options_.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
     options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options_.ttl = FLAGS_compaction_ttl;
     options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
