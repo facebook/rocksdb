@@ -40,34 +40,36 @@ void Configurable::RegisterOptions(
 //*************************************************************************
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
+  // We ignore the invoke_prepare_options here intentionally,
+  // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
-  if (opts.invoke_prepare_options) {
 #ifndef ROCKSDB_LITE
-    for (auto opt_iter : options_) {
-      for (auto map_iter : *(opt_iter.type_map)) {
-        auto& opt_info = map_iter.second;
-        if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
-            opt_info.IsConfigurable()) {
-          if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
-            Configurable* config =
-                opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
-            if (config != nullptr) {
-              status = config->PrepareOptions(opts);
-              if (!status.ok()) {
-                return status;
-              }
-            } else if (!opt_info.CanBeNull()) {
-              status = Status::NotFound("Missing configurable object",
-                                        map_iter.first);
+  for (auto opt_iter : options_) {
+    for (auto map_iter : *(opt_iter.type_map)) {
+      auto& opt_info = map_iter.second;
+      if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
+          opt_info.IsConfigurable()) {
+        if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
+          Configurable* config =
+              opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
+          if (config != nullptr) {
+            status = config->PrepareOptions(opts);
+            if (!status.ok()) {
+              return status;
             }
+          } else if (!opt_info.CanBeNull()) {
+            status =
+                Status::NotFound("Missing configurable object", map_iter.first);
           }
         }
       }
     }
+  }
+#else
+  (void)opts;
 #endif  // ROCKSDB_LITE
-    if (status.ok()) {
-      is_prepared_ = true;
-    }
+  if (status.ok()) {
+    is_prepared_ = true;
   }
   return status;
 }

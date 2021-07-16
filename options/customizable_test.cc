@@ -18,6 +18,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/env_encryption.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/utilities/customizable_util.h"
@@ -27,6 +28,7 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/string_util.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -231,15 +233,18 @@ static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
     {"bool",
      {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-    {"unique", OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
-                   offsetof(struct SimpleOptions, cu),
-                   OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"shared", OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-                   offsetof(struct SimpleOptions, cs),
-                   OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"pointer", OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
-                    offsetof(struct SimpleOptions, cp),
-                    OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+    {"unique",
+     OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cu), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
+    {"shared",
+     OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cs), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
+    {"pointer",
+     OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cp), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
 #endif  // ROCKSDB_LITE
 };
 
@@ -554,11 +559,6 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_FALSE(simple->cp->IsPrepared());
 
   ASSERT_OK(base->PrepareOptions(config_options_));
-  ASSERT_FALSE(base->IsPrepared());
-  ASSERT_FALSE(simple->cu->IsPrepared());
-  ASSERT_FALSE(simple->cs->IsPrepared());
-  ASSERT_FALSE(simple->cp->IsPrepared());
-  ASSERT_OK(base->PrepareOptions(prepared));
   ASSERT_TRUE(base->IsPrepared());
   ASSERT_TRUE(simple->cu->IsPrepared());
   ASSERT_TRUE(simple->cs->IsPrepared());
@@ -917,6 +917,48 @@ static int RegisterTestObjects(ObjectLibrary& library,
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
+class MockEncryptionProvider : public EncryptionProvider {
+ public:
+  explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
+  const char* Name() const override { return "Mock"; }
+  size_t GetPrefixLength() const override { return 0; }
+  Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,
+                         size_t /*prefixLength*/) const override {
+    return Status::NotSupported();
+  }
+
+  Status AddCipher(const std::string& /*descriptor*/, const char* /*cipher*/,
+                   size_t /*len*/, bool /*for_write*/) override {
+    return Status::NotSupported();
+  }
+
+  Status CreateCipherStream(
+      const std::string& /*fname*/, const EnvOptions& /*options*/,
+      Slice& /*prefix*/,
+      std::unique_ptr<BlockAccessCipherStream>* /*result*/) override {
+    return Status::NotSupported();
+  }
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
+    if (EndsWith(id_, "://test")) {
+      return EncryptionProvider::ValidateOptions(db_opts, cf_opts);
+    } else {
+      return Status::InvalidArgument("MockProvider not initialized");
+    }
+  }
+
+ private:
+  std::string id_;
+};
+
+class MockCipher : public BlockCipher {
+ public:
+  const char* Name() const override { return "Mock"; }
+  size_t BlockSize() override { return 0; }
+  Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
+  Status Decrypt(char* data) override { return Encrypt(data); }
+};
+
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   TestFlushBlockPolicyFactory() {}
@@ -935,6 +977,19 @@ static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
   // Load any locally defined objects here
+  library.Register<EncryptionProvider>(
+      "Mock(://test)?",
+      [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockEncryptionProvider(uri));
+        return guard->get();
+      });
+  library.Register<BlockCipher>("Mock", [](const std::string& /*uri*/,
+                                           std::unique_ptr<BlockCipher>* guard,
+                                           std::string* /* errmsg */) {
+    guard->reset(new MockCipher());
+    return guard->get();
+  });
   library.Register<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -957,7 +1012,10 @@ static int RegisterLocalObjects(ObjectLibrary& library,
 
 class LoadCustomizableTest : public testing::Test {
  public:
-  LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
+  LoadCustomizableTest() {
+    config_options_.ignore_unsupported_options = false;
+    config_options_.invoke_prepare_options = false;
+  }
   bool RegisterTests(const std::string& arg) {
 #ifndef ROCKSDB_LITE
     config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
@@ -1046,6 +1104,49 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
                  test::SimpleSuffixReverseComparator::kClassName());
   }
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
+  std::shared_ptr<EncryptionProvider> result;
+  ASSERT_NOK(
+      EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(
+      EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "CTR");
+  ASSERT_NOK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
+                                                 &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "CTR");
+  ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+    ASSERT_OK(EncryptionProvider::CreateFromString(config_options_,
+                                                   "Mock://test", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+    ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
+  std::shared_ptr<BlockCipher> result;
+  ASSERT_NOK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(BlockCipher::CreateFromString(config_options_, "ROT13", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "ROT13");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+  }
+}
+#endif  // !ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   std::shared_ptr<TableFactory> table;
