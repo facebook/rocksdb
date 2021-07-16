@@ -3095,11 +3095,15 @@ class Benchmark {
     }
   }
 
-  ~Benchmark() {
+  void DeleteDBs() {
     db_.DeleteDBs();
-    for (auto db : multi_dbs_) {
-      db.DeleteDBs();
+    for (const DBWithColumnFamilies& dbwcf : multi_dbs_) {
+      delete dbwcf.db;
     }
+  }
+
+  ~Benchmark() {
+    DeleteDBs();
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
       // Clear cache reference first
@@ -3232,10 +3236,7 @@ class Benchmark {
   }
 
   void ErrorExit() {
-    db_.DeleteDBs();
-    for (size_t i = 0; i < multi_dbs_.size(); i++) {
-      delete multi_dbs_[i].db;
-    }
+    DeleteDBs();
     exit(1);
   }
 
@@ -6187,13 +6188,14 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
-    Iterator* single_iter = nullptr;
-    std::vector<Iterator*> multi_iters;
-    if (db_.db != nullptr) {
-      single_iter = db_.db->NewIterator(options);
-    } else {
-      for (const auto& db_with_cfh : multi_dbs_) {
-        multi_iters.push_back(db_with_cfh.db->NewIterator(options));
+    std::vector<Iterator*> tailing_iters;
+    if (FLAGS_use_tailing_iterator) {
+      if (db_.db != nullptr) {
+        tailing_iters.push_back(db_.db->NewIterator(options));
+      } else {
+        for (const auto& db_with_cfh : multi_dbs_) {
+          tailing_iters.push_back(db_with_cfh.db->NewIterator(options));
+        }
       }
     }
 
@@ -6227,24 +6229,21 @@ class Benchmark {
         }
       }
 
-      if (!FLAGS_use_tailing_iterator) {
-        if (db_.db != nullptr) {
-          delete single_iter;
-          single_iter = db_.db->NewIterator(options);
-        } else {
-          for (auto iter : multi_iters) {
-            delete iter;
-          }
-          multi_iters.clear();
-          for (const auto& db_with_cfh : multi_dbs_) {
-            multi_iters.push_back(db_with_cfh.db->NewIterator(options));
-          }
-        }
-      }
       // Pick a Iterator to use
-      Iterator* iter_to_use = single_iter;
-      if (single_iter == nullptr) {
-        iter_to_use = multi_iters[thread->rand.Next() % multi_iters.size()];
+      size_t cf_to_use = (db_.db == nullptr)
+                             ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+                             : 0;
+      std::unique_ptr<Iterator> single_iter;
+      Iterator* iter_to_use;
+      if (FLAGS_use_tailing_iterator) {
+        iter_to_use = tailing_iters[cf_to_use];
+      } else {
+        if (db_.db != nullptr) {
+          single_iter.reset(db_.db->NewIterator(options));
+        } else {
+          single_iter.reset(multi_dbs_[cf_to_use].db->NewIterator(options));
+        }
+        iter_to_use = single_iter.get();
       }
 
       iter_to_use->Seek(key);
@@ -6276,8 +6275,7 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
-    delete single_iter;
-    for (auto iter : multi_iters) {
+    for (auto iter : tailing_iters) {
       delete iter;
     }
 
