@@ -299,6 +299,8 @@ class Repairer {
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
+      ROCKS_LOG_INFO(db_options_.info_log, "Searching path %s\n",
+                     to_search_paths[path_id].c_str());
       status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
@@ -585,6 +587,23 @@ class Repairer {
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
+    }
+    if (status.ok()) {
+      ReadOptions ropts;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
+      status = table_cache_->GetRangeTombstoneIterator(ropts, cfd->internal_comparator(), t->meta, &r_iter);
+
+      if (r_iter) {
+        r_iter->SeekToFirst();
+
+        while (r_iter->Valid()) {
+          auto seqno = r_iter->seq();
+          auto& fd = t->meta.fd;
+          fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+          fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+          r_iter->Next();
+        }
+      }
     }
     return status;
   }
