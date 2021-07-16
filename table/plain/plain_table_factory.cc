@@ -157,6 +157,9 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
+  // The MemTableRepFactory built-in classes will be either a class
+  // (VectorRepFactory) or a nickname (vector), followed optionally by ":#",
+  // where # is the "size" of the factory.
   auto AsRegex = [](const std::string& name, const std::string& alt) {
     std::string regex;
     regex.append("(").append(name);
@@ -263,6 +266,9 @@ Status MemTableRepFactory::CreateFromString(
     status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
                                                  result);
 #else
+    // To make it possible to configure the memtables in LITE mode, the ID
+    // is of the form <name>:<size>, where name is the name of the class and
+    // <size> is the length of the object (e.g. skip_list:10).
     std::vector<std::string> opts_list = StringSplit(id, ':');
     if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {
       status = Status::InvalidArgument("Can't parse memtable_factory option ",
