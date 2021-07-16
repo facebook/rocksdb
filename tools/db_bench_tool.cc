@@ -1428,7 +1428,7 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-static Status CreateRepFactory(const ConfigOptions config_options,
+static Status CreateRepFactory(const ConfigOptions& config_options,
                                std::shared_ptr<MemTableRepFactory>* factory) {
   Status s;
   if (!strcasecmp(FLAGS_memtablerep.c_str(), "skip_list")) {

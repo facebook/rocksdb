@@ -12,6 +12,7 @@
 #include "db/dbformat.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/plain/plain_table_builder.h"
@@ -259,7 +260,8 @@ Status MemTableRepFactory::CreateFromString(
     return Status::NotSupported("Cannot reset object ", id);
   } else {
 #ifndef ROCKSDB_LITE
-    status = NewSharedObject(config_options, id, opt_map, result);
+    status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
+                                                 result);
 #else
     std::vector<std::string> opts_list = StringSplit(id, ':');
     if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {

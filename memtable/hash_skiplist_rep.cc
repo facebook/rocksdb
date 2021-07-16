@@ -328,8 +328,6 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
   }
 }
 
-} // anon namespace
-
 struct HashSkipListRepOptions {
   static const char* kName() { return "HashSkipListRepFactoryOptions"; }
   size_t bucket_count;
@@ -361,8 +359,6 @@ class HashSkipListRepFactory : public MemTableRepFactory {
     RegisterOptions(&options_, &hash_skiplist_info);
   }
 
-  virtual ~HashSkipListRepFactory() {}
-
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& compare, Allocator* allocator,
@@ -381,6 +377,8 @@ class HashSkipListRepFactory : public MemTableRepFactory {
  private:
   HashSkipListRepOptions options_;
 };
+
+}  // namespace
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,

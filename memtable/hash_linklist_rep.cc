@@ -821,8 +821,6 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
   return x;
 }
 
-} // anon namespace
-
 struct HashLinkListRepOptions {
   static const char* kName() { return "HashLinkListRepFactoryOptions"; }
   size_t bucket_count;
@@ -870,8 +868,6 @@ class HashLinkListRepFactory : public MemTableRepFactory {
     RegisterOptions(Name(), &options_, &hash_linklist_info);
   }
 
-  virtual ~HashLinkListRepFactory() {}
-
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& compare, Allocator* allocator,
@@ -890,6 +886,8 @@ class HashLinkListRepFactory : public MemTableRepFactory {
  private:
   HashLinkListRepOptions options_;
 };
+
+}  // namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
