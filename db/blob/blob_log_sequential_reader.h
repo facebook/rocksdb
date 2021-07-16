@@ -79,3 +79,5 @@ class BlobLogSequentialReader {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#undef MAX_HEADER_SIZE
