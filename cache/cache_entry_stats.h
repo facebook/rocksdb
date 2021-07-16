@@ -51,7 +51,8 @@ namespace ROCKSDB_NAMESPACE {
 template <class Stats>
 class CacheEntryStatsCollector {
  public:
-  // Gathers stats if most recent collection is too old
+  // Gather and save stats if saved stats are too old. (Use GetStats() to
+  // read saved stats.)
   //
   // Maximum allowed age for a "hit" on saved results is determined by the
   // two interval parameters. Both set to 0 forces a re-scan. For example

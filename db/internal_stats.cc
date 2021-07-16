@@ -528,7 +528,7 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       cfd_(cfd),
       started_at_(clock->NowMicros()) {
   Cache* block_cache = nullptr;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (ok) {
     assert(block_cache);
     // Extract or create stats collector. Could fail in rare cases.
@@ -1138,7 +1138,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
 }
 
-bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
+bool InternalStats::GetBlockCacheForStats(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory.get();
   assert(table_factory != nullptr);
@@ -1150,7 +1150,7 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
                                              Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1161,7 +1161,7 @@ bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
                                           Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1172,7 +1172,7 @@ bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
                                                 Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1519,7 +1519,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            vstorage->GetTotalBlobFileSize() / kGB);
   value->append(buf);
 
-  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  uint64_t now_micros = clock_->NowMicros();
+  double seconds_up = (now_micros - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
@@ -1642,9 +1643,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
     // thread safe
     cache_entry_stats_collector_->GetStats(&stats);
 
+    constexpr uint64_t kDayInMicros = uint64_t{86400} * 1000000U;
+
     // Skip if stats are extremely old (> 1 day, incl not yet populated)
-    if (clock_->NowMicros() - stats.last_end_time_micros_ <
-        /*1 day*/ (uint64_t{86400} * 1000000U)) {
+    if (now_micros - stats.last_end_time_micros_ < kDayInMicros) {
       value->append(stats.ToString(clock_));
     }
   }

@@ -491,7 +491,7 @@ class InternalStats {
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
 
-  bool HandleBlockCacheStat(Cache** block_cache);
+  bool GetBlockCacheForStats(Cache** block_cache);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
