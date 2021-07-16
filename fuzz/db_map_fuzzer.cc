@@ -16,7 +16,7 @@
 
 protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
     [](DBOperations* input, unsigned int /* seed */) {
-      const rocksdb::Comparator* comparator = rocksdb::BytewiseComparator();
+      const ROCKSDB_NAMESPACE::Comparator* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
       auto ops = input->mutable_operations();
       // Make sure begin <= end for DELETE_RANGE.
       for (DBOperation& op : *ops) {
@@ -41,22 +41,22 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   }
 
   const std::string kDbPath = "/tmp/db_map_fuzzer_test";
-  auto fs = rocksdb::FileSystem::Default();
-  if (fs->FileExists(kDbPath, rocksdb::IOOptions(), /*dbg=*/nullptr).ok()) {
+  auto fs = ROCKSDB_NAMESPACE::FileSystem::Default();
+  if (fs->FileExists(kDbPath, ROCKSDB_NAMESPACE::IOOptions(), /*dbg=*/nullptr).ok()) {
     std::cerr << "db path " << kDbPath << " already exists" << std::endl;
     abort();
   }
 
   std::map<std::string, std::string> kv;
-  rocksdb::DB* db = nullptr;
-  rocksdb::Options options;
+  ROCKSDB_NAMESPACE::DB* db = nullptr;
+  ROCKSDB_NAMESPACE::Options options;
   options.create_if_missing = true;
-  CHECK_OK(rocksdb::DB::Open(options, kDbPath, &db));
+  CHECK_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDbPath, &db));
 
   for (const DBOperation& op : input.operations()) {
     switch (op.type()) {
       case OpType::PUT: {
-        CHECK_OK(db->Put(rocksdb::WriteOptions(), op.key(), op.value()));
+        CHECK_OK(db->Put(ROCKSDB_NAMESPACE::WriteOptions(), op.key(), op.value()));
         kv[op.key()] = op.value();
         break;
       }
@@ -64,13 +64,13 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
         break;
       }
       case OpType::DELETE: {
-        CHECK_OK(db->Delete(rocksdb::WriteOptions(), op.key()));
+        CHECK_OK(db->Delete(ROCKSDB_NAMESPACE::WriteOptions(), op.key()));
         kv.erase(op.key());
         break;
       }
       case OpType::DELETE_RANGE: {
         // [op.key(), op.value()) corresponds to [begin, end).
-        CHECK_OK(db->DeleteRange(rocksdb::WriteOptions(),
+        CHECK_OK(db->DeleteRange(ROCKSDB_NAMESPACE::WriteOptions(),
                                  db->DefaultColumnFamily(), op.key(),
                                  op.value()));
         kv.erase(kv.lower_bound(op.key()), kv.lower_bound(op.value()));
@@ -86,9 +86,9 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   delete db;
   db = nullptr;
 
-  CHECK_OK(rocksdb::DB::Open(options, kDbPath, &db));
+  CHECK_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDbPath, &db));
   auto kv_it = kv.begin();
-  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+  ROCKSDB_NAMESPACE::Iterator* it = db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next(), kv_it++) {
     CHECK_TRUE(kv_it != kv.end());
     CHECK_EQ(it->key().ToString(), kv_it->first);
@@ -99,5 +99,5 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
 
   CHECK_OK(db->Close());
   delete db;
-  CHECK_OK(rocksdb::DestroyDB(kDbPath, options));
+  CHECK_OK(ROCKSDB_NAMESPACE::DestroyDB(kDbPath, options));
 }

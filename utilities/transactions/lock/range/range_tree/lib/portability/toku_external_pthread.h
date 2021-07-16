@@ -1,5 +1,5 @@
 /*
-  A wrapper around rocksdb::TransactionDBMutexFactory-provided condition and
+  A wrapper around ROCKSDB_NAMESPACE::TransactionDBMutexFactory-provided condition and
   mutex that provides toku_pthread_*-like interface. The functions are named
 
     toku_external_{mutex|cond}_XXX

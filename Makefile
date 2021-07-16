@@ -494,6 +494,7 @@ VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
+# Not yet supported: --show-leak-kinds=definite,possible,reachable --errors-for-leak-kinds=definite,possible,reachable
 
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))

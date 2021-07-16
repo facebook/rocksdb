@@ -80,8 +80,8 @@ struct LRUHandle {
     IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
-    // Can this be inserted into the tiered cache
-    IS_TIERED_CACHE_COMPATIBLE = (1 << 4),
+    // Can this be inserted into the secondary cache
+    IS_SECONDARY_CACHE_COMPATIBLE = (1 << 4),
     // Is the handle still being read from a lower tier
     IS_PENDING = (1 << 5),
     // Has the item been promoted from a lower tier
@@ -89,6 +89,14 @@ struct LRUHandle {
   };
 
   uint8_t flags;
+
+#ifdef __SANITIZE_THREAD__
+  // TSAN can report a false data race on flags, where one thread is writing
+  // to one of the mutable bits and another thread is reading this immutable
+  // bit. So precisely suppress that TSAN warning, we separate out this bit
+  // during TSAN runs.
+  bool is_secondary_cache_compatible_for_tsan;
+#endif  // __SANITIZE_THREAD__
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
   char key_data[1];
@@ -113,7 +121,11 @@ struct LRUHandle {
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
   bool IsSecondaryCacheCompatible() const {
-    return flags & IS_TIERED_CACHE_COMPATIBLE;
+#ifdef __SANITIZE_THREAD__
+    return is_secondary_cache_compatible_for_tsan;
+#else
+    return flags & IS_SECONDARY_CACHE_COMPATIBLE;
+#endif  // __SANITIZE_THREAD__
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsPromoted() const { return flags & IS_PROMOTED; }
@@ -144,12 +156,15 @@ struct LRUHandle {
 
   void SetHit() { flags |= HAS_HIT; }
 
-  void SetSecondaryCacheCompatible(bool tiered) {
-    if (tiered) {
-      flags |= IS_TIERED_CACHE_COMPATIBLE;
+  void SetSecondaryCacheCompatible(bool compat) {
+    if (compat) {
+      flags |= IS_SECONDARY_CACHE_COMPATIBLE;
     } else {
-      flags &= ~IS_TIERED_CACHE_COMPATIBLE;
+      flags &= ~IS_SECONDARY_CACHE_COMPATIBLE;
     }
+#ifdef __SANITIZE_THREAD__
+    is_secondary_cache_compatible_for_tsan = compat;
+#endif  // __SANITIZE_THREAD__
   }
 
   void SetIncomplete(bool incomp) {
@@ -170,6 +185,11 @@ struct LRUHandle {
 
   void Free() {
     assert(refs == 0);
+#ifdef __SANITIZE_THREAD__
+    // Here we can safely assert they are the same without a data race reported
+    assert(((flags & IS_SECONDARY_CACHE_COMPATIBLE) != 0) ==
+           is_secondary_cache_compatible_for_tsan);
+#endif  // __SANITIZE_THREAD__
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {

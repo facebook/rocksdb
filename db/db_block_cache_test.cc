@@ -299,8 +299,8 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   // Load last key block.
   ASSERT_EQ("Result incomplete: Insert failed due to LRU cache being full.",
             Get(ToString(kNumBlocks - 1)));
-  // Failure won't record the miss counter.
-  CheckCacheCounters(options, 0, 0, 0, 1);
+  // Failure will also record the miss counter.
+  CheckCacheCounters(options, 1, 0, 0, 1);
   CheckCompressedCacheCounters(options, 1, 0, 1, 0);
 
   // Clear strict capacity limit flag. This time we shall hit compressed block

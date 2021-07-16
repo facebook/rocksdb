@@ -311,7 +311,7 @@ jobs:
       image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
-      - checkout # check out the code in the project directory
+      - pre-steps
       - install-gflags
       - upgrade-cmake
       - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) | .circleci/cat_ignore_eagain
@@ -322,7 +322,7 @@ jobs:
       image: ubuntu-2004:202104-01
     resource_class: 2xlarge
     steps:
-      - checkout # check out the code in the project directory
+      - pre-steps
       - install-gflags
       - install-benchmark
       - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
@@ -748,12 +748,6 @@ workflows:
           name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
-#  build-windows-vs2015:
-#    jobs:
-#      - build-windows:
-#          name: "build-windows-vs2015"
-#          vs_year: "2015"
-#          cmake_generator: "Visual Studio 14 Win64"
   build-java:
     jobs:
       - build-linux-java
