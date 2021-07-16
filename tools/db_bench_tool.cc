@@ -4305,8 +4305,7 @@ class Benchmark {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
-    options.experimental_allow_mempurge =
-        FLAGS_experimental_allow_mempurge;
+    options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
