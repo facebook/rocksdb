@@ -15,6 +15,8 @@
 #endif
 #endif
 
+// ASAN (Address sanitizer)
+
 #if defined(__clang__)
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
@@ -43,3 +45,18 @@
 #else
 #define STATIC_AVOID_DESTRUCTION(Type, name) static Type& name = *new Type
 #endif
+
+// TSAN (Thread sanitizer)
+
+// For simplicity, standardize on the GCC define
+#if defined(__clang__)
+#if defined(__has_feature) && __has_feature(thread_sanitizer)
+#define __SANITIZE_THREAD__ 1
+#endif  // __has_feature(thread_sanitizer)
+#endif  // __clang__
+
+#ifdef __SANITIZE_THREAD__
+#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
+#else
+#define TSAN_SUPPRESSION
+#endif  // TSAN_SUPPRESSION
