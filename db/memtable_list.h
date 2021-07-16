@@ -268,11 +268,15 @@ class MemTableList {
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-      IOStatus* io_s);
+      IOStatus* io_s, bool write_edits = true);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  // By default, adding memtables will flag that the memtable list needs to be
+  // flushed, but in certain situations, like after a mempurge, we may want to
+  // avoid flushing the memtable list upon addition of a memtable.
+  void Add(MemTable* m, autovector<MemTable*>* to_delete,
+           bool trigger_flush = true);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
@@ -308,7 +312,18 @@ class MemTableList {
   // non-empty (regardless of the min_write_buffer_number_to_merge
   // parameter). This flush request will persist until the next time
   // PickMemtablesToFlush() is called.
-  void FlushRequested() { flush_requested_ = true; }
+  void FlushRequested() {
+    flush_requested_ = true;
+    // If there are some memtables stored in imm() that dont trigger
+    // flush (eg: mempurge output memtable), then update imm_flush_needed.
+    // Note: if race condition and imm_flush_needed is set to true
+    // when there is num_flush_not_started_==0, then there is no
+    // impact whatsoever. Imm_flush_needed is only used in an assert
+    // in IsFlushPending().
+    if (num_flush_not_started_ > 0) {
+      imm_flush_needed.store(true, std::memory_order_release);
+    }
+  }
 
   bool HasFlushRequested() { return flush_requested_; }
 
@@ -331,6 +346,10 @@ class MemTableList {
   // void operator=(const MemTableList&);
 
   size_t* current_memory_usage() { return &current_memory_usage_; }
+
+  // Returns the earliest log that possibly contain entries
+  // from one of the memtables of this memtable_list.
+  uint64_t EarliestLogContainingData();
 
   // Returns the min log containing the prep section after memtables listsed in
   // `memtables_to_flush` are flushed and their status is persisted in manifest.

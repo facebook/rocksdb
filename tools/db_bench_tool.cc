@@ -96,6 +96,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
+#ifndef ROCKSDB_LITE
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -115,11 +116,9 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "flush,"
-#ifndef ROCKSDB_LITE
     "compact0,"
     "compact1,"
     "waitforcompaction,"
-#endif
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -209,11 +208,9 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
-#ifndef ROCKSDB_LITE
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
-#endif
     "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
@@ -228,6 +225,130 @@ DEFINE_string(
     "by doing a Get followed by binary searching in the large sorted list vs "
     "doing a GetMergeOperands and binary searching in the operands which are"
     "sorted sub-lists. The MergeOperator used is sortlist.h\n");
+#else
+DEFINE_string(
+    benchmarks,
+    "fillseq,"
+    "fillseqdeterministic,"
+    "fillsync,"
+    "fillrandom,"
+    "filluniquerandomdeterministic,"
+    "overwrite,"
+    "readrandom,"
+    "newiterator,"
+    "newiteratorwhilewriting,"
+    "seekrandom,"
+    "seekrandomwhilewriting,"
+    "seekrandomwhilemerging,"
+    "readseq,"
+    "readreverse,"
+    "compact,"
+    "compactall,"
+    "flush,"
+    "multireadrandom,"
+    "mixgraph,"
+    "readseq,"
+    "readtorowcache,"
+    "readtocache,"
+    "readreverse,"
+    "readwhilewriting,"
+    "readwhilemerging,"
+    "readwhilescanning,"
+    "readrandomwriterandom,"
+    "updaterandom,"
+    "xorupdaterandom,"
+    "approximatesizerandom,"
+    "randomwithverify,"
+    "fill100K,"
+    "crc32c,"
+    "xxhash,"
+    "compress,"
+    "uncompress,"
+    "acquireload,"
+    "fillseekseq,"
+    "randomtransaction,"
+    "randomreplacekeys,"
+    "timeseries,"
+    "getmergeoperands",
+
+    "Comma-separated list of operations to run in the specified"
+    " order. Available benchmarks:\n"
+    "\tfillseq       -- write N values in sequential key"
+    " order in async mode\n"
+    "\tfillseqdeterministic       -- write N values in the specified"
+    " key order and keep the shape of the LSM tree\n"
+    "\tfillrandom    -- write N values in random key order in async"
+    " mode\n"
+    "\tfilluniquerandomdeterministic       -- write N values in a random"
+    " key order and keep the shape of the LSM tree\n"
+    "\toverwrite     -- overwrite N values in random key order in"
+    " async mode\n"
+    "\tfillsync      -- write N/1000 values in random key order in "
+    "sync mode\n"
+    "\tfill100K      -- write N/1000 100K values in random order in"
+    " async mode\n"
+    "\tdeleteseq     -- delete N keys in sequential order\n"
+    "\tdeleterandom  -- delete N keys in random order\n"
+    "\treadseq       -- read N times sequentially\n"
+    "\treadtocache   -- 1 thread reading database sequentially\n"
+    "\treadreverse   -- read N times in reverse order\n"
+    "\treadrandom    -- read N times in random order\n"
+    "\treadmissing   -- read N missing keys in random order\n"
+    "\treadwhilewriting      -- 1 writer, N threads doing random "
+    "reads\n"
+    "\treadwhilemerging      -- 1 merger, N threads doing random "
+    "reads\n"
+    "\treadwhilescanning     -- 1 thread doing full table scan, "
+    "N threads doing random reads\n"
+    "\treadrandomwriterandom -- N threads doing random-read, "
+    "random-write\n"
+    "\tupdaterandom  -- N threads doing read-modify-write for random "
+    "keys\n"
+    "\txorupdaterandom  -- N threads doing read-XOR-write for "
+    "random keys\n"
+    "\tappendrandom  -- N threads doing read-modify-write with "
+    "growing values\n"
+    "\tmergerandom   -- same as updaterandom/appendrandom using merge"
+    " operator. "
+    "Must be used with merge_operator\n"
+    "\treadrandommergerandom -- perform N random read-or-merge "
+    "operations. Must be used with merge_operator\n"
+    "\tnewiterator   -- repeated iterator creation\n"
+    "\tseekrandom    -- N random seeks, call Next seek_nexts times "
+    "per seek\n"
+    "\tseekrandomwhilewriting -- seekrandom and 1 thread doing "
+    "overwrite\n"
+    "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
+    "merge\n"
+    "\tcrc32c        -- repeated crc32c of 4K of data\n"
+    "\txxhash        -- repeated xxHash of 4K of data\n"
+    "\tacquireload   -- load N*1000 times\n"
+    "\tfillseekseq   -- write N values in sequential key, then read "
+    "them by seeking to each key\n"
+    "\trandomtransaction     -- execute N random transactions and "
+    "verify correctness\n"
+    "\trandomreplacekeys     -- randomly replaces N keys by deleting "
+    "the old version and putting the new version\n\n"
+    "\ttimeseries            -- 1 writer generates time series data "
+    "and multiple readers doing random reads on id\n\n"
+    "Meta operations:\n"
+    "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
+    "\tcompactall  -- Compact the entire DB\n"
+    "\tflush - flush the memtable\n"
+    "\tstats       -- Print DB stats\n"
+    "\tresetstats  -- Reset DB stats\n"
+    "\tlevelstats  -- Print the number of files and bytes per level\n"
+    "\tmemstats  -- Print memtable stats\n"
+    "\tsstables    -- Print sstable info\n"
+    "\theapprofile -- Dump a heap profile (if supported by this port)\n"
+    "\treplay      -- replay the trace file specified with trace_file\n"
+    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
+    "sorted ints for a key and then compare performance of lookup for another "
+    "key "
+    "by doing a Get followed by binary searching in the large sorted list vs "
+    "doing a GetMergeOperands and binary searching in the operands which are"
+    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
+#endif
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -1060,7 +1181,7 @@ DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
 DEFINE_int64(report_interval_seconds, 0,
-             "If greater than zero, it will write simple stats in CVS format "
+             "If greater than zero, it will write simple stats in CSV format "
              "to --report_file every N seconds");
 
 DEFINE_string(report_file, "report.csv",
@@ -1386,6 +1507,7 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
              "position");
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
+DEFINE_bool(report_open_timing, false, "if report open timing");
 DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 DEFINE_bool(read_with_latest_user_timestamp, true,
@@ -2856,9 +2978,8 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s =
-            ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-                FLAGS_secondary_cache_uri, &secondary_cache);
+        Status s = SecondaryCache::CreateFromString(
+            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,
@@ -4373,6 +4494,7 @@ class Benchmark {
 
   void OpenDb(Options options, const std::string& db_name,
       DBWithColumnFamilies* db) {
+    uint64_t open_start = FLAGS_report_open_timing ? FLAGS_env->NowNanos() : 0;
     Status s;
     // Open with column families if necessary.
     if (FLAGS_num_column_families > 1) {
@@ -4512,6 +4634,11 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
     } else {
       s = DB::Open(options, db_name, &db->db);
+    }
+    if (FLAGS_report_open_timing) {
+      std::cout << "OpenDb:     "
+                << (FLAGS_env->NowNanos() - open_start) / 1000000.0
+                << " milliseconds\n";
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -5427,6 +5554,7 @@ class Benchmark {
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
     int64_t read = 0;
+    int64_t bytes = 0;
     int64_t num_multireads = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -5477,6 +5605,7 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (statuses[i].ok()) {
+            bytes += keys[i].size() + values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!statuses[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5492,6 +5621,8 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (stat_list[i].ok()) {
+            bytes +=
+                keys[i].size() + pin_values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!stat_list[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5514,6 +5645,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 
@@ -7420,7 +7552,7 @@ class Benchmark {
           fprintf(stdout,
                   "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
                   db.db->GetName().c_str(), k.c_str());
-          sleep(10);
+          FLAGS_env->SleepForMicroseconds(10 * 1000000);
           retry = true;
           break;
         }
@@ -7436,7 +7568,7 @@ class Benchmark {
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
-    sleep(5);
+    FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
     // I am skeptical that this check race free. I hope that checking twice
     // reduces the chance.

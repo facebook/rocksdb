@@ -387,7 +387,7 @@ class Repairer {
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {
       cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                             kMaxSequenceNumber);
+                             kMaxSequenceNumber, cfd->GetLogNumber());
     }
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 

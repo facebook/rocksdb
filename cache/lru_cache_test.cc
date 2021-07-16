@@ -224,7 +224,7 @@ class TestSecondaryCache : public SecondaryCache {
   }
   ~TestSecondaryCache() override { cache_.reset(); }
 
-  std::string Name() override { return "TestSecondaryCache"; }
+  const char* Name() const override { return "TestSecondaryCache"; }
 
   void InjectFailure() { inject_failure_ = true; }
 

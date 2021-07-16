@@ -106,7 +106,8 @@ class MemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+                    SequenceNumber earliest_seq, uint32_t column_family_id,
+                    uint64_t current_logfile_number = 0);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -341,6 +342,14 @@ class MemTable {
     return first_seqno_.load(std::memory_order_relaxed);
   }
 
+  // Returns the sequence number of the first element that was inserted
+  // into the memtable.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  void SetFirstSequenceNumber(SequenceNumber first_seqno) {
+    return first_seqno_.store(first_seqno, std::memory_order_relaxed);
+  }
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
@@ -350,6 +359,15 @@ class MemTable {
   // kMaxSequenceNumber will be returned.
   SequenceNumber GetEarliestSequenceNumber() {
     return earliest_seqno_.load(std::memory_order_relaxed);
+  }
+
+  // Sets the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into this
+  // memtable. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  // Used only for MemPurge operation
+  void SetEarliestSequenceNumber(SequenceNumber earliest_seqno) {
+    return earliest_seqno_.store(earliest_seqno, std::memory_order_relaxed);
   }
 
   // DB's latest sequence ID when the memtable is created. This number
@@ -369,6 +387,16 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
+
+  // Set the earliest log file number that (possibly)
+  // contains entries from this memtable.
+  void SetEarliestLogFileNumber(uint64_t logno) {
+    mem_min_logfile_number_ = logno;
+  }
+
+  // Return the earliest log file number that (possibly)
+  // contains entries from this memtable.
+  uint64_t GetEarliestLogFileNumber() { return mem_min_logfile_number_; }
 
   // if this memtable contains data from a committed
   // two phase transaction we must take note of the
@@ -499,6 +527,10 @@ class MemTable {
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
+
+  // The earliest log containing entries inserted into
+  // this memtable.
+  uint64_t mem_min_logfile_number_;
 
   // the earliest log containing a prepared section
   // which has been inserted into this memtable.
