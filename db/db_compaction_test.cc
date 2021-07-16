@@ -2388,8 +2388,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   // And Column family "one" uses cf_paths.
 
   // The compaction in level0 outputs the sst files in level1.
-  // The first path cannot hold level1's data(400KB+400KB > 500KB), 
-  // so every compaction move a sst file to second path. Please 
+  // The first path cannot hold level1's data(400KB+400KB > 500KB),
+  // so every compaction move a sst file to second path. Please
   // refer to LevelCompactionBuilder::GetPathId.
   for (int num = 0; num < 3; num++) {
     generate_file();
