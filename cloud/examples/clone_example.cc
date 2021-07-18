@@ -87,6 +87,8 @@ int main() {
   // with every new cloud-db.
   std::unique_ptr<CloudEnv> cloud_env;
 
+  cloud_env_options.credentials.InitializeSimple(
+      getenv("AWS_ACCESS_KEY_ID"), getenv("AWS_SECRET_ACCESS_KEY"));
   if (!cloud_env_options.credentials.HasValid().ok()) {
     fprintf(
         stderr,
