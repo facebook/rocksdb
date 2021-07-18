@@ -32,8 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 class StatsHistoryTest : public DBTestBase {
  public:
-  StatsHistoryTest()
-      : DBTestBase("/stats_history_test", /*env_do_fsync=*/true) {
+  StatsHistoryTest() : DBTestBase("stats_history_test", /*env_do_fsync=*/true) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     mock_env_.reset(new CompositeEnvWrapper(env_, mock_clock_));
   }
