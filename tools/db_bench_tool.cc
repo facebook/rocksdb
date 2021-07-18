@@ -97,9 +97,9 @@ using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
 #ifdef ROCKSDB_LITE
-  #define IF_ROCKSDB_LITE(Then, Else) Then
+#define IF_ROCKSDB_LITE(Then, Else) Then
 #else
-  #define IF_ROCKSDB_LITE(Then, Else) Else
+#define IF_ROCKSDB_LITE(Then, Else) Else
 #endif
 
 DEFINE_string(
