@@ -84,9 +84,13 @@ Status Customizable::GetOptionsMap(
     const ConfigOptions& config_options, const Customizable* customizable,
     const std::string& value, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
-  if (customizable != nullptr) {
-    Status status = ConfigurableHelper::GetOptionsMap(
-        value, customizable->GetId(), id, props);
+  Status status;
+  if (value.empty() || value == kNullptrString) {
+    *id = "";
+    props->clear();
+  } else if (customizable != nullptr) {
+    status = ConfigurableHelper::GetOptionsMap(value, customizable->GetId(), id,
+                                               props);
 #ifdef ROCKSDB_LITE
     (void)config_options;
 #else
@@ -104,10 +108,10 @@ Status Customizable::GetOptionsMap(
       }
     }
 #endif  // ROCKSDB_LITE
-    return status;
   } else {
-    return ConfigurableHelper::GetOptionsMap(value, "", id, props);
+    status = ConfigurableHelper::GetOptionsMap(value, "", id, props);
   }
+  return status;
 }
 
 Status Customizable::ConfigureNewObject(

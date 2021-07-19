@@ -756,6 +756,9 @@ Status ConfigurableHelper::GetOptionsMap(
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);
+        if (*id == kNullptrString) {
+          id->clear();
+        }
       } else if (!default_id.empty()) {
         *id = default_id;
       } else {           // No id property and no default

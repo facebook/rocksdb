@@ -39,6 +39,7 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
 class StringLogger : public Logger {
  public:
   using Logger::Logv;
@@ -169,50 +170,6 @@ static bool LoadSharedB(const std::string& id,
     return false;
   }
 }
-Status TestCustomizable::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value,
-    std::shared_ptr<TestCustomizable>* result) {
-  return LoadSharedObject<TestCustomizable>(config_options, value, LoadSharedB,
-                                            result);
-}
-
-Status TestCustomizable::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value,
-    std::unique_ptr<TestCustomizable>* result) {
-  return LoadUniqueObject<TestCustomizable>(
-      config_options, value,
-      [](const std::string& id, std::unique_ptr<TestCustomizable>* u) {
-        if (id == "B") {
-          u->reset(new BCustomizable(id));
-          return true;
-        } else if (id.empty()) {
-          u->reset();
-          return true;
-        } else {
-          return false;
-        }
-      },
-      result);
-}
-
-Status TestCustomizable::CreateFromString(const ConfigOptions& config_options,
-                                          const std::string& value,
-                                          TestCustomizable** result) {
-  return LoadStaticObject<TestCustomizable>(
-      config_options, value,
-      [](const std::string& id, TestCustomizable** ptr) {
-        if (id == "B") {
-          *ptr = new BCustomizable(id);
-          return true;
-        } else if (id.empty()) {
-          *ptr = nullptr;
-          return true;
-        } else {
-          return false;
-        }
-      },
-      result);
-}
 
 #ifndef ROCKSDB_LITE
 const FactoryFunc<TestCustomizable>& s_func =
@@ -262,6 +219,68 @@ class SimpleConfigurable : public Configurable {
     RegisterOptions(&simple_, map);
   }
 };
+
+static void GetMapFromProperties(
+    const std::string& props,
+    std::unordered_map<std::string, std::string>* map) {
+  std::istringstream iss(props);
+  std::unordered_map<std::string, std::string> copy_map;
+  std::string line;
+  map->clear();
+  for (int line_num = 0; std::getline(iss, line); line_num++) {
+    std::string name;
+    std::string value;
+    ASSERT_OK(
+        RocksDBOptionsParser::ParseStatement(&name, &value, line, line_num));
+    (*map)[name] = value;
+  }
+}
+}  // namespace
+
+Status TestCustomizable::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<TestCustomizable>* result) {
+  return LoadSharedObject<TestCustomizable>(config_options, value, LoadSharedB,
+                                            result);
+}
+
+Status TestCustomizable::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::unique_ptr<TestCustomizable>* result) {
+  return LoadUniqueObject<TestCustomizable>(
+      config_options, value,
+      [](const std::string& id, std::unique_ptr<TestCustomizable>* u) {
+        if (id == "B") {
+          u->reset(new BCustomizable(id));
+          return true;
+        } else if (id.empty()) {
+          u->reset();
+          return true;
+        } else {
+          return false;
+        }
+      },
+      result);
+}
+
+Status TestCustomizable::CreateFromString(const ConfigOptions& config_options,
+                                          const std::string& value,
+                                          TestCustomizable** result) {
+  return LoadStaticObject<TestCustomizable>(
+      config_options, value,
+      [](const std::string& id, TestCustomizable** ptr) {
+        if (id == "B") {
+          *ptr = new BCustomizable(id);
+          return true;
+        } else if (id.empty()) {
+          *ptr = nullptr;
+          return true;
+        } else {
+          return false;
+        }
+      },
+      result);
+}
 
 class CustomizableTest : public testing::Test {
  public:
@@ -323,22 +342,6 @@ TEST_F(CustomizableTest, SimpleConfigureTest) {
   ASSERT_OK(copy->ConfigureFromString(config_options_, opt_str));
   ASSERT_TRUE(
       configurable->AreEquivalent(config_options_, copy.get(), &mismatch));
-}
-
-static void GetMapFromProperties(
-    const std::string& props,
-    std::unordered_map<std::string, std::string>* map) {
-  std::istringstream iss(props);
-  std::unordered_map<std::string, std::string> copy_map;
-  std::string line;
-  map->clear();
-  for (int line_num = 0; std::getline(iss, line); line_num++) {
-    std::string name;
-    std::string value;
-    ASSERT_OK(
-        RocksDBOptionsParser::ParseStatement(&name, &value, line, line_num));
-    (*map)[name] = value;
-  }
 }
 
 TEST_F(CustomizableTest, ConfigureFromPropsTest) {
@@ -567,16 +570,16 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_TRUE(simple->cp->IsPrepared());
   delete simple->cp;
   base.reset(new SimpleConfigurable());
+  simple = base->GetOptions<SimpleOptions>();
+  ASSERT_NE(simple, nullptr);
 
   ASSERT_NOK(
       base->ConfigureFromString(prepared, "unique={id=P; can_prepare=false}"));
-  simple = base->GetOptions<SimpleOptions>();
-  ASSERT_NE(simple, nullptr);
-  ASSERT_NE(simple->cu, nullptr);
-  ASSERT_FALSE(simple->cu->IsPrepared());
+  ASSERT_EQ(simple->cu, nullptr);
 
   ASSERT_OK(
       base->ConfigureFromString(prepared, "unique={id=P; can_prepare=true}"));
+  ASSERT_NE(simple->cu, nullptr);
   ASSERT_TRUE(simple->cu->IsPrepared());
 
   ASSERT_OK(base->ConfigureFromString(config_options_,
@@ -594,6 +597,7 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_FALSE(simple->cu->IsPrepared());
 }
 
+namespace {
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #ifndef ROCKSDB_LITE
     {"inner",
@@ -637,6 +641,7 @@ class WrappedCustomizable2 : public InnerCustomizable {
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
 };
+}  // namespace
 
 TEST_F(CustomizableTest, WrappedInnerTest) {
   std::shared_ptr<TestCustomizable> ac =
@@ -666,20 +671,19 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
 }
 
-class ShallowCustomizable : public Customizable {
- public:
-  ShallowCustomizable() {
-    inner_ = std::make_shared<ACustomizable>("a");
-    RegisterOptions("inner", &inner_, &inner_option_info);
-  };
-  static const char* kClassName() { return "shallow"; }
-  const char* Name() const override { return kClassName(); }
-
- private:
-  std::shared_ptr<TestCustomizable> inner_;
-};
-
 TEST_F(CustomizableTest, TestStringDepth) {
+  class ShallowCustomizable : public Customizable {
+   public:
+    ShallowCustomizable() {
+      inner_ = std::make_shared<ACustomizable>("a");
+      RegisterOptions("inner", &inner_, &inner_option_info);
+    };
+    static const char* kClassName() { return "shallow"; }
+    const char* Name() const override { return kClassName(); }
+
+   private:
+    std::shared_ptr<TestCustomizable> inner_;
+  };
   ConfigOptions shallow = config_options_;
   std::unique_ptr<Configurable> c(new ShallowCustomizable());
   std::string opt_str;
@@ -721,35 +725,54 @@ TEST_F(CustomizableTest, NewUniqueCustomizableTest) {
 
 TEST_F(CustomizableTest, NewEmptyUniqueTest) {
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=}"));
   SimpleOptions* simple = base->GetOptions<SimpleOptions>();
-  ASSERT_NE(simple, nullptr);
   ASSERT_EQ(simple->cu, nullptr);
+  simple->cu.reset(new BCustomizable("B"));
+
+  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=}"));
+  ASSERT_EQ(simple->cu, nullptr);
+  simple->cu.reset(new BCustomizable("B"));
+
   ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=nullptr}"));
   ASSERT_EQ(simple->cu, nullptr);
+  simple->cu.reset(new BCustomizable("B"));
+
   ASSERT_OK(base->ConfigureFromString(config_options_, "unique.id="));
   ASSERT_EQ(simple->cu, nullptr);
+  simple->cu.reset(new BCustomizable("B"));
+
   ASSERT_OK(base->ConfigureFromString(config_options_, "unique=nullptr"));
   ASSERT_EQ(simple->cu, nullptr);
+  simple->cu.reset(new BCustomizable("B"));
+
   ASSERT_OK(base->ConfigureFromString(config_options_, "unique.id=nullptr"));
   ASSERT_EQ(simple->cu, nullptr);
 }
 
 TEST_F(CustomizableTest, NewEmptySharedTest) {
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
-  ASSERT_OK(base->ConfigureFromString(config_options_, "shared={id=}"));
+
   SimpleOptions* simple = base->GetOptions<SimpleOptions>();
   ASSERT_NE(simple, nullptr);
   ASSERT_EQ(simple->cs, nullptr);
+  simple->cs.reset(new BCustomizable("B"));
+
+  ASSERT_OK(base->ConfigureFromString(config_options_, "shared={id=}"));
+  ASSERT_NE(simple, nullptr);
+  ASSERT_EQ(simple->cs, nullptr);
+  simple->cs.reset(new BCustomizable("B"));
 
   ASSERT_OK(base->ConfigureFromString(config_options_, "shared={id=nullptr}"));
   ASSERT_EQ(simple->cs, nullptr);
+  simple->cs.reset(new BCustomizable("B"));
 
   ASSERT_OK(base->ConfigureFromString(config_options_, "shared.id="));
   ASSERT_EQ(simple->cs, nullptr);
+  simple->cs.reset(new BCustomizable("B"));
 
   ASSERT_OK(base->ConfigureFromString(config_options_, "shared.id=nullptr"));
   ASSERT_EQ(simple->cs, nullptr);
+  simple->cs.reset(new BCustomizable("B"));
 
   ASSERT_OK(base->ConfigureFromString(config_options_, "shared=nullptr"));
   ASSERT_EQ(simple->cs, nullptr);
@@ -775,6 +798,7 @@ TEST_F(CustomizableTest, NewEmptyStaticTest) {
   ASSERT_EQ(simple->cp, nullptr);
 }
 
+namespace {
 #ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo> vector_option_info = {
     {"vector",
@@ -791,6 +815,8 @@ class VectorConfigurable : public SimpleConfigurable {
   VectorConfigurable() { RegisterOptions("vector", &cv, &vector_option_info); }
   std::vector<std::shared_ptr<TestCustomizable>> cv;
 };
+}  // namespace
+
 TEST_F(CustomizableTest, VectorConfigTest) {
   VectorConfigurable orig, copy;
   std::shared_ptr<TestCustomizable> c1, c2;
@@ -946,7 +972,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_OK(mc.GetOptionString(options, &opt_str));
   ASSERT_OK(mc2.ConfigureFromString(options, opt_str));
   ASSERT_TRUE(mc.AreEquivalent(options, &mc2, &mismatch));
-  
+
   options.mutable_options_only = false;
   ASSERT_OK(mc.ConfigureOption(options, "immutable", "{id=A; int=10}"));
   auto* mm = mc.GetOptions<std::shared_ptr<TestCustomizable>>("mutable");
@@ -1006,6 +1032,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+namespace {
 class TestSecondaryCache : public SecondaryCache {
  public:
   static const char* kClassName() { return "Test"; }
@@ -1128,6 +1155,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
+}  // namespace
 
 class LoadCustomizableTest : public testing::Test {
  public:

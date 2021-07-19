@@ -68,6 +68,9 @@ static Status NewSharedObject(
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       return Status::OK();
     }
+  } else if (opt_map.empty()) {
+    result->reset();
+    return Status::OK();
   } else {
     status = Status::NotSupported("Cannot reset object ");
   }
@@ -119,12 +122,7 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
     return status;
   } else if (func == nullptr ||
              !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {           // No Id and no options.  Clear the object
-      *result = nullptr;
-      return Status::OK();
-    } else {
-      return NewSharedObject(config_options, id, opt_map, result);
-    }
+    return NewSharedObject(config_options, id, opt_map, result);
   } else {
     return Customizable::ConfigureNewObject(config_options, result->get(),
                                             opt_map);
@@ -150,9 +148,7 @@ static Status NewUniqueObject(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::unique_ptr<T>* result) {
   Status status;
-  if (id.empty()) {
-    status = Status::NotSupported("Cannot reset object ");
-  } else {
+  if (!id.empty()) {
 #ifndef ROCKSDB_LITE
     status = config_options.registry->NewUniqueObject(id, result);
 #else
@@ -161,6 +157,11 @@ static Status NewUniqueObject(
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       return Status::OK();
     }
+  } else if (opt_map.empty()) {
+    result->reset();
+    return Status::OK();
+  } else {
+    status = Status::NotSupported("Cannot reset object ");
   }
   if (!status.ok()) {
     return status;
@@ -194,12 +195,7 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
     return status;
   } else if (func == nullptr ||
              !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {           // No Id and no options.  Clear the object
-      *result = nullptr;
-      return Status::OK();
-    } else {
-      return NewUniqueObject(config_options, id, opt_map, result);
-    }
+    return NewUniqueObject(config_options, id, opt_map, result);
   } else {
     return Customizable::ConfigureNewObject(config_options, result->get(),
                                             opt_map);
@@ -224,9 +220,7 @@ static Status NewStaticObject(
     const ConfigOptions& config_options, const std::string& id,
     const std::unordered_map<std::string, std::string>& opt_map, T** result) {
   Status status;
-  if (id.empty()) {
-    status = Status::NotSupported("Cannot reset object ");
-  } else {
+  if (!id.empty()) {
 #ifndef ROCKSDB_LITE
     status = config_options.registry->NewStaticObject(id, result);
 #else
@@ -235,6 +229,11 @@ static Status NewStaticObject(
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       return Status::OK();
     }
+  } else if (opt_map.empty()) {
+    *result = nullptr;
+    return Status::OK();
+  } else {
+    status = Status::NotSupported("Cannot reset object ");
   }
   if (!status.ok()) {
     return status;
@@ -266,12 +265,7 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
     return status;
   } else if (func == nullptr ||
              !func(id, result)) {  // No factory, or it failed
-    if (value.empty()) {           // No Id and no options.  Clear the object
-      *result = nullptr;
-      return Status::OK();
-    } else {
-      return NewStaticObject(config_options, id, opt_map, result);
-    }
+    return NewStaticObject(config_options, id, opt_map, result);
   } else {
     return Customizable::ConfigureNewObject(config_options, *result, opt_map);
   }
