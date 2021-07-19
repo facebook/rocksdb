@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.22.3 (2021-07-19)
+### Bug Fixes
+* Fixed block cache entry stat scans not to hold the DB mutex, which was a serious performance bug for tail latencies in TransactionDB and likely elsewhere.
+
 ## 6.22.2 (2021-07-14)
 ### Bug Fixes
 * Fix continuous logging of an existing background error on every user write
