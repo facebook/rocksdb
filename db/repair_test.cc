@@ -76,7 +76,8 @@ TEST_F(RepairTest, LostManifestMoreDbFeatures) {
   ASSERT_OK(Put("key4", "val4"));
   ASSERT_OK(Flush());
   // Test an SST file containing only a range tombstone
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key2", "key3z"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key2",
+                             "key3z"));
   ASSERT_OK(Flush());
   // Need to get path before Close() deletes db_, but delete it after Close() to
   // ensure Close() didn't change the manifest.

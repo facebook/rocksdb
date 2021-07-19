@@ -591,7 +591,8 @@ class Repairer {
     if (status.ok()) {
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
-      status = table_cache_->GetRangeTombstoneIterator(ropts, cfd->internal_comparator(), t->meta, &r_iter);
+      status = table_cache_->GetRangeTombstoneIterator(
+          ropts, cfd->internal_comparator(), t->meta, &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();
