@@ -752,7 +752,7 @@ Status ConfigurableHelper::GetOptionsMap(
       props->clear();         // Clear the properties
       status = Status::OK();  // and ignore the error
     } else {
-      auto iter = props->find(OptionTypeInfo::kIdPropName);
+      auto iter = props->find(OptionTypeInfo::kIdPropName());
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);
