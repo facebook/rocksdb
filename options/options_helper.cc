@@ -644,10 +644,13 @@ Status StringToMap(const std::string& opts_str,
   }
 
   while (pos < opts.size()) {
-    size_t eq_pos = opts.find('=', pos);
+    size_t eq_pos = opts.find_first_of("={};", pos);
     if (eq_pos == std::string::npos) {
       return Status::InvalidArgument("Mismatched key value pair, '=' expected");
+    } else if (opts[eq_pos] != '=') {
+      return Status::InvalidArgument("Unexpected char in key");
     }
+
     std::string key = trim(opts.substr(pos, eq_pos - pos));
     if (key.empty()) {
       return Status::InvalidArgument("Empty key found");

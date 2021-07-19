@@ -326,6 +326,9 @@ DEFINE_uint64(compaction_ttl, 1000,
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_bool(experimental_allow_mempurge, false,
+            "Allow mempurge process to collect memtable garbage bytes.");
+
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
