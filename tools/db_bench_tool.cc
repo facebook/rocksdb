@@ -6793,6 +6793,8 @@ class Benchmark {
     std::vector<std::string> inserted_keys_sample;
     std::default_random_engine bergen;
     double p = 0.0;
+    // Create Bernoulli distribution parameter for number
+    // of overwrites if user specified num_overwrites.
     if (FLAGS_num_overwrites >= 0) {
       p = FLAGS_num_overwrites * 1.0 / FLAGS_num;
       p = p > 1.0 ? 1.0 : p;
@@ -6808,21 +6810,32 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
+      // If user specified overwrite ratio:
       if (FLAGS_num_overwrites >= 0) {
+        // Decide if we do an overwrite (probability p).
+        // Note: an overwrite is possible only once at least
+        // one key has been inserted.
         if (inserted_keys_sample.size() > 0 && distribution(bergen)) {
+          // If overwrite, randomly select key from sample (reservoir).
           std::string newkey =
               inserted_keys_sample[thread->rand.Next() %
                                    inserted_keys_sample.size()];
+          // Copy string chars to key.
           for (size_t i = 0; i < key.size(); i++) {
             pos[i] = newkey[i];
           }
         } else {
+          // We perform a pure write.
           Status sget = Status::OK();
+          // Keep generating new key until we obtain a key
+          // not already present in the DB.
           do {
             GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num,
                                &key);
             sget = db->Get(options, key, &value);
           } while (sget.ok());
+
+          // Update the "inserted_keys_sample" reservoir.
           if (static_cast<uint64_t>(inserted_keys_sample.size()) <
               FLAGS_overwrite_sample_size) {
             inserted_keys_sample.push_back(key.ToString());
