@@ -597,10 +597,11 @@ class Repairer {
         r_iter->SeekToFirst();
 
         while (r_iter->Valid()) {
-          auto seqno = r_iter->seq();
-          auto& fd = t->meta.fd;
-          fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
-          fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+          auto tombstone = r_iter->Tombstone();
+          auto kv = tombstone.Serialize();
+          t->meta.UpdateBoundariesForRange(
+              kv.first, tombstone.SerializeEndKey(), tombstone.seq_,
+              cfd->internal_comparator());
           r_iter->Next();
         }
       }
