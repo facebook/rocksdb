@@ -548,6 +548,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
             "records NOT monotonically increasing");
       } else {
         cfd->SetLogNumber(edit.log_number_);
+        if (version_set_->db_options()->experimental_allow_mempurge &&
+            edit.log_number_ > 0 &&
+            (cfd->mem()->GetEarliestLogFileNumber() == 0)) {
+          cfd->mem()->SetEarliestLogFileNumber(edit.log_number_);
+        }
         version_edit_params_.SetLogNumber(edit.log_number_);
       }
     }

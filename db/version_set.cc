@@ -4414,6 +4414,14 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
+void VersionSet::WakeUpWaitingManifestWriters() {
+  // wake up all the waiting writers
+  // Notify new head of manifest write queue.
+  if (!manifest_writers_.empty()) {
+    manifest_writers_.front()->cv.Signal();
+  }
+}
+
 // 'datas' is grammatically incorrect. We still use this notation to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
@@ -5639,7 +5647,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
   new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
-                             LastSequence());
+                             LastSequence(), edit->log_number_);
   new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
 }

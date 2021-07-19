@@ -1014,6 +1014,7 @@ class VersionSet {
                                        FileSystem* fs,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
+  void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
@@ -1160,6 +1161,15 @@ class VersionSet {
       if (min_log_num > num && !cfd->IsDropped()) {
         min_log_num = num;
       }
+      // If mempurge is activated, there may be an immutable memtable
+      // that has data not flushed to any SST file.
+      if (db_options_->experimental_allow_mempurge && !(cfd->IsEmpty()) &&
+          !(cfd->IsDropped())) {
+        num = cfd->imm()->EarliestLogContainingData();
+        if ((num > 0) && (min_log_num > num)) {
+          min_log_num = num;
+        }
+      }
     }
     return min_log_num;
   }
@@ -1176,6 +1186,15 @@ class VersionSet {
       // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
       if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
         min_log_num = cfd->GetLogNumber();
+      }
+      // If mempurge is activated, there may be an immutable memtable
+      // that has data not flushed to any SST file.
+      if (db_options_->experimental_allow_mempurge && !(cfd->IsEmpty()) &&
+          !(cfd->IsDropped())) {
+        uint64_t num = cfd->imm()->EarliestLogContainingData();
+        if ((num > 0) && (min_log_num > num)) {
+          min_log_num = num;
+        }
       }
     }
     return min_log_num;

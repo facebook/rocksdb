@@ -1766,6 +1766,14 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
           thread->shared->SetVerificationFailure();
         }
       }
+      if (ppt_name_and_info.second.handle_map != nullptr) {
+        std::map<std::string, std::string> prop_map;
+        if (!db_->GetMapProperty(ppt_name_and_info.first, &prop_map)) {
+          fprintf(stderr, "Failed to get Map property: %s\n",
+                  ppt_name_and_info.first.c_str());
+          thread->shared->SetVerificationFailure();
+        }
+      }
     }
   }
 
@@ -2259,6 +2267,7 @@ void StressTest::Open() {
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options_.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
+    options_.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
     options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options_.ttl = FLAGS_compaction_ttl;
     options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
@@ -2491,6 +2500,13 @@ void StressTest::Open() {
               FLAGS_open_metadata_write_fault_one_in);
         }
         if (ingest_write_error) {
+          if (!FLAGS_sync) {
+            // When DB Stress is not sync mode, we expect all WAL writes to
+            // WAL is durable. Buffering unsynced writes will cause false
+            // positive in crash tests. Before we figure out a way to
+            // solve it, skip WAL from failure injection.
+            fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
+          }
           fault_fs_guard->SetFilesystemDirectWritable(false);
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
@@ -2538,6 +2554,7 @@ void StressTest::Open() {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           fault_fs_guard->DisableWriteErrorInjection();
+          fault_fs_guard->SetSkipDirectWritableTypes({});
           fault_fs_guard->SetRandomReadError(0);
           if (s.ok()) {
             // Ingested errors might happen in background compactions. We
