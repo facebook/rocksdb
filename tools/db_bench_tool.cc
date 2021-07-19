@@ -392,6 +392,10 @@ DEFINE_int64(seed, 0, "Seed base for random number generators. "
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
+DEFINE_int32(num_overwrites, -1, "Percent of overwrites in benchmark.");
+
+DEFINE_uint64(overwrite_sample_size, 100, "Size of overwrite sample.");
+
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
@@ -6776,7 +6780,17 @@ class Benchmark {
     Duration duration(FLAGS_duration, readwrites_);
 
     std::unique_ptr<const char[]> key_guard;
+    std::vector<std::string> inserted_keys_sample;
+    std::default_random_engine bergen;
+    double p = 0.0;
+    if (FLAGS_num_overwrites >= 0) {
+      p = FLAGS_num_overwrites * 1.0 / FLAGS_num;
+      p = p > 1.0 ? 1.0 : p;
+    }
+    std::bernoulli_distribution distribution(p);
     Slice key = AllocateKey(&key_guard);
+    char* start = const_cast<char*>(key.data());
+    char* pos = start;
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -6784,7 +6798,32 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      if (FLAGS_num_overwrites >= 0) {
+        if (inserted_keys_sample.size() > 0 && distribution(bergen)) {
+          std::string newkey =
+              inserted_keys_sample[thread->rand.Next() %
+                                   inserted_keys_sample.size()];
+          for (size_t i = 0; i < key.size(); i++) {
+            pos[i] = newkey[i];
+          }
+        } else {
+          Status sget = Status::OK();
+          do {
+            GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num,
+                               &key);
+            sget = db->Get(options, key, &value);
+          } while (sget.ok());
+          if (static_cast<uint64_t>(inserted_keys_sample.size()) <
+              FLAGS_overwrite_sample_size) {
+            inserted_keys_sample.push_back(key.ToString());
+          } else {
+            inserted_keys_sample[thread->rand.Next() %
+                                 FLAGS_overwrite_sample_size] = key.ToString();
+          }
+        }
+      } else {
+        GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      }
       Slice ts;
       if (user_timestamp_size_ > 0) {
         // Read with newest timestamp because we are doing rmw.
