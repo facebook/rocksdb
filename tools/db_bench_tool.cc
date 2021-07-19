@@ -392,12 +392,6 @@ DEFINE_int64(seed, 0, "Seed base for random number generators. "
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
-DEFINE_int32(num_overwrites, -1,
-             "Number of overwrites in UpdateRandom benchmark.");
-
-DEFINE_uint64(overwrite_sample_size, 100,
-              "Size of overwrite sample used in UpdateRandom benchmark.");
-
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
@@ -901,6 +895,20 @@ DEFINE_int64(max_num_range_tombstones, 0,
 
 DEFINE_bool(expand_range_tombstones, false,
             "Expand range tombstone into sequential regular tombstones.");
+
+DEFINE_int32(num_overwrites, -1,
+             "Number of overwrites in UpdateRandom benchmark. This "
+             "number is used in combination with num to create a ratio r. "
+             "Then, each new write operation has a probability r of "
+             "being an overwrite.");
+
+DEFINE_uint64(overwrite_sample_size, 100,
+              "Size of overwrite sample used in UpdateRandom benchmark. "
+              "Used only when num_overwrites flag is set by user. "
+              "Whenever an overwrite is performed, a key is picked from "
+              "the overwrite sample (~reservoir of inserted keys). Conversely, "
+              "for each pure write, the newly inserted key is randomly added "
+              "to this reservoir of fixed size.");
 
 #ifndef ROCKSDB_LITE
 // Transactions Options
