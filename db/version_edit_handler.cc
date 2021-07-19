@@ -18,7 +18,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 void VersionEditHandlerBase::Iterate(log::Reader& reader,
-                                     Status* log_read_status) {
+                                     Status* log_read_status,
+                                     uint64_t sst_file_number) {
   Slice record;
   std::string scratch;
   assert(log_read_status);
@@ -64,7 +65,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     s = *log_read_status;
   }
 
-  CheckIterationResult(reader, &s);
+  CheckIterationResult(reader, &s, nullptr, sst_file_number);
 
   if (!s.ok()) {
     status_ = s;
@@ -283,7 +284,8 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
-      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
+      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false,
+                             nullptr);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
       }
@@ -336,7 +338,9 @@ void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
 }
 
 void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
-                                              Status* s) {
+                                              Status* s,
+                                              std::vector<FileMetaData*>* files,
+                                              uint64_t) {
   assert(s != nullptr);
   if (!s->ok()) {
     // Do nothing here.
@@ -416,7 +420,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
       assert(cfd->initialized());
       VersionEdit edit;
-      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true);
+      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true, files);
       if (!s->ok()) {
         break;
       }
@@ -478,9 +482,9 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   return ret;
 }
 
-Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
-                                              ColumnFamilyData* cfd,
-                                              bool force_create_version) {
+Status VersionEditHandler::MaybeCreateVersion(
+    const VersionEdit& /*edit*/, ColumnFamilyData* cfd,
+    bool force_create_version, std::vector<FileMetaData*>* files) {
   assert(cfd->initialized());
   Status s;
   if (force_create_version) {
@@ -497,6 +501,14 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
           *cfd->GetLatestMutableCFOptions(),
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
+
+      if (files != nullptr) {
+        for (int level = 0; level < v->storage_info_.num_levels(); level++) {
+          const std::vector<FileMetaData*>& f =
+              v->storage_info_.LevelFiles(level);
+          files->insert(files->end(), f.begin(), f.end());
+        }
+      }
     } else {
       delete v;
     }
@@ -612,7 +624,8 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
 }
 
 void VersionEditHandlerPointInTime::CheckIterationResult(
-    const log::Reader& reader, Status* s) {
+    const log::Reader& reader, Status* s, std::vector<FileMetaData*>*,
+    uint64_t) {
   VersionEditHandler::CheckIterationResult(reader, s);
   assert(s != nullptr);
   if (s->ok()) {
@@ -644,7 +657,8 @@ ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
 }
 
 Status VersionEditHandlerPointInTime::MaybeCreateVersion(
-    const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
+    const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version,
+    std::vector<FileMetaData*>*) {
   assert(cfd != nullptr);
   if (!force_create_version) {
     assert(edit.column_family_ == cfd->GetID());
@@ -870,8 +884,9 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
   return Status::OK();
 }
 
-void ManifestTailer::CheckIterationResult(const log::Reader& reader,
-                                          Status* s) {
+void ManifestTailer::CheckIterationResult(const log::Reader& reader, Status* s,
+                                          std::vector<FileMetaData*>*,
+                                          uint64_t) {
   VersionEditHandlerPointInTime::CheckIterationResult(reader, s);
   assert(s);
   if (s->ok()) {
@@ -892,42 +907,73 @@ Status ManifestTailer::VerifyFile(const std::string& fpath,
 }
 
 void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
-                                               Status* s) {
-  VersionEditHandler::CheckIterationResult(reader, s);
+                                               Status* s,
+                                               std::vector<FileMetaData*>*,
+                                               uint64_t sst_file_number) {
+  std::vector<FileMetaData*>* files = new std::vector<FileMetaData*>;
+  bool found = false;
+  if (sst_file_number != 0) {
+    VersionEditHandler::CheckIterationResult(reader, s, files);
+
+  } else {
+    VersionEditHandler::CheckIterationResult(reader, s);
+  }
   if (!s->ok()) {
     fprintf(stdout, "%s\n", s->ToString().c_str());
     return;
   }
   assert(cf_to_cmp_names_);
   for (auto* cfd : *(version_set_->column_family_set_)) {
-    fprintf(stdout,
-            "--------------- Column family \"%s\"  (ID %" PRIu32
-            ") --------------\n",
-            cfd->GetName().c_str(), cfd->GetID());
-    fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
-    auto it = cf_to_cmp_names_->find(cfd->GetID());
-    if (it != cf_to_cmp_names_->end()) {
-      fprintf(stdout,
-              "comparator: <%s>, but the comparator object is not available.\n",
-              it->second.c_str());
+    if (sst_file_number != 0) {
+      for (size_t i = 0; i < files->size(); i++) {
+        if ((*files)[i]->fd.GetNumber() == sst_file_number) {
+          found = true;
+          fprintf(stdout,
+                  "--------------- Column family \"%s\"  (ID %" PRIu32
+                  ") --------------\n",
+                  cfd->GetName().c_str(), cfd->GetID());
+          break;
+        }
+      }
+      if (found) break;
     } else {
-      fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+      fprintf(stdout,
+              "--------------- Column family \"%s\"  (ID %" PRIu32
+              ") --------------\n",
+              cfd->GetName().c_str(), cfd->GetID());
+      fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
+      auto it = cf_to_cmp_names_->find(cfd->GetID());
+      if (it != cf_to_cmp_names_->end()) {
+        fprintf(
+            stdout,
+            "comparator: <%s>, but the comparator object is not available.\n",
+            it->second.c_str());
+      } else {
+        fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+      }
     }
     assert(cfd->current());
-
     // Print out DebugStrings. Can include non-terminating null characters.
     fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
            cfd->current()->DebugString(hex_).size(), stdout);
   }
-  fprintf(stdout,
-          "next_file_number %" PRIu64 " last_sequence %" PRIu64
-          "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep "
-          "%" PRIu64 "\n",
-          version_set_->current_next_file_number(),
-          version_set_->LastSequence(), version_set_->prev_log_number(),
-          version_set_->column_family_set_->GetMaxColumnFamily(),
-          version_set_->min_log_number_to_keep_2pc());
+
+  if (sst_file_number != 0 && !found) {
+    *s = Status::NotFound("sst " + ToString(sst_file_number) +
+                          " is not in the live files set of the manifest");
+  }
+
+  if (sst_file_number == 0) {
+    fprintf(stdout,
+            "next_file_number %" PRIu64 " last_sequence %" PRIu64
+            "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
+            " min_log_number_to_keep "
+            "%" PRIu64 "\n",
+            version_set_->current_next_file_number(),
+            version_set_->LastSequence(), version_set_->prev_log_number(),
+            version_set_->column_family_set_->GetMaxColumnFamily(),
+            version_set_->min_log_number_to_keep_2pc());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

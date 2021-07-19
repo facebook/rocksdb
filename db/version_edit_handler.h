@@ -24,7 +24,8 @@ class VersionEditHandlerBase {
 
   virtual ~VersionEditHandlerBase() {}
 
-  void Iterate(log::Reader& reader, Status* log_read_status);
+  void Iterate(log::Reader& reader, Status* log_read_status,
+               uint64_t sst_file_number = 0);
 
   const Status& status() const { return status_; }
 
@@ -38,8 +39,8 @@ class VersionEditHandlerBase {
   virtual Status ApplyVersionEdit(VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
-  virtual void CheckIterationResult(const log::Reader& /*reader*/,
-                                    Status* /*s*/) {}
+  virtual void CheckIterationResult(const log::Reader&, Status*,
+                                    std::vector<FileMetaData*>*, uint64_t) {}
 
   void ClearReadBuffer() { read_buffer_.Clear(); }
 
@@ -153,16 +154,18 @@ class VersionEditHandler : public VersionEditHandlerBase {
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const log::Reader& reader, Status* s,
+                            std::vector<FileMetaData*>* files = nullptr,
+                            uint64_t sst_file_number = 0) override;
 
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit);
 
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
 
-  virtual Status MaybeCreateVersion(const VersionEdit& edit,
-                                    ColumnFamilyData* cfd,
-                                    bool force_create_version);
+  virtual Status MaybeCreateVersion(
+      const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version,
+      std::vector<FileMetaData*>* files = nullptr);
 
   Status LoadTables(ColumnFamilyData* cfd,
                     bool prefetch_index_and_filter_in_cache,
@@ -209,10 +212,13 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const log::Reader& reader, Status* s,
+                            std::vector<FileMetaData*>* files = nullptr,
+                            uint64_t sst_file_number = 0) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
-                            bool force_create_version) override;
+                            bool force_create_version,
+                            std::vector<FileMetaData*>* files) override;
   virtual Status VerifyFile(const std::string& fpath,
                             const FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
@@ -248,7 +254,9 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const log::Reader& reader, Status* s,
+                            std::vector<FileMetaData*>* files = nullptr,
+                            uint64_t sst_file_number = 0) override;
 
   Status VerifyFile(const std::string& fpath,
                     const FileMetaData& fmeta) override;
@@ -297,7 +305,9 @@ class DumpManifestHandler : public VersionEditHandler {
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);
   }
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const log::Reader& reader, Status* s,
+                            std::vector<FileMetaData*>* files = nullptr,
+                            uint64_t sst_file_number = 0) override;
 
  private:
   const bool verbose_;

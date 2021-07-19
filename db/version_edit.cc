@@ -770,6 +770,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  AddFile: ");
     AppendNumberTo(&r, new_files_[i].first);
     r.append(" ");
+    r.append(f.DebugString(hex_key));
+    
     AppendNumberTo(&r, f.fd.GetNumber());
     r.append(" ");
     AppendNumberTo(&r, f.fd.GetFileSize());

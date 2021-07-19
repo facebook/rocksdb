@@ -273,6 +273,42 @@ struct FileMetaData {
     }
     return kUnknownFileCreationTime;
   }
+
+  std::string DebugString(bool hex_key) const {
+    std::string r;
+    AppendNumberTo(&r, this->fd.GetNumber());
+    r.push_back(':');
+    AppendNumberTo(&r, this->fd.GetFileSize());
+    r.append("[");
+    AppendNumberTo(&r, this->fd.smallest_seqno);
+    r.append(" .. ");
+    AppendNumberTo(&r, this->fd.largest_seqno);
+    r.append("]");
+    r.append("[");
+    r.append(this->smallest.DebugString(hex_key));
+    r.append(" .. ");
+    r.append(this->largest.DebugString(hex_key));
+    r.append("]");
+    if (this->oldest_blob_file_number != kInvalidBlobFileNumber) {
+      r.append(" blob_file:");
+      AppendNumberTo(&r, this->oldest_blob_file_number);
+    }
+    r.append(" oldest_ancester_time:");
+    AppendNumberTo(&r, this->oldest_ancester_time);
+    r.append(" file_creation_time:");
+    AppendNumberTo(&r, this->file_creation_time);
+    r.append(" file_checksum:");
+    r.append(this->file_checksum);
+    r.append(" file_checksum_func_name: ");
+    r.append(this->file_checksum_func_name);
+    if (this->temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(ToString(static_cast<int>(this->temperature)));
+    }
+    return r;
+  }
 };
 
 // A compressed copy of file meta data that just contain minimum data needed

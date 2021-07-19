@@ -184,10 +184,12 @@ class ManifestDumpCommand : public LDBCommand {
   bool verbose_;
   bool json_;
   std::string path_;
+  uint64_t sst_file_number_;
 
   static const std::string ARG_VERBOSE;
   static const std::string ARG_JSON;
   static const std::string ARG_PATH;
+  static const std::string ARG_NUMBER;
 };
 
 class FileChecksumDumpCommand : public LDBCommand {

@@ -1064,7 +1064,7 @@ void DBLoaderCommand::DoCommand() {
 namespace {
 
 void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
-                      bool json) {
+                      bool json, uint64_t sst_file_number = 0) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1080,7 +1080,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_session_id*/ "");
-  Status s = versions.DumpManifest(options, file, verbose, hex, json);
+  Status s = versions.DumpManifest(options, file, verbose, hex, json, sst_file_number);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
@@ -1092,6 +1092,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
 const std::string ManifestDumpCommand::ARG_VERBOSE = "verbose";
 const std::string ManifestDumpCommand::ARG_JSON = "json";
 const std::string ManifestDumpCommand::ARG_PATH = "path";
+const std::string ManifestDumpCommand::ARG_NUMBER = "sst_file_number";
 
 void ManifestDumpCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -1099,6 +1100,7 @@ void ManifestDumpCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_VERBOSE + "]");
   ret.append(" [--" + ARG_JSON + "]");
   ret.append(" [--" + ARG_PATH + "=<path_to_manifest_file>]");
+  ret.append(" [--" + ARG_NUMBER + "=<sst_file_number>]");
   ret.append("\n");
 }
 
@@ -1106,12 +1108,13 @@ ManifestDumpCommand::ManifestDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, false,
-          BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX, ARG_JSON})),
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions(
+                     {ARG_VERBOSE, ARG_PATH, ARG_HEX, ARG_JSON, ARG_NUMBER})),
       verbose_(false),
       json_(false),
-      path_("") {
+      path_(""),
+      sst_file_number_(0) {
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
   json_ = IsFlagPresent(flags, ARG_JSON);
 
@@ -1122,6 +1125,11 @@ ManifestDumpCommand::ManifestDumpCommand(
     if (path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed("--path: missing pathname");
     }
+  }
+
+  itr = options.find(ARG_NUMBER);
+  if (itr != options.end()) {
+    sst_file_number_ = ParseUint64(itr->second);
   }
 }
 
@@ -1194,7 +1202,7 @@ void ManifestDumpCommand::DoCommand() {
     fprintf(stdout, "Processing Manifest file %s\n", manifestfile.c_str());
   }
 
-  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_);
+  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_, sst_file_number_);
 
   if (verbose_) {
     fprintf(stdout, "Processing Manifest file %s done\n", manifestfile.c_str());
