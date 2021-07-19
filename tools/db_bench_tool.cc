@@ -392,9 +392,11 @@ DEFINE_int64(seed, 0, "Seed base for random number generators. "
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
-DEFINE_int32(num_overwrites, -1, "Percent of overwrites in benchmark.");
+DEFINE_int32(num_overwrites, -1,
+             "Number of overwrites in UpdateRandom benchmark.");
 
-DEFINE_uint64(overwrite_sample_size, 100, "Size of overwrite sample.");
+DEFINE_uint64(overwrite_sample_size, 100,
+              "Size of overwrite sample used in UpdateRandom benchmark.");
 
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
