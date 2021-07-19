@@ -63,6 +63,7 @@
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
+#include "monitoring/instrumented_mutex.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
@@ -944,18 +945,31 @@ void DBImpl::DumpStats() {
   if (shutdown_initiated_) {
     return;
   }
+
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        // Release DB mutex for gathering cache entry stats. Pass over all
+        // column families for this first so that other stats are dumped
+        // near-atomically.
+        InstrumentedMutexUnlock u(&mutex_);
+        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+      }
+    }
+
     const std::string* property = &DB::Properties::kDBStats;
     const DBPropertyInfo* property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
     property = &DB::Properties::kCFStatsNoFileHistogram;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
@@ -966,6 +980,7 @@ void DBImpl::DumpStats() {
     property = &DB::Properties::kCFFileHistogram;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
@@ -3264,16 +3279,21 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     }
     return ret_value;
   } else if (property_info->handle_string) {
-    InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetStringProperty(*property_info, property,
-                                                    value);
-  } else if (property_info->handle_string_dbimpl) {
-    std::string tmp_value;
-    bool ret_value = (this->*(property_info->handle_string_dbimpl))(&tmp_value);
-    if (ret_value) {
-      *value = tmp_value;
+    if (property_info->need_out_of_mutex) {
+      return cfd->internal_stats()->GetStringProperty(*property_info, property,
+                                                      value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return cfd->internal_stats()->GetStringProperty(*property_info, property,
+                                                      value);
     }
-    return ret_value;
+  } else if (property_info->handle_string_dbimpl) {
+    if (property_info->need_out_of_mutex) {
+      return (this->*(property_info->handle_string_dbimpl))(value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return (this->*(property_info->handle_string_dbimpl))(value);
+    }
   }
   // Shouldn't reach here since exactly one of handle_string and handle_int
   // should be non-nullptr.
@@ -3291,9 +3311,14 @@ bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
   if (property_info == nullptr) {
     return false;
   } else if (property_info->handle_map) {
-    InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetMapProperty(*property_info, property,
-                                                 value);
+    if (property_info->need_out_of_mutex) {
+      return cfd->internal_stats()->GetMapProperty(*property_info, property,
+                                                   value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return cfd->internal_stats()->GetMapProperty(*property_info, property,
+                                                   value);
+    }
   }
   // If we reach this point it means that handle_map is not provided for the
   // requested property
