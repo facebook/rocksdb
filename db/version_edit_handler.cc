@@ -947,34 +947,61 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     return;
   }
   assert(cf_to_cmp_names_);
+  bool found = false;
   for (auto* cfd : *(version_set_->column_family_set_)) {
-    fprintf(stdout,
-            "--------------- Column family \"%s\"  (ID %" PRIu32
-            ") --------------\n",
-            cfd->GetName().c_str(), cfd->GetID());
-    fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
-    auto it = cf_to_cmp_names_->find(cfd->GetID());
-    if (it != cf_to_cmp_names_->end()) {
-      fprintf(stdout,
-              "comparator: <%s>, but the comparator object is not available.\n",
-              it->second.c_str());
-    } else {
-      fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
-    }
     assert(cfd->current());
-
-    // Print out DebugStrings. Can include non-terminating null characters.
-    fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
-           cfd->current()->DebugString(hex_).size(), stdout);
+    if (sst_file_number_ == 0) {
+      fprintf(stdout,
+              "--------------- Column family \"%s\"  (ID %" PRIu32
+              ") --------------\n",
+              cfd->GetName().c_str(), cfd->GetID());
+      fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
+      auto it = cf_to_cmp_names_->find(cfd->GetID());
+      if (it != cf_to_cmp_names_->end()) {
+        fprintf(
+            stdout,
+            "comparator: <%s>, but the comparator object is not available.\n",
+            it->second.c_str());
+      } else {
+        fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+      }
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
+             cfd->current()->DebugString(hex_).size(), stdout);
+    } else {
+      for (int level = 0; level < cfd->current()->storage_info()->num_levels();
+           level++) {
+        auto& files = cfd->current()->storage_info()->LevelFiles(level);
+        // for (size_t i = 0; i < files.size(); i++) {
+        for (auto f : files) {
+          if (f->fd.GetNumber() == sst_file_number_) {
+            found = true;
+            printf("--------------- Column family \"%s\"  (ID %" PRIu32
+                   ") --------------\n",
+                   cfd->GetName().c_str(), cfd->GetID());
+            printf("%s at level %d\n", f->DebugString(hex_).c_str(), level);
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
   }
-  fprintf(stdout,
-          "next_file_number %" PRIu64 " last_sequence %" PRIu64
-          "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep %" PRIu64 "\n",
-          version_set_->current_next_file_number(),
-          version_set_->LastSequence(), version_set_->prev_log_number(),
-          version_set_->column_family_set_->GetMaxColumnFamily(),
-          version_set_->min_log_number_to_keep());
+  if (sst_file_number_ != 0 && !found) {
+    *s = Status::NotFound("sst " + ToString(sst_file_number_) +
+                          " is not in the live files set of the manifest");
+  }
+  if (sst_file_number_ == 0) {
+    fprintf(stdout,
+            "next_file_number %" PRIu64 " last_sequence %" PRIu64
+            "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
+            " min_log_number_to_keep %" PRIu64 "\n",
+            version_set_->current_next_file_number(),
+            version_set_->LastSequence(), version_set_->prev_log_number(),
+            version_set_->column_family_set_->GetMaxColumnFamily(),
+            version_set_->min_log_number_to_keep());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

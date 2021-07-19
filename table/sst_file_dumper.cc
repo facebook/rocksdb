@@ -435,6 +435,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   } else {
     iter->SeekToFirst();
   }
+  std::string prev_key = "";
   for (; iter->Valid(); iter->Next()) {
     Slice key = iter->key();
     Slice value = iter->value();
@@ -478,6 +479,17 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
                 blob_index.DebugString(output_hex_).c_str());
       }
     }
+
+    if (prev_key.size() != 0 &&
+        internal_comparator_.Compare(key, Slice(prev_key)) <= 0) {
+      InternalKey current, last;
+      current.DecodeFrom(key);
+      last.DecodeFrom(Slice(prev_key));
+      return Status::Corruption("current key " + current.DebugString(true) +
+                                " is not greater than last key " +
+                                last.DebugString(true));
+    }
+    prev_key = key.ToString(false);
   }
 
   read_num_ += i;

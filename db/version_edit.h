@@ -23,6 +23,7 @@
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
 #include "util/autovector.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -284,6 +285,49 @@ struct FileMetaData {
       return fd.table_reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
+  }
+
+  std::string DebugString(bool hex) const {
+    std::string r;
+    AppendNumberTo(&r, fd.GetNumber());
+    r.push_back(':');
+    AppendNumberTo(&r, fd.GetFileSize());
+    r.append("[");
+    AppendNumberTo(&r, fd.smallest_seqno);
+    r.append(" .. ");
+    AppendNumberTo(&r, fd.largest_seqno);
+    r.append("]");
+    r.append("[");
+    r.append(smallest.DebugString(hex));
+    r.append(" .. ");
+    r.append(largest.DebugString(hex));
+    r.append("]");
+    if (oldest_blob_file_number != kInvalidBlobFileNumber) {
+      r.append(" blob_file:");
+      AppendNumberTo(&r, oldest_blob_file_number);
+    }
+    if (min_timestamp != kDisableUserTimestamp) {
+      assert(max_timestamp != kDisableUserTimestamp);
+      r.append(" min_timestamp:");
+      r.append(Slice(min_timestamp).ToString(true));
+      r.append(" max_timestamp:");
+      r.append(Slice(max_timestamp).ToString(true));
+    }
+    r.append(" oldest_ancester_time:");
+    AppendNumberTo(&r, oldest_ancester_time);
+    r.append(" file_creation_time:");
+    AppendNumberTo(&r, file_creation_time);
+    r.append(" file_checksum:");
+    r.append(Slice(file_checksum).ToString(true));
+    r.append(" file_checksum_func_name: ");
+    r.append(file_checksum_func_name);
+    if (temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(ToString(static_cast<int>(temperature)));
+    }
+    return r;
   }
 };
 

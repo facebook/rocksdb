@@ -267,7 +267,7 @@ class DumpManifestHandler : public VersionEditHandler {
   DumpManifestHandler(std::vector<ColumnFamilyDescriptor> column_families,
                       VersionSet* version_set,
                       const std::shared_ptr<IOTracer>& io_tracer, bool verbose,
-                      bool hex, bool json)
+                      bool hex, bool json, uint64_t sst_file_number)
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
             /*track_missing_files=*/false,
@@ -276,6 +276,7 @@ class DumpManifestHandler : public VersionEditHandler {
         verbose_(verbose),
         hex_(hex),
         json_(json),
+        sst_file_number_(sst_file_number),
         count_(0) {
     cf_to_cmp_names_.reset(new std::unordered_map<uint32_t, std::string>());
   }
@@ -303,6 +304,7 @@ class DumpManifestHandler : public VersionEditHandler {
   const bool verbose_;
   const bool hex_;
   const bool json_;
+  const uint64_t sst_file_number_;
   int count_;
 };
 

@@ -3931,23 +3931,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (size_t i = 0; i < files.size(); i++) {
       r.push_back(' ');
-      AppendNumberTo(&r, files[i]->fd.GetNumber());
-      r.push_back(':');
-      AppendNumberTo(&r, files[i]->fd.GetFileSize());
-      r.append("[");
-      AppendNumberTo(&r, files[i]->fd.smallest_seqno);
-      r.append(" .. ");
-      AppendNumberTo(&r, files[i]->fd.largest_seqno);
-      r.append("]");
-      r.append("[");
-      r.append(files[i]->smallest.DebugString(hex));
-      r.append(" .. ");
-      r.append(files[i]->largest.DebugString(hex));
-      r.append("]");
-      if (files[i]->oldest_blob_file_number != kInvalidBlobFileNumber) {
-        r.append(" blob_file:");
-        AppendNumberTo(&r, files[i]->oldest_blob_file_number);
-      }
+      r.append(files[i]->DebugString(hex));
       if (print_stats) {
         r.append("(");
         r.append(ToString(
@@ -5296,7 +5280,8 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-                                bool verbose, bool hex, bool json) {
+                                bool verbose, bool hex, bool json,
+                                uint64_t sst_file_number) {
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
@@ -5317,7 +5302,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   std::vector<ColumnFamilyDescriptor> column_families(
       1, ColumnFamilyDescriptor(kDefaultColumnFamilyName, options));
   DumpManifestHandler handler(column_families, this, io_tracer_, verbose, hex,
-                              json);
+                              json, sst_file_number);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;

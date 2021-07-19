@@ -790,38 +790,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  AddFile: ");
     AppendNumberTo(&r, new_files_[i].first);
     r.append(" ");
-    AppendNumberTo(&r, f.fd.GetNumber());
-    r.append(" ");
-    AppendNumberTo(&r, f.fd.GetFileSize());
-    r.append(" ");
-    r.append(f.smallest.DebugString(hex_key));
-    r.append(" .. ");
-    r.append(f.largest.DebugString(hex_key));
-    if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
-      r.append(" blob_file:");
-      AppendNumberTo(&r, f.oldest_blob_file_number);
-    }
-    if (f.min_timestamp != kDisableUserTimestamp) {
-      assert(f.max_timestamp != kDisableUserTimestamp);
-      r.append(" min_timestamp:");
-      r.append(Slice(f.min_timestamp).ToString(true));
-      r.append(" max_timestamp:");
-      r.append(Slice(f.max_timestamp).ToString(true));
-    }
-    r.append(" oldest_ancester_time:");
-    AppendNumberTo(&r, f.oldest_ancester_time);
-    r.append(" file_creation_time:");
-    AppendNumberTo(&r, f.file_creation_time);
-    r.append(" file_checksum:");
-    r.append(Slice(f.file_checksum).ToString(true));
-    r.append(" file_checksum_func_name: ");
-    r.append(f.file_checksum_func_name);
-    if (f.temperature != Temperature::kUnknown) {
-      r.append(" temperature: ");
-      // Maybe change to human readable format whenthe feature becomes
-      // permanent
-      r.append(ToString(static_cast<int>(f.temperature)));
-    }
+    r.append(f.DebugString(hex_key));
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {

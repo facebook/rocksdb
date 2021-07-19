@@ -1084,8 +1084,11 @@ class VersionSet {
   Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
 
   // printf contents (for debugging)
+  // If sst_file_number is > 0, only prints manifest info for specified SST file
+  // number
   Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false, bool json = false);
+                      bool verbose, bool hex = false, bool json = false,
+                      uint64_t sst_file_number = 0);
 
 #endif  // ROCKSDB_LITE
 
