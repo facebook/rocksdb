@@ -415,8 +415,8 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
 
   if (opt_info.IsMutable() || !config_options.mutable_options_only) {
     // Either the option is mutable, or we are processing all of the options
-    if (opt_name == name || name == ConfigurableHelper::kIdPropName ||
-        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
+    if (opt_name == name || name == OptionTypeInfo::kIdPropName() ||
+        EndsWith(opt_name, OptionTypeInfo::kIdPropSuffix())) {
       return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.empty()) {
       return Status::OK();
@@ -439,8 +439,8 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
       } else {
         return Status::InvalidArgument("Option not changeable: " + opt_name);
       }
-    } else if (EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
-               name == ConfigurableHelper::kIdPropName) {
+    } else if (EndsWith(opt_name, OptionTypeInfo::kIdPropSuffix()) ||
+               name == OptionTypeInfo::kIdPropName()) {
       // We have a property of the form "id=value" or "table.id=value"
       // This is OK if we ID/value matches the current customizable object
       if (custom->GetId() == value) {
@@ -748,7 +748,7 @@ Status ConfigurableHelper::GetOptionsMap(
   } else {
     status = StringToMap(value, props);
     if (status.ok()) {
-      auto iter = props->find(ConfigurableHelper::kIdPropName);
+      auto iter = props->find(OptionTypeInfo::kIdPropName());
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);

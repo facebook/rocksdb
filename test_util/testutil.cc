@@ -25,6 +25,7 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -601,5 +602,21 @@ Status CreateEnvFromSystem(const ConfigOptions& config_options, Env** result,
   }
 }
 
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+  size_t num_types;
+  library.Register<const Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        static test::SimpleSuffixReverseComparator ssrc;
+        return &ssrc;
+      });
+
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

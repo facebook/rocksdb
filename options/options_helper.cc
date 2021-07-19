@@ -1092,7 +1092,11 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
   } else if (IsCustomizable()) {
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
     if (custom == nullptr) {
-      *opt_value = kNullptrString;
+      if (IsMutable() || !config_options.mutable_options_only) {
+        *opt_value = kNullptrString;
+      } else {
+        *opt_value = "";
+      }
     } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
                !config_options.IsDetailed()) {
       *opt_value = custom->GetId();

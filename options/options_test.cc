@@ -3612,9 +3612,14 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
 static void TestAndCompareOption(const ConfigOptions& config_options,
                                  const OptionTypeInfo& opt_info,
                                  const std::string& opt_name, void* base_ptr,
-                                 void* comp_ptr) {
+                                 void* comp_ptr, bool strip = false) {
   std::string result, mismatch;
   ASSERT_OK(opt_info.Serialize(config_options, opt_name, base_ptr, &result));
+  if (strip) {
+    ASSERT_EQ(result.at(0), '{');
+    ASSERT_EQ(result.at(result.size() - 1), '}');
+    result = result.substr(1, result.size() - 2);
+  }
   ASSERT_OK(opt_info.Parse(config_options, opt_name, result, comp_ptr));
   ASSERT_TRUE(opt_info.AreEqual(config_options, opt_name, base_ptr, comp_ptr,
                                 &mismatch));
@@ -3624,9 +3629,10 @@ static void TestAndCompareOption(const ConfigOptions& config_options,
                                  const OptionTypeInfo& opt_info,
                                  const std::string& opt_name,
                                  const std::string& opt_value, void* base_ptr,
-                                 void* comp_ptr) {
+                                 void* comp_ptr, bool strip = false) {
   ASSERT_OK(opt_info.Parse(config_options, opt_name, opt_value, base_ptr));
-  TestAndCompareOption(config_options, opt_info, opt_name, base_ptr, comp_ptr);
+  TestAndCompareOption(config_options, opt_info, opt_name, base_ptr, comp_ptr,
+                       strip);
 }
 
 template <typename T>
@@ -4045,11 +4051,29 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   TestAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1, &vec2);
   // Test vectors with inner vector
   TestAndCompareOption(config_options, bar_info, "v",
-                       "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2);
+                       "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2, false);
   ASSERT_EQ(vec1.size(), 3);
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b1|b2");
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
+
+  TestAndCompareOption(config_options, bar_info, "v", "{a1|a2}|{b1|{c1|c2}}|d1",
+                       &vec1, &vec2, true);
+  ASSERT_EQ(vec1.size(), 3);
+  ASSERT_EQ(vec1[0], "a1|a2");
+  ASSERT_EQ(vec1[1], "b1|{c1|c2}");
+  ASSERT_EQ(vec1[2], "d1");
+
+  TestAndCompareOption(config_options, bar_info, "v", "{a1}", &vec1, &vec2,
+                       false);
+  ASSERT_EQ(vec1.size(), 1);
+  ASSERT_EQ(vec1[0], "a1");
+
+  TestAndCompareOption(config_options, bar_info, "v", "{a1|a2}|{b1|b2}", &vec1,
+                       &vec2, true);
+  ASSERT_EQ(vec1.size(), 2);
+  ASSERT_EQ(vec1[0], "a1|a2");
+  ASSERT_EQ(vec1[1], "b1|b2");
 }
 
 TEST_F(OptionTypeInfoTest, TestStaticType) {
