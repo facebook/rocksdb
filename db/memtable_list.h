@@ -347,10 +347,6 @@ class MemTableList {
 
   size_t* current_memory_usage() { return &current_memory_usage_; }
 
-  // Returns the earliest log that possibly contain entries
-  // from one of the memtables of this memtable_list.
-  uint64_t EarliestLogContainingData();
-
   // Returns the min log containing the prep section after memtables listsed in
   // `memtables_to_flush` are flushed and their status is persisted in manifest.
   uint64_t PrecomputeMinLogContainingPrepSection(

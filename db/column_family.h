@@ -371,10 +371,9 @@ class ColumnFamilyData {
 
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
-                                 SequenceNumber earliest_seq,
-                                 uint64_t log_number = 0);
+                                 SequenceNumber earliest_seq);
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq, uint64_t log_number = 0);
+                         SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }

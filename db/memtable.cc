@@ -67,8 +67,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq, uint32_t column_family_id,
-                   uint64_t current_logfile_number)
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -99,7 +98,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       earliest_seqno_(latest_seq),
       creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
-      mem_min_logfile_number_(current_logfile_number),
       min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
                  ? moptions_.inplace_update_num_locks
