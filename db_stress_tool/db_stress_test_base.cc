@@ -1766,6 +1766,14 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
           thread->shared->SetVerificationFailure();
         }
       }
+      if (ppt_name_and_info.second.handle_map != nullptr) {
+        std::map<std::string, std::string> prop_map;
+        if (!db_->GetMapProperty(ppt_name_and_info.first, &prop_map)) {
+          fprintf(stderr, "Failed to get Map property: %s\n",
+                  ppt_name_and_info.first.c_str());
+          thread->shared->SetVerificationFailure();
+        }
+      }
     }
   }
 
