@@ -6234,18 +6234,19 @@ class Benchmark {
       }
 
       // Pick a Iterator to use
-      size_t cf_to_use = (db_.db == nullptr)
-                             ? (size_t{thread->rand.Next()} % multi_dbs_.size())
-                             : 0;
+      size_t db_idx_to_use =
+          (db_.db == nullptr)
+              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              : 0;
       std::unique_ptr<Iterator> single_iter;
       Iterator* iter_to_use;
       if (FLAGS_use_tailing_iterator) {
-        iter_to_use = tailing_iters[cf_to_use];
+        iter_to_use = tailing_iters[db_idx_to_use];
       } else {
         if (db_.db != nullptr) {
           single_iter.reset(db_.db->NewIterator(options));
         } else {
-          single_iter.reset(multi_dbs_[cf_to_use].db->NewIterator(options));
+          single_iter.reset(multi_dbs_[db_idx_to_use].db->NewIterator(options));
         }
         iter_to_use = single_iter.get();
       }
