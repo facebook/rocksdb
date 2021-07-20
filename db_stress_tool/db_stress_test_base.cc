@@ -2568,6 +2568,7 @@ void StressTest::Open() {
               }
               column_families_.clear();
               delete db_;
+              db_ = nullptr;
             }
           }
           if (!s.ok()) {
