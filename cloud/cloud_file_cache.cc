@@ -145,8 +145,8 @@ void CloudEnvImpl::FileCachePurge() {
 
 void CloudEnvImpl::log(InfoLogLevel level, const std::string& fname,
                        const std::string& msg) {
-  long usage = cloud_env_options.sst_file_cache->GetUsage();
-  long capacity = cloud_env_options.sst_file_cache->GetCapacity();
+  uint64_t usage = cloud_env_options.sst_file_cache->GetUsage();
+  uint64_t capacity = cloud_env_options.sst_file_cache->GetCapacity();
   long percent = (capacity > 0 ? (100L * usage / capacity) : 0);
   Log(level, info_log_,
       "[%s] FileCache %s %s cache-used %" PRIu64 "/%" PRIu64 "(%ld%%) bytes",
