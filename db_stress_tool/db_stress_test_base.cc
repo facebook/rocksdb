@@ -2563,6 +2563,10 @@ void StressTest::Open() {
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
                     ->TEST_WaitForCompact(true);
             if (!s.ok()) {
+              for (auto cf : column_families_) {
+                delete cf;
+              }
+              column_families_.clear();
               delete db_;
             }
           }
