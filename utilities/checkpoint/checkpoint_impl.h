@@ -21,8 +21,8 @@ class CheckpointImpl : public Checkpoint {
   Status CreateCheckpoint(const std::string& checkpoint_dir,
                           uint64_t log_size_for_flush,
                           uint64_t* sequence_number_ptr,
-                          const std::string &db_log_dir,
-                          const std::string &wal_dir) override;
+                          const std::string& db_log_dir,
+                          const std::string& wal_dir) override;
 
   Status ExportColumnFamily(ColumnFamilyHandle* handle,
                             const std::string& export_dir,
