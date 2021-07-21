@@ -448,24 +448,23 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
 
 DEFINE_double(
     overwrite_probability, -1.0,
-    "Used in 'filluniquerandom' and "
-    "'filluniquerandomdeterministic' benchmarks: for each write operation, "
+    "Used in 'filluniquerandom' benchmark: for each write operation, "
     "we give a probability to perform an overwrite instead. The key used for "
-    "the overwrite is randomly chosen from the last 'overwrite_reservoir_size' "
+    "the overwrite is randomly chosen from the last 'overwrite_window_size' "
     "keys "
     "previously inserted into the DB. "
     "Valid overwrite_probability values: [0.0, 1.0].");
 
-DEFINE_uint32(overwrite_reservoir_size, 1,
-              "Used in 'filluniquerandom' and "
-              "'filluniquerandomdeterministic' benchmarks. For each write "
+DEFINE_uint32(overwrite_window_size, 1,
+              "Used in 'filluniquerandom' benchmark. For each write "
               "operation, when "
               "the overwrite_probability flag is set by the user, the key used "
               "to perform "
               "an overwrite is randomly chosen from the last "
-              "'overwrite_reservoir_size' keys "
+              "'overwrite_window_size' keys "
               "previously inserted into the DB. "
-              "Valid overwrite_reservoir_size values: [1, kMaxUint32].");
+              "Warning: large values can affect throughput. "
+              "Valid overwrite_window_size values: [1, kMaxUint32].");
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
@@ -4835,20 +4834,22 @@ class Benchmark {
     if (FLAGS_overwrite_probability >= 0.0) {
       p = FLAGS_overwrite_probability > 1.0 ? 1.0 : FLAGS_overwrite_probability;
       // If overwrite set by user, and UNIQUE_RANDOM mode on,
-      // the overwrite_reservoir_size must be > 0.
-      if (write_mode == UNIQUE_RANDOM && FLAGS_overwrite_reservoir_size == 0) {
+      // the overwrite_window_size must be > 0.
+      if (write_mode == UNIQUE_RANDOM && FLAGS_overwrite_window_size == 0) {
         fprintf(stderr,
-                "Overwrite_reservoir_size must be  strictly greater than 0.\n");
+                "Overwrite_window_size must be  strictly greater than 0.\n");
         ErrorExit();
       }
     }
     std::default_random_engine overwrite_gen;
     std::bernoulli_distribution overwrite_decider(p);
-    // Duplicate key reservoir is filled with a sample
-    // of keys previously inserted into the DB.
-    // deque : random access is O(1), and
-    // insertion/removal at beginning/end is also O(1).
-    std::deque<int64_t> duplicate_key_reservoir;
+    // Inserted key window is filled with the last N
+    // keys previously inserted into the DB (with
+    // N=FLAGS_overwrite_window_size).
+    // We use a deque struct because:
+    // - random access is O(1)
+    // - insertion/removal at beginning/end is also O(1).
+    std::deque<int64_t> inserted_key_window;
     Random64 reservoir_id_gen(FLAGS_seed);
 
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
@@ -4888,20 +4889,19 @@ class Benchmark {
         int64_t rand_num = 0;
         if ((write_mode == UNIQUE_RANDOM) &&
             FLAGS_overwrite_probability >= 0.0) {
-          if (duplicate_key_reservoir.size() > 0 &&
+          if (inserted_key_window.size() > 0 &&
               overwrite_decider(overwrite_gen)) {
             num_overwrites++;
-            rand_num = duplicate_key_reservoir[reservoir_id_gen.Next() %
-                                               duplicate_key_reservoir.size()];
+            rand_num = inserted_key_window[reservoir_id_gen.Next() %
+                                           inserted_key_window.size()];
           } else {
             num_unique_keys++;
             rand_num = key_gens[id]->Next();
-            if (duplicate_key_reservoir.size() <
-                FLAGS_overwrite_reservoir_size) {
-              duplicate_key_reservoir.push_back(rand_num);
+            if (inserted_key_window.size() < FLAGS_overwrite_window_size) {
+              inserted_key_window.push_back(rand_num);
             } else {
-              duplicate_key_reservoir.pop_front();
-              duplicate_key_reservoir.push_back(rand_num);
+              inserted_key_window.pop_front();
+              inserted_key_window.push_back(rand_num);
             }
           }
         } else {
