@@ -49,7 +49,7 @@ class HistogramImpl;
 class TableCache {
  public:
   TableCache(const ImmutableOptions& ioptions,
-             const FileOptions& storage_options, Cache* cache,
+             const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_session_id);
