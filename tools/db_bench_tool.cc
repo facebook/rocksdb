@@ -5035,10 +5035,10 @@ class Benchmark {
       }
     }
     if ((write_mode == UNIQUE_RANDOM) && FLAGS_overwrite_probability >= 0.0) {
-      fprintf(
-          stdout,
-          "Number of unique keys inerted: %zu.\nNumber of overwrites: %zu\n",
-          num_unique_keys, num_overwrites);
+      fprintf(stdout,
+              "Number of unique keys inerted: %" PRIu64
+              ".\nNumber of overwrites: %" PRIu64 "\n",
+              num_unique_keys, num_overwrites);
     }
     thread->stats.AddBytes(bytes);
   }
