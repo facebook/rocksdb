@@ -81,8 +81,8 @@ Status Checkpoint::ExportColumnFamily(
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                         uint64_t log_size_for_flush,
                                         uint64_t* sequence_number_ptr,
-                                        const std::string &db_log_dir,
-                                        const std::string &wal_dir) {
+                                        const std::string& db_log_dir,
+                                        const std::string& wal_dir) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status s = db_->GetEnv()->FileExists(checkpoint_dir);
