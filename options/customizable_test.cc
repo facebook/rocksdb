@@ -117,19 +117,6 @@ class ACustomizable : public TestCustomizable {
   const std::string id_;
 };
 
-#ifndef ROCKSDB_LITE
-static int A_count = 0;
-const FactoryFunc<TestCustomizable>& a_func =
-    ObjectLibrary::Default()->Register<TestCustomizable>(
-        "A.*",
-        [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
-           std::string* /* msg */) {
-          guard->reset(new ACustomizable(name));
-          A_count++;
-          return guard->get();
-        });
-#endif  // ROCKSDB_LITE
-
 struct BOptions {
   std::string s;
   bool b = false;
@@ -172,11 +159,25 @@ static bool LoadSharedB(const std::string& id,
 }
 
 #ifndef ROCKSDB_LITE
-const FactoryFunc<TestCustomizable>& s_func =
-    ObjectLibrary::Default()->Register<TestCustomizable>(
-        "S", [](const std::string& name,
-                std::unique_ptr<TestCustomizable>* /* guard */,
-                std::string* /* msg */) { return new BCustomizable(name); });
+static int A_count = 0;
+static int RegisterCustomTestObjects(ObjectLibrary& library,
+                                     const std::string& /*arg*/) {
+  library.Register<TestCustomizable>(
+      "A.*",
+      [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
+         std::string* /* msg */) {
+        guard->reset(new ACustomizable(name));
+        A_count++;
+        return guard->get();
+      });
+
+  library.Register<TestCustomizable>(
+      "S", [](const std::string& name,
+              std::unique_ptr<TestCustomizable>* /* guard */,
+              std::string* /* msg */) { return new BCustomizable(name); });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
 #endif  // ROCKSDB_LITE
 
 struct SimpleOptions {
@@ -284,7 +285,11 @@ Status TestCustomizable::CreateFromString(const ConfigOptions& config_options,
 
 class CustomizableTest : public testing::Test {
  public:
-  CustomizableTest() { config_options_.invoke_prepare_options = false; }
+  CustomizableTest() {
+    config_options_.invoke_prepare_options = false;
+    config_options_.registry->AddLibrary("CustomizableTest",
+                                         RegisterCustomTestObjects, "");
+  }
 
   ConfigOptions config_options_;
 };
@@ -416,7 +421,7 @@ TEST_F(CustomizableTest, AreEquivalentOptionsTest) {
 // Tests that we can initialize a customizable from its options
 TEST_F(CustomizableTest, ConfigureStandaloneCustomTest) {
   std::unique_ptr<TestCustomizable> base, copy;
-  auto registry = ObjectRegistry::NewInstance();
+  const auto& registry = config_options_.registry;
   ASSERT_OK(registry->NewUniqueObject<TestCustomizable>("A", &base));
   ASSERT_OK(registry->NewUniqueObject<TestCustomizable>("A", &copy));
   ASSERT_OK(base->ConfigureFromString(config_options_, "int=33;bool=true"));
