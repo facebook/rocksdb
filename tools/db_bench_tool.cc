@@ -4845,7 +4845,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<long unsigned int>(FLAGS_seed)};
+        static_cast<unsigned int>(FLAGS_seed)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
