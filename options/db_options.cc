@@ -860,7 +860,7 @@ void MutableDBOptions::Dump(Logger* log) const {
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    MutableDBOptions* new_options, bool* is_changed) {
+    MutableDBOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
   ConfigOptions config_options;
@@ -869,14 +869,16 @@ Status GetMutableDBOptionsFromStrings(
   if (!s.ok()) {
     *new_options = base_options;
   }
-  // check if new_options is changed by comparing to base_options
-  if (is_changed) {
-    std::string mismatch;
-    *is_changed = !OptionTypeInfo::StructsAreEqual(
-        config_options, "MutableDBOptions", &db_mutable_options_type_info,
-        "MutableDBOptions", &base_options, new_options, &mismatch);
-  }
   return s;
+}
+
+bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
+                              const MutableDBOptions& that_options) {
+  ConfigOptions config_options;
+  std::string mismatch;
+  return OptionTypeInfo::StructsAreEqual(
+      config_options, "MutableDBOptions", &db_mutable_options_type_info,
+      "MutableDBOptions", &this_options, &that_options, &mismatch);
 }
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

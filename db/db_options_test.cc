@@ -123,6 +123,10 @@ TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
     return ret;
   };
 
+  // without changing the value, but it's sanitized to a different value
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "0"}}));
+  ASSERT_TRUE(is_changed());
+
   // without changing the value
   ASSERT_OK(dbfull()->SetDBOptions({{"max_background_jobs", "4"}}));
   ASSERT_FALSE(is_changed());

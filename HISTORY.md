@@ -23,7 +23,7 @@
 * Change signature of SecondaryCache::Name().  Make SecondaryCache customizable and add SecondaryCache::CreateFromString method.
 
 ### Performance Improvements
-* Try avoid updating options operation if `SetDBOptions()` does not change any option value.
+* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
 
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
