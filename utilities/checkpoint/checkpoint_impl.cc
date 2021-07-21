@@ -214,7 +214,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   }
   if (s.ok()) {
     std::unique_ptr<Directory> checkpoint_directory;
-    s = db_->GetEnv()->NewDirectory(parsed_checkpoint_dir, &checkpoint_directory);
+    s = db_->GetEnv()->NewDirectory(parsed_checkpoint_dir,
+                                    &checkpoint_directory);
     if (s.ok() && checkpoint_directory != nullptr) {
       s = checkpoint_directory->Fsync();
     }
