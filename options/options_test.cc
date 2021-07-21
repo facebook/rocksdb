@@ -1155,6 +1155,17 @@ TEST_F(OptionsTest, MemTableRepFactoryCreateFromString) {
   ASSERT_TRUE(new_mem_factory->IsInstanceOf("SkipListFactory"));
   ASSERT_NOK(MemTableRepFactory::CreateFromString(
       config_options, "skip_list:16:invalid_opt", &new_mem_factory));
+
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "invalid_opt=10", &new_mem_factory));
+
+  // Test a reset
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "",
+                                                 &new_mem_factory));
+  ASSERT_EQ(new_mem_factory, nullptr);
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "invalid_opt=10", &new_mem_factory));
+
 #ifndef ROCKSDB_LITE
   ASSERT_OK(MemTableRepFactory::CreateFromString(
       config_options, "id=skip_list; lookahead=32", &new_mem_factory));
@@ -2643,6 +2654,14 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   ASSERT_EQ(new_opt.encoding_type, EncodingType::kPrefix);
   ASSERT_TRUE(new_opt.full_scan_mode);
   ASSERT_TRUE(new_opt.store_index_in_file);
+
+  std::unordered_map<std::string, std::string> opt_map;
+  ASSERT_OK(StringToMap(
+      "user_key_len=55;bloom_bits_per_key=10;huge_page_tlb_size=8;", &opt_map));
+  ASSERT_OK(GetPlainTableOptionsFromMap(table_opt, opt_map, &new_opt));
+  ASSERT_EQ(new_opt.user_key_len, 55u);
+  ASSERT_EQ(new_opt.bloom_bits_per_key, 10);
+  ASSERT_EQ(new_opt.huge_page_tlb_size, 8);
 
   // unknown option
   ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
