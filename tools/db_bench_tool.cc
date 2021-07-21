@@ -447,7 +447,7 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
 
 DEFINE_double(
-    overwrite_probability, -1.0,
+    overwrite_probability, 0.0,
     "Used in 'filluniquerandom' benchmark: for each write operation, "
     "we give a probability to perform an overwrite instead. The key used for "
     "the overwrite is randomly chosen from the last 'overwrite_window_size' "
@@ -4831,7 +4831,7 @@ class Benchmark {
     uint64_t num_overwrites = 0, num_unique_keys = 0;
     // If user set overwrite_probability flag,
     // check if value is in [0.0,1.0].
-    if (FLAGS_overwrite_probability >= 0.0) {
+    if (FLAGS_overwrite_probability > 0.0) {
       p = FLAGS_overwrite_probability > 1.0 ? 1.0 : FLAGS_overwrite_probability;
       // If overwrite set by user, and UNIQUE_RANDOM mode on,
       // the overwrite_window_size must be > 0.
@@ -4841,8 +4841,13 @@ class Benchmark {
         ErrorExit();
       }
     }
-    std::default_random_engine overwrite_gen;
+
+    // Default_random_engine provides slightly
+    // improved throughput over mt19937.
+    std::default_random_engine overwrite_gen{
+        static_cast<long unsigned int>(FLAGS_seed)};
     std::bernoulli_distribution overwrite_decider(p);
+
     // Inserted key window is filled with the last N
     // keys previously inserted into the DB (with
     // N=FLAGS_overwrite_window_size).
@@ -4887,9 +4892,8 @@ class Benchmark {
 
       for (int64_t j = 0; j < entries_per_batch_; j++) {
         int64_t rand_num = 0;
-        if ((write_mode == UNIQUE_RANDOM) &&
-            FLAGS_overwrite_probability >= 0.0) {
-          if (inserted_key_window.size() > 0 &&
+        if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+          if ((inserted_key_window.size() > 0) &&
               overwrite_decider(overwrite_gen)) {
             num_overwrites++;
             rand_num = inserted_key_window[reservoir_id_gen.Next() %
@@ -5034,7 +5038,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    if ((write_mode == UNIQUE_RANDOM) && FLAGS_overwrite_probability >= 0.0) {
+    if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
       fprintf(stdout,
               "Number of unique keys inerted: %" PRIu64
               ".\nNumber of overwrites: %" PRIu64 "\n",
