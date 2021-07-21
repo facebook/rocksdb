@@ -1136,9 +1136,19 @@ Status DBImpl::SetDBOptions(
     InstrumentedMutexLock l(&mutex_);
     s = GetMutableDBOptionsFromStrings(mutable_db_options_, options_map,
                                        &new_options);
+
     if (new_options.bytes_per_sync == 0) {
       new_options.bytes_per_sync = 1024 * 1024;
     }
+
+    if (MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "SetDBOptions(), input option value is not changed, "
+                     "skipping updating.");
+      persist_options_status.PermitUncheckedError();
+      return s;
+    }
+
     DBOptions new_db_options =
         BuildDBOptions(immutable_db_options_, new_options);
     if (s.ok()) {
@@ -4194,6 +4204,8 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
 
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
+                           &db_options);
 
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
