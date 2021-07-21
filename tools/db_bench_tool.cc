@@ -1553,8 +1553,9 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-static Status CreateRepFactory(const ConfigOptions& config_options,
-                               std::shared_ptr<MemTableRepFactory>* factory) {
+static Status CreateMemTableRepFactory(
+    const ConfigOptions config_options,
+    std::shared_ptr<MemTableRepFactory>* factory) {
   Status s;
   if (!strcasecmp(FLAGS_memtablerep.c_str(), "skip_list")) {
     factory->reset(new SkipListFactory(FLAGS_skip_list_lookahead));
@@ -4031,7 +4032,8 @@ class Benchmark {
         FLAGS_level_compaction_dynamic_level_bytes;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
-    Status s = CreateRepFactory(config_options, &options.memtable_factory);
+    Status s =
+        CreateMemTableRepFactory(config_options, &options.memtable_factory);
     if (!s.ok()) {
       fprintf(stderr, "Could not create memtable factory: %s\n",
               s.ToString().c_str());
