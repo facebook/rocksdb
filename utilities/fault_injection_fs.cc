@@ -401,7 +401,8 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
       return in_s;
     }
   }
-  if (IsFilesystemDirectWritable()) {
+
+  if (ShouldUseDiretWritable(fname)) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
 
@@ -438,7 +439,7 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (IsFilesystemDirectWritable()) {
+  if (ShouldUseDiretWritable(fname)) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
   {
@@ -477,7 +478,7 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (IsFilesystemDirectWritable()) {
+  if (ShouldUseDiretWritable(fname)) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
   {
@@ -806,6 +807,13 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(ErrorOperation op,
   return IOStatus::OK();
 }
 
+bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
+                                            uint64_t* number, FileType* type) {
+  std::size_t found = file_name.find_last_of("/");
+  std::string file = file_name.substr(found);
+  return ParseFileName(file, number, type);
+}
+
 IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
   MutexLock l(&mutex_);
   if (!enable_write_error_injection_ || !write_error_one_in_) {
@@ -818,10 +826,7 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
   } else {
     uint64_t number;
     FileType cur_type = kTempFile;
-    std::size_t found = file_name.find_last_of("/");
-    std::string file = file_name.substr(found);
-    bool ret = ParseFileName(file, &number, &cur_type);
-    if (ret) {
+    if (TryParseFileName(file_name, &number, &cur_type)) {
       for (const auto& type : write_error_allowed_types_) {
         if (cur_type == type) {
           allowed_type = true;

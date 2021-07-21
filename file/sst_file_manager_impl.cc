@@ -317,7 +317,7 @@ void SstFileManagerImpl::ClearError() {
         // error is also a NoSpace() non-fatal error, leave the instance in
         // the list
         Status err = cur_instance_->GetBGError();
-        if (s.ok() && err == Status::NoSpace() &&
+        if (s.ok() && err.subcode() == IOStatus::SubCode::kNoSpace &&
             err.severity() < Status::Severity::kFatalError) {
           s = err;
         }
