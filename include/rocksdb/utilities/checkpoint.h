@@ -45,8 +45,8 @@ class Checkpoint {
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0,
                                   uint64_t* sequence_number_ptr = nullptr,
-                                  const std::string &db_log_dir = "",
-                                  const std::string &wal_dir = "");
+                                  const std::string& db_log_dir = "",
+                                  const std::string& wal_dir = "");
 
   // Exports all live SST files of a specified Column Family onto export_dir,
   // returning SST files information in metadata.
