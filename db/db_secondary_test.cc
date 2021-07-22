@@ -115,6 +115,18 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_manifest, manifest_cnt);
 }
 
+TEST_F(DBSecondaryTest, NonExistingDb) {
+  Destroy(last_options_);
+
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.max_open_files = -1;
+  const std::string dbname = "/doesnt/exist";
+  Status s =
+      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  ASSERT_TRUE(s.IsIOError());
+}
+
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
   options.env = env_;
@@ -599,17 +611,19 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"VersionSet::ProcessManifestWrites:AfterNewManifest",
+       {"DBImpl::Open:AfterDeleteFilesAndSyncDir",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure db calls RecoverLogFiles so as to trigger a manifest write,
-  // which causes the db to switch to a new MANIFEST upon start.
   port::Thread ro_db_thread([&]() {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
+    Status s = TryOpenSecondary(options1);
+    ASSERT_TRUE(s.IsTryAgain());
+
+    // Try again
     OpenSecondary(options1);
     CloseSecondary();
   });
