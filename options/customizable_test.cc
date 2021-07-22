@@ -911,36 +911,6 @@ class TestSecondaryCache : public SecondaryCache {
 };
 
 #ifndef ROCKSDB_LITE
-// This method loads existing test classes into the ObjectRegistry
-static int RegisterTestObjects(ObjectLibrary& library,
-                               const std::string& /*arg*/) {
-  size_t num_types;
-  library.Register<TableFactory>(
-      "MockTable",
-      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new mock::MockTableFactory());
-        return guard->get();
-      });
-  library.Register<const Comparator>(
-      test::SimpleSuffixReverseComparator::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard*/,
-         std::string* /* errmsg */) {
-        static test::SimpleSuffixReverseComparator ssrc;
-        return &ssrc;
-      });
-  library.Register<MemTableRepFactory>(
-      "SpecialSkipListFactory",
-      [](const std::string& /*uri*/, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(test::NewSpecialSkipListFactory(2));
-        return guard->get();
-      });
-
-  return static_cast<int>(library.GetFactoryCount(&num_types));
-}
-
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
@@ -1000,6 +970,13 @@ class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
   // Load any locally defined objects here
   library.Register<EncryptionProvider>(
       "Mock(://test)?",
@@ -1042,8 +1019,8 @@ class LoadCustomizableTest : public testing::Test {
   }
   bool RegisterTests(const std::string& arg) {
 #ifndef ROCKSDB_LITE
-    config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
-                                         arg);
+    config_options_.registry->AddLibrary("custom-tests",
+                                         test::RegisterTestObjects, arg);
     config_options_.registry->AddLibrary("local-tests", RegisterLocalObjects,
                                          arg);
     return true;

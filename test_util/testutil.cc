@@ -25,6 +25,7 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -678,6 +679,13 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   }
   static const char* kClassName() { return "SpecialSkipListFactory"; }
   virtual const char* Name() const override { return kClassName(); }
+  std::string GetId() const override {
+    std::string id = Name();
+    if (num_entries_flush_ > 0) {
+      id.append(":").append(ROCKSDB_NAMESPACE::ToString(num_entries_flush_));
+    }
+    return id;
+  }
 
   bool IsInsertConcurrentlySupported() const override {
     return factory_.IsInsertConcurrentlySupported();
@@ -690,8 +698,46 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 }  // namespace
 
 MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
+  RegisterTestLibrary();
   return new SpecialSkipListFactory(num_entries_per_flush);
 }
 
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+  size_t num_types;
+  library.Register<const Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        static test::SimpleSuffixReverseComparator ssrc;
+        return &ssrc;
+      });
+  library.Register<MemTableRepFactory>(
+      std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9])*?",
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /* errmsg */) {
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          auto count = ParseInt(uri.substr(colon + 1));
+          guard->reset(new SpecialSkipListFactory(count));
+        } else {
+          guard->reset(new SpecialSkipListFactory(2));
+        }
+        return guard->get();
+      });
+
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+void RegisterTestLibrary(const std::string& arg) {
+  static bool registered = false;
+  if (!registered) {
+    registered = true;
+    ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
+  }
+}
+#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
