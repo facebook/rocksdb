@@ -32,7 +32,8 @@ enum TraceOperationType : int {
   kMerge = 5,
   kIteratorSeek = 6,
   kIteratorSeekForPrev = 7,
-  kTaTypeNum = 8
+  kMultiGet = 8,
+  kTaTypeNum = 9
 };
 
 struct TraceUnit {
@@ -193,6 +194,7 @@ class TraceAnalyzer {
                      const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
                     const uint64_t& ts, TraceType& trace_type);
+  Status HandleMultiGet(MultiGetPayload& multiget_payload, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
