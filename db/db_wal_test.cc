@@ -1653,11 +1653,10 @@ TEST_F(DBWALTest, WalCleanupConflictGetWal) {
 
   FlushOptions flush_opts;
   flush_opts.wait = false;
-  db_->Flush(flush_opts);
+  ASSERT_OK(db_->Flush(flush_opts));
 
   VectorLogPtr log_files;
-  auto s = db_->GetSortedWalFiles(log_files);
-  ASSERT_OK(s);
+  ASSERT_OK(db_->GetSortedWalFiles(log_files));
   ASSERT_EQ(0, log_files.size());
 }
 

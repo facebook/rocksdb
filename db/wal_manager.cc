@@ -321,12 +321,10 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
           s = env_->GetFileSize(archived_file, &size_bytes);
           if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
             // oops, the file just got deleted from archived dir! move on
-            s = Status::OK();
             continue;
           }
         } else {
           // the file just got deleted from WAL folder, skip it
-          s = Status::OK();
           continue;
         }
       }
