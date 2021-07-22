@@ -324,6 +324,10 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
             s = Status::OK();
             continue;
           }
+        } else {
+          // the file just got deleted from WAL folder, skip it
+          s = Status::OK();
+          continue;
         }
       }
       if (!s.ok()) {

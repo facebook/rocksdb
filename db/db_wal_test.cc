@@ -1640,6 +1640,27 @@ TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
   }
 }
 
+TEST_F(DBWALTest, WalCleanupConflictGetWal) {
+  Options options = CurrentOptions();
+  ASSERT_OK(Put("foo", "v1"));
+
+  // Purge obsolete file while GetSortedWalFiles()
+  SyncPoint::GetInstance()->LoadDependency({
+      {"WalManager::GetSortedWalsOfType:1", "DBImpl::PurgeObsoleteFiles:Begin"},
+      {"DBImpl::PurgeObsoleteFiles:End", "WalManager::GetSortedWalsOfType:2"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  db_->Flush(flush_opts);
+
+  VectorLogPtr log_files;
+  auto s = db_->GetSortedWalFiles(log_files);
+  ASSERT_OK(s);
+  ASSERT_EQ(0, log_files.size());
+}
+
 TEST_F(DBWALTest, RecoverWithoutFlush) {
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
