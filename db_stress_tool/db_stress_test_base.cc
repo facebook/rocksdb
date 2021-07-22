@@ -1766,6 +1766,14 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
           thread->shared->SetVerificationFailure();
         }
       }
+      if (ppt_name_and_info.second.handle_map != nullptr) {
+        std::map<std::string, std::string> prop_map;
+        if (!db_->GetMapProperty(ppt_name_and_info.first, &prop_map)) {
+          fprintf(stderr, "Failed to get Map property: %s\n",
+                  ppt_name_and_info.first.c_str());
+          thread->shared->SetVerificationFailure();
+        }
+      }
     }
   }
 
@@ -2483,6 +2491,13 @@ void StressTest::Open() {
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
+        if (!FLAGS_sync) {
+          // When DB Stress is not sync mode, we expect all WAL writes to
+          // WAL is durable. Buffering unsynced writes will cause false
+          // positive in crash tests. Before we figure out a way to
+          // solve it, skip WAL from failure injection.
+          fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
+        }
         ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
         ingest_write_error = FLAGS_open_write_fault_one_in;
         ingest_read_error = FLAGS_open_read_fault_one_in;
@@ -2492,13 +2507,6 @@ void StressTest::Open() {
               FLAGS_open_metadata_write_fault_one_in);
         }
         if (ingest_write_error) {
-          if (!FLAGS_sync) {
-            // When DB Stress is not sync mode, we expect all WAL writes to
-            // WAL is durable. Buffering unsynced writes will cause false
-            // positive in crash tests. Before we figure out a way to
-            // solve it, skip WAL from failure injection.
-            fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
-          }
           fault_fs_guard->SetFilesystemDirectWritable(false);
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
@@ -2555,7 +2563,12 @@ void StressTest::Open() {
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
                     ->TEST_WaitForCompact(true);
             if (!s.ok()) {
+              for (auto cf : column_families_) {
+                delete cf;
+              }
+              column_families_.clear();
               delete db_;
+              db_ = nullptr;
             }
           }
           if (!s.ok()) {
