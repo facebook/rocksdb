@@ -663,11 +663,13 @@ Status CheckpointImpl::CopyOptionsFile(const std::string& src_file,
   src_db_options.db_log_dir = db_log_dir;
   src_db_options.wal_dir = wal_dir;
 
-  std::vector<std::string> src_cf_names(src_cf_descs.size());
-  std::vector<ColumnFamilyOptions> src_cf_opts(src_cf_descs.size());
-  for (size_t i = 0; i < src_cf_descs.size(); i++) {
-    src_cf_names[i] = src_cf_descs[i].name;
-    src_cf_opts[i] = src_cf_descs[i].options;
+  std::vector<std::string> src_cf_names;
+  std::vector<ColumnFamilyOptions> src_cf_opts;
+  src_cf_names.reserve(src_cf_descs.size());
+  src_cf_opts.reserve(src_cf_descs.size());
+  for (ColumnFamilyDescriptor desc : src_cf_descs) {
+    src_cf_names.push_back(desc.name);
+    src_cf_opts.push_back(desc.options);
   }
 
   return PersistRocksDBOptions(src_db_options, src_cf_names, src_cf_opts,

@@ -264,6 +264,12 @@ class CheckpointTest : public testing::Test {
     }
     return result;
   }
+
+  static std::string IntToFixedWidthString(size_t i, int len) {
+    std::stringstream ss;
+    ss << std::setw(len) << std::setfill('0') << i;
+    return ss.str();
+  }
 };
 
 TEST_F(CheckpointTest, GetSnapshotLink) {
@@ -922,12 +928,6 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
 
   std::string value(value_len, ' ');
 
-  auto intToKey = [](size_t i) {
-    std::stringstream ss;
-    ss << std::setw(key_len) << std::setfill('0') << i;
-    return ss.str();
-  };
-
   std::vector<std::string> dirs1 = {"", "", "", ""};
   std::vector<std::string> dirs2 = {"/logs", "/wal", "", ""};
   std::vector<std::string> dirs3 = {"/logs", "/wal", "/logs", "/wal"};
@@ -960,7 +960,7 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
 
     // Write to src db
     for (size_t i = 1; i <= num_keys; i++) {
-      ASSERT_OK(db_->Put(w_opts, intToKey(i), value));
+      ASSERT_OK(db_->Put(w_opts, IntToFixedWidthString(i, key_len), value));
     }
 
     // Take a snapshot
@@ -970,12 +970,16 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
 
     // Write to src db again
     for (size_t i = num_keys + 1; i <= num_keys * 2; i++) {
-      ASSERT_OK(db_->Put(w_opts, intToKey(i), value));
+      ASSERT_OK(db_->Put(w_opts, IntToFixedWidthString(i, key_len), value));
     }
 
     std::string result;
-    ASSERT_OK(db_->Get(r_opts, intToKey(num_keys), &result));
-    ASSERT_OK(db_->Get(r_opts, intToKey(num_keys * 2), &result));
+    std::string key1 = IntToFixedWidthString(num_keys, key_len);
+    std::string key2 = IntToFixedWidthString(num_keys * 2, key_len);
+    std::string key3 = IntToFixedWidthString(num_keys * 3, key_len);
+
+    ASSERT_OK(db_->Get(r_opts, key1, &result));
+    ASSERT_OK(db_->Get(r_opts, key2, &result));
 
     // Open snapshot with its own options
     DBOptions snap_opts;
@@ -983,12 +987,9 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
     ASSERT_OK(LoadLatestOptions(ConfigOptions(), snapshot_name_, &snap_opts,
                                 &snap_cfs));
 
-    ASSERT_TRUE(snap_opts.db_log_dir == snap_log_dir);
-    if (snap_wal_dir.empty()) {
-      ASSERT_TRUE(snap_opts.wal_dir == snapshot_name_);
-    } else {
-      ASSERT_TRUE(snap_opts.wal_dir == snap_wal_dir);
-    }
+    ASSERT_EQ(snap_opts.db_log_dir, snap_log_dir);
+    ASSERT_EQ(snap_opts.wal_dir,
+              snap_wal_dir.empty() ? snapshot_name_ : snap_wal_dir);
 
     std::vector<ColumnFamilyHandle*> handles;
     ASSERT_OK(
@@ -998,17 +999,17 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
     }
     handles.clear();
 
-    ASSERT_OK(snapshotDB->Get(r_opts, intToKey(num_keys), &result));
-    ASSERT_TRUE(
-        snapshotDB->Get(r_opts, intToKey(num_keys * 2), &result).IsNotFound());
+    ASSERT_OK(snapshotDB->Get(r_opts, key1, &result));
+    ASSERT_TRUE(snapshotDB->Get(r_opts, key2, &result).IsNotFound());
 
     // Write to snapshot
     for (size_t i = num_keys * 2 + 1; i <= num_keys * 3; i++) {
-      ASSERT_OK(snapshotDB->Put(w_opts, intToKey(i), value));
+      ASSERT_OK(
+          snapshotDB->Put(w_opts, IntToFixedWidthString(i, key_len), value));
     }
 
-    ASSERT_OK(snapshotDB->Get(r_opts, intToKey(num_keys * 3), &result));
-    ASSERT_TRUE(db_->Get(r_opts, intToKey(num_keys * 3), &result).IsNotFound());
+    ASSERT_OK(snapshotDB->Get(r_opts, key3, &result));
+    ASSERT_TRUE(db_->Get(r_opts, key3, &result).IsNotFound());
 
     // Close and reopen the snapshot
     delete snapshotDB;
@@ -1018,9 +1019,8 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
       delete handle;
     }
     handles.clear();
-    ASSERT_TRUE(
-        snapshotDB->Get(r_opts, intToKey(num_keys * 2), &result).IsNotFound());
-    ASSERT_OK(snapshotDB->Get(r_opts, intToKey(num_keys * 3), &result));
+    ASSERT_TRUE(snapshotDB->Get(r_opts, key2, &result).IsNotFound());
+    ASSERT_OK(snapshotDB->Get(r_opts, key3, &result));
 
     delete snapshotDB;
 
@@ -1028,8 +1028,8 @@ TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
     delete db_;
     src_opts.create_if_missing = false;
     ASSERT_OK(DB::Open(src_opts, dbname_, &db_));
-    ASSERT_OK(db_->Get(r_opts, intToKey(num_keys * 2), &result));
-    ASSERT_TRUE(db_->Get(r_opts, intToKey(num_keys * 3), &result).IsNotFound());
+    ASSERT_OK(db_->Get(r_opts, key2, &result));
+    ASSERT_TRUE(db_->Get(r_opts, key3, &result).IsNotFound());
     delete db_;
 
     // Delete the snapshot
