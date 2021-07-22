@@ -230,7 +230,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   Status mempurge_s = Status::NotFound("No MemPurge.");
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty())) {
+      (!mems_.empty()) && MemPurgeDecider()) {
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
       // Mempurge is typically aborted when the new_mem output memtable
@@ -335,6 +335,8 @@ void FlushJob::Cancel() {
 
 Status FlushJob::MemPurge() {
   Status s;
+  const uint64_t start_micros = clock_->NowMicros();
+  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
   assert(!mems_.empty());
@@ -393,7 +395,10 @@ Status FlushJob::MemPurge() {
   // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     // Arbitrary heuristic: maxSize is 60% cpacity.
-    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
+    // size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
+    // Arbitrary heuristic: maxSize is 80% cpacity.
+    size_t maxSize = mutable_cf_options_.write_buffer_size;
+    // 8U * ((mutable_cf_options_.write_buffer_size + 9U) / 10U);
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
         ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -539,14 +544,25 @@ Status FlushJob::MemPurge() {
 
       // The new_mem is added to the list of immutable memtables
       // only if it filled at less than 60% capacity (arbitrary heuristic).
-      if (new_mem->ApproximateMemoryUsage() < maxSize) {
+      // if (new_mem->ApproximateMemoryUsage() < maxSize) {
+      // new_mem->UpdateFlushState();
+      if (new_mem->ApproximateMemoryUsage() < maxSize &&
+          !(new_mem->ShouldFlushNow())) {
         db_mutex_->Lock();
+        uint64_t new_mem_id = mems_[0]->GetID() for (MemTable* m : mems_) {
+          new_mem_id = m->GetID() < new_mem_id ? m->GetID() : new_mem_id;
+        }
+        new_mem->SetID(new_mem_id);
+        cfd_->AddMem
         cfd_->imm()->Add(new_mem,
                          &job_context_->memtables_to_free,
                          false /* -> trigger_flush=false:
                                 * adding this memtable
                                 * will not trigger a flush.
                                 */);
+        cfd_->current_mempurge_count_++;
+        cfd_->current_mempurge_imm_capacity_ =
+            new_mem->ApproximateMemoryUsage();
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {
@@ -572,8 +588,30 @@ Status FlushJob::MemPurge() {
   } else {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Mempurge lasted %lu microseconds %lu cpu "
+                 "microseconds. Status is %s ok. Perc capacity: %f\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros, s.ok() ? "" : "not",
+                 (new_mem->ApproximateMemoryUsage()) * 1.0 /
+                     mutable_cf_options_.write_buffer_size);
 
   return s;
+}
+
+bool FlushJob::MemPurgeDecider() {
+  DBOptions::MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
+  if (policy == DBOptions::MemPurgePolicy::ALWAYS) {
+    return true;
+  } else if (policy == DBOptions::MemPurgePolicy::ALTERNATE) {
+    // Note: db_mutex is held when this function is called.
+    return !(cfd_->just_mempurged)
+  } else if (policy == DBOptions::MemPurgePolicy::RANDOM) {
+    Random32 rnd;
+    return rnd.OneIn(2);
+  }
 }
 
 Status FlushJob::WriteLevel0Table() {
@@ -764,7 +802,12 @@ Status FlushJob::WriteLevel0Table() {
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = clock_->NowMicros() - start_micros;
   stats.cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
-
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "[%s] [JOB %d] Flush lasted %lu microseconds %lu cpu microseconds.\n",
+      cfd_->GetName().c_str(), job_context_->job_id, micros, cpu_micros);
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
     stats.num_output_files = 1;

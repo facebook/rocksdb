@@ -3034,6 +3034,26 @@ void rocksdb_options_set_experimental_allow_mempurge(rocksdb_options_t* opt,
   opt->rep.experimental_allow_mempurge = v;
 }
 
+void rocksdb_options_set_experimental_mempurge_policy(rocksdb_options_t* opt,
+                                                      int v) {
+  switch (v) {
+    case 0:
+      opt->rep.experimental_mempurge_policy =
+          ROCKSDB_NAMESPACE::Options::ALTERNATE;
+      break;
+    case 1:
+      opt->rep.experimental_mempurge_policy =
+          ROCKSDB_NAMESPACE::Options::ALWAYS;
+      break;
+    case 2:
+      opt->rep.experimental_mempurge_policy =
+          ROCKSDB_NAMESPACE::Options::RANDOM;
+      break;
+    default:
+      assert(0);
+  }
+}
+
 void rocksdb_options_set_access_hint_on_compaction_start(
     rocksdb_options_t* opt, int v) {
   switch(v) {

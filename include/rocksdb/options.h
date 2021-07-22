@@ -786,6 +786,13 @@ struct DBOptions {
   // (experimental).
   bool experimental_allow_mempurge = false;
 
+  // If experimental_allow_mempurge is true, will dictate MemPurge
+  // policy.
+  // Default: ALTERNATE
+  // (experimental).
+  enum MemPurgePolicy { ALTERNATE, ALWAYS, RANDOM };
+  MemPurgePolicy experimental_mempurge_policy = ALTERNATE;
+
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
   //

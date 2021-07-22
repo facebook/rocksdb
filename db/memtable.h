@@ -557,10 +557,11 @@ class MemTable {
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 #endif  // !ROCKSDB_LITE
-
+ public:
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+ private:
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
 
