@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.23.1 (2021-07-22)
+### Bug Fixes
+* Fix a race condition during multiple DB instances opening.
+
 ## 6.23.0 (2021-07-16)
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
