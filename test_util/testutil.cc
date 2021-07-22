@@ -715,7 +715,7 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         return &ssrc;
       });
   library.Register<MemTableRepFactory>(
-      std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9])*?",
+      std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9]*)?",
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /* errmsg */) {
         auto colon = uri.find(":");
