@@ -184,6 +184,10 @@ struct FileMetaData {
   int refs = 0;  // Reference count
 
   bool being_compacted = false;       // Is this file undergoing compaction?
+  // Is this file undergoing trivial move?
+  // Can only be set when `being_compacted` is already set, and must be reset
+  // when `being_compacted` is reset.
+  bool being_moved = false;           //
   bool init_stats_from_file = false;  // true if the data-entry stats of this
                                       // file has initialized from file.
 

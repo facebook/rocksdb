@@ -2571,7 +2571,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
-    const MutableCFOptions& mutable_cf_options, bool include_compacted) {
+    const MutableCFOptions& mutable_cf_options) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -2589,7 +2589,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
-        if (!f->being_compacted || include_compacted) {
+        if (!f->being_compacted || (f->being_moved && !finalized_)) {
           total_size += f->compensated_file_size;
           num_sorted_runs++;
         }
@@ -2605,7 +2605,8 @@ void VersionStorageInfo::ComputeCompactionScore(
           // compacted as it only checks the first file. The worst that can
           // happen is a scheduled compaction thread will find nothing to do.
           if (!files_[i].empty() &&
-              (!files_[i][0]->being_compacted || include_compacted)) {
+              (!files_[i][0]->being_compacted ||
+               (files_[i][0]->being_moved && !finalized_))) {
             num_sorted_runs++;
           }
         }
@@ -2655,7 +2656,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
-        if (!f->being_compacted || include_compacted) {
+        if (!f->being_compacted || (f->being_moved && !finalized_)) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
@@ -3878,8 +3879,7 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   // compute new compaction score
   v->storage_info()->ComputeCompactionScore(
       *column_family_data->ioptions(),
-      *column_family_data->GetLatestMutableCFOptions(),
-      true /*include_compacted*/);
+      *column_family_data->GetLatestMutableCFOptions());
 
   // Mark v finalized
   v->storage_info_.SetFinalized();

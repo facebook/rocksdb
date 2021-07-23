@@ -151,8 +151,7 @@ class VersionStorageInfo {
   // REQUIRES: db_mutex held!!
   // TODO find a better way to pass compaction_options_fifo.
   void ComputeCompactionScore(const ImmutableOptions& immutable_options,
-                              const MutableCFOptions& mutable_cf_options,
-                              bool include_compacted = false);
+                              const MutableCFOptions& mutable_cf_options);
 
   // Estimate est_comp_needed_bytes_
   void EstimateCompactionBytesNeeded(

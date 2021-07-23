@@ -902,6 +902,9 @@ class VersionBuilder::Rep {
         delta_files.push_back(pair.second);
       }
       for (const auto& pair : unordered_moved_files) {
+        // SaveTo will always be called under db mutex.
+        assert(pair.second->being_compacted);
+        pair.second->being_moved = true;
         delta_files.push_back(pair.second);
       }
       std::sort(delta_files.begin(), delta_files.end(), cmp);
