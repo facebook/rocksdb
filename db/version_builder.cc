@@ -593,6 +593,12 @@ class VersionBuilder::Rep {
       add_files.erase(add_it);
     }
 
+    auto& moved_files = level_state.moved_files;
+    auto moved_it = moved_files.find(file_number);
+    if (moved_it != moved_files.end()) {
+      moved_files.erase(moved_it);
+    }
+
     auto& del_files = level_state.deleted_base_files;
     assert(del_files.find(file_number) == del_files.end());
     del_files.emplace(file_number);
@@ -903,7 +909,6 @@ class VersionBuilder::Rep {
       }
       for (const auto& pair : unordered_moved_files) {
         // SaveTo will always be called under db mutex.
-        assert(pair.second->being_compacted);
         pair.second->being_moved = true;
         delta_files.push_back(pair.second);
       }
