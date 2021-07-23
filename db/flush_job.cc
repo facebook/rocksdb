@@ -357,6 +357,9 @@ Status FlushJob::MemPurge() {
   assert(!mems_.empty());
 
   MemTable* new_mem = nullptr;
+  // For performance/log investigation purposes:
+  // look at how much useful payload we harvest in the new_mem.
+  // This value is then printed to the DB log.
   double new_mem_capacity = 0.0;
 
   // Create two iterators, one for the memtable data (contains
