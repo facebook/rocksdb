@@ -123,7 +123,6 @@ class FlushJob {
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
   Status MemPurge();
-  uint64_t ExtractEarliestLogFileNumber();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE

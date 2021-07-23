@@ -141,6 +141,9 @@ Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     MutableDBOptions* new_options);
+
+bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
+                              const MutableDBOptions& that_options);
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -75,7 +75,7 @@ namespace ROCKSDB_NAMESPACE {
 // If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
+  DBTest() : DBTestBase("db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam

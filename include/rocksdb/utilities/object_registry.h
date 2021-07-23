@@ -9,10 +9,12 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -109,6 +111,8 @@ class ObjectLibrary {
   // Adds the input entry to the list for the given type
   void AddEntry(const std::string& type, std::unique_ptr<Entry>& entry);
 
+  // Protects the entry map
+  mutable std::mutex mu_;
   // ** FactoryFunctions for this loader, organized by type
   std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
 
