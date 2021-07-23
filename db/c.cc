@@ -3039,11 +3039,11 @@ void rocksdb_options_set_experimental_mempurge_policy(rocksdb_options_t* opt,
   switch (v) {
     case 0:
       opt->rep.experimental_mempurge_policy =
-          ROCKSDB_NAMESPACE::Options::ALTERNATE;
+          ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALTERNATE;
       break;
     case 1:
       opt->rep.experimental_mempurge_policy =
-          ROCKSDB_NAMESPACE::Options::ALWAYS;
+          ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALWAYS;
       break;
     default:
       assert(0);
