@@ -357,7 +357,7 @@ Status FlushJob::MemPurge() {
   assert(!mems_.empty());
 
   MemTable* new_mem = nullptr;
-  double new_mem_capacity=0.0;
+  double new_mem_capacity = 0.0;
 
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
@@ -580,7 +580,7 @@ Status FlushJob::MemPurge() {
                                 */);
         new_mem->Ref();
         new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
-                              mutable_cf_options_.write_buffer_size;
+                           mutable_cf_options_.write_buffer_size;
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
