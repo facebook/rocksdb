@@ -15,8 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBIOFailureTest : public DBTestBase {
  public:
-  DBIOFailureTest()
-      : DBTestBase("/db_io_failure_test", /*env_do_fsync=*/true) {}
+  DBIOFailureTest() : DBTestBase("db_io_failure_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE

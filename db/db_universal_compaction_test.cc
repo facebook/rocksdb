@@ -45,7 +45,7 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
 class DBTestUniversalCompaction2 : public DBTestBase {
  public:
   DBTestUniversalCompaction2()
-      : DBTestBase("/db_universal_compaction_test2", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_universal_compaction_test2", /*env_do_fsync=*/false) {}
 };
 
 namespace {

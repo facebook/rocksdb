@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBSecondaryTest : public DBTestBase {
  public:
   DBSecondaryTest()
-      : DBTestBase("/db_secondary_test", /*env_do_fsync=*/true),
+      : DBTestBase("db_secondary_test", /*env_do_fsync=*/true),
         secondary_path_(),
         handles_secondary_(),
         db_secondary_(nullptr) {
