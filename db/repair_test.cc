@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
-  RepairTest() : DBTestBase("/repair_test", /*env_do_fsync=*/true) {}
+  RepairTest() : DBTestBase("repair_test", /*env_do_fsync=*/true) {}
 
   Status GetFirstSstPath(std::string* first_sst_path) {
     assert(first_sst_path != nullptr);

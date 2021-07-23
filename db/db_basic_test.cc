@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/false) {}
+  DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -2576,7 +2576,7 @@ class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
   DBBasicTestTrackWal()
-      : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_basic_test_track_wal", /*env_do_fsync=*/false) {}
 
   int CountWalFiles() {
     VectorLogPtr log_files;

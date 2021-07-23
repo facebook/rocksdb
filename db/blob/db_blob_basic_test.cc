@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
-      : DBTestBase("/db_blob_basic_test", /* env_do_fsync */ false) {}
+      : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
