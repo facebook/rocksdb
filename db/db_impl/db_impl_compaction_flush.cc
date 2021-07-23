@@ -3071,14 +3071,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
     }
 
-    // Temporarily release `being_compacted` flag to make sure moved files are
-    // correctly calculated in
-    // `ComputeCompactionScore`.
-    c->MarkFilesBeingCompacted(false);
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
-    c->MarkFilesBeingCompacted(true);
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),

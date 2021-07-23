@@ -84,8 +84,10 @@ class VersionBuilder::Rep {
     // Files in base version that should be deleted.
     std::unordered_set<uint64_t> deleted_base_files;
     // Files moved from base version.
+    // Those files will no be referenced by VersionBuilder.
     std::unordered_map<uint64_t, FileMetaData*> moved_files;
-    // Files added, must not intersect with moved_files,
+    // Files added, must not intersect with moved_files.
+    // Those files will be referenced during the lifetime of VersionBuilder.
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
@@ -631,7 +633,7 @@ class VersionBuilder::Rep {
     // Try to reuse file meta from base version.
     FileMetaData* f = base_vstorage_->GetFileMetaDataByNumber(file_number);
     std::unordered_map<uint64_t, FileMetaData*>* container = nullptr;
-    if (f) {
+    if (f != nullptr) {
       // This should be a file trivially moved to a new position. Make sure the
       // two are the same physical file.
       if (f->fd.GetPathId() != meta.fd.GetPathId()) {
@@ -645,6 +647,7 @@ class VersionBuilder::Rep {
       container = &level_state.moved_files;
     } else {
       f = new FileMetaData(meta);
+      // Will drop reference in dtor.
       f->Ref();
       container = &level_state.added_files;
     }
@@ -919,11 +922,9 @@ class VersionBuilder::Rep {
       auto delta_iter = delta_files.begin();
       auto delta_end = delta_files.end();
 
-      // Delta files supersedes base files because base is masked by
+      // Delta file supersede base file because base is masked by
       // deleted_base_files.
       while (delta_iter != delta_end || base_iter != base_end) {
-        // `delta_iter` is favored because `base_iter` could be masked by
-        // deleted_base_files.
         if (delta_iter == delta_end ||
             (base_iter != base_end && cmp(*base_iter, *delta_iter))) {
           MaybeAddFile(vstorage, level, *base_iter++);

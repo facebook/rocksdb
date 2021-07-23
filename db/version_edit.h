@@ -234,10 +234,10 @@ struct FileMetaData {
   void Ref() { ++refs; }
 
   bool Unref() {
-    --refs;
-    assert(refs >= 0);
-    return refs <= 0;
+    assert(refs >= 1);
+    return --refs <= 0;
   }
+
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
   void UpdateBoundaries(const Slice& key, const Slice& value,

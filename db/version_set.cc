@@ -2568,7 +2568,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, bool include_compacted) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -2586,7 +2586,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
-        if (!f->being_compacted) {
+        if (!f->being_compacted || include_compacted) {
           total_size += f->compensated_file_size;
           num_sorted_runs++;
         }
@@ -2601,7 +2601,8 @@ void VersionStorageInfo::ComputeCompactionScore(
           // In that case, the below check may not catch a level being
           // compacted as it only checks the first file. The worst that can
           // happen is a scheduled compaction thread will find nothing to do.
-          if (!files_[i].empty() && !files_[i][0]->being_compacted) {
+          if (!files_[i].empty() &&
+              (!files_[i][0]->being_compacted || include_compacted)) {
             num_sorted_runs++;
           }
         }
@@ -2651,7 +2652,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
-        if (!f->being_compacted) {
+        if (!f->being_compacted || include_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
@@ -3627,11 +3628,11 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
                            std::vector<uint64_t>* live_blob_files) const {
-  if (!live_table_files && !live_blob_files) {
+  if (live_table_files == nullptr && live_blob_files == nullptr) {
     return;
   }
 
-  if (live_table_files) {
+  if (live_table_files != nullptr) {
     for (int level = 0; level < storage_info_.num_levels(); ++level) {
       const auto& level_files = storage_info_.LevelFiles(level);
       for (const auto& meta : level_files) {
@@ -3642,7 +3643,7 @@ void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
     }
   }
 
-  if (live_blob_files) {
+  if (live_blob_files != nullptr) {
     const auto& blob_files = storage_info_.GetBlobFiles();
     for (const auto& pair : blob_files) {
       const auto& meta = pair.second;
@@ -3874,7 +3875,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   // compute new compaction score
   v->storage_info()->ComputeCompactionScore(
       *column_family_data->ioptions(),
-      *column_family_data->GetLatestMutableCFOptions());
+      *column_family_data->GetLatestMutableCFOptions(),
+      true /*include_compacted*/);
 
   // Mark v finalized
   v->storage_info_.SetFinalized();
@@ -5428,10 +5430,10 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
   }
 
   // just one time extension to the right size
-  if (live_table_files) {
+  if (live_table_files != nullptr) {
     live_table_files->reserve(live_table_files->size() + total_table_files);
   }
-  if (live_blob_files) {
+  if (live_blob_files != nullptr) {
     live_blob_files->reserve(live_blob_files->size() + total_blob_files);
   }
 
