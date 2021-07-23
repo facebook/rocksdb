@@ -1252,6 +1252,11 @@ DEFINE_bool(allow_concurrent_memtable_write, true,
 DEFINE_bool(experimental_allow_mempurge, false,
             "Allow memtable garbage collection.");
 
+DEFINE_string(experimental_mempurge_policy, "ALTERNATE",
+              "Specify memtable garbage collection policy.");
+static auto FLAGS_experimental_mempurge_policy_e =
+    ROCKSDB_NAMESPACE::Options().experimental_mempurge_policy;
+
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
             "Support in-place memtable update for smaller or same-size values");
@@ -4326,6 +4331,7 @@ class Benchmark {
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
     options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
+    options.experimental_mempurge_policy = FLAGS_experimental_mempurge_policy_e;
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
@@ -8015,6 +8021,16 @@ int db_bench_tool(int argc, char** argv) {
   else {
     fprintf(stdout, "Unknown compaction fadvice:%s\n",
             FLAGS_compaction_fadvice.c_str());
+  }
+
+  if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALWAYS"))
+    FLAGS_experimental_mempurge_policy_e = ROCKSDB_NAMESPACE::Options::ALWAYS;
+  else if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALTERNATE"))
+    FLAGS_experimental_mempurge_policy_e =
+        ROCKSDB_NAMESPACE::Options::ALTERNATE;
+  else {
+    fprintf(stdout, "Unknown mempurge policy:%s\n",
+            FLAGS_experimental_mempurge_policy.c_str());
   }
 
   FLAGS_value_size_distribution_type_e =

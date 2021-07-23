@@ -624,9 +624,6 @@ bool FlushJob::MemPurgeDecider() {
     // an output of a previous mempurge process, then flush
     // to storage.
     return !(contains_mempurge_outcome_);
-  } else if (policy == DBOptions::MemPurgePolicy::RANDOM) {
-    Random32 rnd(123);
-    return rnd.OneIn(2);
   }
   return false;
 }

@@ -50,8 +50,7 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
 static std::unordered_map<std::string, DBOptions::MemPurgePolicy>
     experimental_mempurge_policy_string_map = {
         {"ALTERNATE", DBOptions::MemPurgePolicy::ALTERNATE},
-        {"ALWAYS", DBOptions::MemPurgePolicy::ALWAYS},
-        {"RANDOM", DBOptions::MemPurgePolicy::RANDOM}};
+        {"ALWAYS", DBOptions::MemPurgePolicy::ALWAYS}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     db_mutable_options_type_info = {

@@ -790,7 +790,7 @@ struct DBOptions {
   // policy.
   // Default: ALTERNATE
   // (experimental).
-  enum MemPurgePolicy { ALTERNATE, ALWAYS, RANDOM };
+  enum MemPurgePolicy { ALTERNATE, ALWAYS };
   MemPurgePolicy experimental_mempurge_policy = ALTERNATE;
 
   // Amount of data to build up in memtables across all column

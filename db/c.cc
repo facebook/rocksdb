@@ -3045,10 +3045,6 @@ void rocksdb_options_set_experimental_mempurge_policy(rocksdb_options_t* opt,
       opt->rep.experimental_mempurge_policy =
           ROCKSDB_NAMESPACE::Options::ALWAYS;
       break;
-    case 2:
-      opt->rep.experimental_mempurge_policy =
-          ROCKSDB_NAMESPACE::Options::RANDOM;
-      break;
     default:
       assert(0);
   }
