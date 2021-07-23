@@ -1260,8 +1260,7 @@ public class OptionsTest {
   public void periodicCompactionSeconds() {
     try (final Options options = new Options()) {
       options.setPeriodicCompactionSeconds(1000 * 60);
-      assertThat(options.periodicCompactionSeconds()).
-              isEqualTo(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
     }
   }
 

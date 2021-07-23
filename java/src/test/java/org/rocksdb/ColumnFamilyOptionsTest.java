@@ -593,8 +593,7 @@ public class ColumnFamilyOptionsTest {
   public void periodicCompactionSeconds() {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       options.setPeriodicCompactionSeconds(1000 * 60);
-      assertThat(options.periodicCompactionSeconds()).
-              isEqualTo(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
     }
   }
 

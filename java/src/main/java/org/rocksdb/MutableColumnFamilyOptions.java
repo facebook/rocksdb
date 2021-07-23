@@ -468,7 +468,8 @@ public class MutableColumnFamilyOptions
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setPeriodicCompactionSeconds(long periodicCompactionSeconds) {
+    public MutableColumnFamilyOptionsBuilder setPeriodicCompactionSeconds(
+        final long periodicCompactionSeconds) {
       return setLong(CompactionOption.periodic_compaction_seconds, periodicCompactionSeconds);
     }
 

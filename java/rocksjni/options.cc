@@ -3632,7 +3632,8 @@ jlong Java_org_rocksdb_Options_ttl(
 void Java_org_rocksdb_Options_setPeriodicCompactionSeconds(
     JNIEnv*, jobject, jlong jhandle, jlong jperiodicCompactionSeconds) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opts->periodic_compaction_seconds = static_cast<uint64_t>(jperiodicCompactionSeconds);
+  opts->periodic_compaction_seconds =
+      static_cast<uint64_t>(jperiodicCompactionSeconds);
 }
 
 /*
@@ -3640,8 +3641,8 @@ void Java_org_rocksdb_Options_setPeriodicCompactionSeconds(
  * Method:    periodicCompactionSeconds
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_Options_periodicCompactionSeconds(
-    JNIEnv*, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_Options_periodicCompactionSeconds(JNIEnv*, jobject,
+                                                         jlong jhandle) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jlong>(opts->periodic_compaction_seconds);
 }
@@ -5179,7 +5180,8 @@ void Java_org_rocksdb_ColumnFamilyOptions_setPeriodicCompactionSeconds(
     JNIEnv*, jobject, jlong jhandle, jlong jperiodicCompactionSeconds) {
   auto* cf_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  cf_opts->periodic_compaction_seconds = static_cast<uint64_t>(jperiodicCompactionSeconds);
+  cf_opts->periodic_compaction_seconds =
+      static_cast<uint64_t>(jperiodicCompactionSeconds);
 }
 
 /*
@@ -5187,8 +5189,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setPeriodicCompactionSeconds(
  * Method:    periodicCompactionSeconds
  * Signature: (J)J
  */
-JNIEXPORT jlong JNICALL Java_org_rocksdb_ColumnFamilyOptions_periodicCompactionSeconds(
-    JNIEnv*, jobject, jlong jhandle) {
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_ColumnFamilyOptions_periodicCompactionSeconds(JNIEnv*, jobject,
+                                                               jlong jhandle) {
   auto* cf_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jlong>(cf_opts->periodic_compaction_seconds);
