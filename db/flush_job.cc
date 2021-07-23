@@ -603,7 +603,7 @@ Status FlushJob::MemPurge() {
   const uint64_t micros = clock_->NowMicros() - start_micros;
   const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "[%s] [JOB %d] Mempurge lasted %lu microseconds %lu cpu "
+                 "[%s] [JOB %d] Mempurge lasted %zu microseconds %zu cpu "
                  "microseconds. Status is %s ok. Perc capacity: %f\n",
                  cfd_->GetName().c_str(), job_context_->job_id, micros,
                  cpu_micros, s.ok() ? "" : "not",
@@ -818,7 +818,7 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
   ROCKS_LOG_INFO(
       db_options_.info_log,
-      "[%s] [JOB %d] Flush lasted %lu microseconds %lu cpu microseconds.\n",
+      "[%s] [JOB %d] Flush lasted %zu microseconds %zu cpu microseconds.\n",
       cfd_->GetName().c_str(), job_context_->job_id, micros, cpu_micros);
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
