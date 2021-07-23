@@ -215,7 +215,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-    if (immutable_db_options_.wal_dir != dbname_) {
+
+    if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
       s.PermitUncheckedError();  // TODO: What should we do on error?
@@ -395,10 +396,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                  blob_file.GetPath());
   }
 
+  auto wal_dir = immutable_db_options_.GetWalDir();
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(file_num),
-                                   immutable_db_options_.wal_dir);
+      candidate_files.emplace_back(LogFileName(file_num), wal_dir);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
@@ -548,7 +549,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       dir_to_sync = candidate_file.file_path;
     } else {
       dir_to_sync =
-          (type == kWalFile) ? immutable_db_options_.wal_dir : dbname_;
+          (type == kWalFile) ? immutable_db_options_.GetWalDir() : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')
