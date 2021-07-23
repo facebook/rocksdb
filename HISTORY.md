@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
+
+## 6.23.0 (2021-07-16)
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
 
@@ -7,6 +11,9 @@
 * Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
 * `GetLiveFilesMetaData()` now populates the `temperature`, `oldest_ancester_time`, and `file_creation_time` fields of its `LiveFileMetaData` results when the information is available. Previously these fields always contained zero indicating unknown.
 * Fix mismatches of OnCompaction{Begin,Completed} in case of DisableManualCompaction().
+* Fix continuous logging of an existing background error on every user write
+* Fix a bug that `Get()` return Status::OK() and an empty value for non-existent key when `read_options.read_tier = kBlockCacheTier`. 
+* Fix a bug that stat in `get_context` didn't accumulate to statistics when query is failed.
 
 ### New Features
 * ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
@@ -20,6 +27,7 @@
 * Change signature of SecondaryCache::Name().  Make SecondaryCache customizable and add SecondaryCache::CreateFromString method.
 
 ### Performance Improvements
+* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
 * When gathering unreferenced obsolete files for purging, file metas associated with active versions will no longer be copied for double-check. Updated VersionBuilder to make sure each physical file is reference counted by at most one FileMetaData.
 
 ## 6.22.0 (2021-06-18)

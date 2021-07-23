@@ -872,6 +872,15 @@ Status GetMutableDBOptionsFromStrings(
   return s;
 }
 
+bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
+                              const MutableDBOptions& that_options) {
+  ConfigOptions config_options;
+  std::string mismatch;
+  return OptionTypeInfo::StructsAreEqual(
+      config_options, "MutableDBOptions", &db_mutable_options_type_info,
+      "MutableDBOptions", &this_options, &that_options, &mismatch);
+}
+
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
                                      const MutableDBOptions& mutable_opts,
                                      std::string* opt_string) {
