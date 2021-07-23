@@ -348,8 +348,10 @@ void FlushJob::Cancel() {
 
 Status FlushJob::MemPurge() {
   Status s;
+  // Measure purging time.
   const uint64_t start_micros = clock_->NowMicros();
   const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
   assert(!mems_.empty());
@@ -407,11 +409,8 @@ Status FlushJob::MemPurge() {
   // or at least range tombstones, copy over the info
   // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
-    // Arbitrary heuristic: maxSize is 60% cpacity.
-    // size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
-    // Arbitrary heuristic: maxSize is 80% cpacity.
+    // MaxSize is the size of a memtable.
     size_t maxSize = mutable_cf_options_.write_buffer_size;
-    // 8U * ((mutable_cf_options_.write_buffer_size + 9U) / 10U);
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
         ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -556,9 +555,8 @@ Status FlushJob::MemPurge() {
       new_mem->SetFirstSequenceNumber(new_first_seqno);
 
       // The new_mem is added to the list of immutable memtables
-      // only if it filled at less than 60% capacity (arbitrary heuristic).
-      // if (new_mem->ApproximateMemoryUsage() < maxSize) {
-      // new_mem->UpdateFlushState();
+      // only if it filled at less than 100% capacity and isn't flagged
+      // as in need of being flushed.
       if (new_mem->ApproximateMemoryUsage() < maxSize &&
           !(new_mem->ShouldFlushNow())) {
         db_mutex_->Lock();
