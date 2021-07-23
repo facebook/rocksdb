@@ -47,10 +47,10 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
-static std::unordered_map<std::string, DBOptions::MemPurgePolicy>
+static std::unordered_map<std::string, MemPurgePolicy>
     experimental_mempurge_policy_string_map = {
-        {"ALTERNATE", DBOptions::MemPurgePolicy::ALTERNATE},
-        {"ALWAYS", DBOptions::MemPurgePolicy::ALWAYS}};
+        {"kAlternate", MemPurgePolicy::kAlternate},
+        {"kAlways", MemPurgePolicy::kAlways}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     db_mutable_options_type_info = {
@@ -202,7 +202,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"experimental_mempurge_policy",
-         OptionTypeInfo::Enum<DBOptions::MemPurgePolicy>(
+         OptionTypeInfo::Enum<MemPurgePolicy>(
              offsetof(struct ImmutableDBOptions, experimental_mempurge_policy),
              &experimental_mempurge_policy_string_map)},
         {"is_fd_close_on_exec",

@@ -8023,12 +8023,13 @@ int db_bench_tool(int argc, char** argv) {
             FLAGS_compaction_fadvice.c_str());
   }
 
-  if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALWAYS"))
+  if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "kAlways"))
     FLAGS_experimental_mempurge_policy_e =
-        ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALWAYS;
-  else if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALTERNATE"))
+        ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
+  else if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(),
+                       "kAlternate"))
     FLAGS_experimental_mempurge_policy_e =
-        ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALTERNATE;
+        ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
   else {
     fprintf(stdout, "Unknown mempurge policy:%s\n",
             FLAGS_experimental_mempurge_policy.c_str());

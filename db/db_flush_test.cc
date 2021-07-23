@@ -695,7 +695,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = DBOptions::MemPurgePolicy::ALWAYS;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -843,7 +843,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = DBOptions::MemPurgePolicy::ALWAYS;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1047,7 +1047,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = DBOptions::MemPurgePolicy::ALWAYS;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1123,7 +1123,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = DBOptions::MemPurgePolicy::ALWAYS;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;
@@ -1239,8 +1239,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     const uint32_t EXPECTED_SST_COUNT = 0;
 
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
-    if (options.experimental_mempurge_policy ==
-        DBOptions::MemPurgePolicy::ALWAYS) {
+    if (options.experimental_mempurge_policy == MemPurgePolicy::kAlways) {
       EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
     }
 

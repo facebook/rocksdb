@@ -369,6 +369,11 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
+enum class MemPurgePolicy : char {
+  kAlternate = 0x00,
+  kAlways = 0x01,
+};
+
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
@@ -790,8 +795,9 @@ struct DBOptions {
   // policy.
   // Default: ALTERNATE
   // (experimental).
-  enum class MemPurgePolicy : char { ALTERNATE = 0x00, ALWAYS = 0x01 };
-  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::ALTERNATE;
+  // enum class MemPurgePolicy : char { ALTERNATE = 0x00, ALWAYS = 0x01 };
+  // MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::ALTERNATE;
+  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::kAlternate;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.

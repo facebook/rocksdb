@@ -603,7 +603,9 @@ Status FlushJob::MemPurge() {
   const uint64_t micros = clock_->NowMicros() - start_micros;
   const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "[%s] [JOB %d] Mempurge lasted %zu microseconds %zu cpu "
+                 "[%s] [JOB %d] Mempurge lasted %" PRIu64
+                 " microseconds %" PRIu64
+                 " cpu "
                  "microseconds. Status is %s ok. Perc capacity: %f\n",
                  cfd_->GetName().c_str(), job_context_->job_id, micros,
                  cpu_micros, s.ok() ? "" : "not",
@@ -614,10 +616,10 @@ Status FlushJob::MemPurge() {
 }
 
 bool FlushJob::MemPurgeDecider() {
-  DBOptions::MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
-  if (policy == DBOptions::MemPurgePolicy::ALWAYS) {
+  MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
+  if (policy == MemPurgePolicy::kAlways) {
     return true;
-  } else if (policy == DBOptions::MemPurgePolicy::ALTERNATE) {
+  } else if (policy == MemPurgePolicy::kAlternate) {
     // Note: if at least one of the flushed memtables is
     // an output of a previous mempurge process, then flush
     // to storage.
@@ -816,10 +818,11 @@ Status FlushJob::WriteLevel0Table() {
   stats.cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
   const uint64_t micros = clock_->NowMicros() - start_micros;
   const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
-  ROCKS_LOG_INFO(
-      db_options_.info_log,
-      "[%s] [JOB %d] Flush lasted %zu microseconds %zu cpu microseconds.\n",
-      cfd_->GetName().c_str(), job_context_->job_id, micros, cpu_micros);
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Flush lasted %" PRIu64 " microseconds %" PRIu64
+                 " cpu microseconds.\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros);
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
     stats.num_output_files = 1;
