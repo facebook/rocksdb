@@ -192,6 +192,19 @@ void FlushJob::PickMemTable() {
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 
+  // If mempurge feature is activated, keep track of any potential
+  // memtables coming from a previous mempurge operation.
+  // Used for mempurge policy.
+  if (db_options_.experimental_allow_mempurge) {
+    contains_mempurge_outcome_ = false;
+    for (MemTable* mt : mems_) {
+      if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
+        contains_mempurge_outcome_ = true;
+        break;
+      }
+    }
+  }
+
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
 }
@@ -549,20 +562,21 @@ Status FlushJob::MemPurge() {
       if (new_mem->ApproximateMemoryUsage() < maxSize &&
           !(new_mem->ShouldFlushNow())) {
         db_mutex_->Lock();
-        uint64_t new_mem_id = mems_[0]->GetID() for (MemTable* m : mems_) {
-          new_mem_id = m->GetID() < new_mem_id ? m->GetID() : new_mem_id;
+        uint64_t new_mem_id = mems_[0]->GetID();
+        for (MemTable* mt : mems_) {
+          new_mem_id = mt->GetID() < new_mem_id ? mt->GetID() : new_mem_id;
+          // Note: if m is not a previous mempurge output memtable,
+          // nothing happens.
+          cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
         }
         new_mem->SetID(new_mem_id);
-        cfd_->AddMem
+        cfd_->imm()->AddMemPurgeOutputID(new_mem_id);
         cfd_->imm()->Add(new_mem,
                          &job_context_->memtables_to_free,
                          false /* -> trigger_flush=false:
                                 * adding this memtable
                                 * will not trigger a flush.
                                 */);
-        cfd_->current_mempurge_count_++;
-        cfd_->current_mempurge_imm_capacity_ =
-            new_mem->ApproximateMemoryUsage();
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {
@@ -606,12 +620,15 @@ bool FlushJob::MemPurgeDecider() {
   if (policy == DBOptions::MemPurgePolicy::ALWAYS) {
     return true;
   } else if (policy == DBOptions::MemPurgePolicy::ALTERNATE) {
-    // Note: db_mutex is held when this function is called.
-    return !(cfd_->just_mempurged)
+    // Note: if at least one of the flushed memtables is
+    // an output of a previous mempurge process, then flush
+    // to storage.
+    return !(contains_mempurge_outcome_);
   } else if (policy == DBOptions::MemPurgePolicy::RANDOM) {
-    Random32 rnd;
+    Random32 rnd(123);
     return rnd.OneIn(2);
   }
+  return false;
 }
 
 Status FlushJob::WriteLevel0Table() {
@@ -826,6 +843,16 @@ Status FlushJob::WriteLevel0Table() {
       InternalStats::BYTES_FLUSHED,
       stats.bytes_written + stats.bytes_written_blob);
   RecordFlushIOStats();
+
+  if (db_options_.experimental_allow_mempurge && s.ok()) {
+    // The db_mutex is held at this point.
+    for (MemTable* mt : mems_) {
+      // Note: if m is not a previous mempurge output memtable,
+      // nothing happens here.
+      cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
+    }
+  }
+
   return s;
 }
 

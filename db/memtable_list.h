@@ -389,19 +389,19 @@ class MemTableList {
   // not freed, but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
-  void AddMempurgeOutcomeID(uint64_t mid) {
+  void AddMemPurgeOutputID(uint64_t mid) {
     if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
       mempurged_ids_.insert(mid);
     }
   }
 
-  void RemoveMemPurgeMemtableID(uint64_t mid) {
+  void RemoveMemPurgeOutputID(uint64_t mid) {
     if (mempurged_ids_.find(mid) != mempurged_ids_.end()) {
       mempurged_ids_.erase(mid);
     }
   }
 
-  bool IsMempurgeOutcome(uint64_t mid) {
+  bool IsMemPurgeOutput(uint64_t mid) {
     if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
       return false;
     }
