@@ -731,13 +731,18 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
+#endif  // ROCKSDB_LITE
+
 void RegisterTestLibrary(const std::string& arg) {
   static bool registered = false;
   if (!registered) {
     registered = true;
+#ifndef ROCKSDB_LITE
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
+#else
+    (void)arg;
+#endif  // ROCKSDB_LITE
   }
 }
-#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

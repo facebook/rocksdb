@@ -878,9 +878,9 @@ Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
 #ifndef ROCKSDB_LITE
 // Registers the testutil classes with the ObjectLibrary
 int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
+#endif  // ROCKSDB_LITE
 
 // Register the testutil classes with the default ObjectRegistry/Library
 void RegisterTestLibrary(const std::string& arg = "");
-#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
