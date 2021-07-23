@@ -369,6 +369,11 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
+enum class MemPurgePolicy : char {
+  kAlternate = 0x00,
+  kAlways = 0x01,
+};
+
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
@@ -785,6 +790,11 @@ struct DBOptions {
   // If true, allows for memtable purge instead of flush to storage.
   // (experimental).
   bool experimental_allow_mempurge = false;
+  // If experimental_allow_mempurge is true, will dictate MemPurge
+  // policy.
+  // Default: kAlternate
+  // (experimental).
+  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::kAlternate;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.

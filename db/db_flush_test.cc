@@ -695,6 +695,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -808,7 +809,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Assert that at least one flush to storage has been performed
   ASSERT_GT(sst_count, EXPECTED_SST_COUNT);
   // (which will consequently increase the number of mempurges recorded too).
-  ASSERT_EQ(mempurge_count, mempurge_count_record);
+  ASSERT_GE(mempurge_count, mempurge_count_record);
 
   // Assert that there is no data corruption, even with
   // a flush to storage.
@@ -842,6 +843,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1045,6 +1047,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1116,10 +1119,11 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
 
-  // Enforce size of a single MemTable to 1MB.
+  // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
   options.experimental_allow_mempurge = true;
+  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;
@@ -1158,7 +1162,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     // more than would fit in maximum allowed memtables.
     Random rnd(719);
     const size_t NUM_REPEAT = 100;
-    const size_t RAND_KEY_LENGTH = 8192;
+    const size_t RAND_KEY_LENGTH = 4096;
     const size_t RAND_VALUES_LENGTH = 1024;
     std::vector<std::string> values_default(KVSIZE), values_pikachu(KVSIZE);
 
@@ -1235,7 +1239,9 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     const uint32_t EXPECTED_SST_COUNT = 0;
 
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
-    EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+    if (options.experimental_mempurge_policy == MemPurgePolicy::kAlways) {
+      EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+    }
 
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
     // Check that there was no data corruption anywhere,

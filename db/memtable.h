@@ -471,6 +471,9 @@ class MemTable {
   }
 #endif  // !ROCKSDB_LITE
 
+  // Returns a heuristic flush decision
+  bool ShouldFlushNow();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -557,9 +560,6 @@ class MemTable {
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 #endif  // !ROCKSDB_LITE
-
-  // Returns a heuristic flush decision
-  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
