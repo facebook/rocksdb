@@ -8024,10 +8024,10 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALWAYS"))
-    FLAGS_experimental_mempurge_policy_e = ROCKSDB_NAMESPACE::Options::ALWAYS;
+    FLAGS_experimental_mempurge_policy_e = ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALWAYS;
   else if (!strcasecmp(FLAGS_experimental_mempurge_policy.c_str(), "ALTERNATE"))
     FLAGS_experimental_mempurge_policy_e =
-        ROCKSDB_NAMESPACE::Options::ALTERNATE;
+        ROCKSDB_NAMESPACE::Options::MemPurgePolicy::ALTERNATE;
   else {
     fprintf(stdout, "Unknown mempurge policy:%s\n",
             FLAGS_experimental_mempurge_policy.c_str());
