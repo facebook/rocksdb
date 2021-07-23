@@ -357,6 +357,7 @@ Status FlushJob::MemPurge() {
   assert(!mems_.empty());
 
   MemTable* new_mem = nullptr;
+  double new_mem_capacity=0.0;
 
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
@@ -497,6 +498,7 @@ Status FlushJob::MemPurge() {
       // and destroy new_mem.
       if (new_mem->ApproximateMemoryUsage() > maxSize) {
         s = Status::Aborted("Mempurge filled more than one memtable.");
+        new_mem_capacity = 1.0;
         break;
       }
     }
@@ -541,6 +543,7 @@ Status FlushJob::MemPurge() {
         // and destroy new_mem.
         if (new_mem->ApproximateMemoryUsage() > maxSize) {
           s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+          new_mem_capacity = 1.0;
           break;
         }
       }
@@ -576,9 +579,12 @@ Status FlushJob::MemPurge() {
                                 * will not trigger a flush.
                                 */);
         new_mem->Ref();
+        new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
+                              mutable_cf_options_.write_buffer_size;
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        new_mem_capacity = 1.0;
         if (new_mem) {
           job_context_->memtables_to_free.push_back(new_mem);
         }
@@ -608,9 +614,7 @@ Status FlushJob::MemPurge() {
                  " cpu "
                  "microseconds. Status is %s ok. Perc capacity: %f\n",
                  cfd_->GetName().c_str(), job_context_->job_id, micros,
-                 cpu_micros, s.ok() ? "" : "not",
-                 (new_mem->ApproximateMemoryUsage()) * 1.0 /
-                     mutable_cf_options_.write_buffer_size);
+                 cpu_micros, s.ok() ? "" : "not", new_mem_capacity);
 
   return s;
 }
