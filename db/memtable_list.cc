@@ -521,9 +521,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // and don't commit anything to the manifest file.
         RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
                                       to_delete, mu);
+        // Note: cfd->SetLogNumber is only called when a VersionEdit
+        // is written to MANIFEST. When mempurge is succesful, we skip
+        // this step, therefore cfd->GetLogNumber is always is
+        // earliest log with data unflushed.
         // Notify new head of manifest write queue.
         // wake up all the waiting writers
-        // TODO(bjlemaire): explain full reason needed or investigate more.
+        // TODO(bjlemaire): explain full reason WakeUpWaitingManifestWriters
+        // needed or investigate more.
         vset->WakeUpWaitingManifestWriters();
         *io_s = IOStatus::OK();
       }
@@ -692,21 +697,6 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
       ++mem_id;
     }
   }
-}
-
-// Returns the earliest log that possibly contain entries
-// from one of the memtables of this memtable_list.
-uint64_t MemTableList::EarliestLogContainingData() {
-  uint64_t min_log = 0;
-
-  for (auto& m : current_->memlist_) {
-    uint64_t log = m->GetEarliestLogFileNumber();
-    if (log > 0 && (min_log == 0 || log < min_log)) {
-      min_log = log;
-    }
-  }
-
-  return min_log;
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
