@@ -20,12 +20,14 @@
 #include "db/wal_manager.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/file_checksum_helper.h"
@@ -39,7 +41,9 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
                                     uint64_t /*log_size_for_flush*/,
-                                    uint64_t* /*sequence_number_ptr*/) {
+                                    uint64_t* /*sequence_number_ptr*/,
+                                    const std::string& /*db_log_dir*/,
+                                    const std::string& /*wal_dir*/) {
   return Status::NotSupported("");
 }
 
@@ -76,7 +80,9 @@ Status Checkpoint::ExportColumnFamily(
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                         uint64_t log_size_for_flush,
-                                        uint64_t* sequence_number_ptr) {
+                                        uint64_t* sequence_number_ptr,
+                                        const std::string& db_log_dir,
+                                        const std::string& wal_dir) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status s = db_->GetEnv()->FileExists(checkpoint_dir);
@@ -101,15 +107,54 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     return Status::InvalidArgument("invalid checkpoint directory name");
   }
 
-  std::string full_private_path =
-      checkpoint_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
-  ROCKS_LOG_INFO(
-      db_options.info_log,
-      "Snapshot process -- using temporary directory %s",
-      full_private_path.c_str());
+  std::string parsed_checkpoint_dir =
+      checkpoint_dir.substr(0, final_nonslash_idx + 1);
+  std::string full_private_path = parsed_checkpoint_dir + ".tmp";
+  ROCKS_LOG_INFO(db_options.info_log,
+                 "Snapshot process -- using temporary directory %s",
+                 full_private_path.c_str());
   CleanStagingDirectory(full_private_path, db_options.info_log.get());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
+
+  // Remove the last `/`s if needed
+  std::string parsed_log_dir =
+      db_log_dir.empty()
+          ? ""
+          : db_log_dir.substr(0, db_log_dir.find_last_not_of('/') + 1);
+  std::string parsed_wal_dir =
+      wal_dir.empty() ? ""
+                      : wal_dir.substr(0, wal_dir.find_last_not_of('/') + 1);
+
+  // Info log files are not copied or linked, just update the option value.
+  std::string value_log_dir = parsed_log_dir == db_->GetName() ||
+                                      parsed_log_dir == parsed_checkpoint_dir
+                                  ? ""
+                                  : parsed_log_dir;
+
+  // If the wal_dir is empty, or the same as the source db dir, update the
+  // option value to the checkpoint dir.
+  std::string value_wal_dir;  // Option value to override
+  std::string new_wal_dir;    // The target location to copy/link WAL files
+  if (parsed_wal_dir.empty() || parsed_wal_dir == db_->GetName() ||
+      parsed_wal_dir == parsed_checkpoint_dir) {
+    value_wal_dir = parsed_checkpoint_dir;
+    new_wal_dir = full_private_path;  // Copy to the temp dir
+  } else {
+    value_wal_dir = parsed_wal_dir;
+    std::string prefix = parsed_checkpoint_dir + "/";
+    // If checkpoint_dir is parent of wal_dir, create the wal dir inside the tmp
+    // dir; otherwise, create it directly.
+    new_wal_dir =
+        parsed_wal_dir.rfind(prefix, 0) == 0
+            ? full_private_path + "/" + parsed_wal_dir.substr(prefix.size())
+            : parsed_wal_dir;
+    s = db_->GetEnv()->FileExists(new_wal_dir);
+    if (s.IsNotFound()) {
+      s = db_->GetEnv()->CreateDir(new_wal_dir);
+    }
+  }
+
   uint64_t sequence_number = 0;
   if (s.ok()) {
     // enable file deletions
@@ -120,21 +165,32 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
       s = CreateCustomCheckpoint(
           db_options,
           [&](const std::string& src_dirname, const std::string& fname,
-              FileType) {
+              FileType type) {
             ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
                            fname.c_str());
-            return db_->GetFileSystem()->LinkFile(src_dirname + fname,
-                                                  full_private_path + fname,
-                                                  IOOptions(), nullptr);
+            // WAL file links may be created in another location.
+            return db_->GetFileSystem()->LinkFile(
+                src_dirname + fname,
+                (type == kWalFile ? new_wal_dir : full_private_path) + fname,
+                IOOptions(), nullptr);
           } /* link_file_cb */,
           [&](const std::string& src_dirname, const std::string& fname,
-              uint64_t size_limit_bytes, FileType,
+              uint64_t size_limit_bytes, FileType type,
               const std::string& /* checksum_func_name */,
               const std::string& /* checksum_val */) {
             ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
-                            full_private_path + fname, size_limit_bytes,
-                            db_options.use_fsync);
+            if (type == kOptionsFile) {
+              // Modify and rewrite option files
+              return CopyOptionsFile(src_dirname + fname,
+                                     full_private_path + fname, value_log_dir,
+                                     value_wal_dir);
+            } else {
+              // Copy other files. WAL files may be copied to another location.
+              return Status(CopyFile(
+                  db_->GetFileSystem(), src_dirname + fname,
+                  (type == kWalFile ? new_wal_dir : full_private_path) + fname,
+                  size_limit_bytes, db_options.use_fsync));
+            }
           } /* copy_file_cb */,
           [&](const std::string& fname, const std::string& contents, FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
@@ -154,11 +210,12 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
   if (s.ok()) {
     // move tmp private backup to real snapshot directory
-    s = db_->GetEnv()->RenameFile(full_private_path, checkpoint_dir);
+    s = db_->GetEnv()->RenameFile(full_private_path, parsed_checkpoint_dir);
   }
   if (s.ok()) {
     std::unique_ptr<Directory> checkpoint_directory;
-    s = db_->GetEnv()->NewDirectory(checkpoint_dir, &checkpoint_directory);
+    s = db_->GetEnv()->NewDirectory(parsed_checkpoint_dir,
+                                    &checkpoint_directory);
     if (s.ok() && checkpoint_directory != nullptr) {
       s = checkpoint_directory->Fsync();
     }
@@ -588,6 +645,37 @@ Status CheckpointImpl::ExportFilesInMetaData(
 
   return s;
 }
+
+Status CheckpointImpl::CopyOptionsFile(const std::string& src_file,
+                                       const std::string& target_file,
+                                       const std::string& db_log_dir,
+                                       const std::string& wal_dir) {
+  Status s;
+  DBOptions src_db_options;
+  std::vector<ColumnFamilyDescriptor> src_cf_descs;
+  s = LoadOptionsFromFile(ConfigOptions(), src_file, &src_db_options,
+                          &src_cf_descs);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Override these 2 options
+  src_db_options.db_log_dir = db_log_dir;
+  src_db_options.wal_dir = wal_dir;
+
+  std::vector<std::string> src_cf_names;
+  std::vector<ColumnFamilyOptions> src_cf_opts;
+  src_cf_names.reserve(src_cf_descs.size());
+  src_cf_opts.reserve(src_cf_descs.size());
+  for (ColumnFamilyDescriptor desc : src_cf_descs) {
+    src_cf_names.push_back(desc.name);
+    src_cf_opts.push_back(desc.options);
+  }
+
+  return PersistRocksDBOptions(src_db_options, src_cf_names, src_cf_opts,
+                               target_file, db_->GetFileSystem());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

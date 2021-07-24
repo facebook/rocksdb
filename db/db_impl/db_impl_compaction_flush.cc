@@ -2785,9 +2785,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     if (prepicked_compaction != nullptr &&
         prepicked_compaction->task_token != nullptr) {
-      // Releasing task tokens affects the DB state, so must be done before we
-      // potentially signal the DB close process to proceed below.
-      prepicked_compaction->task_token->ReleaseOnce();
+      // Releasing task tokens affects (and asserts on) the DB state, so
+      // must be done before we potentially signal the DB close process to
+      // proceed below.
+      prepicked_compaction->task_token.reset();
+      ;
     }
 
     if (made_progress ||

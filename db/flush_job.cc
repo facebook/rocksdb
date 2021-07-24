@@ -333,17 +333,6 @@ void FlushJob::Cancel() {
   base_->Unref();
 }
 
-uint64_t FlushJob::ExtractEarliestLogFileNumber() {
-  uint64_t earliest_logno = 0;
-  for (MemTable* m : mems_) {
-    uint64_t logno = m->GetEarliestLogFileNumber();
-    if (logno > 0 && (earliest_logno == 0 || logno < earliest_logno)) {
-      earliest_logno = logno;
-    }
-  }
-  return earliest_logno;
-}
-
 Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
@@ -387,8 +376,6 @@ Status FlushJob::MemPurge() {
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
 
-  uint64_t earliest_logno = ExtractEarliestLogFileNumber();
-
   auto* ioptions = cfd_->ioptions();
 
   // Place iterator at the First (meaning most recent) key node.
@@ -429,7 +416,7 @@ Status FlushJob::MemPurge() {
 
     new_mem = new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
                            mutable_cf_options_, cfd_->write_buffer_mgr(),
-                           earliest_seqno, cfd_->GetID(), earliest_logno);
+                           earliest_seqno, cfd_->GetID());
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;

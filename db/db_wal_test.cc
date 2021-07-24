@@ -119,7 +119,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
   DBWALTestWithEnrichedEnv()
-      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
