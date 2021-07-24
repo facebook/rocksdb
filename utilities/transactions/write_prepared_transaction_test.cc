@@ -542,7 +542,7 @@ class WritePreparedTransactionTest
             std::get<2>(GetParam()), std::get<3>(GetParam())){};
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
       virtual public ::testing::WithParamInterface<std::tuple<
@@ -561,7 +561,7 @@ class SnapshotConcurrentAccessTest
   size_t split_id_;
   size_t split_cnt_;
 };
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class SeqAdvanceConcurrentTest
     : public WritePreparedTransactionTestBase,
@@ -591,7 +591,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SnapshotConcurrentAccessTest,
     ::testing::Values(
@@ -698,7 +698,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(WritePreparedTransactionTest, CommitMap) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -1171,7 +1171,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
 
 // This test is too slow for travis
 #ifndef TRAVIS
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
 TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
@@ -1251,7 +1251,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   }
   printf("\n");
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 #endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
@@ -1580,7 +1580,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicates) {
   delete txn0;
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
 // delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
 // which moves prepared txns from prepared_txns_ to delayed_prepared_.
@@ -1642,7 +1642,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
     delete txn;
   }
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
   // Given the sequential run of txns, with this timeout we should never see a

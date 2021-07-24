@@ -41,6 +41,9 @@ Status DBImplSecondary::Recover(
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
                     &manifest_reader_status_);
   if (!s.ok()) {
+    if (manifest_reader_status_) {
+      manifest_reader_status_->PermitUncheckedError();
+    }
     return s;
   }
   if (immutable_db_options_.paranoid_checks && s.ok()) {

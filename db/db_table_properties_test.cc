@@ -52,7 +52,7 @@ class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
  public:
   DBTablePropertiesTest()
-      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_table_properties_test", /*env_do_fsync=*/false) {}
   TablePropertiesCollection TestGetPropertiesOfTablesInRange(
       std::vector<Range> ranges, std::size_t* num_properties = nullptr,
       std::size_t* num_files = nullptr);
@@ -281,7 +281,7 @@ class DBTableHostnamePropertyTest
       public ::testing::WithParamInterface<std::tuple<int, std::string>> {
  public:
   DBTableHostnamePropertyTest()
-      : DBTestBase("/db_table_hostname_property_test",
+      : DBTestBase("db_table_hostname_property_test",
                    /*env_do_fsync=*/false) {}
 };
 

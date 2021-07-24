@@ -224,7 +224,7 @@ class TestSecondaryCache : public SecondaryCache {
   }
   ~TestSecondaryCache() override { cache_.reset(); }
 
-  std::string Name() override { return "TestSecondaryCache"; }
+  const char* Name() const override { return "TestSecondaryCache"; }
 
   void InjectFailure() { inject_failure_ = true; }
 
@@ -378,7 +378,7 @@ class TestSecondaryCache : public SecondaryCache {
 class DBSecondaryCacheTest : public DBTestBase {
  public:
   DBSecondaryCacheTest()
-      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }

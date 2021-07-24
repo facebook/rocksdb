@@ -445,6 +445,9 @@ bool SuperVersion::Unref() {
 
 void SuperVersion::Cleanup() {
   assert(refs.load(std::memory_order_relaxed) == 0);
+  // Since this SuperVersion object is being deleted,
+  // decrement reference to the immutable MemtableList
+  // this SV object was pointing to.
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {

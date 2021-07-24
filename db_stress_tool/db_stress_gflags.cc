@@ -326,6 +326,9 @@ DEFINE_uint64(compaction_ttl, 1000,
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_bool(experimental_allow_mempurge, false,
+            "Allow mempurge process to collect memtable garbage bytes.");
+
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
@@ -824,5 +827,15 @@ DEFINE_int32(open_metadata_write_fault_one_in, 0,
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
 #endif  // ROCKSDB_LITE
+DEFINE_int32(open_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file writes "
+             "during DB reopen.");
+DEFINE_int32(open_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file reads "
+             "during DB reopen.");
+DEFINE_int32(injest_error_severity, 1,
+             "The severity of the injested IO Error. 1 is soft error (e.g. "
+             "retryable error), 2 is fatal error, and the default is "
+             "retryable error.");
 
 #endif  // GFLAGS

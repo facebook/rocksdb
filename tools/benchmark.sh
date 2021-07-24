@@ -2,17 +2,20 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 
-if [ $# -ne 1 ]; then
+if [ $# -lt 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
   echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/"
-  echo    "mergerandom/randomtransaction/compact]"
+  echo    "mergerandom/randomtransaction/compact/multireadrandom]"
   exit 0
 fi
+bench_cmd=$1
+shift
+bench_args=$*
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from
 # rest of the benchmarks helps.
-if [ "$COMPACTION_TEST" == "1" -a "$1" != "universal_compaction" ]; then
+if [ "$COMPACTION_TEST" == "1" -a "$bench_cmd" != "universal_compaction" ]; then
   echo "Skipping $1 because it's not a compaction test."
   exit 0
 fi
@@ -97,7 +100,9 @@ const_params="
   \
   --memtablerep=skip_list \
   --bloom_bits=10 \
-  --open_files=-1"
+  --open_files=-1 \
+  \
+  $bench_args"
 
 l0_config="
   --level0_file_num_compaction_trigger=4 \
@@ -107,23 +112,24 @@ if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
 fi
 
-params_w="$const_params \
-          $l0_config \
+params_w="$l0_config \
           --max_background_compactions=16 \
           --max_write_buffer_number=8 \
-          --max_background_flushes=7"
+          --max_background_flushes=7 \
+          $const_params"
 
-params_bulkload="$const_params \
-                 --max_background_compactions=16 \
+params_bulkload="--max_background_compactions=16 \
                  --max_write_buffer_number=8 \
                  --allow_concurrent_memtable_write=false \
                  --max_background_flushes=7 \
                  --level0_file_num_compaction_trigger=$((10 * M)) \
                  --level0_slowdown_writes_trigger=$((10 * M)) \
-                 --level0_stop_writes_trigger=$((10 * M))"
+                 --level0_stop_writes_trigger=$((10 * M)) \
+                 $const_params "
 
-params_fillseq="$params_w \
-		--allow_concurrent_memtable_write=false"
+params_fillseq="--allow_concurrent_memtable_write=false \
+                $params_w "
+
 #
 # Tune values for level and universal compaction.
 # For universal compaction, these level0_* options mean total sorted of runs in
@@ -160,7 +166,14 @@ function summarize_result {
   lo_wgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $9 }' )
   sum_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $9 }' )
   sum_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.1f", $3 / 1024.0 }' )
-  wamp=$( echo "scale=1; $sum_wgb / $lo_wgb" | bc )
+  if [ "$lo_wgb" = "" ]; then
+      lo_wgb="0.0"
+  fi
+  if [ "$lo_wgb" = "0.0" ]; then
+      wamp="0.0"
+  else
+      wamp=$( echo "scale=1; $sum_wgb / $lo_wgb" | bc )
+  fi
   wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
@@ -377,6 +390,21 @@ function run_readrandom {
   summarize_result $output_dir/${out_name} readrandom.t${num_threads} readrandom
 }
 
+function run_multireadrandom {
+  echo "Multi-Reading $num_keys random keys"
+  out_name="benchmark_multireadrandom.t${num_threads}.log"
+  cmd="./db_bench --benchmarks=multireadrandom \
+       --use_existing_db=1 \
+       --threads=$num_threads \
+       --batch_size=10 \
+       $params_w \
+       --seed=$( date +%s ) \
+       2>&1 | tee -a $output_dir/${out_name}"
+  echo $cmd | tee $output_dir/${out_name}
+  eval $cmd
+  summarize_result $output_dir/${out_name} multireadrandom.t${num_threads} multireadrandom
+}
+
 function run_readwhile {
   operation=$1
   echo "Reading $num_keys random keys while $operation"
@@ -455,7 +483,7 @@ schedule="$output_dir/schedule.txt"
 echo "===== Benchmark ====="
 
 # Run!!!
-IFS=',' read -a jobs <<< $1
+IFS=',' read -a jobs <<< $bench_cmd
 # shellcheck disable=SC2068
 for job in ${jobs[@]}; do
 
@@ -473,10 +501,10 @@ for job in ${jobs[@]}; do
   elif [ $job = overwrite ]; then
     syncval="0"
     params_w="$params_w \
-	--writes=125000000 \
-	--subcompactions=4 \
-	--soft_pending_compaction_bytes_limit=$((1 * T)) \
-	--hard_pending_compaction_bytes_limit=$((4 * T)) "
+        --writes=125000000 \
+        --subcompactions=4 \
+        --soft_pending_compaction_bytes_limit=$((1 * T)) \
+        --hard_pending_compaction_bytes_limit=$((4 * T)) "
     run_change overwrite
   elif [ $job = updaterandom ]; then
     run_change updaterandom
@@ -486,6 +514,8 @@ for job in ${jobs[@]}; do
     run_filluniquerandom
   elif [ $job = readrandom ]; then
     run_readrandom
+  elif [ $job = multireadrandom ]; then
+    run_multireadrandom
   elif [ $job = fwdrange ]; then
     run_range $job false
   elif [ $job = revrange ]; then

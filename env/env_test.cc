@@ -36,10 +36,13 @@
 #endif
 
 #include "env/env_chroot.h"
+#include "env/env_encryption_ctr.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
+#include "rocksdb/env_encryption.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -2386,6 +2389,74 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   s = file->Append(Slice(test_data), v_info);
   ASSERT_OK(s);
 }
+
+#ifndef ROCKSDB_LITE
+class EncryptionProviderTest : public testing::Test {
+ public:
+};
+
+TEST_F(EncryptionProviderTest, LoadCTRProvider) {
+  ConfigOptions config_options;
+  config_options.invoke_prepare_options = false;
+  std::string CTR = CTREncryptionProvider::kClassName();
+  std::shared_ptr<EncryptionProvider> provider;
+  // Test a provider with no cipher
+  ASSERT_OK(
+      EncryptionProvider::CreateFromString(config_options, CTR, &provider));
+  ASSERT_NE(provider, nullptr);
+  ASSERT_EQ(provider->Name(), CTR);
+  ASSERT_NOK(provider->PrepareOptions(config_options));
+  ASSERT_NOK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  auto cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
+  ASSERT_NE(cipher, nullptr);
+  ASSERT_EQ(cipher->get(), nullptr);
+  provider.reset();
+
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options,
+                                                 CTR + "://test", &provider));
+  ASSERT_NE(provider, nullptr);
+  ASSERT_EQ(provider->Name(), CTR);
+  ASSERT_OK(provider->PrepareOptions(config_options));
+  ASSERT_OK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
+  ASSERT_NE(cipher, nullptr);
+  ASSERT_NE(cipher->get(), nullptr);
+  ASSERT_STREQ(cipher->get()->Name(), "ROT13");
+  provider.reset();
+
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options, "1://test",
+                                                 &provider));
+  ASSERT_NE(provider, nullptr);
+  ASSERT_EQ(provider->Name(), CTR);
+  ASSERT_OK(provider->PrepareOptions(config_options));
+  ASSERT_OK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
+  ASSERT_NE(cipher, nullptr);
+  ASSERT_NE(cipher->get(), nullptr);
+  ASSERT_STREQ(cipher->get()->Name(), "ROT13");
+  provider.reset();
+
+  ASSERT_OK(EncryptionProvider::CreateFromString(
+      config_options, "id=" + CTR + "; cipher=ROT13", &provider));
+  ASSERT_NE(provider, nullptr);
+  ASSERT_EQ(provider->Name(), CTR);
+  cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
+  ASSERT_NE(cipher, nullptr);
+  ASSERT_NE(cipher->get(), nullptr);
+  ASSERT_STREQ(cipher->get()->Name(), "ROT13");
+  provider.reset();
+}
+
+TEST_F(EncryptionProviderTest, LoadROT13Cipher) {
+  ConfigOptions config_options;
+  std::shared_ptr<BlockCipher> cipher;
+  // Test a provider with no cipher
+  ASSERT_OK(BlockCipher::CreateFromString(config_options, "ROT13", &cipher));
+  ASSERT_NE(cipher, nullptr);
+  ASSERT_STREQ(cipher->Name(), "ROT13");
+}
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

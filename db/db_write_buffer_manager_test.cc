@@ -17,7 +17,7 @@ class DBWriteBufferManagerTest : public DBTestBase,
                                  public testing::WithParamInterface<bool> {
  public:
   DBWriteBufferManagerTest()
-      : DBTestBase("/db_write_buffer_manager_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_write_buffer_manager_test", /*env_do_fsync=*/false) {}
   bool cost_cache_;
 };
 
