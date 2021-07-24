@@ -909,7 +909,7 @@ class VersionBuilder::Rep {
       }
       for (const auto& pair : unordered_moved_files) {
         // SaveTo will always be called under db mutex.
-        pair.second->being_moved = true;
+        pair.second->being_moved_to = level;
         delta_files.push_back(pair.second);
       }
       std::sort(delta_files.begin(), delta_files.end(), cmp);

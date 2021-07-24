@@ -2548,6 +2548,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 namespace {
 uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
                                  const MutableCFOptions& mutable_cf_options,
+                                 int level,
                                  const std::vector<FileMetaData*>& files) {
   uint32_t ttl_expired_files_count = 0;
 
@@ -2556,7 +2557,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     for (FileMetaData* f : files) {
-      if (!f->being_compacted || f->being_moved) {
+      if (!f->being_compacted || f->being_moved_to == level) {
         uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
         if (oldest_ancester_time != 0 &&
             oldest_ancester_time < (current_time - mutable_cf_options.ttl)) {
@@ -2589,7 +2590,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
-        if (!f->being_compacted || f->being_moved) {
+        if (!f->being_compacted || f->being_moved_to == level) {
           total_size += f->compensated_file_size;
           num_sorted_runs++;
         }
@@ -2604,8 +2605,8 @@ void VersionStorageInfo::ComputeCompactionScore(
           // In that case, the below check may not catch a level being
           // compacted as it only checks the first file. The worst that can
           // happen is a scheduled compaction thread will find nothing to do.
-          if (!files_[i].empty() &&
-              (!files_[i][0]->being_compacted || files_[i][0]->being_moved)) {
+          if (!files_[i].empty() && (!files_[i][0]->being_compacted ||
+                                     files_[i][0]->being_moved_to == i)) {
             num_sorted_runs++;
           }
         }
@@ -2623,7 +2624,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         if (mutable_cf_options.ttl > 0) {
           score = std::max(
               static_cast<double>(GetExpiredTtlFilesCount(
-                  immutable_options, mutable_cf_options, files_[level])),
+                  immutable_options, mutable_cf_options, level, files_[level])),
               score);
         }
 
@@ -2655,7 +2656,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
-        if (!f->being_compacted || f->being_moved) {
+        if (!f->being_compacted || f->being_moved_to == level) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
@@ -2708,7 +2709,8 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 
   for (int level = 0; level <= last_qualify_level; level++) {
     for (auto* f : files_[level]) {
-      if ((!f->being_compacted || f->being_moved) && f->marked_for_compaction) {
+      if ((!f->being_compacted || f->being_moved_to == level) &&
+          f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
       }
     }
@@ -2730,7 +2732,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 
   for (int level = 0; level < num_levels() - 1; level++) {
     for (FileMetaData* f : files_[level]) {
-      if (!f->being_compacted || f->being_moved) {
+      if (!f->being_compacted || f->being_moved_to == level) {
         uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
         if (oldest_ancester_time > 0 &&
             oldest_ancester_time < (current_time - ttl)) {
@@ -2766,7 +2768,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
   for (int level = 0; level < num_levels(); level++) {
     for (auto f : files_[level]) {
-      if (!f->being_compacted || f->being_moved) {
+      if (!f->being_compacted || f->being_moved_to == level) {
         // Compute a file's modification time in the following order:
         // 1. Use file_creation_time table property if it is > 0.
         // 2. Use creation_time table property if it is > 0.
@@ -2881,7 +2883,9 @@ void VersionStorageInfo::SetFinalized() {
       assert(level < num_non_empty_levels());
     }
     for (auto* f : LevelFiles(level)) {
-      f->being_moved = false;
+      if (f->being_moved_to == level) {
+        f->being_moved_to = -1;
+      }
     }
   }
   assert(compaction_level_.size() > 0);
