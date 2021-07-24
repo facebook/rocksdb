@@ -40,9 +40,13 @@ class Checkpoint {
   // sequence_number_ptr: if it is not nullptr, the value it points to will be
   // set to the DB's sequence number. The default value of this parameter is
   // nullptr.
+  // db_log_dir / wal_dir: override db_log_dir or wal_dir option in the
+  // snapshot. If empty, checkpoint_dir will be used.
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0,
-                                  uint64_t* sequence_number_ptr = nullptr);
+                                  uint64_t* sequence_number_ptr = nullptr,
+                                  const std::string& db_log_dir = "",
+                                  const std::string& wal_dir = "");
 
   // Exports all live SST files of a specified Column Family onto export_dir,
   // returning SST files information in metadata.
