@@ -763,7 +763,9 @@ Status InstallMemtableAtomicFlushResults(
           (*mems_list[k])[0]->ReleaseFlushJobInfo();
       committed_flush_jobs_info[k]->push_back(std::move(flush_job_info));
     }
-#endif  //! ROCKSDB_LITE
+#else   //! ROCKSDB_LITE
+    (void)committed_flush_jobs_info;
+#endif  // ROCKSDB_LITE
   }
 
   Status s;

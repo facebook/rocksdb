@@ -599,8 +599,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
         tmp_file_meta.emplace_back(&file_meta[i]);
+#ifndef ROCKSDB_LITE
         committed_flush_jobs_info.emplace_back(
             jobs[i]->GetCommittedFlushJobsInfo());
+#endif  //! ROCKSDB_LITE
       }
     }
 
