@@ -221,6 +221,7 @@ class SimpleConfigurable : public Configurable {
   }
 };
 
+#ifndef ROCKSDB_LITE
 static void GetMapFromProperties(
     const std::string& props,
     std::unordered_map<std::string, std::string>* map) {
@@ -236,6 +237,7 @@ static void GetMapFromProperties(
     (*map)[name] = value;
   }
 }
+#endif  // ROCKSDB_LITE
 }  // namespace
 
 Status TestCustomizable::CreateFromString(
@@ -287,8 +289,11 @@ class CustomizableTest : public testing::Test {
  public:
   CustomizableTest() {
     config_options_.invoke_prepare_options = false;
+#ifndef ROCKSDB_LITE
+    // GetOptionsFromMap is not supported in ROCKSDB_LITE
     config_options_.registry->AddLibrary("CustomizableTest",
                                          RegisterCustomTestObjects, "");
+#endif  // ROCKSDB_LITE
   }
 
   ConfigOptions config_options_;
@@ -1059,7 +1064,7 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
-
+#ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
@@ -1101,6 +1106,7 @@ class MockCipher : public BlockCipher {
   Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
+#endif  // ROCKSDB_LITE
 
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
