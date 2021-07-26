@@ -30,7 +30,7 @@ static std::string NEW_VALUE = "NewValue";
 
 class DBFlushTest : public DBTestBase {
  public:
-  DBFlushTest() : DBTestBase("/db_flush_test", /*env_do_fsync=*/true) {}
+  DBFlushTest() : DBTestBase("db_flush_test", /*env_do_fsync=*/true) {}
 };
 
 class DBFlushDirectIOTest : public DBFlushTest,
