@@ -1800,8 +1800,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
-    new_mem =
-        cfd->ConstructNewMemtable(mutable_cf_options, seq, new_log_number);
+    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
     context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,

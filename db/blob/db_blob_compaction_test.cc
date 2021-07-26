@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBlobCompactionTest : public DBTestBase {
  public:
   explicit DBBlobCompactionTest()
-      : DBTestBase("/db_blob_compaction_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_blob_compaction_test", /*env_do_fsync=*/false) {}
 
 #ifndef ROCKSDB_LITE
   const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {

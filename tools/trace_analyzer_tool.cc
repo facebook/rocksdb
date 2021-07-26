@@ -133,6 +133,12 @@ DEFINE_bool(analyze_range_delete, false, "Analyze the DeleteRange query.");
 DEFINE_bool(analyze_merge, false, "Analyze the Merge query.");
 DEFINE_bool(analyze_iterator, false,
             " Analyze the iterate query like seek() and seekForPrev().");
+DEFINE_bool(analyze_multiget, false,
+            " Analyze the MultiGet query. NOTE: for"
+            " MultiGet, we analyze each KV-pair read in one MultiGet query. "
+            "Therefore, the total queries and QPS are calculated based on "
+            "the number of KV-pairs being accessed not the number of MultiGet."
+            "It can be improved in the future if needed");
 DEFINE_bool(no_key, false,
             " Does not output the key to the result files to make smaller.");
 DEFINE_bool(print_overall_stats, true,
@@ -167,13 +173,15 @@ std::map<std::string, int> taOptToIndex = {
     {"get", 0},           {"put", 1},
     {"delete", 2},        {"single_delete", 3},
     {"range_delete", 4},  {"merge", 5},
-    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7}};
+    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7},
+    {"multiget", 8}};
 
 std::map<int, std::string> taIndexToOpt = {
     {0, "get"},           {1, "put"},
     {2, "delete"},        {3, "single_delete"},
     {4, "range_delete"},  {5, "merge"},
-    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"}};
+    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"},
+    {8, "multiget"}};
 
 namespace {
 
@@ -339,6 +347,12 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
     ta_[7].enabled = true;
   } else {
     ta_[7].enabled = false;
+  }
+  ta_[8].type_name = "multiget";
+  if (FLAGS_analyze_multiget) {
+    ta_[8].enabled = true;
+  } else {
+    ta_[8].enabled = false;
   }
   for (int i = 0; i < kTaTypeNum; i++) {
     ta_[i].sample_count = 0;
@@ -528,6 +542,7 @@ Status TraceAnalyzer::StartProcessing() {
       MultiGetPayload multiget_payload;
       assert(trace_file_version_ >= 2);
       TracerHelper::DecodeMultiGetPayload(&trace, &multiget_payload);
+      s = HandleMultiGet(multiget_payload, trace.ts);
     } else if (trace.type == kTraceEnd) {
       break;
     }
@@ -1213,7 +1228,9 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
   unit.value_size = value_size;
   unit.access_count = 1;
   unit.latest_ts = ts;
-  if (type != TraceOperationType::kGet || value_size > 0) {
+  if ((type != TraceOperationType::kGet &&
+       type != TraceOperationType::kMultiGet) ||
+      value_size > 0) {
     unit.succ_count = 1;
   } else {
     unit.succ_count = 0;
@@ -1772,6 +1789,56 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
     return Status::OK();
   }
   s = KeyStatsInsertion(type, column_family_id, key, value_size, ts);
+  if (!s.ok()) {
+    return Status::Corruption("Failed to insert key statistics");
+  }
+  return s;
+}
+
+// Handle MultiGet queries in the trace
+Status TraceAnalyzer::HandleMultiGet(MultiGetPayload& multiget_payload,
+                                     const uint64_t& ts) {
+  Status s;
+  size_t value_size = 0;
+  if (multiget_payload.cf_ids.size() != multiget_payload.multiget_keys.size()) {
+    // The size does not match is not the error of tracing and anayzing, we just
+    // report it to the user. The analyzing continues.
+    printf("The CF ID vector size does not match the keys vector size!\n");
+  }
+  size_t vector_size = std::min(multiget_payload.cf_ids.size(),
+                                multiget_payload.multiget_keys.size());
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+    for (size_t i = 0; i < vector_size; i++) {
+      assert(i < multiget_payload.cf_ids.size() &&
+             i < multiget_payload.multiget_keys.size());
+      s = WriteTraceSequence(TraceOperationType::kMultiGet,
+                             multiget_payload.cf_ids[i],
+                             multiget_payload.multiget_keys[i], value_size, ts);
+    }
+    if (!s.ok()) {
+      return Status::Corruption("Failed to write the trace sequence to file");
+    }
+  }
+
+  if (ta_[TraceOperationType::kMultiGet].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kMultiGet].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kMultiGet].sample_count > 0) {
+    ta_[TraceOperationType::kMultiGet].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kMultiGet].sample_count++;
+
+  if (!ta_[TraceOperationType::kMultiGet].enabled) {
+    return Status::OK();
+  }
+  for (size_t i = 0; i < vector_size; i++) {
+    assert(i < multiget_payload.cf_ids.size() &&
+           i < multiget_payload.multiget_keys.size());
+    s = KeyStatsInsertion(TraceOperationType::kMultiGet,
+                          multiget_payload.cf_ids[i],
+                          multiget_payload.multiget_keys[i], value_size, ts);
+  }
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
