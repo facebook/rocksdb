@@ -58,27 +58,25 @@ static Status NewSharedObject(
     const ConfigOptions& config_options, const std::string& id,
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<T>* result) {
-  Status status;
   if (!id.empty()) {
+    Status status;
 #ifndef ROCKSDB_LITE
     status = config_options.registry->NewSharedObject(id, result);
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      return Status::OK();
+      status = Status::OK();
+    } else if (status.ok()) {
+      status = Customizable::ConfigureNewObject(config_options, result->get(),
+                                                opt_map);
     }
+    return status;
   } else if (opt_map.empty()) {
     result->reset();
     return Status::OK();
   } else {
-    status = Status::NotSupported("Cannot reset object ");
-  }
-  if (!status.ok()) {
-    return status;
-  } else {
-    return Customizable::ConfigureNewObject(config_options, result->get(),
-                                            opt_map);
+    return Status::NotSupported("Cannot reset object ");
   }
 }
 
@@ -147,27 +145,25 @@ static Status NewUniqueObject(
     const ConfigOptions& config_options, const std::string& id,
     const std::unordered_map<std::string, std::string>& opt_map,
     std::unique_ptr<T>* result) {
-  Status status;
   if (!id.empty()) {
+    Status status;
 #ifndef ROCKSDB_LITE
     status = config_options.registry->NewUniqueObject(id, result);
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      return Status::OK();
+      status = Status::OK();
+    } else if (status.ok()) {
+      status = Customizable::ConfigureNewObject(config_options, result->get(),
+                                                opt_map);
     }
+    return status;
   } else if (opt_map.empty()) {
     result->reset();
     return Status::OK();
   } else {
-    status = Status::NotSupported("Cannot reset object ");
-  }
-  if (!status.ok()) {
-    return status;
-  } else {
-    return Customizable::ConfigureNewObject(config_options, result->get(),
-                                            opt_map);
+    return Status::NotSupported("Cannot reset object ");
   }
 }
 
@@ -219,26 +215,25 @@ template <typename T>
 static Status NewStaticObject(
     const ConfigOptions& config_options, const std::string& id,
     const std::unordered_map<std::string, std::string>& opt_map, T** result) {
-  Status status;
   if (!id.empty()) {
+    Status status;
 #ifndef ROCKSDB_LITE
     status = config_options.registry->NewStaticObject(id, result);
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      return Status::OK();
+      status = Status::OK();
+    } else if (status.ok()) {
+      status =
+          Customizable::ConfigureNewObject(config_options, *result, opt_map);
     }
+    return status;
   } else if (opt_map.empty()) {
     *result = nullptr;
     return Status::OK();
   } else {
-    status = Status::NotSupported("Cannot reset object ");
-  }
-  if (!status.ok()) {
-    return status;
-  } else {
-    return Customizable::ConfigureNewObject(config_options, *result, opt_map);
+    return Status::NotSupported("Cannot reset object ");
   }
 }
 
