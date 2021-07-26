@@ -3616,6 +3616,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   ASSERT_OK(Put(Key(kMaxKey), Key(kMaxKey)));
+  ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   // test DeleteFilesInRange() deletes the files already picked for compaction
   SyncPoint::GetInstance()->LoadDependency(
