@@ -251,6 +251,17 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
+void ErrorHandler::MaybeStopDB() {
+  if (!db_options_.freeze_on_write_failure) {
+    return;
+  }
+  // Ensure all subsequent writes are failed back to the user
+  if (bg_error_.severity() < Status::Severity::kHardError) {
+    bg_error_ = Status(bg_error_, Status::Severity::kHardError);
+  }
+  CancelErrorRecovery();
+}
+
 // This is the main function for looking at an error during a background
 // operation and deciding the severity, and error recovery strategy. The high
 // level algorithm is as follows -
@@ -322,7 +333,9 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   bool auto_recovery = auto_recovery_;
-  if (new_bg_err.severity() >= Status::Severity::kFatalError && auto_recovery) {
+  if ((new_bg_err.severity() >= Status::Severity::kFatalError &&
+       auto_recovery) ||
+      (db_options_.max_bgerror_resume_count == 0)) {
     auto_recovery = false;
   }
 
@@ -330,6 +343,13 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   if (new_bg_err.subcode() == IOStatus::SubCode::kNoSpace ||
       new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
+  }
+
+  if (reason == BackgroundErrorReason::kWriteCallback &&
+      db_options_.freeze_on_write_failure) {
+    // We rely on SFM to poll for enough disk space and recover
+    CancelErrorRecovery();
+    new_bg_err = Status(new_bg_err, Status::Severity::kHardError);
   }
 
   if (!new_bg_err.ok()) {
@@ -399,8 +419,31 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
 
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
-  if (bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
-      bg_io_err.GetDataLoss()) {
+  if (reason == BackgroundErrorReason::kWriteCallback &&
+      db_options_.freeze_on_write_failure &&
+      new_bg_io_err.severity() <= Status::Severity::kHardError) {
+    CancelErrorRecovery();
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kHardError);
+    bg_error_ = bg_err;
+    if (recovery_in_prog_ && recovery_error_.ok()) {
+      recovery_error_ = bg_err;
+    }
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+    }
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "ErrorHandler: Set background IO error as a hard error requiring"
+        " manual recovery\n");
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                          &bg_err, db_mutex_, &auto_recovery);
+    recover_context_ = context;
+    return bg_error_;
+  } else if (bg_io_err.GetScope() !=
+                 IOStatus::IOErrorScope::kIOErrorScopeFile &&
+             bg_io_err.GetDataLoss()) {
     // First, data loss (non file scope) is treated as unrecoverable error. So
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
@@ -515,7 +558,7 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
     // be inconsistent, and it may be needed for 2PC. If 2PC is not enabled,
     // we can just flush the memtable and discard the log
     *auto_recovery = false;
-    return Status(bg_error, Status::Severity::kFatalError);
+    return Status(bg_error, Status::Severity::kHardError);
   }
 
   {
