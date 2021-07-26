@@ -19,6 +19,19 @@ namespace ROCKSDB_NAMESPACE {
 class CompactOnDeletionCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
+  // A factory of a table property collector that marks a SST
+  // file as need-compaction when it observe at least "D" deletion
+  // entries in any "N" consecutive entries, or the ratio of tombstone
+  // entries >= deletion_ratio.
+  //
+  // @param sliding_window_size "N"
+  // @param deletion_trigger "D"
+  // @param deletion_ratio, if <= 0 or > 1, disable triggering compaction
+  //     based on deletion ratio.
+  CompactOnDeletionCollectorFactory(size_t sliding_window_size,
+                                    size_t deletion_trigger,
+                                    double deletion_ratio);
+
   ~CompactOnDeletionCollectorFactory() {}
 
   TablePropertiesCollector* CreateTablePropertiesCollector(
@@ -42,33 +55,12 @@ class CompactOnDeletionCollectorFactory
     deletion_ratio_.store(deletion_ratio);
   }
 
-  const char* Name() const override {
-    return "CompactOnDeletionCollector";
-  }
+  static const char* kClassName() { return "CompactOnDeletionCollector"; }
+  const char* Name() const override { return kClassName(); }
 
   std::string ToString() const override;
 
  private:
-  friend std::shared_ptr<CompactOnDeletionCollectorFactory>
-  NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
-                                       size_t deletion_trigger,
-                                       double deletion_ratio);
-  // A factory of a table property collector that marks a SST
-  // file as need-compaction when it observe at least "D" deletion
-  // entries in any "N" consecutive entries, or the ratio of tombstone
-  // entries >= deletion_ratio.
-  //
-  // @param sliding_window_size "N"
-  // @param deletion_trigger "D"
-  // @param deletion_ratio, if <= 0 or > 1, disable triggering compaction
-  //     based on deletion ratio.
-  CompactOnDeletionCollectorFactory(size_t sliding_window_size,
-                                    size_t deletion_trigger,
-                                    double deletion_ratio)
-      : sliding_window_size_(sliding_window_size),
-        deletion_trigger_(deletion_trigger),
-        deletion_ratio_(deletion_ratio) {}
-
   std::atomic<size_t> sliding_window_size_;
   std::atomic<size_t> deletion_trigger_;
   std::atomic<double> deletion_ratio_;

@@ -58,7 +58,8 @@ class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
     }
   }
 
-  const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
+  static const char* kClassName() { return "FileChecksumGenCrc32cFactory"; }
+  const char* Name() const override { return kClassName(); }
 };
 
 // The default implementaion of FileChecksumList

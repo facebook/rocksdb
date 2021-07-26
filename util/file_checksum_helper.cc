@@ -15,6 +15,7 @@
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "file/sequence_file_reader.h"
+#include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -133,4 +134,16 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   return retriever.status();
 }
 
+Status FileChecksumGenFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<FileChecksumGenFactory>* result) {
+  if (value == FileChecksumGenCrc32cFactory::kClassName()) {
+    *result = GetFileChecksumGenCrc32cFactory();
+    return Status::OK();
+  } else {
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
+                                                    result);
+    return s;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

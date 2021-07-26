@@ -3,14 +3,18 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
 #include <memory>
 #include <sstream>
+
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
 
 CompactOnDeletionCollector::CompactOnDeletionCollector(
     size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio)
@@ -94,6 +98,12 @@ Status CompactOnDeletionCollector::Finish(
   return Status::OK();
 }
 
+CompactOnDeletionCollectorFactory::CompactOnDeletionCollectorFactory(
+    size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio)
+    : sliding_window_size_(sliding_window_size),
+      deletion_trigger_(deletion_trigger),
+      deletion_ratio_(deletion_ratio) {}
+
 TablePropertiesCollector*
 CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context /*context*/) {
@@ -118,5 +128,34 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
       new CompactOnDeletionCollectorFactory(sliding_window_size,
                                             deletion_trigger, deletion_ratio));
 }
-}  // namespace ROCKSDB_NAMESPACE
+namespace {
+static int RegisterTablePropertiesCollectorFactories(
+    ObjectLibrary& library, const std::string& /*arg*/) {
+  library.Register<TablePropertiesCollectorFactory>(
+      CompactOnDeletionCollectorFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new CompactOnDeletionCollectorFactory(0, 0, 0));
+        return guard->get();
+      });
+  return 1;
+}
+}  // namespace
 #endif  // !ROCKSDB_LITE
+
+Status TablePropertiesCollectorFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<TablePropertiesCollectorFactory>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterTablePropertiesCollectorFactories(*(ObjectLibrary::Default().get()),
+                                              "");
+  });
+#endif  // ROCKSDB_LITE
+  return LoadSharedObject<TablePropertiesCollectorFactory>(options, value,
+                                                           nullptr, result);
+}
+
+}  // namespace ROCKSDB_NAMESPACE

@@ -170,6 +170,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"wal_filter",
+         OptionTypeInfo::AsCustomRawPtr<WalFilter>(
+             offsetof(struct ImmutableDBOptions, wal_filter),
+             OptionVerificationType::kByName,
+             (OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever))},
         {"create_if_missing",
          {offsetof(struct ImmutableDBOptions, create_if_missing),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -437,6 +442,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"file_checksum_gen_factory",
+         OptionTypeInfo::AsCustomSharedPtr<FileChecksumGenFactory>(
+             offsetof(struct ImmutableDBOptions, file_checksum_gen_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
