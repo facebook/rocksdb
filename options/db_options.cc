@@ -437,6 +437,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // Allow EventListeners that have a non-empty Name() to be read/written
+        // as options Each listener will either be
+        // - A simple name (e.g. "MyEventListener")
+        // - A name with properties (e.g. "{id=MyListener1; timeout=60}"
+        // Multiple listeners will be separated by a ":":
+        //   - "MyListener0;{id=MyListener1; timeout=60}
         {"listeners",
          {offsetof(struct ImmutableDBOptions, listeners), OptionType::kVector,
           OptionVerificationType::kByNameAllowNull,

@@ -1155,7 +1155,6 @@ TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
     ASSERT_STREQ(result->Name(), FlushCounterListener::kClassName());
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
   std::shared_ptr<EncryptionProvider> result;
