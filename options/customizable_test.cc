@@ -1031,6 +1031,7 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
+#ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
@@ -1073,6 +1074,7 @@ class MockCipher : public BlockCipher {
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
 
+#endif // ROCKSDB_LITE
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   TestFlushBlockPolicyFactory() {}
@@ -1085,6 +1087,18 @@ class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
       const BlockBuilder& /*data_block_builder*/) const override {
     return nullptr;
   }
+};
+
+class MockTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ private:
+ public:
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return nullptr;
+  }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
 };
 
 #ifndef ROCKSDB_LITE
@@ -1106,18 +1120,6 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
       const FileChecksumGenContext& /*context*/) override {
     return nullptr;
   }
-};
-
-class MockTablePropertiesCollectorFactory
-    : public TablePropertiesCollectorFactory {
- private:
- public:
-  TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) override {
-    return nullptr;
-  }
-  static const char* kClassName() { return "Mock"; }
-  const char* Name() const override { return kClassName(); }
 };
 
 static int RegisterLocalObjects(ObjectLibrary& library,
