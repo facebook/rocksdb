@@ -48,8 +48,9 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
   if (parent.empty()) {
     result = id;
   } else {
-    result.append(prefix + ConfigurableHelper::kIdPropName + "=" + id +
-                  config_options.delimiter);
+    result.append(prefix);
+    result.append(ConfigurableHelper::kIdPropName).append("=");
+    result.append(id).append(config_options.delimiter);
     result.append(parent);
   }
   return result;

@@ -1870,7 +1870,7 @@ class TestEventListener : public EventListener {
   std::string id_;
 
  public:
-  TestEventListener(const std::string& id) : id_("Test" + id) {}
+  explicit TestEventListener(const std::string& id) : id_("Test" + id) {}
   const char* Name() const override { return id_.c_str(); }
 };
 
@@ -1887,7 +1887,7 @@ class TestConfigEventListener : public TestEventListener {
   std::string s_;
 
  public:
-  TestConfigEventListener(const std::string& id)
+  explicit TestConfigEventListener(const std::string& id)
       : TestEventListener("Config" + id) {
     s_ = id;
     RegisterOptions("Test", &s_, &test_listener_option_info);
