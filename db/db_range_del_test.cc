@@ -667,7 +667,8 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   opts.max_open_files = 1;
   Reopen(opts);
 
-  ColumnFamilyData* const cfd = dbfull()->TEST_GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ColumnFamilyData* const cfd =
+      dbfull()->TEST_GetVersionSet()->GetColumnFamilySet()->GetDefault();
   assert(cfd);
 
   Version* const version = cfd->current();
