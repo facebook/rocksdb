@@ -668,7 +668,8 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   Reopen(opts);
 
   std::string str;
-  dbfull()->TablesRangeTombstoneSummary(db_->DefaultColumnFamily(), 100, &str);
+  ASSERT_OK(dbfull()->TablesRangeTombstoneSummary(db_->DefaultColumnFamily(),
+                                                  100, &str));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
