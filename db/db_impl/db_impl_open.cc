@@ -118,6 +118,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.wal_dir = dbname;
   }
   if (!result.wal_dir.empty()) {
+    // If there is a wal_dir already set, check to see if the wal_dir is the
+    // same as the dbname AND the same as the db_path[0] (which must exist from
+    // a few lines ago). If the wal_dir matches both of these values, then clear
+    // the wal_dir value, which will make wal_dir == dbname.  Most likely this
+    // condition was the result of reading an old options file where we forced
+    // wal_dir to be set (to dbname).
     auto npath = NormalizePath(dbname + "/");
     if (npath == NormalizePath(result.wal_dir + "/") &&
         npath == NormalizePath(result.db_paths[0].path + "/")) {

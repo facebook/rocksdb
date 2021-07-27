@@ -36,6 +36,9 @@ struct ImmutableDBOptions {
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
+  // The wal_dir option from the file.  To determine the
+  // directory in use, the GetWalDir or IsWalDirSameAsDBPath
+  // methods should be used instead of accessing this variable directly.
   std::string wal_dir;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;

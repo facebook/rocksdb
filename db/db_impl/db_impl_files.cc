@@ -548,8 +548,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       fname = BlobFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else {
-      dir_to_sync =
-          (type == kWalFile) ? immutable_db_options_.GetWalDir() : dbname_;
+      dir_to_sync = (type == kWalFile) ? wal_dir : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')
