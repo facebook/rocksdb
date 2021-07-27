@@ -351,6 +351,25 @@ DEFINE_uint32(overwrite_window_size, 1,
               "Warning: large values can affect throughput. "
               "Valid overwrite_window_size values: [1, kMaxUint32].");
 
+DEFINE_int32(delete_delay, 0,
+             "Minimum delay in microseconds for the delete range "
+             "to be issued. When 0 the insertion of the last targeted entry is "
+             "immediately "
+             "followed by the issuance of the DeleteRange.");
+
+DEFINE_int32(delete_range_size, 0,
+             "Size of the key range to delete after 'delete_delay' "
+             "microseconds. When 0 no deleterange is issued. A DeleteRange is "
+             "always issued "
+             "once all the keys it covers are inserted into the DB. ");
+
+DEFINE_bool(
+    key_before_delete_range, true,
+    "If true, a key is inserted immediately "
+    "before the deleterange is issued. This key will not be targeted by any "
+    "delete operation. Simulate some type of summary data computed "
+    "from the range of entries being deleted.");
+
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
               "num * exp(-r) where r is uniform number from 0 to this value. "
