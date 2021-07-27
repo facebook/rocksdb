@@ -192,6 +192,19 @@ void FlushJob::PickMemTable() {
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 
+  // If mempurge feature is activated, keep track of any potential
+  // memtables coming from a previous mempurge operation.
+  // Used for mempurge policy.
+  if (db_options_.experimental_allow_mempurge) {
+    contains_mempurge_outcome_ = false;
+    for (MemTable* mt : mems_) {
+      if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
+        contains_mempurge_outcome_ = true;
+        break;
+      }
+    }
+  }
+
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
 }
@@ -230,7 +243,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   Status mempurge_s = Status::NotFound("No MemPurge.");
   if (db_options_.experimental_allow_mempurge &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty())) {
+      (!mems_.empty()) && MemPurgeDecider()) {
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
       // Mempurge is typically aborted when the new_mem output memtable
@@ -339,7 +352,15 @@ Status FlushJob::MemPurge() {
   db_mutex_->Unlock();
   assert(!mems_.empty());
 
+  // Measure purging time.
+  const uint64_t start_micros = clock_->NowMicros();
+  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+
   MemTable* new_mem = nullptr;
+  // For performance/log investigation purposes:
+  // look at how much useful payload we harvest in the new_mem.
+  // This value is then printed to the DB log.
+  double new_mem_capacity = 0.0;
 
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
@@ -392,8 +413,8 @@ Status FlushJob::MemPurge() {
   // or at least range tombstones, copy over the info
   // to the new memtable.
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
-    // Arbitrary heuristic: maxSize is 60% cpacity.
-    size_t maxSize = ((mutable_cf_options_.write_buffer_size + 6U) / 10U);
+    // MaxSize is the size of a memtable.
+    size_t maxSize = mutable_cf_options_.write_buffer_size;
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions->compaction_filter_factory != nullptr &&
         ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -480,6 +501,7 @@ Status FlushJob::MemPurge() {
       // and destroy new_mem.
       if (new_mem->ApproximateMemoryUsage() > maxSize) {
         s = Status::Aborted("Mempurge filled more than one memtable.");
+        new_mem_capacity = 1.0;
         break;
       }
     }
@@ -524,6 +546,7 @@ Status FlushJob::MemPurge() {
         // and destroy new_mem.
         if (new_mem->ApproximateMemoryUsage() > maxSize) {
           s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+          new_mem_capacity = 1.0;
           break;
         }
       }
@@ -538,19 +561,35 @@ Status FlushJob::MemPurge() {
       new_mem->SetFirstSequenceNumber(new_first_seqno);
 
       // The new_mem is added to the list of immutable memtables
-      // only if it filled at less than 60% capacity (arbitrary heuristic).
-      if (new_mem->ApproximateMemoryUsage() < maxSize) {
+      // only if it filled at less than 100% capacity and isn't flagged
+      // as in need of being flushed.
+      if (new_mem->ApproximateMemoryUsage() < maxSize &&
+          !(new_mem->ShouldFlushNow())) {
         db_mutex_->Lock();
+        uint64_t new_mem_id = mems_[0]->GetID();
+        // Copy lowest memtable ID
+        // House keeping work.
+        for (MemTable* mt : mems_) {
+          new_mem_id = mt->GetID() < new_mem_id ? mt->GetID() : new_mem_id;
+          // Note: if m is not a previous mempurge output memtable,
+          // nothing happens.
+          cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
+        }
+        new_mem->SetID(new_mem_id);
+        cfd_->imm()->AddMemPurgeOutputID(new_mem_id);
         cfd_->imm()->Add(new_mem,
                          &job_context_->memtables_to_free,
                          false /* -> trigger_flush=false:
                                 * adding this memtable
                                 * will not trigger a flush.
                                 */);
+        new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
+                           mutable_cf_options_.write_buffer_size;
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        new_mem_capacity = 1.0;
         if (new_mem) {
           job_context_->memtables_to_free.push_back(new_mem);
         }
@@ -572,8 +611,30 @@ Status FlushJob::MemPurge() {
   } else {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Mempurge lasted %" PRIu64
+                 " microseconds, and %" PRIu64
+                 " cpu "
+                 "microseconds. Status is %s ok. Perc capacity: %f\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros, s.ok() ? "" : "not", new_mem_capacity);
 
   return s;
+}
+
+bool FlushJob::MemPurgeDecider() {
+  MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
+  if (policy == MemPurgePolicy::kAlways) {
+    return true;
+  } else if (policy == MemPurgePolicy::kAlternate) {
+    // Note: if at least one of the flushed memtables is
+    // an output of a previous mempurge process, then flush
+    // to storage.
+    return !(contains_mempurge_outcome_);
+  }
+  return false;
 }
 
 Status FlushJob::WriteLevel0Table() {
@@ -762,8 +823,16 @@ Status FlushJob::WriteLevel0Table() {
 
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
-  stats.micros = clock_->NowMicros() - start_micros;
-  stats.cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  stats.micros = micros;
+  stats.cpu_micros = cpu_micros;
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Flush lasted %" PRIu64
+                 " microseconds, and %" PRIu64 " cpu microseconds.\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros);
 
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
@@ -777,12 +846,22 @@ Status FlushJob::WriteLevel0Table() {
 
   stats.num_output_files_blob = static_cast<int>(blobs.size());
 
+  if (db_options_.experimental_allow_mempurge && s.ok()) {
+    // The db_mutex is held at this point.
+    for (MemTable* mt : mems_) {
+      // Note: if m is not a previous mempurge output memtable,
+      // nothing happens here.
+      cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
+    }
+  }
+
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
   cfd_->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED,
       stats.bytes_written + stats.bytes_written_blob);
   RecordFlushIOStats();
+
   return s;
 }
 

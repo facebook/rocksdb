@@ -1864,6 +1864,74 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
             leveldb_opt.block_restart_interval);
   ASSERT_EQ(table_opt->filter_policy.get(), leveldb_opt.filter_policy);
 }
+#ifndef ROCKSDB_LITE
+class TestEventListener : public EventListener {
+ private:
+  std::string id_;
+
+ public:
+  explicit TestEventListener(const std::string& id) : id_("Test" + id) {}
+  const char* Name() const override { return id_.c_str(); }
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    test_listener_option_info = {
+        {"s",
+         {0, OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+
+};
+
+class TestConfigEventListener : public TestEventListener {
+ private:
+  std::string s_;
+
+ public:
+  explicit TestConfigEventListener(const std::string& id)
+      : TestEventListener("Config" + id) {
+    s_ = id;
+    RegisterOptions("Test", &s_, &test_listener_option_info);
+  }
+};
+
+static int RegisterTestEventListener(ObjectLibrary& library,
+                                     const std::string& arg) {
+  library.Register<EventListener>(
+      "Test" + arg,
+      [](const std::string& name, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestEventListener(name.substr(4)));
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      "TestConfig" + arg,
+      [](const std::string& name, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestConfigEventListener(name.substr(10)));
+        return guard->get();
+      });
+  return 1;
+}
+TEST_F(OptionsTest, OptionsListenerTest) {
+  DBOptions orig, copy;
+  orig.listeners.push_back(std::make_shared<TestEventListener>("1"));
+  orig.listeners.push_back(std::make_shared<TestEventListener>("2"));
+  orig.listeners.push_back(std::make_shared<TestEventListener>(""));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>("1"));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>("2"));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>(""));
+  ConfigOptions config_opts(orig);
+  config_opts.registry->AddLibrary("listener", RegisterTestEventListener, "1");
+  std::string opts_str;
+  ASSERT_OK(GetStringFromDBOptions(config_opts, orig, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(config_opts, orig, opts_str, &copy));
+  ASSERT_OK(GetStringFromDBOptions(config_opts, copy, &opts_str));
+  ASSERT_EQ(
+      copy.listeners.size(),
+      2);  // The Test{Config}1 Listeners could be loaded but not the others
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_opts, orig, copy));
+}
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 const static std::string kCustomEnvName = "Custom";

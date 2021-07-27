@@ -14,7 +14,7 @@
 #include <cstring>
 #include <unordered_map>
 
-#include "options/configurable_helper.h"
+#include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
@@ -1133,6 +1133,20 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
+  library.Register<EventListener>(
+      OnFileDeletionListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new OnFileDeletionListener());
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      FlushCounterListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushCounterListener());
+        return guard->get();
+      });
   // Load any locally defined objects here
   library.Register<EncryptionProvider>(
       "Mock(://test)?",
@@ -1265,6 +1279,25 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
+  std::shared_ptr<EventListener> result;
+
+  ASSERT_NOK(EventListener::CreateFromString(
+      config_options_, OnFileDeletionListener::kClassName(), &result));
+  ASSERT_NOK(EventListener::CreateFromString(
+      config_options_, FlushCounterListener::kClassName(), &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(EventListener::CreateFromString(
+        config_options_, OnFileDeletionListener::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), OnFileDeletionListener::kClassName());
+    ASSERT_OK(EventListener::CreateFromString(
+        config_options_, FlushCounterListener::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), FlushCounterListener::kClassName());
+  }
+}
+
 TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
   std::shared_ptr<EncryptionProvider> result;
   ASSERT_NOK(
