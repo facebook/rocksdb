@@ -660,6 +660,21 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   ASSERT_EQ(kNum, expected);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
+
+  // Also test proper cache handling in GetRangeTombstoneIterator,
+  // via TablesRangeTombstoneSummary. (This once triggered memory leak
+  // report with ASAN.)
+  opts.max_open_files = 1;
+  Reopen(opts);
+
+  ColumnFamilyData* const cfd = dbfull()->TEST_GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const version = cfd->current();
+  assert(version);
+
+  std::string str;
+  version->TablesRangeTombstoneSummary(100, &str);
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
