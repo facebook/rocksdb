@@ -667,15 +667,8 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   opts.max_open_files = 1;
   Reopen(opts);
 
-  ColumnFamilyData* const cfd =
-      dbfull()->TEST_GetVersionSet()->GetColumnFamilySet()->GetDefault();
-  assert(cfd);
-
-  Version* const version = cfd->current();
-  assert(version);
-
   std::string str;
-  ASSERT_OK(version->TablesRangeTombstoneSummary(100, &str));
+  dbfull()->TablesRangeTombstoneSummary(db_->DefaultColumnFamily(), 100, &str);
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
