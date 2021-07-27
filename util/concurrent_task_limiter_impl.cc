@@ -59,14 +59,9 @@ ConcurrentTaskLimiter* NewConcurrentTaskLimiter(
   return new ConcurrentTaskLimiterImpl(name, limit);
 }
 
-void TaskLimiterToken::ReleaseOnce() {
-  if (!released_) {
-    --limiter_->outstanding_tasks_;
-    released_ = true;
-  }
+TaskLimiterToken::~TaskLimiterToken() {
+  --limiter_->outstanding_tasks_;
   assert(limiter_->outstanding_tasks_ >= 0);
 }
-
-TaskLimiterToken::~TaskLimiterToken() { ReleaseOnce(); }
 
 }  // namespace ROCKSDB_NAMESPACE
