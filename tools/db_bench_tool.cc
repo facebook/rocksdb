@@ -2582,6 +2582,9 @@ class Benchmark {
 
     ~ErrorHandlerListener() override {}
 
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
+
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,
                               bool* auto_recovery) override {

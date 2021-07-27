@@ -15,6 +15,7 @@
 #include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/system_clock.h"
@@ -141,7 +142,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<RateLimiter> rate_limiter;
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
-          std::vector<std::shared_ptr<EventListener>> listeners;
           FileTypeSet checksum_handoff_file_types;
          */
         {"advise_random_on_open",
@@ -446,6 +446,67 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // Allow EventListeners that have a non-empty Name() to be read/written
+        // as options Each listener will either be
+        // - A simple name (e.g. "MyEventListener")
+        // - A name with properties (e.g. "{id=MyListener1; timeout=60}"
+        // Multiple listeners will be separated by a ":":
+        //   - "MyListener0;{id=MyListener1; timeout=60}
+        {"listeners",
+         {offsetof(struct ImmutableDBOptions, listeners), OptionType::kVector,
+          OptionVerificationType::kByNameAllowNull,
+          OptionTypeFlags::kCompareNever,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            ConfigOptions embedded = opts;
+            embedded.ignore_unsupported_options = true;
+            std::vector<std::shared_ptr<EventListener>> listeners;
+            Status s;
+            for (size_t start = 0, end = 0;
+                 s.ok() && start < value.size() && end != std::string::npos;
+                 start = end + 1) {
+              std::string token;
+              s = OptionTypeInfo::NextToken(value, ':', start, &end, &token);
+              if (s.ok() && !token.empty()) {
+                std::shared_ptr<EventListener> listener;
+                s = EventListener::CreateFromString(embedded, token, &listener);
+                if (s.ok() && listener != nullptr) {
+                  listeners.push_back(listener);
+                }
+              }
+            }
+            if (s.ok()) {  // It worked
+              *(static_cast<std::vector<std::shared_ptr<EventListener>>*>(
+                  addr)) = listeners;
+            }
+            return s;
+          },
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const void* addr, std::string* value) {
+            const auto listeners =
+                static_cast<const std::vector<std::shared_ptr<EventListener>>*>(
+                    addr);
+            ConfigOptions embedded = opts;
+            embedded.delimiter = ";";
+            int printed = 0;
+            for (const auto& listener : *listeners) {
+              auto id = listener->GetId();
+              if (!id.empty()) {
+                std::string elem_str = listener->ToString(embedded, "");
+                if (printed++ == 0) {
+                  value->append("{");
+                } else {
+                  value->append(":");
+                }
+                value->append(elem_str);
+              }
+            }
+            if (printed > 0) {
+              value->append("}");
+            }
+            return Status::OK();
+          },
+          nullptr}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
