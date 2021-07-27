@@ -675,7 +675,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   assert(version);
 
   std::string str;
-  version->TablesRangeTombstoneSummary(100, &str);
+  ASSERT_OK(version->TablesRangeTombstoneSummary(100, &str));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
