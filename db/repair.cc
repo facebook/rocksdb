@@ -300,6 +300,8 @@ class Repairer {
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
+      ROCKS_LOG_INFO(db_options_.info_log, "Searching path %s\n",
+                     to_search_paths[path_id].c_str());
       status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
@@ -586,6 +588,30 @@ class Repairer {
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
+    }
+    if (status.ok()) {
+      // XXX/FIXME: This is just basic, naive handling of range tombstones,
+      // like call to UpdateBoundariesForRange in builder.cc where we assume
+      // an SST file is a full sorted run. This probably needs the extra logic
+      // from compaction_job.cc around call to UpdateBoundariesForRange (to
+      // handle range tombstones extendingg beyond range of other entries).
+      ReadOptions ropts;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
+      status = table_cache_->GetRangeTombstoneIterator(
+          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+
+      if (r_iter) {
+        r_iter->SeekToFirst();
+
+        while (r_iter->Valid()) {
+          auto tombstone = r_iter->Tombstone();
+          auto kv = tombstone.Serialize();
+          t->meta.UpdateBoundariesForRange(
+              kv.first, tombstone.SerializeEndKey(), tombstone.seq_,
+              cfd->internal_comparator());
+          r_iter->Next();
+        }
+      }
     }
     return status;
   }
