@@ -4929,6 +4929,7 @@ class Benchmark {
                 // particular key while reading the key.
                 batch.Delete(db_with_cfh->GetCfh(rand_num), key);
               }
+              // A delete only includes Key+Timestamp (no value).
               batch_bytes += key_size_ + user_timestamp_size_;
               bytes += key_size_ + user_timestamp_size_;
               num_selective_deletes++;
@@ -5129,8 +5130,8 @@ class Benchmark {
               num_unique_keys, num_overwrites);
     } else if (NUM_DISP_AND_PERS_ENTRIES > 0) {
       fprintf(stdout,
-              "Number of unique keys inserted: %" PRIu64
-              ".\nNumber of 'selective' deletes: %" PRIu64 "\n",
+              "Number of unique keys inserted (disposable+persistent): %" PRIu64
+              ".\nNumber of 'disposable entry delete': %" PRIu64 "\n",
               num_written, num_selective_deletes);
     }
     thread->stats.AddBytes(bytes);
