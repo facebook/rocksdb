@@ -55,6 +55,7 @@ class Defer final {
 template <typename T>
 class SaveAndRestore {
  public:
+  // obj is non-null pointer to value to be saved and later restored.
   explicit SaveAndRestore(T* obj) : obj_(obj), saved_(*obj) {}
   ~SaveAndRestore() { *obj_ = std::move(saved_); }
 
@@ -63,7 +64,7 @@ class SaveAndRestore {
   SaveAndRestore& operator=(const SaveAndRestore&) = delete;
 
  private:
-  T* obj_;
+  T* const obj_;
   T saved_;
 };
 
