@@ -2268,6 +2268,8 @@ void StressTest::Open() {
     options_.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
     options_.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
+    options_.experimental_mempurge_policy =
+        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
     options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options_.ttl = FLAGS_compaction_ttl;
     options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
@@ -2491,6 +2493,13 @@ void StressTest::Open() {
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
+        if (!FLAGS_sync) {
+          // When DB Stress is not sync mode, we expect all WAL writes to
+          // WAL is durable. Buffering unsynced writes will cause false
+          // positive in crash tests. Before we figure out a way to
+          // solve it, skip WAL from failure injection.
+          fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
+        }
         ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
         ingest_write_error = FLAGS_open_write_fault_one_in;
         ingest_read_error = FLAGS_open_read_fault_one_in;
@@ -2500,13 +2509,6 @@ void StressTest::Open() {
               FLAGS_open_metadata_write_fault_one_in);
         }
         if (ingest_write_error) {
-          if (!FLAGS_sync) {
-            // When DB Stress is not sync mode, we expect all WAL writes to
-            // WAL is durable. Buffering unsynced writes will cause false
-            // positive in crash tests. Before we figure out a way to
-            // solve it, skip WAL from failure injection.
-            fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
-          }
           fault_fs_guard->SetFilesystemDirectWritable(false);
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
@@ -2563,7 +2565,12 @@ void StressTest::Open() {
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
                     ->TEST_WaitForCompact(true);
             if (!s.ok()) {
+              for (auto cf : column_families_) {
+                delete cf;
+              }
+              column_families_.clear();
               delete db_;
+              db_ = nullptr;
             }
           }
           if (!s.ok()) {

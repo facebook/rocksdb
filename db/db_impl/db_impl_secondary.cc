@@ -41,6 +41,9 @@ Status DBImplSecondary::Recover(
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
                     &manifest_reader_status_);
   if (!s.ok()) {
+    if (manifest_reader_status_) {
+      manifest_reader_status_->PermitUncheckedError();
+    }
     return s;
   }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -254,8 +257,8 @@ Status DBImplSecondary::RecoverLogFiles(
                                          curr_log_num != log_number)) {
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
-            MemTable* new_mem = cfd->ConstructNewMemtable(
-                mutable_cf_options, seq_of_batch, log_number);
+            MemTable* new_mem =
+                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
