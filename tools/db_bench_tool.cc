@@ -351,17 +351,35 @@ DEFINE_uint32(overwrite_window_size, 1,
               "Warning: large values can affect throughput. "
               "Valid overwrite_window_size values: [1, kMaxUint32].");
 
-DEFINE_int32(delete_delay, 0,
-             "Minimum delay in microseconds for the delete range "
-             "to be issued. When 0 the insertion of the last targeted entry is "
-             "immediately "
-             "followed by the issuance of the DeleteRange.");
+DEFINE_uint64(
+    selective_deletes_delay, 0,
+    "Minimum delay in microseconds for the series of Deletes "
+    "to be issued. When 0 the insertion of the last targeted entry is "
+    "immediately "
+    "followed by the issuance of the Deletes.");
 
-DEFINE_int32(delete_range_size, 0,
-             "Size of the key range to delete after 'delete_delay' "
-             "microseconds. When 0 no deleterange is issued. A DeleteRange is "
-             "always issued "
-             "once all the keys it covers are inserted into the DB. ");
+DEFINE_uint64(selective_deletes_batch_size, 0,
+              "Number of consecutively inserted KV entries to delete after "
+              "'delete_delay' "
+              "microseconds. When 0 no selective Deletes is issued. A series "
+              "of Deletes is "
+              "always issued "
+              "once all the KV entries it covers are inserted into the DB. ");
+
+DEFINE_uint64(selective_deletes_value_size, 0,
+              "Size of the values (in bytes) of the entries targeted by "
+              "selective deletes. ");
+
+DEFINE_uint64(
+    selective_no_deletes_batch_size, 0,
+    "Number of KV entries being inserted right before the selective deletes "
+    "happen. "
+    "These keys are not targeted by the selective deletes, and will always "
+    "stay valid in the DB. ");
+
+DEFINE_uint64(selective_no_deletes_value_size, 0,
+              "Size of the values (in bytes) of the entries not targeted by "
+              "selective deletes. ");
 
 DEFINE_bool(
     key_before_delete_range, true,
@@ -4682,6 +4700,15 @@ class Benchmark {
       return std::numeric_limits<uint64_t>::max();
     }
 
+    uint64_t Fetch(uint64_t index) {
+      if (mode_ == UNIQUE_RANDOM) {
+        assert(index < values_.size());
+        return values_[index];
+      }
+      assert(false);
+      return std::numeric_limits<uint64_t>::max();
+    }
+
    private:
     Random64* rand_;
     WriteMode mode_;
@@ -4709,6 +4736,8 @@ class Benchmark {
   double SineRate(double x) {
     return FLAGS_sine_a*sin((FLAGS_sine_b*x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
+
+  void WriteOrSelectiveDelete();
 
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
@@ -4782,6 +4811,20 @@ class Benchmark {
     std::deque<int64_t> inserted_key_window;
     Random64 reservoir_id_gen(FLAGS_seed);
 
+    // Counters used for selective deletes.
+    uint64_t sel_del_global_count = 0;
+    std::vector<uint64_t> sel_del_global_count(FLAGS_num_column_families, 0);
+    std::vector<uint64_t> sel_del_local_count(FLAGS_num_column_families, 0);
+    // std::vector<uint64_t> no_del_entry_counter(FLAGS_num_column_families,0);
+    // std::vector<uint64_t> sel_del_q_counter(FLAGS_num_column_families, 0);
+    const uint64_t TOTAL_SELECTIVE_DELETES_BATCH_SIZE =
+        FLAGS_selective_deletes_batch_size +
+        FLAGS_selective_no_deletes_batch_size;
+    // Queue that stores scheduled timestamp of selective deletes,
+    // along with starting index of keys to delete.
+    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> sel_del_q(
+        num_key_gens);
+
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
@@ -4832,6 +4875,99 @@ class Benchmark {
               inserted_key_window.pop_front();
               inserted_key_window.push_back(rand_num);
             }
+          }
+        } else if (FLAGS_selective_delete_batch_size > 0) {
+          sel_del_global_count = (sel_del_global_counter[id] + 1) %
+                                 TOTAL_SELECTIVE_DELETES_BATCH_SIZE;
+          if (sel_del_global_count == FLAGS_selective_deletes_batch_size) {
+            sel_del_q[id].push(std::make_pair(
+                FLAGS_env->NowMicros() +
+                    FLAGS_selective_delete_delay /* timestamp */,
+                sel_del_global_counter[id] - sel_del_global_count
+                /*starting idx*/));
+          }
+          if (!sel_del_q[id].empty() &&
+              (sel_del_q[id].front().first < FLAGS_env->NowMicros())) {
+            // If we need to perform a "merge op" pattern,
+            // we first write all the KV entries not targeted by selective
+            // deletes, and then we write the selective deletes.
+            if (sel_del_local_count[id] <
+                FLAGS_selective_no_deletes_batch_size) {
+              rand_num = key_gens[id]->Fetch(sel_del_q[id].front().second +
+                                             FLAGS_selective_delete_batch_size +
+                                             sel_del_local_count[id]);
+              sel_del_local_count[id]++;
+            } else if (sel_del_local_count[id] <
+                       TOTAL_SELECTIVE_DELETES_BATCH_SIZE) {
+              rand_num =
+                  key_gens[id]->Fetch(sel_del_q[id].front().second +
+                                      (sel_del_local_count[id] -
+                                       FLAGS_selective_no_deletes_batch_size));
+              sel_del_local_count[id]++;
+              GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+              if (FLAGS_num_column_families <= 1) {
+                batch.Delete(key);
+              } else {
+                // We use same rand_num as seed for key and column family so
+                // that we can deterministically find the cfh corresponding to a
+                // particular key while reading the key.
+                batch.Delete(db_with_cfh->GetCfh(rand_num), key);
+              }
+              batch_bytes += key_size_ + user_timestamp_size_;
+              bytes += key_size_ + user_timestamp_size_;
+              ++num_written;
+              selective_deletes_q_counter++;
+              continue;
+            }
+            if (selective_deletes_q_counter <
+                FLAGS_selective_deletes_batch_size) {
+              rand_num =
+                  key_gens[id]->Fetch(selective_deletes_q.front().second +
+                                      selective_deletes_q_counter);
+              GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+              if (FLAGS_num_column_families <= 1) {
+                batch.Delete(key);
+              } else {
+                // We use same rand_num as seed for key and column family so
+                // that we can deterministically find the cfh corresponding to a
+                // particular key while reading the key.
+                batch.Delete(db_with_cfh->GetCfh(rand_num), key);
+              }
+              batch_bytes += key_size_ + user_timestamp_size_;
+              bytes += key_size_ + user_timestamp_size_;
+              ++num_written;
+              selective_deletes_q_counter++;
+              continue;
+            } else if (selective_deletes_counter ==
+                       FLAGS_selective_no_deletes_batch_size) {
+              for (uint64_t k = 0; k < FLAGS_selective_delete_batch_size; k++) {
+                rand_num = key_gens[id]->Fetch(selective_deletes_q.front().second
+                                              + FLAGS_selective_delete_batch_size;
+              }
+            }
+            if (FLAGS_selective_no_deletes_batch_size > 0) {
+              rand_num =
+                  key_gens[id]->Fetch(selective_deletes_q.front().second +
+                                      FLAGS_selective_delete_batch_size +
+                                      selective_deletes_counter);
+              selective_deletes_counter++;
+            }
+            if (selective_no_deletes_counter)
+          } else if (local_selective_deletes_counter <
+                     FLAGS_selective_deletes_batch_size) {
+            rand_num = key_gens[id]->Fetch(selective_deletes_counter++);
+          } else if (local_selective_deletes_counter ==
+                     FLAGS_selective_deletes_batch_size) {
+            selective_deletes_q.push(std::make_pair(
+                FLAGS_env->NowMicros() +
+                    FLAGS_selective_delete_delay /* timestamp */,
+                selective_deletes_counter - local_selective_deletes_counter
+                /*starting idx*/));
+            if (FLAGS_selective_no_deletes_batch_size > 0) {
+            }
+          }
+
+          if (FLAGS_selective_delete_delay == 0) {
           }
         } else {
           rand_num = key_gens[id]->Next();
