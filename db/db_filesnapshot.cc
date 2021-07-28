@@ -130,7 +130,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
 
     // Disable deletion in order to avoid the case where a file is deleted in
     // the middle of the process so IO error is returned.
-    s1 = DisableFileDeletionsWithLock();
+    s = DisableFileDeletionsWithLock();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "GetSortedWalFiles(): disabled file deletions.");
