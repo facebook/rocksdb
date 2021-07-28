@@ -16,7 +16,8 @@
 
 protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
     [](DBOperations* input, unsigned int /* seed */) {
-      const ROCKSDB_NAMESPACE::Comparator* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
+      const ROCKSDB_NAMESPACE::Comparator* comparator =
+          ROCKSDB_NAMESPACE::BytewiseComparator();
       auto ops = input->mutable_operations();
       // Make sure begin <= end for DELETE_RANGE.
       for (DBOperation& op : *ops) {
@@ -42,7 +43,8 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
 
   const std::string kDbPath = "/tmp/db_map_fuzzer_test";
   auto fs = ROCKSDB_NAMESPACE::FileSystem::Default();
-  if (fs->FileExists(kDbPath, ROCKSDB_NAMESPACE::IOOptions(), /*dbg=*/nullptr).ok()) {
+  if (fs->FileExists(kDbPath, ROCKSDB_NAMESPACE::IOOptions(), /*dbg=*/nullptr)
+          .ok()) {
     std::cerr << "db path " << kDbPath << " already exists" << std::endl;
     abort();
   }
@@ -56,7 +58,8 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   for (const DBOperation& op : input.operations()) {
     switch (op.type()) {
       case OpType::PUT: {
-        CHECK_OK(db->Put(ROCKSDB_NAMESPACE::WriteOptions(), op.key(), op.value()));
+        CHECK_OK(
+            db->Put(ROCKSDB_NAMESPACE::WriteOptions(), op.key(), op.value()));
         kv[op.key()] = op.value();
         break;
       }
@@ -88,7 +91,8 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
 
   CHECK_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDbPath, &db));
   auto kv_it = kv.begin();
-  ROCKSDB_NAMESPACE::Iterator* it = db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
+  ROCKSDB_NAMESPACE::Iterator* it =
+      db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next(), kv_it++) {
     CHECK_TRUE(kv_it != kv.end());
     CHECK_EQ(it->key().ToString(), kv_it->first);
