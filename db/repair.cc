@@ -94,7 +94,7 @@ class Repairer {
            const ColumnFamilyOptions& unknown_cf_opts, bool create_unknown_cfs)
       : dbname_(dbname),
         env_(db_options.env),
-        env_options_(),
+        file_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
@@ -112,14 +112,15 @@ class Repairer {
         table_cache_(
             // TODO: db_session_id for TableCache should be initialized after
             // db_session_id_ is set.
-            new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
+            new TableCache(default_iopts_, &file_options_,
+                           raw_table_cache_.get(),
                            /*block_cache_tracer=*/nullptr,
                            /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         // TODO: db_session_id for VersionSet should be initialized after
         // db_session_id_ is set and use it for initialization.
-        vset_(dbname_, &immutable_db_options_, env_options_,
+        vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_session_id*/ ""),
@@ -249,7 +250,7 @@ class Repairer {
   std::string const dbname_;
   std::string db_session_id_;
   Env* const env_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
@@ -366,7 +367,7 @@ class Repairer {
     const auto& fs = env_->GetFileSystem();
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(
-        fs, logname, fs->OptimizeForLogRead(env_options_), &lfile_reader,
+        fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
         nullptr);
     if (!status.ok()) {
       return status;
@@ -458,7 +459,7 @@ class Repairer {
           meta.fd.GetNumber());
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
-          env_options_, table_cache_.get(), iter.get(),
+          file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
@@ -510,8 +511,8 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(env_options_, icmp_, t->meta.fd,
-                                                &props);
+      status = table_cache_->GetTableProperties(file_options_, icmp_,
+                                                t->meta.fd, &props);
     }
     if (status.ok()) {
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
@@ -551,7 +552,7 @@ class Repairer {
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
-          ropts, env_options_, cfd->internal_comparator(), t->meta,
+          ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,

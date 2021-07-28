@@ -66,12 +66,12 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 const int kLoadConcurency = 128;
 
 TableCache::TableCache(const ImmutableOptions& ioptions,
-                       const FileOptions& file_options, Cache* const cache,
+                       const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        const std::string& db_session_id)
     : ioptions_(ioptions),
-      file_options_(file_options),
+      file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),

@@ -530,7 +530,7 @@ class ColumnFamilyData {
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const FileOptions& file_options,
+                   const FileOptions* file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
                    const std::shared_ptr<IOTracer>& io_tracer,
@@ -721,6 +721,8 @@ class ColumnFamilySet {
   std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
 
   uint32_t max_column_family_;
+  const FileOptions file_options_;
+
   ColumnFamilyData* dummy_cfd_;
   // We don't hold the refcount here, since default column family always exists
   // We are also not responsible for cleaning up default_cfd_cache_. This is
@@ -730,7 +732,6 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
