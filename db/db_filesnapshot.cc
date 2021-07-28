@@ -137,9 +137,12 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   if (s.ok()) {
     s = wal_manager_.GetSortedWalFiles(files);
   }
-  if (s.ok()) {
-    EnableFileDeletions(false);
+
+  Status s2 = EnableFileDeletions(false);
+  if (!s2.ok() && s.ok()) {
+    s = s2;
   }
+
   return s;
 }
 
