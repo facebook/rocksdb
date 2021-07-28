@@ -115,6 +115,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  bool need_disable_file_deletion = false;
   {
     // If caller disabled deletions, this function should return files that are
     // guaranteed not to be deleted until deletions are re-enabled. We need to
@@ -126,8 +127,23 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
            (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0)) {
       bg_cv_.Wait();
     }
+
+    // If the called didn't disable deletion, we should do it to avoid the case
+    // where a file is deleted in the middle of the process so IO error is
+    // returned
+    if (disable_delete_obsolete_files_ == 0) {
+      need_disable_file_deletion = true;
+    }
   }
-  return wal_manager_.GetSortedWalFiles(files);
+  if (need_disable_file_deletion) {
+    DisableFileDeletions();
+  }
+  Status s = wal_manager_.GetSortedWalFiles(files);
+  if (need_disable_file_deletion) {
+    EnableFileDeletions(false);
+  }
+
+  return s;
 }
 
 Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {

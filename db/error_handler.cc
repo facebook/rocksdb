@@ -394,6 +394,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (BackgroundErrorReason::kManifestWrite == reason ||
       BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
+    ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
 
