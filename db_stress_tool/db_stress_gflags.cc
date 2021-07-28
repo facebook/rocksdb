@@ -330,7 +330,7 @@ DEFINE_bool(experimental_allow_mempurge, false,
             "Allow mempurge process to collect memtable garbage bytes.");
 
 DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Set garbage collection policy.");
+              "Set mempurge (memtable garbage collection) policy.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");

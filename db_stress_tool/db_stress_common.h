@@ -349,7 +349,7 @@ inline enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
   } else if (!strcasecmp(mpolicy, "kAlternate")) {
     return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
   }
-  fprintf(stdout, "Cannot parse mempurge policy: '%s'\n", mpolicy);
+  fprintf(stderr, "Cannot parse mempurge policy: '%s'\n", mpolicy);
   return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
 }
 
