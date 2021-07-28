@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBRangeDelTest : public DBTestBase {
  public:
-  DBRangeDelTest() : DBTestBase("/db_range_del_test", /*env_do_fsync=*/false) {}
+  DBRangeDelTest() : DBTestBase("db_range_del_test", /*env_do_fsync=*/false) {}
 
   std::string GetNumericStr(int key) {
     uint64_t uint64_key = static_cast<uint64_t>(key);
@@ -660,6 +660,16 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   ASSERT_EQ(kNum, expected);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
+
+  // Also test proper cache handling in GetRangeTombstoneIterator,
+  // via TablesRangeTombstoneSummary. (This once triggered memory leak
+  // report with ASAN.)
+  opts.max_open_files = 1;
+  Reopen(opts);
+
+  std::string str;
+  ASSERT_OK(dbfull()->TablesRangeTombstoneSummary(db_->DefaultColumnFamily(),
+                                                  100, &str));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {

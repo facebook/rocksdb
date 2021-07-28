@@ -96,7 +96,12 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-#ifndef ROCKSDB_LITE
+#ifdef ROCKSDB_LITE
+#define IF_ROCKSDB_LITE(Then, Else) Then
+#else
+#define IF_ROCKSDB_LITE(Then, Else) Else
+#endif
+
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -116,9 +121,11 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "flush,"
+IF_ROCKSDB_LITE("",
     "compact0,"
     "compact1,"
     "waitforcompaction,"
+)
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -208,9 +215,11 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
+IF_ROCKSDB_LITE("",
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
+)
     "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
@@ -225,130 +234,6 @@ DEFINE_string(
     "by doing a Get followed by binary searching in the large sorted list vs "
     "doing a GetMergeOperands and binary searching in the operands which are"
     "sorted sub-lists. The MergeOperator used is sortlist.h\n");
-#else
-DEFINE_string(
-    benchmarks,
-    "fillseq,"
-    "fillseqdeterministic,"
-    "fillsync,"
-    "fillrandom,"
-    "filluniquerandomdeterministic,"
-    "overwrite,"
-    "readrandom,"
-    "newiterator,"
-    "newiteratorwhilewriting,"
-    "seekrandom,"
-    "seekrandomwhilewriting,"
-    "seekrandomwhilemerging,"
-    "readseq,"
-    "readreverse,"
-    "compact,"
-    "compactall,"
-    "flush,"
-    "multireadrandom,"
-    "mixgraph,"
-    "readseq,"
-    "readtorowcache,"
-    "readtocache,"
-    "readreverse,"
-    "readwhilewriting,"
-    "readwhilemerging,"
-    "readwhilescanning,"
-    "readrandomwriterandom,"
-    "updaterandom,"
-    "xorupdaterandom,"
-    "approximatesizerandom,"
-    "randomwithverify,"
-    "fill100K,"
-    "crc32c,"
-    "xxhash,"
-    "compress,"
-    "uncompress,"
-    "acquireload,"
-    "fillseekseq,"
-    "randomtransaction,"
-    "randomreplacekeys,"
-    "timeseries,"
-    "getmergeoperands",
-
-    "Comma-separated list of operations to run in the specified"
-    " order. Available benchmarks:\n"
-    "\tfillseq       -- write N values in sequential key"
-    " order in async mode\n"
-    "\tfillseqdeterministic       -- write N values in the specified"
-    " key order and keep the shape of the LSM tree\n"
-    "\tfillrandom    -- write N values in random key order in async"
-    " mode\n"
-    "\tfilluniquerandomdeterministic       -- write N values in a random"
-    " key order and keep the shape of the LSM tree\n"
-    "\toverwrite     -- overwrite N values in random key order in"
-    " async mode\n"
-    "\tfillsync      -- write N/1000 values in random key order in "
-    "sync mode\n"
-    "\tfill100K      -- write N/1000 100K values in random order in"
-    " async mode\n"
-    "\tdeleteseq     -- delete N keys in sequential order\n"
-    "\tdeleterandom  -- delete N keys in random order\n"
-    "\treadseq       -- read N times sequentially\n"
-    "\treadtocache   -- 1 thread reading database sequentially\n"
-    "\treadreverse   -- read N times in reverse order\n"
-    "\treadrandom    -- read N times in random order\n"
-    "\treadmissing   -- read N missing keys in random order\n"
-    "\treadwhilewriting      -- 1 writer, N threads doing random "
-    "reads\n"
-    "\treadwhilemerging      -- 1 merger, N threads doing random "
-    "reads\n"
-    "\treadwhilescanning     -- 1 thread doing full table scan, "
-    "N threads doing random reads\n"
-    "\treadrandomwriterandom -- N threads doing random-read, "
-    "random-write\n"
-    "\tupdaterandom  -- N threads doing read-modify-write for random "
-    "keys\n"
-    "\txorupdaterandom  -- N threads doing read-XOR-write for "
-    "random keys\n"
-    "\tappendrandom  -- N threads doing read-modify-write with "
-    "growing values\n"
-    "\tmergerandom   -- same as updaterandom/appendrandom using merge"
-    " operator. "
-    "Must be used with merge_operator\n"
-    "\treadrandommergerandom -- perform N random read-or-merge "
-    "operations. Must be used with merge_operator\n"
-    "\tnewiterator   -- repeated iterator creation\n"
-    "\tseekrandom    -- N random seeks, call Next seek_nexts times "
-    "per seek\n"
-    "\tseekrandomwhilewriting -- seekrandom and 1 thread doing "
-    "overwrite\n"
-    "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
-    "merge\n"
-    "\tcrc32c        -- repeated crc32c of 4K of data\n"
-    "\txxhash        -- repeated xxHash of 4K of data\n"
-    "\tacquireload   -- load N*1000 times\n"
-    "\tfillseekseq   -- write N values in sequential key, then read "
-    "them by seeking to each key\n"
-    "\trandomtransaction     -- execute N random transactions and "
-    "verify correctness\n"
-    "\trandomreplacekeys     -- randomly replaces N keys by deleting "
-    "the old version and putting the new version\n\n"
-    "\ttimeseries            -- 1 writer generates time series data "
-    "and multiple readers doing random reads on id\n\n"
-    "Meta operations:\n"
-    "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
-    "\tcompactall  -- Compact the entire DB\n"
-    "\tflush - flush the memtable\n"
-    "\tstats       -- Print DB stats\n"
-    "\tresetstats  -- Reset DB stats\n"
-    "\tlevelstats  -- Print the number of files and bytes per level\n"
-    "\tmemstats  -- Print memtable stats\n"
-    "\tsstables    -- Print sstable info\n"
-    "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n"
-    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
-    "sorted ints for a key and then compare performance of lookup for another "
-    "key "
-    "by doing a Get followed by binary searching in the large sorted list vs "
-    "doing a GetMergeOperands and binary searching in the operands which are"
-    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
-#endif
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -445,6 +330,26 @@ DEFINE_int32(num_multi_db, 0,
 
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
+
+DEFINE_double(
+    overwrite_probability, 0.0,
+    "Used in 'filluniquerandom' benchmark: for each write operation, "
+    "we give a probability to perform an overwrite instead. The key used for "
+    "the overwrite is randomly chosen from the last 'overwrite_window_size' "
+    "keys "
+    "previously inserted into the DB. "
+    "Valid overwrite_probability values: [0.0, 1.0].");
+
+DEFINE_uint32(overwrite_window_size, 1,
+              "Used in 'filluniquerandom' benchmark. For each write "
+              "operation, when "
+              "the overwrite_probability flag is set by the user, the key used "
+              "to perform "
+              "an overwrite is randomly chosen from the last "
+              "'overwrite_window_size' keys "
+              "previously inserted into the DB. "
+              "Warning: large values can affect throughput. "
+              "Valid overwrite_window_size values: [1, kMaxUint32].");
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
@@ -1095,6 +1000,19 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
 }
 
+static enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
+    const char* mpolicy) {
+  assert(mpolicy);
+  if (!strcasecmp(mpolicy, "kAlways")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
+  } else if (!strcasecmp(mpolicy, "kAlternate")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+  }
+
+  fprintf(stdout, "Cannot parse mempurge policy '%s'\n", mpolicy);
+  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+}
+
 static std::string ColumnFamilyName(size_t i) {
   if (i == 0) {
     return ROCKSDB_NAMESPACE::kDefaultColumnFamilyName;
@@ -1231,6 +1149,9 @@ DEFINE_bool(allow_concurrent_memtable_write, true,
 
 DEFINE_bool(experimental_allow_mempurge, false,
             "Allow memtable garbage collection.");
+
+DEFINE_string(experimental_mempurge_policy, "kAlternate",
+              "Specify memtable garbage collection policy.");
 
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
@@ -2660,6 +2581,9 @@ class Benchmark {
           recovery_complete_(false) {}
 
     ~ErrorHandlerListener() override {}
+
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
 
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,
@@ -4306,6 +4230,8 @@ class Benchmark {
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
     options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
+    options.experimental_mempurge_policy =
+        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
@@ -4807,6 +4733,36 @@ class Benchmark {
     Slice begin_key = AllocateKey(&begin_key_guard);
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
+    double p = 0.0;
+    uint64_t num_overwrites = 0, num_unique_keys = 0;
+    // If user set overwrite_probability flag,
+    // check if value is in [0.0,1.0].
+    if (FLAGS_overwrite_probability > 0.0) {
+      p = FLAGS_overwrite_probability > 1.0 ? 1.0 : FLAGS_overwrite_probability;
+      // If overwrite set by user, and UNIQUE_RANDOM mode on,
+      // the overwrite_window_size must be > 0.
+      if (write_mode == UNIQUE_RANDOM && FLAGS_overwrite_window_size == 0) {
+        fprintf(stderr,
+                "Overwrite_window_size must be  strictly greater than 0.\n");
+        ErrorExit();
+      }
+    }
+
+    // Default_random_engine provides slightly
+    // improved throughput over mt19937.
+    std::default_random_engine overwrite_gen{
+        static_cast<unsigned int>(FLAGS_seed)};
+    std::bernoulli_distribution overwrite_decider(p);
+
+    // Inserted key window is filled with the last N
+    // keys previously inserted into the DB (with
+    // N=FLAGS_overwrite_window_size).
+    // We use a deque struct because:
+    // - random access is O(1)
+    // - insertion/removal at beginning/end is also O(1).
+    std::deque<int64_t> inserted_key_window;
+    Random64 reservoir_id_gen(FLAGS_seed);
+
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
@@ -4841,7 +4797,26 @@ class Benchmark {
       int64_t batch_bytes = 0;
 
       for (int64_t j = 0; j < entries_per_batch_; j++) {
-        int64_t rand_num = key_gens[id]->Next();
+        int64_t rand_num = 0;
+        if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+          if ((inserted_key_window.size() > 0) &&
+              overwrite_decider(overwrite_gen)) {
+            num_overwrites++;
+            rand_num = inserted_key_window[reservoir_id_gen.Next() %
+                                           inserted_key_window.size()];
+          } else {
+            num_unique_keys++;
+            rand_num = key_gens[id]->Next();
+            if (inserted_key_window.size() < FLAGS_overwrite_window_size) {
+              inserted_key_window.push_back(rand_num);
+            } else {
+              inserted_key_window.pop_front();
+              inserted_key_window.push_back(rand_num);
+            }
+          }
+        } else {
+          rand_num = key_gens[id]->Next();
+        }
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
         Slice val = gen.Generate();
         if (use_blob_db_) {
@@ -4968,6 +4943,12 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
       }
+    }
+    if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+      fprintf(stdout,
+              "Number of unique keys inerted: %" PRIu64
+              ".\nNumber of overwrites: %" PRIu64 "\n",
+              num_unique_keys, num_overwrites);
     }
     thread->stats.AddBytes(bytes);
   }
@@ -6234,18 +6215,19 @@ class Benchmark {
       }
 
       // Pick a Iterator to use
-      size_t cf_to_use = (db_.db == nullptr)
-                             ? (size_t{thread->rand.Next()} % multi_dbs_.size())
-                             : 0;
+      size_t db_idx_to_use =
+          (db_.db == nullptr)
+              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              : 0;
       std::unique_ptr<Iterator> single_iter;
       Iterator* iter_to_use;
       if (FLAGS_use_tailing_iterator) {
-        iter_to_use = tailing_iters[cf_to_use];
+        iter_to_use = tailing_iters[db_idx_to_use];
       } else {
         if (db_.db != nullptr) {
           single_iter.reset(db_.db->NewIterator(options));
         } else {
-          single_iter.reset(multi_dbs_[cf_to_use].db->NewIterator(options));
+          single_iter.reset(multi_dbs_[db_idx_to_use].db->NewIterator(options));
         }
         iter_to_use = single_iter.get();
       }

@@ -38,7 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class EventListenerTest : public DBTestBase {
  public:
-  EventListenerTest() : DBTestBase("/listener_test", /*env_do_fsync=*/true) {}
+  EventListenerTest() : DBTestBase("listener_test", /*env_do_fsync=*/true) {}
 
   static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
                              uint64_t size) {

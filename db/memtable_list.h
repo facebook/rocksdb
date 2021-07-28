@@ -347,10 +347,6 @@ class MemTableList {
 
   size_t* current_memory_usage() { return &current_memory_usage_; }
 
-  // Returns the earliest log that possibly contain entries
-  // from one of the memtables of this memtable_list.
-  uint64_t EarliestLogContainingData();
-
   // Returns the min log containing the prep section after memtables listsed in
   // `memtables_to_flush` are flushed and their status is persisted in manifest.
   uint64_t PrecomputeMinLogContainingPrepSection(
@@ -393,6 +389,24 @@ class MemTableList {
   // not freed, but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
+  void AddMemPurgeOutputID(uint64_t mid) {
+    if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
+      mempurged_ids_.insert(mid);
+    }
+  }
+
+  void RemoveMemPurgeOutputID(uint64_t mid) {
+    if (mempurged_ids_.find(mid) != mempurged_ids_.end()) {
+      mempurged_ids_.erase(mid);
+    }
+  }
+
+  bool IsMemPurgeOutput(uint64_t mid) {
+    if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
+      return false;
+    }
+    return true;
+  }
 
  private:
   friend Status InstallMemtableAtomicFlushResults(
@@ -437,6 +451,10 @@ class MemTableList {
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;
+
+  // Store the IDs of the memtables installed in this
+  // list that result from a mempurge operation.
+  std::unordered_set<uint64_t> mempurged_ids_;
 };
 
 // Installs memtable atomic flush results.

@@ -39,7 +39,7 @@ class DBBlockCacheTest : public DBTestBase {
   const size_t kValueSize = 100;
 
   DBBlockCacheTest()
-      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_block_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
@@ -1218,7 +1218,7 @@ class DBBlockCachePinningTest
           std::tuple<bool, PinningTier, PinningTier, PinningTier>> {
  public:
   DBBlockCachePinningTest()
-      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_block_cache_test", /*env_do_fsync=*/false) {}
 
   void SetUp() override {
     partition_index_and_filters_ = std::get<0>(GetParam());
