@@ -4909,6 +4909,7 @@ class Benchmark {
                                       persistent_ent_and_del_index[id]);
               persistent_ent_and_del_index[id]++;
               is_disposable_entry = false;
+              skip_for_loop = false;
             } else if (persistent_ent_and_del_index[id] <
                        NUM_DISP_AND_PERS_ENTRIES) {
               // Find key of the entry to delete.
@@ -5007,9 +5008,10 @@ class Benchmark {
         bytes += val.size() + key_size_ + user_timestamp_size_;
         ++num_written;
 
-        // If selective deletes, then check if we need to
-        // add new batch of selective deletes to insert.
-        if (NUM_DISP_AND_PERS_ENTRIES > 0 &&
+        // If all disposable entries have been inserted, then we need to
+        // add in the job queue a call for 'persistent entry insertions +
+        // disposable entry deletions'.
+        if (NUM_DISP_AND_PERS_ENTRIES > 0 && is_disposable_entry &&
             ((disposable_entries_index[id] % NUM_DISP_AND_PERS_ENTRIES) == 0)) {
           // Queue contains [timestamp, starting_idx],
           // timestamp = current_time + delay (minimum aboslute time when to
