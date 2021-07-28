@@ -5,6 +5,10 @@
 ### New Features
 * Made the EventListener extend the Customizable class.
 * EventListeners that have a non-empty Name() and that are registered with the ObjectRegistry can now be serialized to/from the OPTIONS file.
+
+### Performance Improvements
+* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
+
 ## 6.23.0 (2021-07-16)
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
@@ -27,9 +31,6 @@
 ### Public API change
 * Added APIs to the Customizable class to allow developers to create their own Customizable classes.  Created the utilities/customizable_util.h file to contain helper methods for developing new Customizable classes.
 * Change signature of SecondaryCache::Name().  Make SecondaryCache customizable and add SecondaryCache::CreateFromString method.
-
-### Performance Improvements
-* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
 
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes
