@@ -314,18 +314,12 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
 
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
-      // re-try in case the alive log file has been moved to archive.
+      // re-try in case the alive WAL file has been moved to archive.
       if (!s.ok() && log_type == kAliveLogFile) {
         std::string archived_file = ArchivedLogFileName(path, number);
-        s = env_->FileExists(archived_file);
-        if (s.ok()) {
-          s = env_->GetFileSize(archived_file, &size_bytes);
-          if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
-            // oops, the file just got deleted from archived dir! move on
-            continue;
-          }
-        } else if (s.IsNotFound()) {
-          // Cannot find the WAL file in both WAL_dir and archived dir, skip it
+        s = env_->GetFileSize(archived_file, &size_bytes);
+        if (!s.ok()) {
+          // Cannot get the WAL file size in both WAL_dir and archived dir, skip
           continue;
         }
       }
