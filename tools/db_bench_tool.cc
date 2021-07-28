@@ -352,34 +352,37 @@ DEFINE_uint32(overwrite_window_size, 1,
               "Valid overwrite_window_size values: [1, kMaxUint32].");
 
 DEFINE_uint64(
-    selective_deletes_delay, 0,
+    disposable_entries_delete_delay, 0,
     "Minimum delay in microseconds for the series of Deletes "
-    "to be issued. When 0 the insertion of the last targeted entry is "
-    "immediately "
-    "followed by the issuance of the Deletes.");
+    "to be issued. When 0 the insertion of the last disposable entry is "
+    "immediately followed by the issuance of the Deletes.");
 
-DEFINE_uint64(selective_deletes_batch_size, 0,
-              "Number of consecutively inserted KV entries to delete after "
-              "'delete_delay' "
-              "microseconds. When 0 no selective Deletes is issued. A series "
-              "of Deletes is "
-              "always issued "
-              "once all the KV entries it covers are inserted into the DB. ");
+DEFINE_uint64(disposable_entries_batch_size, 0,
+              "Number of consecutively inserted disposable KV entries "
+              "that will be deleted after 'delete_delay' microseconds. "
+              "A series of Deletes is always issued once all the "
+              "disposable KV entries it targets have been inserted "
+              "into the DB. When 0 no deletes are issued and a "
+              "regular 'filluniquerandom' benchmark occurs. "
+              "(only compatible with filluniquerandom benchmark)");
 
-DEFINE_uint64(selective_deletes_value_size, 0,
+DEFINE_uint64(disposable_entries_value_size, 64,
               "Size of the values (in bytes) of the entries targeted by "
               "selective deletes. ");
 
 DEFINE_uint64(
-    selective_no_deletes_batch_size, 0,
-    "Number of KV entries being inserted right before the selective deletes "
-    "happen. "
-    "These keys are not targeted by the selective deletes, and will always "
-    "stay valid in the DB. ");
+    persistent_entries_batch_size, 0,
+    "Number of KV entries being inserted right before the deletes "
+    "targeting the disposable KV entries are issued. These "
+    "persistent keys are not targeted by the deletes, and will always "
+    "remain valid in the DB. (only compatible with "
+    "--benchmarks='filluniquerandom' "
+    "and used when--disposable_entries_batch_size is > 0).");
 
-DEFINE_uint64(selective_no_deletes_value_size, 0,
+DEFINE_uint64(persistent_entries_value_size, 64,
               "Size of the values (in bytes) of the entries not targeted by "
-              "selective deletes. ");
+              "deletes. (only compatible with --benchmarks='filluniquerandom' "
+              "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_bool(
     key_before_delete_range, true,
@@ -4782,7 +4785,7 @@ class Benchmark {
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
     double p = 0.0;
-    uint64_t num_overwrites = 0, num_unique_keys = 0;
+    uint64_t num_overwrites = 0, num_unique_keys = 0, num_selective_deletes = 0;
     // If user set overwrite_probability flag,
     // check if value is in [0.0,1.0].
     if (FLAGS_overwrite_probability > 0.0) {
@@ -4812,17 +4815,27 @@ class Benchmark {
     Random64 reservoir_id_gen(FLAGS_seed);
 
     // Counters used for selective deletes.
-    uint64_t sel_del_global_count = 0;
-    std::vector<uint64_t> sel_del_global_count(FLAGS_num_column_families, 0);
-    std::vector<uint64_t> sel_del_local_count(FLAGS_num_column_families, 0);
-    // std::vector<uint64_t> no_del_entry_counter(FLAGS_num_column_families,0);
-    // std::vector<uint64_t> sel_del_q_counter(FLAGS_num_column_families, 0);
-    const uint64_t TOTAL_SELECTIVE_DELETES_BATCH_SIZE =
-        FLAGS_selective_deletes_batch_size +
-        FLAGS_selective_no_deletes_batch_size;
+    bool skip_for_loop = false, is_disposable_entry = true;
+    std::vector<uint64_t> disposable_entries_index(FLAGS_num_column_families,
+                                                   0);
+    std::vector<uint64_t> persistent_ent_and_del_index(
+        FLAGS_num_column_families, 0);
+    const uint64_t NUM_DISP_AND_PERS_ENTRIES =
+        FLAGS_disposable_entries_batch_size +
+        FLAGS_persistent_entries_batch_size;
+    if (NUM_DISP_AND_PERS_ENTRIES > 0 &&
+        ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
+         (p > 0.0))) {
+      fprintf(stderr,
+              "Disposable/persistent deletes are not compatible with "
+              "overwrites and "
+              "DeleteRanges; and are only supported in filluniquerandom.\n");
+      ErrorExit();
+    }
+    Random rnd_disposable_entry(FLAGS_seed);
     // Queue that stores scheduled timestamp of selective deletes,
     // along with starting index of keys to delete.
-    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> sel_del_q(
+    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
         num_key_gens);
 
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
@@ -4876,35 +4889,38 @@ class Benchmark {
               inserted_key_window.push_back(rand_num);
             }
           }
-        } else if (FLAGS_selective_delete_batch_size > 0) {
-          sel_del_global_count = (sel_del_global_counter[id] + 1) %
-                                 TOTAL_SELECTIVE_DELETES_BATCH_SIZE;
-          if (sel_del_global_count == FLAGS_selective_deletes_batch_size) {
-            sel_del_q[id].push(std::make_pair(
-                FLAGS_env->NowMicros() +
-                    FLAGS_selective_delete_delay /* timestamp */,
-                sel_del_global_counter[id] - sel_del_global_count
-                /*starting idx*/));
-          }
-          if (!sel_del_q[id].empty() &&
-              (sel_del_q[id].front().first < FLAGS_env->NowMicros())) {
+        } else if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+          // Check if queue is non-empty and if we need to insert
+          // 'persistent' KV entries (KV entries that are never deleted)
+          // and delete disposable entries previously inserted.
+          if (!disposable_entries_q[id].empty() &&
+              (disposable_entries_q[id].front().first <
+               FLAGS_env->NowMicros())) {
+            skip_for_loop = false;
             // If we need to perform a "merge op" pattern,
-            // we first write all the KV entries not targeted by selective
-            // deletes, and then we write the selective deletes.
-            if (sel_del_local_count[id] <
-                FLAGS_selective_no_deletes_batch_size) {
-              rand_num = key_gens[id]->Fetch(sel_del_q[id].front().second +
-                                             FLAGS_selective_delete_batch_size +
-                                             sel_del_local_count[id]);
-              sel_del_local_count[id]++;
-            } else if (sel_del_local_count[id] <
-                       TOTAL_SELECTIVE_DELETES_BATCH_SIZE) {
+            // we first write all the persistent KV entries not targeted
+            // by deletes, and then we write the disposable entries deletes.
+            if (persistent_ent_and_del_index[id] <
+                FLAGS_persistent_entries_batch_size) {
+              // Generate key to insert.
               rand_num =
-                  key_gens[id]->Fetch(sel_del_q[id].front().second +
-                                      (sel_del_local_count[id] -
-                                       FLAGS_selective_no_deletes_batch_size));
-              sel_del_local_count[id]++;
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      FLAGS_disposable_entries_batch_size +
+                                      persistent_ent_and_del_index[id]);
+              persistent_ent_and_del_index[id]++;
+              is_disposable_entry = false;
+            } else if (persistent_ent_and_del_index[id] <
+                       NUM_DISP_AND_PERS_ENTRIES) {
+              // Find key of the entry to delete.
+              rand_num =
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      (persistent_ent_and_del_index[id] -
+                                       FLAGS_persistent_entries_batch_size));
+              persistent_ent_and_del_index[id]++;
               GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+              // For the delete operation, everything happens here and we
+              // skip the rest of the for-loop, which is designed for
+              // inserts.
               if (FLAGS_num_column_families <= 1) {
                 batch.Delete(key);
               } else {
@@ -4915,65 +4931,56 @@ class Benchmark {
               }
               batch_bytes += key_size_ + user_timestamp_size_;
               bytes += key_size_ + user_timestamp_size_;
-              ++num_written;
-              selective_deletes_q_counter++;
+              num_selective_deletes++;
+              // Skip rest of the for-loop (j=0, j<entries_per_batch_,j++).
+              skip_for_loop = true;
+            } else {
+              assert(false);  // should never reach this point.
+            }
+            // If disposable_entries_q needs to be updated (ie: when a selective
+            // insert+delete was successfully completed, pop the job out of the
+            // queue).
+            if (!disposable_entries_q[id].empty() &&
+                (disposable_entries_q[id].front().first <
+                 FLAGS_env->NowMicros()) &&
+                persistent_ent_and_del_index[id] == NUM_DISP_AND_PERS_ENTRIES) {
+              disposable_entries_q[id].pop();
+              persistent_ent_and_del_index[id] = 0;
+            }
+            if (skip_for_loop) {
               continue;
-            }
-            if (selective_deletes_q_counter <
-                FLAGS_selective_deletes_batch_size) {
-              rand_num =
-                  key_gens[id]->Fetch(selective_deletes_q.front().second +
-                                      selective_deletes_q_counter);
-              GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-              if (FLAGS_num_column_families <= 1) {
-                batch.Delete(key);
-              } else {
-                // We use same rand_num as seed for key and column family so
-                // that we can deterministically find the cfh corresponding to a
-                // particular key while reading the key.
-                batch.Delete(db_with_cfh->GetCfh(rand_num), key);
-              }
-              batch_bytes += key_size_ + user_timestamp_size_;
-              bytes += key_size_ + user_timestamp_size_;
-              ++num_written;
-              selective_deletes_q_counter++;
-              continue;
-            } else if (selective_deletes_counter ==
-                       FLAGS_selective_no_deletes_batch_size) {
-              for (uint64_t k = 0; k < FLAGS_selective_delete_batch_size; k++) {
-                rand_num = key_gens[id]->Fetch(selective_deletes_q.front().second
-                                              + FLAGS_selective_delete_batch_size;
-              }
-            }
-            if (FLAGS_selective_no_deletes_batch_size > 0) {
-              rand_num =
-                  key_gens[id]->Fetch(selective_deletes_q.front().second +
-                                      FLAGS_selective_delete_batch_size +
-                                      selective_deletes_counter);
-              selective_deletes_counter++;
-            }
-            if (selective_no_deletes_counter)
-          } else if (local_selective_deletes_counter <
-                     FLAGS_selective_deletes_batch_size) {
-            rand_num = key_gens[id]->Fetch(selective_deletes_counter++);
-          } else if (local_selective_deletes_counter ==
-                     FLAGS_selective_deletes_batch_size) {
-            selective_deletes_q.push(std::make_pair(
-                FLAGS_env->NowMicros() +
-                    FLAGS_selective_delete_delay /* timestamp */,
-                selective_deletes_counter - local_selective_deletes_counter
-                /*starting idx*/));
-            if (FLAGS_selective_no_deletes_batch_size > 0) {
             }
           }
-
-          if (FLAGS_selective_delete_delay == 0) {
+          // If no job is in the queue, then we keep inserting disposable KV
+          // entries that will be deleted later by a series of deletes.
+          else {
+            rand_num = key_gens[id]->Fetch(disposable_entries_index[id]);
+            disposable_entries_index[id]++;
+            is_disposable_entry = true;
+            if ((disposable_entries_index[id] %
+                 FLAGS_disposable_entries_batch_size) == 0) {
+              // Skip the persistent KV entries inserts for now
+              disposable_entries_index[id] +=
+                  FLAGS_persistent_entries_batch_size;
+            }
           }
         } else {
           rand_num = key_gens[id]->Next();
         }
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-        Slice val = gen.Generate();
+        Slice val;
+        if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+          if (is_disposable_entry) {
+            val = Slice(rnd_disposable_entry.RandomString(
+                FLAGS_disposable_entries_value_size));
+          } else {
+            val = Slice(rnd_disposable_entry.RandomString(
+                FLAGS_persistent_entries_value_size));
+          }
+          num_unique_keys++;
+        } else {
+          val = gen.Generate();
+        }
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           // Stacked BlobDB
@@ -4998,6 +5005,22 @@ class Benchmark {
         batch_bytes += val.size() + key_size_ + user_timestamp_size_;
         bytes += val.size() + key_size_ + user_timestamp_size_;
         ++num_written;
+
+        // If selective deletes, then check if we need to
+        // add new batch of selective deletes to insert.
+        if (NUM_DISP_AND_PERS_ENTRIES > 0 &&
+            ((disposable_entries_index[id] % NUM_DISP_AND_PERS_ENTRIES) == 0)) {
+          // Queue contains [timestamp, starting_idx],
+          // timestamp = current_time + delay (minimum aboslute time when to
+          // start inserting the selective deletes) starting_idx = index in the
+          // keygen of the rand_num to generate the key of the first KV entry to
+          // delete (= key of the first selective delete).
+          disposable_entries_q[id].push(std::make_pair(
+              FLAGS_env->NowMicros() +
+                  FLAGS_disposable_entries_delete_delay /* timestamp */,
+              disposable_entries_index[id] - NUM_DISP_AND_PERS_ENTRIES
+              /*starting idx*/));
+        }
         if (writes_per_range_tombstone_ > 0 &&
             num_written > writes_before_delete_range_ &&
             (num_written - writes_before_delete_range_) /
@@ -5101,9 +5124,14 @@ class Benchmark {
     }
     if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
       fprintf(stdout,
-              "Number of unique keys inerted: %" PRIu64
+              "Number of unique keys inserted: %" PRIu64
               ".\nNumber of overwrites: %" PRIu64 "\n",
               num_unique_keys, num_overwrites);
+    } else if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+      fprintf(stdout,
+              "Number of unique keys inserted: %" PRIu64
+              ".\nNumber of 'selective' deletes: %" PRIu64 "\n",
+              num_written, num_selective_deletes);
     }
     thread->stats.AddBytes(bytes);
   }
