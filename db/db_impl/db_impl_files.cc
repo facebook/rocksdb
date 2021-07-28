@@ -50,7 +50,7 @@ Status DBImpl::DisableFileDeletions() {
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "File Deletions Disabled, but already disabled. Counter: %d",
-                   disable_delete_obsolete_files_);
+                   my_disable_delete_obsolete_files);
   }
   return s;
 }

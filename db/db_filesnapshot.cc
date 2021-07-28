@@ -115,7 +115,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
-  bool need_disable_file_deletion = false;
+  Status s;
   {
     // If caller disabled deletions, this function should return files that are
     // guaranteed not to be deleted until deletions are re-enabled. We need to
@@ -128,21 +128,18 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
       bg_cv_.Wait();
     }
 
-    // If the called didn't disable deletion, we should do it to avoid the case
-    // where a file is deleted in the middle of the process so IO error is
-    // returned
-    if (disable_delete_obsolete_files_ == 0) {
-      need_disable_file_deletion = true;
-    }
+    // Disable deletion in order to avoid the case where a file is deleted in
+    // the middle of the process so IO error is returned.
+    s = DisableFileDeletionsWithLock();
   }
-  if (need_disable_file_deletion) {
-    DisableFileDeletions();
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "GetSortedWalFiles(): disabled file deletions.");
+  if (s.ok()) {
+    s = wal_manager_.GetSortedWalFiles(files);
   }
-  Status s = wal_manager_.GetSortedWalFiles(files);
-  if (need_disable_file_deletion) {
+  if (s.ok()) {
     EnableFileDeletions(false);
   }
-
   return s;
 }
 
