@@ -4827,10 +4827,8 @@ class Benchmark {
     // as the last disposable entry in the set S1 of this sequence is
     // inserted, if the delay is non negligible"
     bool skip_for_loop = false, is_disposable_entry = true;
-    std::vector<uint64_t> disposable_entries_index(FLAGS_num_column_families,
-                                                   0);
-    std::vector<uint64_t> persistent_ent_and_del_index(
-        FLAGS_num_column_families, 0);
+    std::vector<uint64_t> disposable_entries_index(num_key_gens, 0);
+    std::vector<uint64_t> persistent_ent_and_del_index(num_key_gens, 0);
     const uint64_t NUM_DISP_AND_PERS_ENTRIES =
         FLAGS_disposable_entries_batch_size +
         FLAGS_persistent_entries_batch_size;
@@ -4917,7 +4915,6 @@ class Benchmark {
           if (!disposable_entries_q[id].empty() &&
               (disposable_entries_q[id].front().first <
                FLAGS_env->NowMicros())) {
-            skip_for_loop = false;
             // If we need to perform a "merge op" pattern,
             // we first write all the persistent KV entries not targeted
             // by deletes, and then we write the disposable entries deletes.
@@ -4970,9 +4967,14 @@ class Benchmark {
               disposable_entries_q[id].pop();
               persistent_ent_and_del_index[id] = 0;
             }
+
+            // If we are deleting disposable entries, skip the rest of the
+            // for-loop since there is no key-value inserts at this moment in
+            // time.
             if (skip_for_loop) {
               continue;
             }
+
           }
           // If no job is in the queue, then we keep inserting disposable KV
           // entries that will be deleted later by a series of deletes.
