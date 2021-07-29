@@ -64,8 +64,11 @@ TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
-          request_size(_target_rate / 10),
+        : limiter(NewGenericRateLimiter(_target_rate /* rate_bytes_per_sec */,
+                                        100 * 1000 /* refill_period_us */,
+                                        10 /* fairness */)),
+          request_size(_target_rate /
+                       10 /* refill period here is 1/10 second */),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
     int32_t request_size;
