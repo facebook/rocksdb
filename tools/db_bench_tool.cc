@@ -32,9 +32,9 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <unordered_map>
-#include <queue>
 
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
