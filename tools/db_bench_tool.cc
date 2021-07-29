@@ -385,13 +385,6 @@ DEFINE_int32(persistent_entries_value_size, 64,
              "deletes. (only compatible with --benchmarks='filluniquerandom' "
              "and used when--disposable_entries_batch_size is > 0).");
 
-DEFINE_bool(
-    key_before_delete_range, true,
-    "If true, a key is inserted immediately "
-    "before the deleterange is issued. This key will not be targeted by any "
-    "delete operation. Simulate some type of summary data computed "
-    "from the range of entries being deleted.");
-
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
               "num * exp(-r) where r is uniform number from 0 to this value. "
@@ -4704,13 +4697,11 @@ class Benchmark {
       return std::numeric_limits<uint64_t>::max();
     }
 
+    // Only available for UNIQUE_RANDOM mode.
     uint64_t Fetch(uint64_t index) {
-      if (mode_ == UNIQUE_RANDOM) {
-        assert(index < values_.size());
-        return values_[index];
-      }
-      assert(false);
-      return std::numeric_limits<uint64_t>::max();
+      assert(mode_ == UNIQUE_RANDOM);
+      assert(index < values_.size());
+      return values_[index];
     }
 
    private:
@@ -4740,8 +4731,6 @@ class Benchmark {
   double SineRate(double x) {
     return FLAGS_sine_a*sin((FLAGS_sine_b*x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
-
-  void WriteOrSelectiveDelete();
 
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
@@ -4829,10 +4818,10 @@ class Benchmark {
     bool skip_for_loop = false, is_disposable_entry = true;
     std::vector<uint64_t> disposable_entries_index(num_key_gens, 0);
     std::vector<uint64_t> persistent_ent_and_del_index(num_key_gens, 0);
-    const uint64_t NUM_DISP_AND_PERS_ENTRIES =
+    const uint64_t kNumDispAndPersEntries =
         FLAGS_disposable_entries_batch_size +
         FLAGS_persistent_entries_batch_size;
-    if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+    if (kNumDispAndPersEntries > 0) {
       if ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
           (p > 0.0)) {
         fprintf(
@@ -4851,6 +4840,7 @@ class Benchmark {
       }
     }
     Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
     std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
@@ -4908,7 +4898,7 @@ class Benchmark {
               inserted_key_window.push_back(rand_num);
             }
           }
-        } else if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+        } else if (kNumDispAndPersEntries > 0) {
           // Check if queue is non-empty and if we need to insert
           // 'persistent' KV entries (KV entries that are never deleted)
           // and delete disposable entries previously inserted.
@@ -4929,7 +4919,7 @@ class Benchmark {
               is_disposable_entry = false;
               skip_for_loop = false;
             } else if (persistent_ent_and_del_index[id] <
-                       NUM_DISP_AND_PERS_ENTRIES) {
+                       kNumDispAndPersEntries) {
               // Find key of the entry to delete.
               rand_num =
                   key_gens[id]->Fetch(disposable_entries_q[id].front().second +
@@ -4963,7 +4953,7 @@ class Benchmark {
             if (!disposable_entries_q[id].empty() &&
                 (disposable_entries_q[id].front().first <
                  FLAGS_env->NowMicros()) &&
-                persistent_ent_and_del_index[id] == NUM_DISP_AND_PERS_ENTRIES) {
+                persistent_ent_and_del_index[id] == kNumDispAndPersEntries) {
               disposable_entries_q[id].pop();
               persistent_ent_and_del_index[id] = 0;
             }
@@ -4994,14 +4984,11 @@ class Benchmark {
         }
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
         Slice val;
-        if (NUM_DISP_AND_PERS_ENTRIES > 0) {
-          if (is_disposable_entry) {
-            val = Slice(rnd_disposable_entry.RandomString(
-                FLAGS_disposable_entries_value_size));
-          } else {
-            val = Slice(rnd_disposable_entry.RandomString(
-                FLAGS_persistent_entries_value_size));
-          }
+        if (kNumDispAndPersEntries > 0) {
+          random_value = rnd_disposable_entry.RandomString(
+              is_disposable_entry ? FLAGS_disposable_entries_value_size
+                                  : FLAGS_persistent_entries_value_size);
+          val = Slice(random_value);
           num_unique_keys++;
         } else {
           val = gen.Generate();
@@ -5034,8 +5021,8 @@ class Benchmark {
         // If all disposable entries have been inserted, then we need to
         // add in the job queue a call for 'persistent entry insertions +
         // disposable entry deletions'.
-        if (NUM_DISP_AND_PERS_ENTRIES > 0 && is_disposable_entry &&
-            ((disposable_entries_index[id] % NUM_DISP_AND_PERS_ENTRIES) == 0)) {
+        if (kNumDispAndPersEntries > 0 && is_disposable_entry &&
+            ((disposable_entries_index[id] % kNumDispAndPersEntries) == 0)) {
           // Queue contains [timestamp, starting_idx],
           // timestamp = current_time + delay (minimum aboslute time when to
           // start inserting the selective deletes) starting_idx = index in the
@@ -5044,7 +5031,7 @@ class Benchmark {
           disposable_entries_q[id].push(std::make_pair(
               FLAGS_env->NowMicros() +
                   FLAGS_disposable_entries_delete_delay /* timestamp */,
-              disposable_entries_index[id] - NUM_DISP_AND_PERS_ENTRIES
+              disposable_entries_index[id] - kNumDispAndPersEntries
               /*starting idx*/));
         }
         if (writes_per_range_tombstone_ > 0 &&
@@ -5153,7 +5140,7 @@ class Benchmark {
               "Number of unique keys inserted: %" PRIu64
               ".\nNumber of overwrites: %" PRIu64 "\n",
               num_unique_keys, num_overwrites);
-    } else if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+    } else if (kNumDispAndPersEntries > 0) {
       fprintf(stdout,
               "Number of unique keys inserted (disposable+persistent): %" PRIu64
               ".\nNumber of 'disposable entry delete': %" PRIu64 "\n",
