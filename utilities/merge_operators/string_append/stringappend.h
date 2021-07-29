@@ -25,7 +25,7 @@ class StringAppendOperator : public AssociativeMergeOperator {
   virtual const char* Name() const override;
 
  private:
-  const std::string delim_;  // The delimiter is inserted between elements
+  std::string delim_;  // The delimiter is inserted between elements
 };
 
 }  // namespace ROCKSDB_NAMESPACE
