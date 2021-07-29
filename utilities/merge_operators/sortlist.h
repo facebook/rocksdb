@@ -34,6 +34,7 @@ class SortList : public MergeOperator {
   const char* ShortName() const override { return kShortName(); }
 
   void MakeVector(std::vector<int>& operand, Slice slice) const;
+
  private:
   std::vector<int> Merge(std::vector<int>& left, std::vector<int>& right) const;
 };

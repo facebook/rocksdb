@@ -323,6 +323,7 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
 TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
   ConfigOptions config_options;
   std::shared_ptr<MergeOperator> mo;
+  config_options.ignore_unsupported_options = false;
 
   ASSERT_NOK(MergeOperator::CreateFromString(
       config_options, CassandraValueMergeOperator::kClassName(), &mo));
@@ -351,6 +352,10 @@ TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
 TEST_F(CassandraFunctionalTest, LoadCompactionFilter) {
   ConfigOptions config_options;
   const CompactionFilter* filter = nullptr;
+  config_options.ignore_unsupported_options = false;
+
+  ASSERT_NOK(CompactionFilter::CreateFromString(
+      config_options, CassandraCompactionFilter::kClassName(), &filter));
   config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
                                       "cassandra");
 
@@ -378,6 +383,11 @@ TEST_F(CassandraFunctionalTest, LoadCompactionFilter) {
 TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
   ConfigOptions config_options;
   std::shared_ptr<CompactionFilterFactory> factory;
+
+  config_options.ignore_unsupported_options = false;
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(
+      config_options, CassandraCompactionFilterFactory::kClassName(),
+      &factory));
   config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
                                       "cassandra");
 
