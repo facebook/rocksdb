@@ -3079,20 +3079,26 @@ void CheckPointCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
+const std::string RepairCommand::ARG_VERBOSE = "verbose";
+
 RepairCommand::RepairCommand(const std::vector<std::string>& /*params*/,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_VERBOSE})) {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
+}
 
 void RepairCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(RepairCommand::Name());
+  ret.append(" [--" + ARG_VERBOSE + "]");
   ret.append("\n");
 }
 
 void RepairCommand::OverrideBaseOptions() {
   LDBCommand::OverrideBaseOptions();
-  options_.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
+  auto level = verbose_ ? InfoLogLevel::INFO_LEVEL : InfoLogLevel::WARN_LEVEL;
+  options_.info_log.reset(new StderrLogger(level));
 }
 
 void RepairCommand::DoCommand() {
