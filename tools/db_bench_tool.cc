@@ -356,7 +356,8 @@ DEFINE_uint64(
     disposable_entries_delete_delay, 0,
     "Minimum delay in microseconds for the series of Deletes "
     "to be issued. When 0 the insertion of the last disposable entry is "
-    "immediately followed by the issuance of the Deletes.");
+    "immediately followed by the issuance of the Deletes. "
+    "(only compatible with fillanddeleteuniquerandom benchmark).");
 
 DEFINE_uint64(disposable_entries_batch_size, 0,
               "Number of consecutively inserted disposable KV entries "
@@ -365,11 +366,12 @@ DEFINE_uint64(disposable_entries_batch_size, 0,
               "disposable KV entries it targets have been inserted "
               "into the DB. When 0 no deletes are issued and a "
               "regular 'filluniquerandom' benchmark occurs. "
-              "(only compatible with filluniquerandom benchmark)");
+              "(only compatible with fillanddeleteuniquerandom benchmark)");
 
 DEFINE_int32(disposable_entries_value_size, 64,
              "Size of the values (in bytes) of the entries targeted by "
-             "selective deletes. ");
+             "selective deletes. "
+             "(only compatible with fillanddeleteuniquerandom benchmark)");
 
 DEFINE_uint64(
     persistent_entries_batch_size, 0,
@@ -377,12 +379,13 @@ DEFINE_uint64(
     "targeting the disposable KV entries are issued. These "
     "persistent keys are not targeted by the deletes, and will always "
     "remain valid in the DB. (only compatible with "
-    "--benchmarks='filluniquerandom' "
+    "--benchmarks='fillanddeleteuniquerandom' "
     "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_int32(persistent_entries_value_size, 64,
              "Size of the values (in bytes) of the entries not targeted by "
-             "deletes. (only compatible with --benchmarks='filluniquerandom' "
+             "deletes. (only compatible with "
+             "--benchmarks='fillanddeleteuniquerandom' "
              "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_double(read_random_exp_range, 0.0,
@@ -3299,12 +3302,13 @@ class Benchmark {
       } else if (name == "fillrandom") {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
-      } else if (name == "filluniquerandom") {
+      } else if (name == "filluniquerandom" ||
+                 name == "fillanddeleteuniquerandom") {
         fresh_db = true;
         if (num_threads > 1) {
           fprintf(stderr,
-                  "filluniquerandom multithreaded not supported"
-                  ", use 1 thread");
+                  "filluniquerandom and fillanddeleteuniquerandom "
+                  "multithreaded not supported, use 1 thread");
           num_threads = 1;
         }
         method = &Benchmark::WriteUniqueRandom;
