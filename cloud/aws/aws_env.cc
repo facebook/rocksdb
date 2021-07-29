@@ -19,6 +19,7 @@
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
@@ -42,6 +43,16 @@ static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
     {"anonymous", AwsAccessType::kAnonymous},
 };
 
+AwsCloudAccessCredentials::AwsCloudAccessCredentials() {
+  std::string type_str;
+  if (CloudEnvOptions::GetNameFromEnvironment(
+          "ROCKSDB_AWS_ACCESS_TYPE", "rocksdb_aws_access_type", &type_str)) {
+    ParseEnum<AwsAccessType>(AwsAccessTypeMap, type_str, &type);
+  } else if (getenv("AWS_ACCESS_KEY_ID") != nullptr &&
+             getenv("AWS_SECRET_ACCESS_KEY") != nullptr) {
+    type = AwsAccessType::kEnvironment;
+  }
+}
 
 AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
   if (type != AwsAccessType::kUndefined) {
@@ -50,17 +61,12 @@ AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
     return AwsAccessType::kConfig;
   } else if (!access_key_id.empty() || !secret_key.empty()) {
     return AwsAccessType::kSimple;
+  } else if (getenv("AWS_ACCESS_KEY_ID") != nullptr &&
+             getenv("AWS_SECRET_ACCESS_KEY") != nullptr) {
+    return AwsAccessType::kEnvironment;
+  } else {
+    return AwsAccessType::kUndefined;
   }
-  return AwsAccessType::kUndefined;
-}
-
-Status AwsCloudAccessCredentials::TEST_Initialize() {
-  std::string type_str;
-  if (CloudEnvOptions::GetNameFromEnvironment(
-          "ROCKSDB_AWS_ACCESS_TYPE", "rocksdb_aws_access_type", &type_str)) {
-    ParseEnum<AwsAccessType>(AwsAccessTypeMap, type_str, &type);
-  }
-  return HasValid();
 }
 
 Status AwsCloudAccessCredentials::CheckCredentials(
@@ -170,6 +176,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
     : CloudEnvImpl(_cloud_env_options, underlying_env, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
+}
+
+// If you do not specify a region, then S3 buckets are created in the
+// standard-region which might not satisfy read-your-own-writes. So,
+// explicitly make the default region be us-west-2.
+Status AwsEnv::PrepareOptions(const ConfigOptions& options) {
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
     std::string region;
@@ -184,7 +196,17 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       cloud_env_options.dest_bucket.SetRegion(region);
     }
   }
-  base_env_ = underlying_env;
+  if (cloud_env_options.storage_provider == nullptr) {
+    // If the user has not specified a storage provider, then use the default
+    // provider for this CloudType
+    Status s = CloudStorageProvider::CreateFromString(
+        options, CloudStorageProviderImpl::kS3(),
+        &cloud_env_options.storage_provider);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return CloudEnvImpl::PrepareOptions(options);
 }
 
 void AwsEnv::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
@@ -200,47 +222,69 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& cloud_options,
   if (!base_env) {
     base_env = Env::Default();
   }
-  // These lines of code are likely temporary until the new configuration stuff
-  // comes into play.
-  CloudEnvOptions options = cloud_options;  // Make a copy
-
-  // If the user has not specified a storage provider, then use the default
-  // provider for this CloudType
-  if (!options.storage_provider) {
-    status =
-      CloudStorageProviderImpl::CreateS3Provider(&options.storage_provider);
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Created default S3 storage provider for cloud type %d. %s",
-	cloud_options.cloud_type, status.ToString().c_str());
-  }
-  if (status.ok() && !cloud_options.keep_local_log_files) {
-    if (cloud_options.log_type == kLogKinesis) {
-      status = CloudLogControllerImpl::CreateKinesisController(
-          &options.cloud_log_controller);
-    } else if (cloud_options.log_type == kLogKafka) {
-      status = CloudLogControllerImpl::CreateKafkaController(
-          &options.cloud_log_controller);
-    } else {
-      status =
-          Status::NotSupported("We currently only support Kinesis and Kafka");
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Unknown log type %d. %s", cloud_options.log_type,
-          status.ToString().c_str());
-    }
-  }
-  if (!status.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Unable to create environment %s",
-        status.ToString().c_str());
-    return status;
-  }
-  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, options, info_log));
-  status = aenv->Prepare();
+  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, cloud_options, info_log));
+  ConfigOptions config_options;
+  config_options.env = aenv.get();
+  status = aenv->PrepareOptions(config_options);
   if (status.ok()) {
     *cenv = aenv.release();
   }
   return status;
 }
 #endif  // USE_AWS
+
+Status AwsEnv::NewAwsEnv(Env* env, std::unique_ptr<CloudEnv>* cenv) {
+#ifdef USE_AWS
+  cenv->reset(new AwsEnv(env, CloudEnvOptions()));
+  return Status::OK();
+#else
+  (void) env;
+  cenv->reset();
+  return Status::NotSupported("AWS not supported");
+#endif // USE_AWS
+}
+
+int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
+                                     const std::string& /*arg*/) {
+  int count = 0;
+  library.Register<Env>(CloudEnvImpl::kAws(),
+                        [](const std::string& /*uri*/,
+                           std::unique_ptr<Env>* guard, std::string* errmsg) {
+                          std::unique_ptr<CloudEnv> cguard;
+                          Status s = AwsEnv::NewAwsEnv(Env::Default(), &cguard);
+                          if (s.ok()) {
+                            guard->reset(cguard.release());
+                            return guard->get();
+                          } else {
+                            *errmsg = s.ToString();
+                            return static_cast<Env*>(nullptr);
+                          }
+                        });
+  count++;
+  library.Register<CloudLogController>(
+      CloudLogControllerImpl::kKinesis(),
+      [](const std::string& /*uri*/, std::unique_ptr<CloudLogController>* guard,
+         std::string* errmsg) {
+        Status s = CloudLogControllerImpl::CreateKinesisController(guard);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        return guard->get();
+      });
+  count++;
+  library.Register<CloudStorageProvider>(  // s3
+      CloudStorageProviderImpl::kS3(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<CloudStorageProvider>* guard, std::string* errmsg) {
+        Status s = CloudStorageProviderImpl::CreateS3Provider(guard);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        return guard->get();
+      });
+  count++;
+  return count;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif // ROCKSDB_LITE

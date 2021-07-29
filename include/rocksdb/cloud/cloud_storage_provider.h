@@ -4,6 +4,7 @@
 
 #include <unordered_map>
 
+#include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
@@ -44,14 +45,19 @@ struct CloudObjectInformation {
 // store.  Methods can create and empty buckets, as well as other
 // standard bucket object operations get/put/list/delete
 
-class CloudStorageProvider {
+class CloudStorageProvider : public Configurable {
  public:
-  // Create a storage provider for S3
-  static Status CreateS3Provider(std::shared_ptr<CloudStorageProvider>* result);
-
   virtual ~CloudStorageProvider();
   static const char* Type() { return "CloudStorageProvider"; }
-  virtual const char* Name() const { return "cloud"; }
+  // Creates and configures a new CloudStorageProvider from the input options
+  // and id.
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& id,
+      std::shared_ptr<CloudStorageProvider>* provider);
+
+  // Returns name of the cloud storage provider type (e.g., S3)
+  virtual const char* Name() const = 0;
+
   virtual Status CreateBucket(const std::string& bucket_name) = 0;
   virtual Status ExistsBucket(const std::string& bucket_name) = 0;
 
@@ -123,8 +129,5 @@ class CloudStorageProvider {
       const std::string& bucket, const std::string& fname,
       std::unique_ptr<CloudStorageReadableFile>* result,
       const EnvOptions& options) = 0;
-
-  // Prepares/Initializes the storage provider for the input cloud environment
-  virtual Status Prepare(CloudEnv* env);
 };
 }  // namespace ROCKSDB_NAMESPACE

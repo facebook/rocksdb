@@ -1867,6 +1867,9 @@ remote_compaction_test: cloud/remote_compaction_test.o $(TEST_LIBRARY) $(LIBRARY
 db_cloud_test: cloud/db_cloud_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+cloud_env_test: cloud/cloud_env_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 cloud_manifest_test: cloud/cloud_manifest_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

@@ -6,13 +6,17 @@
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/db_cloud_impl.h"
+#include "rocksdb/cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 void CloudEnvOptions::Dump(Logger* log) const {
-  Header(log, "                         COptions.cloud_type: %u", cloud_type);
-  Header(log, "                           COptions.log_type: %u", log_type);
+  auto provider = storage_provider.get();
+  auto controller = cloud_log_controller.get();
+  Header(log, "                         COptions.cloud_type: %s", (provider != nullptr) ? provider->Name() : "Unknown");
+  Header(log, "                           COptions.log_type: %s", (controller != nullptr) ? controller->Name() : "None");
   Header(log, "               COptions.keep_local_sst_files: %d",
          keep_local_sst_files);
   Header(log, "               COptions.keep_local_log_files: %d",

@@ -13,7 +13,9 @@
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/filename.h"
 #include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -31,6 +33,17 @@ const std::chrono::microseconds CloudLogControllerImpl::kRetryPeriod =
 
 CloudLogController::~CloudLogController() {}
 
+Status CloudLogController::CreateFromString(
+    const ConfigOptions& /*config_options*/, const std::string& id,
+    std::shared_ptr<CloudLogController>* controller) {
+  if (id.empty()) {
+    controller->reset();
+    return Status::OK();
+  } else {
+    return ObjectRegistry::NewInstance()->NewSharedObject<CloudLogController>(id, controller);
+  }
+}
+
 CloudLogControllerImpl::CloudLogControllerImpl() : running_(false) {}
 
 CloudLogControllerImpl::~CloudLogControllerImpl() {
@@ -38,15 +51,17 @@ CloudLogControllerImpl::~CloudLogControllerImpl() {
     // This is probably not a good situation as the derived class is partially
     // destroyed but the tailer might still be active.
     Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
-        "[%s] CloudLogController closing.  Stopping stream.", Name());
+        "CloudLogController closing.  Stopping stream.");
     StopTailingStream();
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
-      "[%s] CloudLogController closed.", Name());
+  if (env_ != nullptr) {
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+        "CloudLogController closed.");
+  }
 }
 
-Status CloudLogControllerImpl::Initialize(CloudEnv* env) {
-  env_ = env;
+Status CloudLogControllerImpl::PrepareOptions(const ConfigOptions& options) {
+  env_ = static_cast<CloudEnv*>(options.env);
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
 
@@ -54,25 +69,20 @@ Status CloudLogControllerImpl::Initialize(CloudEnv* env) {
   const std::string bucket_dir = kCacheDir + pathsep + env_->GetSrcBucketName();
   cache_dir_ = bucket_dir + pathsep + uid;
 
+  Env* base = env_->GetBaseEnv();
   // Create temporary directories.
-  Status st = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
-  if (st.ok()) {
-    st = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
-  }
-  if (st.ok()) {
-    st = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
-  }
-  return st;
-}
-
-Status CloudLogControllerImpl::Prepare(CloudEnv* env) {
-  if (env != nullptr) {
-    status_ = Initialize(env);
-  } else {
-    status_ = Status::NotSupported("LogController requires a CloudEnv");
+  status_ = base->CreateDirIfMissing(kCacheDir);
+  if (status_.ok()) {
+    status_ = base->CreateDirIfMissing(bucket_dir);
   }
   if (status_.ok()) {
-    status_ = StartTailingStream(env->GetSrcBucketName());
+    status_ = base->CreateDirIfMissing(cache_dir_);
+  }
+  if (status_.ok()) {
+    status_ = StartTailingStream(env_->GetSrcBucketName());
+  }
+  if (status_.ok()) {
+    status_ = CloudLogController::PrepareOptions(options);
   }
   return status_;
 }

@@ -10,9 +10,9 @@
 
 #include "cloud/cloud_log_controller_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
-#include "util/stderr_logger.h"
 #include "util/string_util.h"
 
 #ifdef USE_KAFKA
@@ -175,9 +175,10 @@ class KafkaController : public CloudLogControllerImpl {
     for (size_t i = 0; i < partitions_.size(); i++) {
       consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
     }
-
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
-        "[%s] KafkaController closed.", Name());
+    if (env_ != nullptr) {
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+          "[%s] KafkaController closed.", Name());
+    }
   }
 
   const char* Name() const override { return "kafka"; }
@@ -198,9 +199,9 @@ class KafkaController : public CloudLogControllerImpl {
 
   virtual CloudLogWritableFile* CreateWritableFile(
       const std::string& fname, const EnvOptions& options) override;
+  Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
-  Status Initialize(CloudEnv* env) override;
 
  private:
   Status InitializePartitions();
@@ -216,11 +217,8 @@ class KafkaController : public CloudLogControllerImpl {
   std::vector<std::shared_ptr<RdKafka::TopicPartition>> partitions_;
 };
 
-Status KafkaController::Initialize(CloudEnv* env) {
-  Status s = CloudLogControllerImpl::Initialize(env);
-  if (!s.ok()) {
-    return s;
-  }
+Status KafkaController::PrepareOptions(const ConfigOptions& options) {
+  CloudEnv* env = static_cast<CloudEnv*>(options.env);
   std::string conf_errstr, producer_errstr, consumer_errstr;
   const auto& kconf =
       env->GetCloudEnvOptions().kafka_log_options.client_config_params;
@@ -234,11 +232,11 @@ Status KafkaController::Initialize(CloudEnv* env) {
   for (auto const& item : kconf) {
     if (conf->set(item.first, item.second, conf_errstr) !=
         RdKafka::Conf::CONF_OK) {
-      s = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
-                                  conf_errstr.c_str());
+      Status s = Status::InvalidArgument(
+          "Failed adding specified conf to Kafka conf", conf_errstr.c_str());
 
       Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
-          "[aws] NewAwsEnv Kafka conf set error: %s", s.ToString().c_str());
+          "Kafka conf set error: %s", s.ToString().c_str());
       return s;
     }
   }
@@ -246,6 +244,7 @@ Status KafkaController::Initialize(CloudEnv* env) {
   producer_.reset(RdKafka::Producer::create(conf.get(), producer_errstr));
   consumer_.reset(RdKafka::Consumer::create(conf.get(), consumer_errstr));
 
+  Status s;
   if (!producer_) {
     s = Status::InvalidArgument("Failed creating Kafka producer",
                                 producer_errstr.c_str());
@@ -277,6 +276,9 @@ Status KafkaController::Initialize(CloudEnv* env) {
     assert(producer_topic_ != nullptr);
     assert(consumer_topic_ != nullptr);
     assert(consuming_queue_ != nullptr);
+  }
+  if (s.ok()) {
+    s = CloudLogControllerImpl::PrepareOptions(options);
   }
   return s;
 }
@@ -423,7 +425,7 @@ CloudLogWritableFile* KafkaController::CreateWritableFile(
 
 namespace ROCKSDB_NAMESPACE {
 Status CloudLogControllerImpl::CreateKafkaController(
-    std::shared_ptr<CloudLogController>* output) {
+    std::unique_ptr<CloudLogController>* output) {
 #ifndef USE_KAFKA
   output->reset();
   return Status::NotSupported(

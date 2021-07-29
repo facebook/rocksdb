@@ -13,13 +13,16 @@ class CloudEnvOptions;
 
 class CloudLogControllerImpl : public CloudLogController {
  public:
+  static const char* kKafka() { return "kafka"; }
+  static const char* kKinesis() { return "kinesis"; }
+
   static constexpr const char* kCacheDir = "/tmp/ROCKSET";
   // Delay in Cloud Log stream: writes to read visibility
   static const std::chrono::microseconds kRetryPeriod;
   static Status CreateKinesisController(
-      std::shared_ptr<CloudLogController>* result);
+      std::unique_ptr<CloudLogController>* result);
   static Status CreateKafkaController(
-      std::shared_ptr<CloudLogController>* result);
+      std::unique_ptr<CloudLogController>* result);
 
   static const uint32_t kAppend = 0x1;  // add a new record to a logfile
   static const uint32_t kDelete = 0x2;  // delete a log file
@@ -54,10 +57,9 @@ class CloudLogControllerImpl : public CloudLogController {
                              const EnvOptions& options) override;
   Status FileExists(const std::string& fname) override;
   Status GetFileSize(const std::string& logical_fname, uint64_t* size) override;
-  virtual Status Prepare(CloudEnv* env) override;
+  Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
-  virtual Status Initialize(CloudEnv* env);
   // Converts an original pathname to a pathname in the cache.
   std::string GetCachePath(const Slice& original_pathname) const;
 

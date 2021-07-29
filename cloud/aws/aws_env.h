@@ -48,10 +48,11 @@ class AwsEnv : public CloudEnvImpl {
   static Status NewAwsEnv(Env* env, const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& info_log,
                           CloudEnv** cenv);
-
+  static Status NewAwsEnv(Env* env, std::unique_ptr<CloudEnv>* cenv);
   virtual ~AwsEnv() {}
 
-  const char* Name() const override { return "aws"; }
+  static const char* kName() { return kAws(); }
+  const char* Name() const override { return kAws(); }
 
   // We cannot invoke Aws::ShutdownAPI from the destructor because there could
   // be
@@ -59,6 +60,7 @@ class AwsEnv : public CloudEnvImpl {
   // only once by the entire process when all AwsEnvs are destroyed.
   static void Shutdown();
 
+  Status PrepareOptions(const ConfigOptions& options) override;
   // If you do not specify a region, then S3 buckets are created in the
   // standard-region which might not satisfy read-your-own-writes. So,
   // explicitly make the default region be us-west-2.

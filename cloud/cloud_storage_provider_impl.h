@@ -99,6 +99,9 @@ class CloudStorageWritableFileImpl : public CloudStorageWritableFile {
 //
 class CloudStorageProviderImpl : public CloudStorageProvider {
  public:
+  static Status CreateS3Provider(std::unique_ptr<CloudStorageProvider>* result);
+  static const char* kS3() { return "s3"; }
+
   CloudStorageProviderImpl();
   virtual ~CloudStorageProviderImpl();
   Status GetCloudObject(const std::string& bucket_name,
@@ -111,12 +114,10 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
                               const std::string& fname,
                               std::unique_ptr<CloudStorageReadableFile>* result,
                               const EnvOptions& options) override;
-  virtual Status Prepare(CloudEnv* env) override;
+  virtual Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
   Random64 rng_;
-  virtual Status Initialize(CloudEnv* env);
-
   virtual Status DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
       const std::string& content_hash,

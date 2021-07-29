@@ -1067,6 +1067,7 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cloud/cloud_env_test.cc
         cloud/db_cloud_test.cc
         cloud/cloud_manifest_test.cc
         cloud/cloud_scheduler_test.cc

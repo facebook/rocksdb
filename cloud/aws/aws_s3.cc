@@ -48,6 +48,7 @@
 #include "port/port.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -356,14 +357,16 @@ class S3WritableFile : public CloudStorageWritableFileImpl {
                  const EnvOptions& options)
       : CloudStorageWritableFileImpl(env, local_fname, bucket, cloud_fname,
                                      options) {}
-  virtual const char* Name() const override { return "s3"; }
+  virtual const char* Name() const override {
+    return CloudStorageProviderImpl::kS3();
+  }
 };
 
 /******************** S3StorageProvider ******************/
 class S3StorageProvider : public CloudStorageProviderImpl {
  public:
   ~S3StorageProvider() override {}
-  virtual const char* Name() const override { return "s3"; }
+  virtual const char* Name() const override { return kS3(); }
   Status CreateBucket(const std::string& bucket) override;
   Status ExistsBucket(const std::string& bucket) override;
   Status EmptyBucket(const std::string& bucket_name,
@@ -409,9 +412,9 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                               const std::string& object_path,
                               std::unique_ptr<CloudStorageWritableFile>* result,
                               const EnvOptions& options) override;
+  Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
-  Status Initialize(CloudEnv* env) override;
   Status DoGetCloudObject(const std::string& bucket_name,
                           const std::string& object_path,
                           const std::string& destination,
@@ -433,17 +436,18 @@ class S3StorageProvider : public CloudStorageProviderImpl {
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 };
 
-Status S3StorageProvider::Initialize(CloudEnv* env) {
-  Status status = CloudStorageProviderImpl::Initialize(env);
-  if (!status.ok()) {
-    return status;
+Status S3StorageProvider::PrepareOptions(const ConfigOptions& options) {
+  auto cenv = static_cast<CloudEnv*>(options.env);
+  const CloudEnvOptions& cloud_opts = cenv->GetCloudEnvOptions();
+  if (std::string(cenv->Name()) != CloudEnvImpl::kAws()) {
+    return Status::InvalidArgument("S3 Provider requires AWS Environment");
   }
-  const CloudEnvOptions& cloud_opts = env->GetCloudEnvOptions();
   // TODO: support buckets being in different regions
-  if (!env->SrcMatchesDest() && env->HasSrcBucket() && env->HasDestBucket()) {
+  if (!cenv->SrcMatchesDest() && cenv->HasSrcBucket() &&
+      cenv->HasDestBucket()) {
     if (cloud_opts.src_bucket.GetRegion() !=
         cloud_opts.dest_bucket.GetRegion()) {
-      Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
+      Log(InfoLogLevel::ERROR_LEVEL, cenv->GetLogger(),
           "[aws] NewAwsEnv Buckets %s, %s in two different regions %s, %s "
           "is not supported",
           cloud_opts.src_bucket.GetBucketName().c_str(),
@@ -454,22 +458,26 @@ Status S3StorageProvider::Initialize(CloudEnv* env) {
     }
   }
   Aws::Client::ClientConfiguration config;
-  status = AwsCloudOptions::GetClientConfiguration(
-      env, cloud_opts.src_bucket.GetRegion(), &config);
+  Status status = AwsCloudOptions::GetClientConfiguration(
+      cenv, cloud_opts.src_bucket.GetRegion(), &config);
   if (status.ok()) {
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
     status = cloud_opts.credentials.GetCredentialsProvider(&creds);
     if (!status.ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, env->GetLogger(),
+      Log(InfoLogLevel::INFO_LEVEL, cenv->GetLogger(),
           "[aws] NewAwsEnv - Bad AWS credentials");
     } else {
-      Header(env->GetLogger(), "S3 connection to endpoint in region: %s",
+      Header(cenv->GetLogger(), "S3 connection to endpoint in region: %s",
              config.region.c_str());
       s3client_ =
           std::make_shared<AwsS3ClientWrapper>(creds, config, cloud_opts);
     }
   }
-  return status;
+  if (!status.ok()) {
+    return status;
+  } else {
+    return CloudStorageProviderImpl::PrepareOptions(options);
+  }
 }
 
 //
@@ -905,8 +913,8 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
 
 #endif /* USE_AWS */
   
-Status CloudStorageProvider::CreateS3Provider(
-    std::shared_ptr<CloudStorageProvider>* provider) {
+Status CloudStorageProviderImpl::CreateS3Provider(
+    std::unique_ptr<CloudStorageProvider>* provider) {
 #ifndef USE_AWS
   provider->reset();
   return Status::NotSupported(

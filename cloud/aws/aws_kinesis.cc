@@ -9,6 +9,7 @@
 
 #include "cloud/cloud_log_controller_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
@@ -181,8 +182,10 @@ Status KinesisWritableFile::LogDelete() {
 class KinesisController : public CloudLogControllerImpl {
  public:
   virtual ~KinesisController() {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
-        "[%s] KinesisController closed", Name());
+    if (env_ != nullptr) {
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+          "[%s] KinesisController closed", Name());
+    }
   }
 
   const char* Name() const override { return "kinesis"; }
@@ -194,8 +197,7 @@ class KinesisController : public CloudLogControllerImpl {
   CloudLogWritableFile* CreateWritableFile(const std::string& fname,
                                            const EnvOptions& options) override;
 
- protected:
-  Status Initialize(CloudEnv* env) override;
+  Status PrepareOptions(const ConfigOptions& options) override;
 
  private:
   std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
@@ -214,31 +216,28 @@ class KinesisController : public CloudLogControllerImpl {
   void SeekShards();
 };
 
-Status KinesisController::Initialize(CloudEnv* env) {
-  Status st = CloudLogControllerImpl::Initialize(env);
-  if (st.ok()) {
-    Aws::Client::ClientConfiguration config;
-    const auto& options = env->GetCloudEnvOptions();
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
-    st = options.credentials.GetCredentialsProvider(&provider);
-    if (st.ok()) {
-      st = AwsCloudOptions::GetClientConfiguration(
-          env, options.src_bucket.GetRegion(), &config);
-    }
-    if (st.ok()) {
-      kinesis_client_.reset(
-          provider ? new Aws::Kinesis::KinesisClient(provider, config)
-                   : new Aws::Kinesis::KinesisClient(config));
-      // Initialize stream name.
-      std::string bucket = env->GetSrcBucketName();
-      topic_ = Aws::String(bucket.c_str(), bucket.size());
-
-      Log(InfoLogLevel::INFO_LEVEL, env->GetLogger(),
-          "[%s] KinesisController opening stream %s using cachedir '%s'",
-          Name(), topic_.c_str(), cache_dir_.c_str());
-    }
+Status KinesisController::PrepareOptions(const ConfigOptions& config_options) {
+  CloudEnv* cenv = static_cast<CloudEnv*>(config_options.env);
+  Aws::Client::ClientConfiguration config;
+  const auto& options = cenv->GetCloudEnvOptions();
+  if (std::string(cenv->Name()) != CloudEnv::kAws()) {
+    return Status::InvalidArgument("Kinesis Provider requires AWS Environment");
   }
-  return st;
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
+  status_ = options.credentials.GetCredentialsProvider(&provider);
+  if (status_.ok()) {
+    status_ = AwsCloudOptions::GetClientConfiguration(
+        cenv, options.src_bucket.GetRegion(), &config);
+  }
+  if (status_.ok()) {
+    kinesis_client_.reset(
+        provider ? new Aws::Kinesis::KinesisClient(provider, config)
+                 : new Aws::Kinesis::KinesisClient(config));
+  }
+  if (status_.ok()) {
+    status_ = CloudLogControllerImpl::PrepareOptions(config_options);
+  }
+  return status_;
 }
 
 Status KinesisController::TailStream() {
@@ -328,11 +327,16 @@ Status KinesisController::TailStream() {
 }
 
 Status KinesisController::CreateStream(const std::string& bucket) {
-  Aws::String topic = Aws::String(bucket.c_str(), bucket.size());
+  // Initialize stream name.
+  topic_ = Aws::String(bucket.c_str(), bucket.size());
+
+  Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
+      "[%s] KinesisController opening stream %s using cachedir '%s'", Name(),
+      topic_.c_str(), cache_dir_.c_str());
 
   // create stream
   Aws::Kinesis::Model::CreateStreamRequest create_request;
-  create_request.SetStreamName(topic);
+  create_request.SetStreamName(topic_);
   create_request.SetShardCount(1);
   Aws::Kinesis::Model::CreateStreamOutcome outcome =
       kinesis_client_->CreateStream(create_request);
@@ -343,7 +347,7 @@ Status KinesisController::CreateStream(const std::string& bucket) {
         outcome.GetError();
     std::string errmsg(error.GetMessage().c_str());
     if (errmsg.find("already exists") == std::string::npos) {
-      st = Status::IOError(topic.c_str(), errmsg);
+      st = Status::IOError(topic_.c_str(), errmsg);
     }
   }
   if (st.ok()) {
@@ -487,7 +491,7 @@ CloudLogWritableFile* KinesisController::CreateWritableFile(
 
 namespace ROCKSDB_NAMESPACE {
 Status CloudLogControllerImpl::CreateKinesisController(
-    std::shared_ptr<CloudLogController>* output) {
+    std::unique_ptr<CloudLogController>* output) {
 #ifndef USE_AWS
   output->reset();
   return Status::NotSupported(
