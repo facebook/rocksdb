@@ -39,7 +39,13 @@ std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
   DB* db;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator.reset(new StringAppendOperator(delim));
+  MergeOperator* mergeOperator;
+  if (delim.size() == 1) {
+    mergeOperator = new StringAppendOperator(delim[0]);
+  } else {
+    mergeOperator = new StringAppendOperator(delim);
+  }
+  options.merge_operator.reset(mergeOperator);
   EXPECT_OK(DB::Open(options, kDbName, &db));
   return std::shared_ptr<DB>(db);
 }
@@ -50,7 +56,13 @@ std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
   DBWithTTL* db;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator.reset(new StringAppendTESTOperator(delim));
+  MergeOperator* mergeOperator;
+  if (delim.size() == 1) {
+    mergeOperator = new StringAppendTESTOperator(delim[0]);
+  } else {
+    mergeOperator = new StringAppendTESTOperator(delim);
+  }
+  options.merge_operator.reset(mergeOperator);
   EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
