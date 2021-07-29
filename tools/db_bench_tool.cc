@@ -4835,10 +4835,10 @@ class Benchmark {
     if (NUM_DISP_AND_PERS_ENTRIES > 0) {
       if ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
           (p > 0.0)) {
-        fprintf(stderr,
-                "Disposable/persistent deletes are not compatible with "
-                "overwrites and "
-                "DeleteRanges; and are only supported in filluniquerandom.\n");
+        fprintf(
+            stderr,
+            "Disposable/persistent deletes are not compatible with overwrites "
+            "and DeleteRanges; and are only supported in filluniquerandom.\n");
         ErrorExit();
       }
       if (FLAGS_disposable_entries_value_size < 0 ||
