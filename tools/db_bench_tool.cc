@@ -366,9 +366,9 @@ DEFINE_uint64(disposable_entries_batch_size, 0,
               "regular 'filluniquerandom' benchmark occurs. "
               "(only compatible with filluniquerandom benchmark)");
 
-DEFINE_uint64(disposable_entries_value_size, 64,
-              "Size of the values (in bytes) of the entries targeted by "
-              "selective deletes. ");
+DEFINE_int32(disposable_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries targeted by "
+             "selective deletes. ");
 
 DEFINE_uint64(
     persistent_entries_batch_size, 0,
@@ -379,10 +379,10 @@ DEFINE_uint64(
     "--benchmarks='filluniquerandom' "
     "and used when--disposable_entries_batch_size is > 0).");
 
-DEFINE_uint64(persistent_entries_value_size, 64,
-              "Size of the values (in bytes) of the entries not targeted by "
-              "deletes. (only compatible with --benchmarks='filluniquerandom' "
-              "and used when--disposable_entries_batch_size is > 0).");
+DEFINE_int32(persistent_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries not targeted by "
+             "deletes. (only compatible with --benchmarks='filluniquerandom' "
+             "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_bool(
     key_before_delete_range, true,
@@ -4814,7 +4814,17 @@ class Benchmark {
     std::deque<int64_t> inserted_key_window;
     Random64 reservoir_id_gen(FLAGS_seed);
 
-    // Counters used for selective deletes.
+    // --- Variables used in disposable/persistent keys simulation:
+    // The following variables are used when
+    // disposable_entries_batch_size is >0. We simualte a workload
+    // where the following sequence is repeated multiple times:
+    // "A set of keys S1 is inserted ('disposable entries'), then after
+    // some delay another set of keys S2 is inserted ('persistent entries')
+    // and the first set of keys S1 is deleted. S2 artificially represents
+    // the insertion of hypothetical results from some undefined computation
+    // done on the first set of keys S1. The next sequence can start as soon
+    // as the last disposable entry in the set S1 of this sequence is
+    // inserted, if the delay is non negligible"
     bool skip_for_loop = false, is_disposable_entry = true;
     std::vector<uint64_t> disposable_entries_index(FLAGS_num_column_families,
                                                    0);
@@ -4823,20 +4833,30 @@ class Benchmark {
     const uint64_t NUM_DISP_AND_PERS_ENTRIES =
         FLAGS_disposable_entries_batch_size +
         FLAGS_persistent_entries_batch_size;
-    if (NUM_DISP_AND_PERS_ENTRIES > 0 &&
-        ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
-         (p > 0.0))) {
-      fprintf(stderr,
-              "Disposable/persistent deletes are not compatible with "
-              "overwrites and "
-              "DeleteRanges; and are only supported in filluniquerandom.\n");
-      ErrorExit();
+    if (NUM_DISP_AND_PERS_ENTRIES > 0) {
+      if ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
+          (p > 0.0)) {
+        fprintf(stderr,
+                "Disposable/persistent deletes are not compatible with "
+                "overwrites and "
+                "DeleteRanges; and are only supported in filluniquerandom.\n");
+        ErrorExit();
+      }
+      if (FLAGS_disposable_entries_value_size < 0 ||
+          FLAGS_persistent_entries_value_size < 0) {
+        fprintf(
+            stderr,
+            "disposable_entries_value_size and persistent_entries_value_size"
+            "have to be positive.\n");
+        ErrorExit();
+      }
     }
-    Random rnd_disposable_entry(FLAGS_seed);
-    // Queue that stores scheduled timestamp of selective deletes,
-    // along with starting index of keys to delete.
+    Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    // Queue that stores scheduled timestamp of disposable entries deletes,
+    // along with starting index of disposable entry keys to delete.
     std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
         num_key_gens);
+    // --- End of variables used in disposable/persistent keys simulation.
 
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
     std::vector<Slice> expanded_keys;
