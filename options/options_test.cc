@@ -4174,6 +4174,17 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   delimiter = merge_op->GetOptions<std::string>("Delimiter");
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
+
+  std::shared_ptr<MergeOperator> copy;
+  std::string mismatch;
+  std::string opts_str = merge_op->ToString(config_options);
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, opts_str, &copy));
+  ASSERT_TRUE(merge_op->AreEquivalent(config_options, copy.get(), &mismatch));
+  ASSERT_NE(copy, nullptr);
+  delimiter = copy->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

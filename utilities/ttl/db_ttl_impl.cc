@@ -18,15 +18,15 @@
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
-static std::unordered_map<std::string, OptionTypeInfo> ttl_mo_type_info = {
-    {"user_operator",
-     OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
-         0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
+static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
+    {{"user_operator",
+      OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+          0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
 
 TtlMergeOperator::TtlMergeOperator(
     const std::shared_ptr<MergeOperator>& merge_op, SystemClock* clock)
     : user_merge_op_(merge_op), clock_(clock) {
-  RegisterOptions("TtlMergeOptions", &user_merge_op_, &ttl_mo_type_info);
+  RegisterOptions("TtlMergeOptions", &user_merge_op_, &ttl_merge_op_type_info);
 }
 
 bool TtlMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,

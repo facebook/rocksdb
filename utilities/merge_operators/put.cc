@@ -49,7 +49,9 @@ class PutOperator : public MergeOperator {
   }
 
   static const char* kClassName() { return "PutOperator"; }
+  static const char* kShortName() { return "put_v1"; }
   const char* Name() const override { return kClassName(); }
+  const char* ShortName() const override { return kShortName(); }
 };
 
 class PutOperatorV2 : public PutOperator {
@@ -68,13 +70,9 @@ class PutOperatorV2 : public PutOperator {
     merge_out->existing_operand = merge_in.operand_list.back();
     return true;
   }
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name == "put") {
-      return true;
-    } else {
-      return PutOperator::IsInstanceOf(name);
-    }
-  }
+
+  static const char* kShortName() { return "put"; }
+  const char* ShortName() const override { return kShortName(); }
 };
 
 } // end of anonymous namespace

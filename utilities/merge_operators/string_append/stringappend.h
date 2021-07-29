@@ -22,15 +22,10 @@ class StringAppendOperator : public AssociativeMergeOperator {
                      std::string* new_value,
                      Logger* logger) const override;
 
-  virtual const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "StringAppendOperator"; }
-  bool IsInstanceOf(const std::string& id) const override {
-    if (id == "stringappend") {
-      return true;
-    } else {
-      return AssociativeMergeOperator::IsInstanceOf(id);
-    }
-  }
+  static const char* kShortName() { return "stringappend"; }
+  virtual const char* Name() const override { return kClassName(); }
+  virtual const char* ShortName() const override { return kShortName(); }
 
  private:
   std::string delim_;  // The delimiter is inserted between elements

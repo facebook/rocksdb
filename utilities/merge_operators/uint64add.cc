@@ -37,14 +37,9 @@ class UInt64AddOperator : public AssociativeMergeOperator {
   }
 
   static const char* kClassName() { return "UInt64AddOperator"; }
+  static const char* kShortName() { return "uint64add"; }
   const char* Name() const override { return kClassName(); }
-  bool IsInstanceOf(const std::string& id) const override {
-    if (id == "uint64add") {
-      return true;
-    } else {
-      return MergeOperator::IsInstanceOf(id);
-    }
-  }
+  const char* ShortName() const override { return kShortName(); }
 
  private:
   // Takes the string and decodes it into a uint64_t

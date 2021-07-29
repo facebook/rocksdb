@@ -34,15 +34,10 @@ class StringAppendTESTOperator : public MergeOperator {
                                  std::string* new_value, Logger* logger) const
       override;
 
-  const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "StringAppendTESTOperator"; }
-  bool IsInstanceOf(const std::string& id) const override {
-    if (id == "stringappendtest") {
-      return true;
-    } else {
-      return MergeOperator::IsInstanceOf(id);
-    }
-  }
+  static const char* kShortName() { return "stringappendtest"; }
+  const char* Name() const override { return kClassName(); }
+  const char* ShortName() const override { return kShortName(); }
 
  private:
   // A version of PartialMerge that actually performs "partial merging".

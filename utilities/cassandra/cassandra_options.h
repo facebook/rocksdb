@@ -18,8 +18,17 @@ struct CassandraOptions {
       : operands_limit(_operands_limit),
         gc_grace_period_in_seconds(_gc_grace_period_in_seconds),
         purge_ttl_on_expiration(_purge_ttl_on_expiration) {}
+  // Limit on the number of merge operands.
   size_t operands_limit;
+
+  // How long (in seconds) tombstoned data remains before it is purged
   int32_t gc_grace_period_in_seconds;
+
+  // If is set to true, expired data will be directly purged.
+  // Otherwise expired data will be converted tombstones first,
+  // then be eventually removed after gc grace period. This value should
+  // only true if all writes have same ttl setting, otherwise it could bring old
+  // data back.
   bool purge_ttl_on_expiration;
 };
 #ifndef ROCKSDB_LITE

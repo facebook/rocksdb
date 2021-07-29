@@ -17,22 +17,23 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
-static std::unordered_map<std::string, OptionTypeInfo> merge_options_info = {
+static std::unordered_map<std::string, OptionTypeInfo>
+    merge_operator_options_info = {
 #ifndef ROCKSDB_LITE
-    {"gc_grace_period_in_seconds",
-     {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
-      OptionType::kUInt32T, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, 0}},
-    {"operands_limit",
-     {offsetof(struct CassandraOptions, operands_limit), OptionType::kSizeT,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"gc_grace_period_in_seconds",
+         {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"operands_limit",
+         {offsetof(struct CassandraOptions, operands_limit), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
 #endif  // ROCKSDB_LITE
 };
 
 CassandraValueMergeOperator::CassandraValueMergeOperator(
     int32_t gc_grace_period_in_seconds, size_t operands_limit)
     : options_(gc_grace_period_in_seconds, operands_limit) {
-  RegisterOptions(&options_, &merge_options_info);
+  RegisterOptions(&options_, &merge_operator_options_info);
 }
 
 // Implementation for the merge operation (merges two Cassandra values)

@@ -323,6 +323,10 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
 TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
   ConfigOptions config_options;
   std::shared_ptr<MergeOperator> mo;
+
+  ASSERT_NOK(MergeOperator::CreateFromString(
+      config_options, CassandraValueMergeOperator::kClassName(), &mo));
+
   config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
                                       "cassandra");
 

@@ -18,63 +18,83 @@
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
-std::shared_ptr<MergeOperator> MergeOperators::CreateFromStringId(
-    const std::string& id) {
+static bool LoadMergeOperator(const std::string& id,
+                              std::shared_ptr<MergeOperator>* result) {
+  bool success = true;
+  // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
+  // Requires these classes be moved into a header file...
   if (id == "put" || id == "PutOperator") {
-    return CreatePutOperator();
+    *result = MergeOperators::CreatePutOperator();
   } else if (id == "put_v1") {
-    return CreateDeprecatedPutOperator();
+    *result = MergeOperators::CreateDeprecatedPutOperator();
   } else if (id == "uint64add" || id == "UInt64AddOperator") {
-    return CreateUInt64AddOperator();
-  } else if (id == "stringappend" || id == StringAppendOperator::kClassName()) {
-    return CreateStringAppendOperator();
-  } else if (id == "stringappendtest" ||
-             id == StringAppendTESTOperator::kClassName()) {
-    return CreateStringAppendTESTOperator();
+    *result = MergeOperators::CreateUInt64AddOperator();
   } else if (id == "max" || id == "MaxOperator") {
-    return CreateMaxOperator();
-  } else if (id == "bytesxor" || id == BytesXOROperator::kClassName()) {
-    return CreateBytesXOROperator();
-  } else if (id == "sortlist" || id == SortList::kClassName()) {
-    return CreateSortOperator();
+    *result = MergeOperators::CreateMaxOperator();
+#ifdef ROCKSDB_LITE
+    // The remainder of the classes are handled by the ObjectRegistry in
+    // non-LITE mode
+  } else if (id == StringAppendOperator::kShortName() ||
+             id == StringAppendOperator::kClassName()) {
+    *result = MergeOperators::CreateStringAppendOperator();
+  } else if (id == StringAppendTESTOperator::kShortName() ||
+             id == StringAppendTESTOperator::kClassName()) {
+    *result = MergeOperators::CreateStringAppendTESTOperator();
+  } else if (id == BytesXOROperator::kShortName() ||
+             id == BytesXOROperator::kClassName()) {
+    *result = MergeOperators::CreateBytesXOROperator();
+  } else if (id == SortList::kShortName() || id == SortList::kClassName()) {
+    *result = MergeOperators::CreateSortOperator();
+#endif  // ROCKSDB_LITE
   } else {
-    // Empty or unknown, just return nullptr
-    return nullptr;
+    success = false;
   }
+  return success;
 }
 
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
+  size_t num_types;
+  auto AsRegex = [](const std::string& name, const std::string& alt) {
+    std::string regex;
+    regex.append("(").append(name);
+    regex.append("|").append(alt).append(")");
+    return regex;
+  };
+
   library.Register<MergeOperator>(
-      StringAppendOperator::kClassName(),
+      AsRegex(StringAppendOperator::kClassName(),
+              StringAppendOperator::kShortName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendOperator(","));
         return guard->get();
       });
   library.Register<MergeOperator>(
-      "stringappend",
-      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /*errmsg*/) {
-        guard->reset(new StringAppendOperator(","));
-        return guard->get();
-      });
-  library.Register<MergeOperator>(
-      StringAppendTESTOperator::kClassName(),
+      AsRegex(StringAppendTESTOperator::kClassName(),
+              StringAppendTESTOperator::kShortName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendTESTOperator(","));
         return guard->get();
       });
   library.Register<MergeOperator>(
-      "stringappendtest",
+      AsRegex(SortList::kClassName(), SortList::kShortName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
-        guard->reset(new StringAppendTESTOperator(","));
+        guard->reset(new SortList());
         return guard->get();
       });
-  return 4;
+  library.Register<MergeOperator>(
+      AsRegex(BytesXOROperator::kClassName(), BytesXOROperator::kShortName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new BytesXOROperator());
+        return guard->get();
+      });
+
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // ROCKSDB_LITE
 
@@ -87,31 +107,20 @@ Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
     RegisterBuiltinMergeOperators(*(ObjectLibrary::Default().get()), "");
   });
 #endif  // ROCKSDB_LITE
-  std::string id;
-  std::unordered_map<std::string, std::string> opt_map;
-  std::shared_ptr<MergeOperator> merge_op;
-  Status status = Customizable::GetOptionsMap(config_options, result->get(),
-                                              value, &id, &opt_map);
-  if (!status.ok()) {  // GetOptionsMap failed
-    return status;
-  }
-  if (opt_map.empty()) {
-    merge_op = MergeOperators::CreateFromStringId(id);
-    if (merge_op) {
-      *result = merge_op;
-      return Status::OK();
-    }
-  }
-  if (value.empty()) {
-    // No Id and no options.  Clear the object
-    result->reset();
-    return Status::OK();
+  return LoadSharedObject<MergeOperator>(config_options, value,
+                                         LoadMergeOperator, result);
+}
+
+std::shared_ptr<MergeOperator> MergeOperators::CreateFromStringId(
+    const std::string& id) {
+  std::shared_ptr<MergeOperator> result;
+  Status s = MergeOperator::CreateFromString(ConfigOptions(), id, &result);
+  if (s.ok()) {
+    return result;
   } else {
-    status = NewSharedObject(config_options, id, opt_map, &merge_op);
-    if (status.ok()) {
-      *result = merge_op;
-    }
-    return status;
+    // Empty or unknown, just return nullptr
+    return nullptr;
   }
 }
+
 }  // namespace ROCKSDB_NAMESPACE
