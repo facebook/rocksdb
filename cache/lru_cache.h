@@ -448,15 +448,18 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
+  LRUCache();
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            double high_pri_pool_ratio,
-           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+           const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr,
            bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata,
            const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr);
+  explicit LRUCache(const LRUCacheOptions& options);
   virtual ~LRUCache();
-  virtual const char* Name() const override { return "LRUCache"; }
+  static const char* kClassName() { return "LRUCache"; }
+  virtual const char* Name() const override { return kClassName(); }
   virtual CacheShard* GetShard(uint32_t shard) override;
   virtual const CacheShard* GetShard(uint32_t shard) const override;
   virtual void* Value(Handle* handle) override;
@@ -471,10 +474,13 @@ class LRUCache
   //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
+  bool IsPrepared() const override;
+  Status PrepareOptions(const ConfigOptions& options) override;
+
  private:
   LRUCacheShard* shards_ = nullptr;
+  LRUCacheOptions options_;
   int num_shards_ = 0;
-  std::shared_ptr<SecondaryCache> secondary_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -14,6 +14,7 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "util/compression.h"
 #include "util/random.h"
@@ -517,6 +518,7 @@ class MockCache : public LRUCache {
   MockCache()
       : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
                  false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
+    PrepareOptions(ConfigOptions()).PermitUncheckedError();
   }
 
   using ShardedCache::Insert;

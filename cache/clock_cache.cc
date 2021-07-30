@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "cache/clock_cache.h"
+#include "rocksdb/convenience.h"
 
 #ifndef SUPPORT_CLOCK_CACHE
 
@@ -766,22 +767,38 @@ void ClockCacheShard::EraseUnRefEntries() {
 }
 
 class ClockCache final : public ShardedCache {
+private:
+  CacheOptions options_;
  public:
-  ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-             CacheMetadataChargePolicy metadata_charge_policy)
-      : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
-    int num_shards = 1 << num_shard_bits;
-    shards_ = new ClockCacheShard[num_shards];
-    for (int i = 0; i < num_shards; i++) {
-      shards_[i].set_metadata_charge_policy(metadata_charge_policy);
+  ClockCache(const CacheOptions& options)
+    : ShardedCache(&options_), options_(options), shards_(nullptr) {
+  }
+
+  bool IsPrepared() const override {
+    return shards_ != nullptr || ShardedCache::IsPrepared();
+  }
+  
+  Status PrepareOptions(const ConfigOptions& config_options) override {
+    Status s;
+    if (shards_ == nullptr) {  // Not already prepared
+      s = ShardedCache::PrepareOptions(config_options);
+      if (s.ok()) {
+        int num_shards = 1 << options_.num_shard_bits;
+        shards_ = new ClockCacheShard[num_shards];
+        for (int i = 0; i < num_shards; i++) {
+          shards_[i].set_metadata_charge_policy(options_.metadata_charge_policy);
+        }
+        SetCapacity(options_.capacity);
+        SetStrictCapacityLimit(options_.strict_capacity_limit);
+      }
     }
-    SetCapacity(capacity);
-    SetStrictCapacityLimit(strict_capacity_limit);
+    return s;
   }
 
   ~ClockCache() override { delete[] shards_; }
 
-  const char* Name() const override { return "ClockCache"; }
+  static const char* kClassName() { return "ClockCache"; }
+  const char* Name() const override { return kClassName(); }
 
   CacheShard* GetShard(uint32_t shard) override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
@@ -824,11 +841,15 @@ class ClockCache final : public ShardedCache {
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+  CacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
+                       metadata_charge_policy);
+  auto cache = std::make_shared<ClockCache>(options);
+  Status s = cache->PrepareOptions(ConfigOptions());
+  if (s.ok()) {
+    return cache;
+  } else {
+    return nullptr;
   }
-  return std::make_shared<ClockCache>(
-      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

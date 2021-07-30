@@ -459,7 +459,8 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
       // map
       std::unordered_map<std::string, std::string> props;
       std::string id;
-      Status s = GetOptionsMap(value, custom->GetId(), &id, &props);
+      Status s =
+          Configurable::GetOptionsMap(value, custom->GetId(), &id, &props);
       if (!s.ok()) {
         return s;
       } else if (custom->GetId() != id) {
@@ -734,7 +735,7 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
 }
 #endif  // ROCKSDB_LITE
 
-Status ConfigurableHelper::GetOptionsMap(
+Status Configurable::GetOptionsMap(
     const std::string& value, const std::string& default_id, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
   assert(id);

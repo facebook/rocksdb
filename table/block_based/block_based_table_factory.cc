@@ -401,25 +401,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct BlockBasedTableOptions, metadata_cache_options),
              OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"block_cache",
-         {offsetof(struct BlockBasedTableOptions, block_cache),
-          OptionType::kUnknown, OptionVerificationType::kNormal,
-          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
-          // Parses the input vsalue as a Cache
-          [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, void* addr) {
-            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
-            return Cache::CreateFromString(opts, value, cache);
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<Cache>(
+             offsetof(struct BlockBasedTableOptions, block_cache),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
+              OptionTypeFlags::kAllowNull))},
         {"block_cache_compressed",
-         {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
-          OptionType::kUnknown, OptionVerificationType::kNormal,
-          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
-          // Parses the input vsalue as a Cache
-          [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, void* addr) {
-            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
-            return Cache::CreateFromString(opts, value, cache);
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<Cache>(
+             offsetof(struct BlockBasedTableOptions, block_cache_compressed),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
+              OptionTypeFlags::kAllowNull))},
         {"max_auto_readahead_size",
          {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -773,7 +765,7 @@ Status GetBlockBasedTableOptionsFromString(
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
+
   return GetBlockBasedTableOptionsFromString(config_options, table_options,
                                              opts_str, new_table_options);
 }
@@ -804,7 +796,7 @@ Status GetBlockBasedTableOptionsFromMap(
   ConfigOptions config_options;
   config_options.input_strings_escaped = input_strings_escaped;
   config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.invoke_prepare_options = false;
+  config_options.invoke_prepare_options = true;
 
   return GetBlockBasedTableOptionsFromMap(config_options, table_options,
                                           opts_map, new_table_options);

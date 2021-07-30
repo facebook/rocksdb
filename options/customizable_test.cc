@@ -14,9 +14,11 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "cache/sharded_cache.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/flush_block_policy.h"
@@ -910,6 +912,24 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
+class TestCache : public ShardedCache {
+ public:
+  TestCache() : ShardedCache(&options_) {}
+  static const char* kClassName() { return "Test"; }
+  const char* Name() const override { return kClassName(); }
+  void* Value(Handle* /*handle*/) override { return nullptr; }
+  size_t GetCharge(Handle* /*handle*/) const override { return 0; }
+  uint32_t GetHash(Handle* /*handle*/) const override { return 0; }
+  DeleterFn GetDeleter(Handle* /*handle*/) const override { return nullptr; }
+  CacheShard* GetShard(uint32_t /*shard*/) override { return nullptr; }
+  const CacheShard* GetShard(uint32_t /*shard*/) const override {
+    return nullptr;
+  }
+
+ private:
+  CacheOptions options_;
+};
+
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 static int RegisterTestObjects(ObjectLibrary& library,
@@ -1030,6 +1050,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
+  library.Register<Cache>(
+      TestCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestCache());
+        return guard->get();
+      });
   library.Register<SecondaryCache>(
       TestSecondaryCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
@@ -1096,6 +1123,18 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_NE(cf_opts.table_factory.get(), nullptr);
     ASSERT_STREQ(cf_opts.table_factory->Name(), "MockTable");
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCacheTest) {
+  std::shared_ptr<Cache> result;
+  ASSERT_NOK(Cache::CreateFromString(config_options_, TestCache::kClassName(),
+                                     &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(Cache::CreateFromString(config_options_, TestCache::kClassName(),
+                                      &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), TestCache::kClassName());
   }
 }
 

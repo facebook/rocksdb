@@ -70,9 +70,10 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
+  ShardedCache(CacheOptions* cache_options);
   virtual ~ShardedCache() = default;
+  static const char* kClassName() { return "ShardedCache"; }
+
   virtual CacheShard* GetShard(uint32_t shard) = 0;
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
 
@@ -115,14 +116,28 @@ class ShardedCache : public Cache {
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
 
+  Status PrepareOptions(const ConfigOptions& options) override;
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
+  MemoryAllocator* memory_allocator() const override {
+    return cache_options_->memory_allocator.get();
+  }
+
+  bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return Cache::IsInstanceOf(id);
+    }
+  }
+
  protected:
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
 
  private:
-  const uint32_t shard_mask_;
+  CacheOptions* cache_options_;
+  uint32_t shard_mask_;
   mutable port::Mutex capacity_mutex_;
-  size_t capacity_;
-  bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
 };
 

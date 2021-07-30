@@ -10,6 +10,10 @@
 
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -203,4 +207,9 @@ Status NewJemallocNodumpAllocator(
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 }
 
+Status MemoryAllocator::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<MemoryAllocator>* result) {
+  return LoadSharedObject<MemoryAllocator>(options, value, nullptr, result);
+}
 }  // namespace ROCKSDB_NAMESPACE
