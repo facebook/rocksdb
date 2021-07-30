@@ -844,6 +844,41 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    db_host_id.c_str());
 }
 
+bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
+  assert(!db_paths.empty());
+  return IsWalDirSameAsDBPath(db_paths[0].path);
+}
+
+bool ImmutableDBOptions::IsWalDirSameAsDBPath(
+    const std::string& db_path) const {
+  bool same = wal_dir.empty();
+  if (!same) {
+    Status s = env->AreFilesSame(wal_dir, db_path, &same);
+    if (s.IsNotSupported()) {
+      same = wal_dir == db_path;
+    }
+  }
+  return same;
+}
+
+const std::string& ImmutableDBOptions::GetWalDir() const {
+  if (wal_dir.empty()) {
+    assert(!db_paths.empty());
+    return db_paths[0].path;
+  } else {
+    return wal_dir;
+  }
+}
+
+const std::string& ImmutableDBOptions::GetWalDir(
+    const std::string& path) const {
+  if (wal_dir.empty()) {
+    return path;
+  } else {
+    return wal_dir;
+  }
+}
+
 MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
       base_background_compactions(-1),

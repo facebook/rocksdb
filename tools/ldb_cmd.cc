@@ -704,11 +704,13 @@ void LDBCommand::PrepareOptions() {
       db_ = nullptr;
       return;
     }
-    if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
-      options_.wal_dir = db_path_;
-      fprintf(
-          stderr,
-          "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+    if (!options_.wal_dir.empty()) {
+      if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
+        options_.wal_dir = db_path_;
+        fprintf(
+            stderr,
+            "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+      }
     }
 
     // If merge operator is not set, set a string append operator.
@@ -3395,9 +3397,15 @@ void DBFileDumperCommand::DoCommand() {
   if (!s.ok()) {
     std::cerr << "Error when getting WAL files" << std::endl;
   } else {
+    std::string wal_dir;
+    if (options_.wal_dir.empty()) {
+      wal_dir = db_->GetName();
+    } else {
+      wal_dir = NormalizePath(options_.wal_dir + "/");
+    }
     for (auto& wal : wal_files) {
       // TODO(qyang): option.wal_dir should be passed into ldb command
-      std::string filename = db_->GetOptions().wal_dir + wal->PathName();
+      std::string filename = wal_dir + wal->PathName();
       std::cout << filename << std::endl;
       // TODO(myabandeh): allow configuring is_write_commited
       DumpWalFile(options_, filename, true, true, true /* is_write_commited */,

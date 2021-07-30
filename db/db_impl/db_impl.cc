@@ -641,7 +641,7 @@ Status DBImpl::CloseHelper() {
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
           "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
+          LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
           s.ToString().c_str());
       // Retain the first error
       if (ret.ok()) {
@@ -735,7 +735,8 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 const Status DBImpl::CreateArchivalDirectory() {
   if (immutable_db_options_.WAL_ttl_seconds > 0 ||
       immutable_db_options_.WAL_size_limit_MB > 0) {
-    std::string archivalPath = ArchivalDirectory(immutable_db_options_.wal_dir);
+    std::string archivalPath =
+        ArchivalDirectory(immutable_db_options_.GetWalDir());
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
@@ -4051,7 +4052,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
-  bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
+  bool wal_in_db_path = soptions.IsWalDirSameAsDBPath();
 
   // Reset the logger because it holds a handle to the
   // log file and prevents cleanup and directory removal
@@ -4117,7 +4118,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     std::vector<std::string> walDirFiles;
     std::string archivedir = ArchivalDirectory(dbname);
     bool wal_dir_exists = false;
-    if (dbname != soptions.wal_dir) {
+    if (!soptions.IsWalDirSameAsDBPath(dbname)) {
       wal_dir_exists = env->GetChildren(soptions.wal_dir, &walDirFiles).ok();
       archivedir = ArchivalDirectory(soptions.wal_dir);
     }

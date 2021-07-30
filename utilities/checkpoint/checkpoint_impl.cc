@@ -434,29 +434,29 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
+  ImmutableDBOptions ioptions(db_options);
+  auto wal_dir = ioptions.GetWalDir();
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
         (!flush_memtable ||
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
-        s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
+        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(),
                          live_wal_files[i]->SizeFileBytes(), kWalFile,
                          kUnknownFileChecksumFuncName, kUnknownFileChecksum);
         break;
       }
       if (same_fs) {
         // we only care about live log files
-        s = link_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         kWalFile);
+        s = link_file_cb(wal_dir, live_wal_files[i]->PathName(), kWalFile);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
         }
       }
       if (!same_fs) {
-        s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(), 0,
-                         kWalFile, kUnknownFileChecksumFuncName,
-                         kUnknownFileChecksum);
+        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(), 0, kWalFile,
+                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
       }
     }
   }
