@@ -9,22 +9,7 @@
 
 #include "cache/clock_cache.h"
 #include "rocksdb/convenience.h"
-
-#ifndef SUPPORT_CLOCK_CACHE
-
-namespace ROCKSDB_NAMESPACE {
-
-std::shared_ptr<Cache> NewClockCache(
-    size_t /*capacity*/, int /*num_shard_bits*/, bool /*strict_capacity_limit*/,
-    CacheMetadataChargePolicy /*metadata_charge_policy*/) {
-  // Clock cache not supported.
-  return nullptr;
-}
-
-}  // namespace ROCKSDB_NAMESPACE
-
-#else
-
+#ifdef SUPPORT_CLOCK_CACHE
 #include <assert.h>
 #include <atomic>
 #include <deque>
@@ -35,7 +20,7 @@ std::shared_ptr<Cache> NewClockCache(
 #define TBB_USE_EXCEPTIONS 0
 #endif
 #include "tbb/concurrent_hash_map.h"
-
+#endif  // SUPPORT_CLOCK_CACHE
 #include "cache/sharded_cache.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -43,7 +28,7 @@ std::shared_ptr<Cache> NewClockCache(
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+#ifdef SUPPORT_CLOCK_CACHE
 namespace {
 
 // An implementation of the Cache interface based on CLOCK algorithm, with
@@ -256,6 +241,7 @@ struct CleanupContext {
   // List of keys to be deleted.
   autovector<const char*> to_delete_key;
 };
+}  // namespace
 
 // A cache shard which maintains its own CLOCK cache.
 class ClockCacheShard final : public CacheShard {
@@ -765,93 +751,137 @@ void ClockCacheShard::EraseUnRefEntries() {
   }
   Cleanup(context);
 }
+#endif  // SUPPORT_CLOCK_CACHE
 
-class ClockCache final : public ShardedCache {
-private:
-  CacheOptions options_;
- public:
-  ClockCache(const CacheOptions& options)
-    : ShardedCache(&options_), options_(options), shards_(nullptr) {
-  }
+bool ClockCache::IsClockCacheSupported() {
+#ifdef SUPPORT_CLOCK_CACHE
+  return true;
+#else
+  return false;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  bool IsPrepared() const override {
-    return shards_ != nullptr || ShardedCache::IsPrepared();
+Status ClockCache::CreateClockCache(const CacheOptions& options,
+                                    std::unique_ptr<ClockCache>* cache) {
+  if (!IsClockCacheSupported()) {
+    return Status::NotSupported("ClockCache not supported");
+  } else {
+    cache->reset(new ClockCache(options));
+    return Status::OK();
   }
-  
-  Status PrepareOptions(const ConfigOptions& config_options) override {
-    Status s;
-    if (shards_ == nullptr) {  // Not already prepared
-      s = ShardedCache::PrepareOptions(config_options);
-      if (s.ok()) {
-        int num_shards = 1 << options_.num_shard_bits;
-        shards_ = new ClockCacheShard[num_shards];
-        for (int i = 0; i < num_shards; i++) {
-          shards_[i].set_metadata_charge_policy(options_.metadata_charge_policy);
-        }
-        SetCapacity(options_.capacity);
-        SetStrictCapacityLimit(options_.strict_capacity_limit);
+}
+
+Status ClockCache::CreateClockCache(std::unique_ptr<ClockCache>* cache) {
+  return CreateClockCache(CacheOptions(), cache);
+}
+
+ClockCache::ClockCache(const CacheOptions& options)
+    : ShardedCache(&options_), options_(options), shards_(nullptr) {}
+
+ClockCache::~ClockCache() {
+#ifdef SUPPORT_CLOCK_CACHE
+  delete[] shards_;
+#endif  // SUPPORT_CLOCK_CACHE
+}
+
+Status ClockCache::PrepareOptions(const ConfigOptions& config_options) {
+  Status s;
+
+  if (!IsClockCacheSupported()) {
+    (void)config_options;
+    s = Status::NotSupported("ClockCache not supported");
+#ifdef SUPPORT_CLOCK_CACHE
+  } else if (shards_ == nullptr) {  // Not already prepared
+    s = ShardedCache::PrepareOptions(config_options);
+    if (s.ok()) {
+      int num_shards = 1 << options_.num_shard_bits;
+      shards_ = new ClockCacheShard[num_shards];
+      for (int i = 0; i < num_shards; i++) {
+        shards_[i].set_metadata_charge_policy(options_.metadata_charge_policy);
       }
+      SetCapacity(options_.capacity);
+      SetStrictCapacityLimit(options_.strict_capacity_limit);
     }
-    return s;
+#endif  // SUPPORT_CLOCK_CACHE
   }
+  return s;
+}
 
-  ~ClockCache() override { delete[] shards_; }
+CacheShard* ClockCache::GetShard(uint32_t shard) {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+#else
+  (void)shard;
+  assert(false);
+  return nullptr;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  static const char* kClassName() { return "ClockCache"; }
-  const char* Name() const override { return kClassName(); }
+const CacheShard* ClockCache::GetShard(uint32_t shard) const {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+#else
+  (void)shard;
+  assert(false);
+  return nullptr;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  CacheShard* GetShard(uint32_t shard) override {
-    return reinterpret_cast<CacheShard*>(&shards_[shard]);
-  }
+void* ClockCache::Value(Handle* handle) {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<const CacheHandle*>(handle)->value;
+#else
+  (void)handle;
+  assert(false);
+  return nullptr;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  const CacheShard* GetShard(uint32_t shard) const override {
-    return reinterpret_cast<CacheShard*>(&shards_[shard]);
-  }
+size_t ClockCache::GetCharge(Handle* handle) const {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<const CacheHandle*>(handle)->charge;
+#else
+  (void)handle;
+  assert(false);
+  return 0;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  void* Value(Handle* handle) override {
-    return reinterpret_cast<const CacheHandle*>(handle)->value;
-  }
+uint32_t ClockCache::GetHash(Handle* handle) const {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<const CacheHandle*>(handle)->hash;
+#else
+  (void)handle;
+  assert(false);
+  return 0;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
-  size_t GetCharge(Handle* handle) const override {
-    return reinterpret_cast<const CacheHandle*>(handle)->charge;
-  }
-
-  uint32_t GetHash(Handle* handle) const override {
-    return reinterpret_cast<const CacheHandle*>(handle)->hash;
-  }
-
-  DeleterFn GetDeleter(Handle* handle) const override {
-    return reinterpret_cast<const CacheHandle*>(handle)->deleter;
-  }
-
-  void DisownData() override {
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-    shards_ = nullptr;
-#endif
-  }
-
-  void WaitAll(std::vector<Handle*>& /*handles*/) override {}
-
- private:
-  ClockCacheShard* shards_;
-};
-
-}  // end anonymous namespace
+Cache::DeleterFn ClockCache::GetDeleter(Handle* handle) const {
+#ifdef SUPPORT_CLOCK_CACHE
+  return reinterpret_cast<const CacheHandle*>(handle)->deleter;
+#else
+  (void)handle;
+  assert(false);
+  return nullptr;
+#endif  // SUPPORT_CLOCK_CACHE
+}
 
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
   CacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
                        metadata_charge_policy);
-  auto cache = std::make_shared<ClockCache>(options);
-  Status s = cache->PrepareOptions(ConfigOptions());
+  std::unique_ptr<ClockCache> cache;
+  Status s = ClockCache::CreateClockCache(options, &cache);
   if (s.ok()) {
-    return cache;
+    s = cache->PrepareOptions(ConfigOptions());
+  }
+  if (s.ok()) {
+    return std::shared_ptr<Cache>(cache.release());
   } else {
     return nullptr;
   }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // SUPPORT_CLOCK_CACHE

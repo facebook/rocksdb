@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/utilities/options_type.h"
@@ -23,20 +24,32 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 #ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, CacheMetadataChargePolicy>
+    metadata_charge_policy_string_map = {
+        {"kDontCharge", CacheMetadataChargePolicy::kDontChargeCacheMetadata},
+        {"kFullCharge", CacheMetadataChargePolicy::kFullChargeCacheMetadata},
+};
+#endif  // ROCKSDB_LITE
+
 static std::unordered_map<std::string, OptionTypeInfo> cache_options_type_info =
     {
+#ifndef ROCKSDB_LITE
         {"capacity",
          {offsetof(struct CacheOptions, capacity), OptionType::kSizeT,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"num_shard_bits",
          {offsetof(struct CacheOptions, num_shard_bits), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"strict_capacity_limit",
          {offsetof(struct CacheOptions, strict_capacity_limit),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-};
+          OptionTypeFlags::kNone}},
+        {"metadata_charge_policy",
+         OptionTypeInfo::Enum(
+             offsetof(struct CacheOptions, metadata_charge_policy),
+             &metadata_charge_policy_string_map)},
 #endif  // ROCKSDB_LITE
+};
 
 inline uint32_t HashSlice(const Slice& s) {
   return Lower32of64(GetSliceNPHash64(s));

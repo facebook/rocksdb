@@ -9,6 +9,7 @@
 
 #include "rocksdb/cache.h"
 
+#include "cache/clock_cache.h"
 #include "cache/lru_cache.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/secondary_cache.h"
@@ -25,6 +26,18 @@ static int RegisterBuiltinCache(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
         guard->reset(new LRUCache());
+        return guard->get();
+      });
+  library.Register<Cache>(
+      ClockCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* errmsg) {
+        std::unique_ptr<ClockCache> clock;
+        Status s = ClockCache::CreateClockCache(&clock);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        guard->reset(clock.release());
         return guard->get();
       });
   return 1;
