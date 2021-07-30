@@ -38,20 +38,26 @@ uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
 }
 
 Status DBImpl::DisableFileDeletions() {
-  InstrumentedMutexLock l(&mutex_);
-  return DisableFileDeletionsWithLock();
+  Status s;
+  int my_disable_delete_obsolete_files;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    s = DisableFileDeletionsWithLock();
+    my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+  }
+  if (my_disable_delete_obsolete_files == 1) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
+  } else {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "File Deletions Disabled, but already disabled. Counter: %d",
+                   my_disable_delete_obsolete_files);
+  }
+  return s;
 }
 
 Status DBImpl::DisableFileDeletionsWithLock() {
   mutex_.AssertHeld();
   ++disable_delete_obsolete_files_;
-  if (disable_delete_obsolete_files_ == 1) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
-  } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "File Deletions Disabled, but already disabled. Counter: %d",
-                   disable_delete_obsolete_files_);
-  }
   return Status::OK();
 }
 
