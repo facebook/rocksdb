@@ -1250,8 +1250,8 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     // but it will be nice to log these errors.
     int dummy __attribute__((__unused__));
     dummy = ftruncate(fd_, filesize_);
-#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE) && \
-    !defined(TRAVIS)
+#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_KEEP_SIZE) && \
+    defined(FALLOC_FL_PUNCH_HOLE) && !defined(TRAVIS)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
@@ -1268,19 +1268,10 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     // of the file, but it does. Simple strace report will show that.
     // While we work with Travis-CI team to figure out if this is a
     // quirk of Docker/AUFS, we will comment this out.
-    struct stat file_stats;
-    int result = fstat(fd_, &file_stats);
-    // After ftruncate, we check whether ftruncate has the correct behavior.
-    // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
-    if (result == 0 &&
-        (file_stats.st_size + file_stats.st_blksize - 1) /
-                file_stats.st_blksize !=
-            file_stats.st_blocks / (file_stats.st_blksize / 512)) {
-      IOSTATS_TIMER_GUARD(allocate_nanos);
-      if (allow_fallocate_) {
-        fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
-                  block_size * last_allocated_block - filesize_);
-      }
+    IOSTATS_TIMER_GUARD(allocate_nanos);
+    if (allow_fallocate_ && filesize_ < block_size * last_allocated_block) {
+      fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
+                block_size * last_allocated_block - filesize_);
     }
 #endif
   }
