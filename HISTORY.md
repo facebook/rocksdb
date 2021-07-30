@@ -9,8 +9,8 @@
 ### Performance Improvements
 * Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
 
-### Public API change
-* The constructor of `StringAppendOperator` and the factory method `MergeOperators::CreateStringAppendOperator` additionally accept a string as the delimiter.
+### Behavior Changes
+* `StringAppendOperator` additionally accepts a string as the delimiter.
 
 ## 6.23.0 (2021-07-16)
 ### Behavior Changes
