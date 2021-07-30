@@ -555,6 +555,14 @@ void CompactionIterator::NextFromInput() {
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
+#ifndef NDEBUG
+        const Compaction* c =
+            compaction_ ? compaction_->real_compaction() : nullptr;
+#endif
+        TEST_SYNC_POINT_CALLBACK(
+            "CompactionIterator::NextFromInput:SingleDelete:1",
+            const_cast<Compaction*>(c));
+
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
         if (prev_snapshot == 0 ||
@@ -706,6 +714,13 @@ void CompactionIterator::NextFromInput() {
                                  ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
+#ifndef NDEBUG
+      const Compaction* c =
+          compaction_ ? compaction_->real_compaction() : nullptr;
+#endif
+      TEST_SYNC_POINT_CALLBACK(
+          "CompactionIterator::NextFromInput:BottommostDelete:1",
+          const_cast<Compaction*>(c));
       // Skip over all versions of this key that happen to occur in the same
       // snapshot range as the delete.
       //

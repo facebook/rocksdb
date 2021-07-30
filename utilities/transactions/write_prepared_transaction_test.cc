@@ -2804,6 +2804,111 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithSD) {
+  constexpr size_t snapshot_cache_bits = 7;  // same as default
+  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
+  ASSERT_OK(txn->SingleDelete("key"));
+  ASSERT_OK(txn->Put("wow", "value"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  const bool two_write_queues = std::get<1>(GetParam());
+  if (two_write_queues) {
+    // In the case of two queues, commit another txn just to bump
+    // last_published_seq so that a subsequent GetSnapshot() call can return
+    // a snapshot with higher sequence.
+    auto* dummy_txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                           /*old_txn=*/nullptr);
+    ASSERT_OK(dummy_txn->Put("haha", "value"));
+    ASSERT_OK(dummy_txn->Commit());
+    delete dummy_txn;
+  }
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
+        if (!arg) {
+          return;
+        }
+        db->ReleaseSnapshot(snapshot);
+
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "bar", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithDelete) {
+  constexpr size_t snapshot_cache_bits = 7;  // same as default
+  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
+  ASSERT_OK(txn->Delete("b"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+
+  const bool two_write_queues = std::get<1>(GetParam());
+  if (two_write_queues) {
+    // In the case of two queues, commit another txn just to bump
+    // last_published_seq so that a subsequent GetSnapshot() call can return
+    // a snapshot with higher sequence.
+    auto* dummy_txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                           /*old_txn=*/nullptr);
+    ASSERT_OK(dummy_txn->Put("haha", "value"));
+    ASSERT_OK(dummy_txn->Commit());
+    delete dummy_txn;
+  }
+  auto* snapshot1 = db->GetSnapshot();
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  auto* snapshot2 = db->GetSnapshot();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:BottommostDelete:1", [&](void* arg) {
+        if (!arg) {
+          return;
+        }
+        db->ReleaseSnapshot(snapshot1);
+
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "dummy1", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+  db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,

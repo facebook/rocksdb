@@ -99,6 +99,8 @@ class CompactionIterator {
     virtual Version* input_version() const = 0;
 
     virtual bool DoesInputReferenceBlobFiles() const = 0;
+
+    virtual const Compaction* real_compaction() const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -151,6 +153,8 @@ class CompactionIterator {
     bool DoesInputReferenceBlobFiles() const override {
       return compaction_->DoesInputReferenceBlobFiles();
     }
+
+    const Compaction* real_compaction() const override { return compaction_; }
 
    private:
     const Compaction* compaction_;
