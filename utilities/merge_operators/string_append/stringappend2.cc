@@ -52,8 +52,9 @@ bool StringAppendTESTOperator::FullMergeV2(
                                 merge_in.existing_value->size());
     printDelim = true;
   } else if (numBytes) {
-    merge_out->new_value.reserve(
-        numBytes - delim_.size());  // Adjust for one less delimiter
+    // Without the existing (initial) value, the delimiter before the first of
+    // subsequent operands becomes redundant.
+    merge_out->new_value.reserve(numBytes - delim_.size());
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
