@@ -281,8 +281,7 @@ class ColumnFamilyData {
   // UnrefAndTryDelete() decreases the reference count and do free if needed,
   // return true if this is freed else false, UnrefAndTryDelete() can only
   // be called while holding a DB mutex, or during single-threaded recovery.
-  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
-  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
+  bool UnrefAndTryDelete();
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
