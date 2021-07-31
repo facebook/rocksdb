@@ -678,15 +678,12 @@ bool ColumnFamilyData::UnrefAndTryDelete() {
     return true;
   }
 
-  // If called under SuperVersion::Cleanup, we should not re-enter Cleanup on
-  // the same SuperVersion. (But while installing a new SuperVersion, this
-  // cfd could be referenced only by two SuperVersions.)
   if (old_refs == 2 && super_version_ != nullptr) {
     // Only the super_version_ holds me
     SuperVersion* sv = super_version_;
     super_version_ = nullptr;
 
-    // Release SuperVersion reference kept in ThreadLocalPtr.
+    // Release SuperVersion references kept in ThreadLocalPtr.
     local_sv_.reset();
 
     if (sv->Unref()) {
