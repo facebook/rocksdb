@@ -388,6 +388,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<MemTableRepFactory>)},
       {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offset_of(&ColumnFamilyOptions::blob_path), sizeof(std::string)},
       {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
       {offset_of(&ColumnFamilyOptions::merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},

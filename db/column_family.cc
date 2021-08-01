@@ -359,6 +359,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
+  if (result.blob_path.empty() && !result.cf_paths.empty()) {
+    result.blob_path = result.cf_paths.front().path;
+  }
+
   if (result.max_compaction_bytes == 0) {
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }

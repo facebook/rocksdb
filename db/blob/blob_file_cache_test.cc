@@ -31,10 +31,10 @@ namespace {
 void WriteBlobFile(uint32_t column_family_id,
                    const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number) {
-  assert(!immutable_options.cf_paths.empty());
+  assert(!immutable_options.blob_path.empty());
 
   const std::string blob_file_path =
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+      BlobFileName(immutable_options.blob_path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
@@ -93,9 +93,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   Options options;
   options.env = &mock_env_;
   options.statistics = CreateDBStatistics();
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileCacheTest_GetBlobFileReader"),
-      0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileCacheTest_GetBlobFileReader");
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
@@ -137,10 +136,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   Options options;
   options.env = &mock_env_;
   options.statistics = CreateDBStatistics();
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileCacheTest_GetBlobFileReader_Race"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileCacheTest_GetBlobFileReader_Race");
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;
@@ -189,10 +186,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   Options options;
   options.env = &mock_env_;
   options.statistics = CreateDBStatistics();
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileCacheTest_GetBlobFileReader_IOError"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileCacheTest_GetBlobFileReader_IOError");
   options.enable_blob_files = true;
 
   constexpr size_t capacity = 10;
@@ -223,10 +218,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   Options options;
   options.env = &mock_env_;
   options.statistics = CreateDBStatistics();
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileCacheTest_GetBlobFileReader_CacheFull"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileCacheTest_GetBlobFileReader_CacheFull");
   options.enable_blob_files = true;
 
   constexpr uint32_t column_family_id = 1;

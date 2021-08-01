@@ -1584,6 +1584,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       for (auto& cf_path : cf.options.cf_paths) {
         paths.emplace_back(cf_path.path);
       }
+      if (!cf.options.blob_path.empty()) {
+        paths.emplace_back(cf.options.blob_path);
+      }
     }
     for (auto& path : paths) {
       s = impl->env_->CreateDirIfMissing(path);

@@ -829,7 +829,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
-      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
+      sst_partitioner_factory(cf_options.sst_partitioner_factory),
+      blob_path(cf_options.blob_path) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 

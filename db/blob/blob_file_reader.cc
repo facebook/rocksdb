@@ -73,11 +73,10 @@ Status BlobFileReader::OpenFile(
   assert(file_size);
   assert(file_reader);
 
-  const auto& cf_paths = immutable_options.cf_paths;
-  assert(!cf_paths.empty());
+  const auto& blob_path = immutable_options.blob_path;
+  assert(!blob_path.empty());
 
-  const std::string blob_file_path =
-      BlobFileName(cf_paths.front().path, blob_file_number);
+  const std::string blob_file_path = BlobFileName(blob_path, blob_file_number);
 
   FileSystem* const fs = immutable_options.fs.get();
   assert(fs);

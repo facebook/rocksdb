@@ -1512,10 +1512,10 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
     const auto meta = iter.second.get();
     cf_meta->blob_files.emplace_back(
         meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
-        ioptions->cf_paths.front().path, meta->GetBlobFileSize(),
-        meta->GetTotalBlobCount(), meta->GetTotalBlobBytes(),
-        meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes(),
-        meta->GetChecksumMethod(), meta->GetChecksumValue());
+        ioptions->blob_path, meta->GetBlobFileSize(), meta->GetTotalBlobCount(),
+        meta->GetTotalBlobBytes(), meta->GetGarbageBlobCount(),
+        meta->GetGarbageBlobBytes(), meta->GetChecksumMethod(),
+        meta->GetChecksumValue());
     cf_meta->blob_file_count++;
     cf_meta->blob_file_size += meta->GetBlobFileSize();
   }

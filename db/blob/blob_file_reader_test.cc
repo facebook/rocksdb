@@ -37,12 +37,12 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number, const Slice& key,
                    const Slice& blob, CompressionType compression_type,
                    uint64_t* blob_offset, uint64_t* blob_size) {
-  assert(!immutable_options.cf_paths.empty());
+  assert(!immutable_options.blob_path.empty());
   assert(blob_offset);
   assert(blob_size);
 
   const std::string blob_file_path =
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+      BlobFileName(immutable_options.blob_path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
@@ -115,10 +115,8 @@ class BlobFileReaderTest : public testing::Test {
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderTest_CreateReaderAndGetBlob"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderTest_CreateReaderAndGetBlob");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -257,8 +255,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
 
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Malformed"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Malformed");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -271,7 +269,7 @@ TEST_F(BlobFileReaderTest, Malformed) {
     constexpr ExpirationRange expiration_range;
 
     const std::string blob_file_path =
-        BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+        BlobFileName(immutable_options.blob_path, blob_file_number);
 
     std::unique_ptr<FSWritableFile> file;
     ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
@@ -309,8 +307,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
 TEST_F(BlobFileReaderTest, TTL) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_TTL"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_TTL");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -343,10 +341,8 @@ TEST_F(BlobFileReaderTest, TTL) {
 TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderTest_ExpirationRangeInHeader"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderTest_ExpirationRangeInHeader");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -382,10 +378,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderTest_ExpirationRangeInFooter"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderTest_ExpirationRangeInFooter");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -421,10 +415,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
 TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderTest_IncorrectColumnFamily"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderTest_IncorrectColumnFamily");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -459,8 +451,8 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
 TEST_F(BlobFileReaderTest, BlobCRCError) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_BlobCRCError"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_BlobCRCError");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -517,8 +509,8 @@ TEST_F(BlobFileReaderTest, Compression) {
 
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Compression"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Compression");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -583,10 +575,8 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
 
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderTest_UncompressionError"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderTest_UncompressionError");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -664,10 +654,8 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
 
   Options options;
   options.env = &fault_injection_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&fault_injection_env_,
-                            "BlobFileReaderIOErrorTest_IOError"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &fault_injection_env_, "BlobFileReaderIOErrorTest_IOError");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -742,10 +730,8 @@ INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderDecodingErrorTest,
 TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
   Options options;
   options.env = &mock_env_;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileReaderDecodingErrorTest_DecodingError"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileReaderDecodingErrorTest_DecodingError");
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);

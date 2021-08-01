@@ -211,7 +211,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   assert(ioptions);
   assert(!ioptions->cf_paths.empty());
 
-  const std::string& path = ioptions->cf_paths.front().path;
+  const std::string& path = ioptions->blob_path;
 
   // Add an obsolete blob file.
   constexpr uint64_t first_blob_file_number = 234;

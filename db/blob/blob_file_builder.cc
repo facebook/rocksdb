@@ -157,9 +157,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   const uint64_t blob_file_number = file_number_generator_();
 
   assert(immutable_options_);
-  assert(!immutable_options_->cf_paths.empty());
+  assert(!immutable_options_->blob_path.empty());
   std::string blob_file_path =
-      BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
+      BlobFileName(immutable_options_->blob_path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
 
