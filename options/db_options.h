@@ -36,6 +36,9 @@ struct ImmutableDBOptions {
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
+  // The wal_dir option from the file.  To determine the
+  // directory in use, the GetWalDir or IsWalDirSameAsDBPath
+  // methods should be used instead of accessing this variable directly.
   std::string wal_dir;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
@@ -103,6 +106,11 @@ struct ImmutableDBOptions {
   Statistics* stats;
   Logger* logger;
   std::shared_ptr<CompactionService> compaction_service;
+
+  bool IsWalDirSameAsDBPath() const;
+  bool IsWalDirSameAsDBPath(const std::string& path) const;
+  const std::string& GetWalDir() const;
+  const std::string& GetWalDir(const std::string& path) const;
 };
 
 struct MutableDBOptions {
