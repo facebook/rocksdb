@@ -30,7 +30,7 @@ struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
       ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
-      bool _unsafe_add)
+      bool _unsafe_add, bool _unsafe_disable_sync)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
@@ -40,7 +40,8 @@ struct SstFileWriter::Rep {
         invalidate_page_cache(_invalidate_page_cache),
         last_fadvise_size(0),
         skip_filters(_skip_filters),
-        unsafe_add(_unsafe_add) {}
+        unsafe_add(_unsafe_add),
+        unsafe_disable_sync(_unsafe_disable_sync) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -61,6 +62,7 @@ struct SstFileWriter::Rep {
   uint64_t last_fadvise_size;
   bool skip_filters;
   bool unsafe_add;
+  bool unsafe_disable_sync;
   Status Add(const Slice& user_key, const Slice& value,
              const ValueType value_type) {
     if (!builder) {
@@ -169,10 +171,10 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              ColumnFamilyHandle* column_family,
                              bool invalidate_page_cache,
                              Env::IOPriority io_priority, bool skip_filters,
-                             bool unsafe_add)
+                             bool unsafe_add, bool unsafe_disable_sync)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
                    column_family, invalidate_page_cache, skip_filters,
-                   unsafe_add)) {
+                   unsafe_add, unsafe_disable_sync)) {
   rep_->file_info.file_size = 0;
 }
 
@@ -312,7 +314,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   r->file_info.file_size = r->builder->FileSize();
 
   if (s.ok()) {
-    s = r->file_writer->Sync(r->ioptions.use_fsync);
+    if (!r->unsafe_disable_sync) {
+      s = r->file_writer->Sync(r->ioptions.use_fsync);
+    }
     if (s.ok()) {
       s = r->InvalidatePageCache(true /* closing */);
     }

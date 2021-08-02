@@ -1641,6 +1641,10 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Only set unsafe_disable_sync to true if you know what you're doing. If set
+  // to true no file sync operations will be performed when ingesting the
+  // external file.
+  bool unsafe_disable_sync = false;
 };
 
 enum TraceFilterType : uint64_t {

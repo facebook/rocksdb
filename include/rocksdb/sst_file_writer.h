@@ -88,14 +88,17 @@ class SstFileWriter {
   // passed.
   // If unsafe_add is true, SstFileWriter doesn't check that keys are written in
   // ascending order.
+  // If unsafe_disable_sync is false, SstFileWriter will not sync new sst file
+  // on close.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
                 Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false, bool unsafe_add = false)
+                bool skip_filters = false, bool unsafe_add = false,
+                bool unsafe_disable_sync = false)
       : SstFileWriter(env_options, options, options.comparator, column_family,
                       invalidate_page_cache, io_priority, skip_filters,
-                      unsafe_add) {}
+                      unsafe_add, unsafe_disable_sync) {}
 
   // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
@@ -103,7 +106,8 @@ class SstFileWriter {
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
                 Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false, bool unsafe_add = false);
+                bool skip_filters = false, bool unsafe_add = false,
+                bool unsafe_disable_sync = false);
 
   ~SstFileWriter();
 
