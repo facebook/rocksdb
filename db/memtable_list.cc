@@ -550,7 +550,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
-  if (num_flush_not_started_ == 1){
+  if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
   UpdateCachedValuesFromMemTableListVersion();

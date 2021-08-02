@@ -579,8 +579,7 @@ Status FlushJob::MemPurge() {
         cfd_->imm()->AddMemPurgeOutputID(new_mem_id);
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
-        cfd_->imm()->Add(new_mem,
-                         &job_context_->memtables_to_free);
+        cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
         new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
                            mutable_cf_options_.write_buffer_size;
         new_mem->Ref();
