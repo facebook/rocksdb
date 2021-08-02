@@ -688,6 +688,7 @@ bool ColumnFamilyData::UnrefAndTryDelete() {
 
     if (sv->Unref()) {
       // Note: sv will delete this ColumnFamilyData during Cleanup()
+      assert(sv->cfd == this);
       sv->Cleanup();
       delete sv;
       return true;
