@@ -9,6 +9,7 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
+#include "port/lang.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "trace_replay/trace_replay.h"
@@ -156,20 +157,6 @@ class IOTracer {
   // the meanwhile, WriteIOOp will anyways check the writer_ protected under
   // mutex and ignore the operation if writer_is null. So its ok if
   // tracing_enabled shows non updated value.
-
-#if defined(__clang__)
-#if defined(__has_feature) && __has_feature(thread_sanitizer)
-#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
-#endif  // __has_feature(thread_sanitizer)
-#else   // __clang__
-#ifdef __SANITIZE_THREAD__
-#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
-#endif  // __SANITIZE_THREAD__
-#endif  // __clang__
-
-#ifndef TSAN_SUPPRESSION
-#define TSAN_SUPPRESSION
-#endif  // TSAN_SUPPRESSION
 
   // Start writing IO operations to the trace_writer.
   TSAN_SUPPRESSION Status

@@ -32,6 +32,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <unordered_map>
 
@@ -96,7 +97,12 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-#ifndef ROCKSDB_LITE
+#ifdef ROCKSDB_LITE
+#define IF_ROCKSDB_LITE(Then, Else) Then
+#else
+#define IF_ROCKSDB_LITE(Then, Else) Else
+#endif
+
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -116,9 +122,11 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "flush,"
+IF_ROCKSDB_LITE("",
     "compact0,"
     "compact1,"
     "waitforcompaction,"
+)
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -208,9 +216,11 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
+IF_ROCKSDB_LITE("",
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
+)
     "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
@@ -225,130 +235,6 @@ DEFINE_string(
     "by doing a Get followed by binary searching in the large sorted list vs "
     "doing a GetMergeOperands and binary searching in the operands which are"
     "sorted sub-lists. The MergeOperator used is sortlist.h\n");
-#else
-DEFINE_string(
-    benchmarks,
-    "fillseq,"
-    "fillseqdeterministic,"
-    "fillsync,"
-    "fillrandom,"
-    "filluniquerandomdeterministic,"
-    "overwrite,"
-    "readrandom,"
-    "newiterator,"
-    "newiteratorwhilewriting,"
-    "seekrandom,"
-    "seekrandomwhilewriting,"
-    "seekrandomwhilemerging,"
-    "readseq,"
-    "readreverse,"
-    "compact,"
-    "compactall,"
-    "flush,"
-    "multireadrandom,"
-    "mixgraph,"
-    "readseq,"
-    "readtorowcache,"
-    "readtocache,"
-    "readreverse,"
-    "readwhilewriting,"
-    "readwhilemerging,"
-    "readwhilescanning,"
-    "readrandomwriterandom,"
-    "updaterandom,"
-    "xorupdaterandom,"
-    "approximatesizerandom,"
-    "randomwithverify,"
-    "fill100K,"
-    "crc32c,"
-    "xxhash,"
-    "compress,"
-    "uncompress,"
-    "acquireload,"
-    "fillseekseq,"
-    "randomtransaction,"
-    "randomreplacekeys,"
-    "timeseries,"
-    "getmergeoperands",
-
-    "Comma-separated list of operations to run in the specified"
-    " order. Available benchmarks:\n"
-    "\tfillseq       -- write N values in sequential key"
-    " order in async mode\n"
-    "\tfillseqdeterministic       -- write N values in the specified"
-    " key order and keep the shape of the LSM tree\n"
-    "\tfillrandom    -- write N values in random key order in async"
-    " mode\n"
-    "\tfilluniquerandomdeterministic       -- write N values in a random"
-    " key order and keep the shape of the LSM tree\n"
-    "\toverwrite     -- overwrite N values in random key order in"
-    " async mode\n"
-    "\tfillsync      -- write N/1000 values in random key order in "
-    "sync mode\n"
-    "\tfill100K      -- write N/1000 100K values in random order in"
-    " async mode\n"
-    "\tdeleteseq     -- delete N keys in sequential order\n"
-    "\tdeleterandom  -- delete N keys in random order\n"
-    "\treadseq       -- read N times sequentially\n"
-    "\treadtocache   -- 1 thread reading database sequentially\n"
-    "\treadreverse   -- read N times in reverse order\n"
-    "\treadrandom    -- read N times in random order\n"
-    "\treadmissing   -- read N missing keys in random order\n"
-    "\treadwhilewriting      -- 1 writer, N threads doing random "
-    "reads\n"
-    "\treadwhilemerging      -- 1 merger, N threads doing random "
-    "reads\n"
-    "\treadwhilescanning     -- 1 thread doing full table scan, "
-    "N threads doing random reads\n"
-    "\treadrandomwriterandom -- N threads doing random-read, "
-    "random-write\n"
-    "\tupdaterandom  -- N threads doing read-modify-write for random "
-    "keys\n"
-    "\txorupdaterandom  -- N threads doing read-XOR-write for "
-    "random keys\n"
-    "\tappendrandom  -- N threads doing read-modify-write with "
-    "growing values\n"
-    "\tmergerandom   -- same as updaterandom/appendrandom using merge"
-    " operator. "
-    "Must be used with merge_operator\n"
-    "\treadrandommergerandom -- perform N random read-or-merge "
-    "operations. Must be used with merge_operator\n"
-    "\tnewiterator   -- repeated iterator creation\n"
-    "\tseekrandom    -- N random seeks, call Next seek_nexts times "
-    "per seek\n"
-    "\tseekrandomwhilewriting -- seekrandom and 1 thread doing "
-    "overwrite\n"
-    "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
-    "merge\n"
-    "\tcrc32c        -- repeated crc32c of 4K of data\n"
-    "\txxhash        -- repeated xxHash of 4K of data\n"
-    "\tacquireload   -- load N*1000 times\n"
-    "\tfillseekseq   -- write N values in sequential key, then read "
-    "them by seeking to each key\n"
-    "\trandomtransaction     -- execute N random transactions and "
-    "verify correctness\n"
-    "\trandomreplacekeys     -- randomly replaces N keys by deleting "
-    "the old version and putting the new version\n\n"
-    "\ttimeseries            -- 1 writer generates time series data "
-    "and multiple readers doing random reads on id\n\n"
-    "Meta operations:\n"
-    "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
-    "\tcompactall  -- Compact the entire DB\n"
-    "\tflush - flush the memtable\n"
-    "\tstats       -- Print DB stats\n"
-    "\tresetstats  -- Reset DB stats\n"
-    "\tlevelstats  -- Print the number of files and bytes per level\n"
-    "\tmemstats  -- Print memtable stats\n"
-    "\tsstables    -- Print sstable info\n"
-    "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n"
-    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
-    "sorted ints for a key and then compare performance of lookup for another "
-    "key "
-    "by doing a Get followed by binary searching in the large sorted list vs "
-    "doing a GetMergeOperands and binary searching in the operands which are"
-    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
-#endif
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -445,6 +331,62 @@ DEFINE_int32(num_multi_db, 0,
 
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
+
+DEFINE_double(
+    overwrite_probability, 0.0,
+    "Used in 'filluniquerandom' benchmark: for each write operation, "
+    "we give a probability to perform an overwrite instead. The key used for "
+    "the overwrite is randomly chosen from the last 'overwrite_window_size' "
+    "keys "
+    "previously inserted into the DB. "
+    "Valid overwrite_probability values: [0.0, 1.0].");
+
+DEFINE_uint32(overwrite_window_size, 1,
+              "Used in 'filluniquerandom' benchmark. For each write "
+              "operation, when "
+              "the overwrite_probability flag is set by the user, the key used "
+              "to perform "
+              "an overwrite is randomly chosen from the last "
+              "'overwrite_window_size' keys "
+              "previously inserted into the DB. "
+              "Warning: large values can affect throughput. "
+              "Valid overwrite_window_size values: [1, kMaxUint32].");
+
+DEFINE_uint64(
+    disposable_entries_delete_delay, 0,
+    "Minimum delay in microseconds for the series of Deletes "
+    "to be issued. When 0 the insertion of the last disposable entry is "
+    "immediately followed by the issuance of the Deletes. "
+    "(only compatible with fillanddeleteuniquerandom benchmark).");
+
+DEFINE_uint64(disposable_entries_batch_size, 0,
+              "Number of consecutively inserted disposable KV entries "
+              "that will be deleted after 'delete_delay' microseconds. "
+              "A series of Deletes is always issued once all the "
+              "disposable KV entries it targets have been inserted "
+              "into the DB. When 0 no deletes are issued and a "
+              "regular 'filluniquerandom' benchmark occurs. "
+              "(only compatible with fillanddeleteuniquerandom benchmark)");
+
+DEFINE_int32(disposable_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries targeted by "
+             "selective deletes. "
+             "(only compatible with fillanddeleteuniquerandom benchmark)");
+
+DEFINE_uint64(
+    persistent_entries_batch_size, 0,
+    "Number of KV entries being inserted right before the deletes "
+    "targeting the disposable KV entries are issued. These "
+    "persistent keys are not targeted by the deletes, and will always "
+    "remain valid in the DB. (only compatible with "
+    "--benchmarks='fillanddeleteuniquerandom' "
+    "and used when--disposable_entries_batch_size is > 0).");
+
+DEFINE_int32(persistent_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries not targeted by "
+             "deletes. (only compatible with "
+             "--benchmarks='fillanddeleteuniquerandom' "
+             "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
@@ -1095,6 +1037,19 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
 }
 
+static enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
+    const char* mpolicy) {
+  assert(mpolicy);
+  if (!strcasecmp(mpolicy, "kAlways")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
+  } else if (!strcasecmp(mpolicy, "kAlternate")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+  }
+
+  fprintf(stdout, "Cannot parse mempurge policy '%s'\n", mpolicy);
+  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+}
+
 static std::string ColumnFamilyName(size_t i) {
   if (i == 0) {
     return ROCKSDB_NAMESPACE::kDefaultColumnFamilyName;
@@ -1228,6 +1183,12 @@ DEFINE_bool(
 
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
+
+DEFINE_bool(experimental_allow_mempurge, false,
+            "Allow memtable garbage collection.");
+
+DEFINE_string(experimental_mempurge_policy, "kAlternate",
+              "Specify memtable garbage collection policy.");
 
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
@@ -2658,6 +2619,9 @@ class Benchmark {
 
     ~ErrorHandlerListener() override {}
 
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
+
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,
                               bool* auto_recovery) override {
@@ -3095,11 +3059,15 @@ class Benchmark {
     }
   }
 
-  ~Benchmark() {
+  void DeleteDBs() {
     db_.DeleteDBs();
-    for (auto db : multi_dbs_) {
-      db.DeleteDBs();
+    for (const DBWithColumnFamilies& dbwcf : multi_dbs_) {
+      delete dbwcf.db;
     }
+  }
+
+  ~Benchmark() {
+    DeleteDBs();
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
       // Clear cache reference first
@@ -3232,10 +3200,7 @@ class Benchmark {
   }
 
   void ErrorExit() {
-    db_.DeleteDBs();
-    for (size_t i = 0; i < multi_dbs_.size(); i++) {
-      delete multi_dbs_[i].db;
-    }
+    DeleteDBs();
     exit(1);
   }
 
@@ -3337,12 +3302,13 @@ class Benchmark {
       } else if (name == "fillrandom") {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
-      } else if (name == "filluniquerandom") {
+      } else if (name == "filluniquerandom" ||
+                 name == "fillanddeleteuniquerandom") {
         fresh_db = true;
         if (num_threads > 1) {
           fprintf(stderr,
-                  "filluniquerandom multithreaded not supported"
-                  ", use 1 thread");
+                  "filluniquerandom and fillanddeleteuniquerandom "
+                  "multithreaded not supported, use 1 thread");
           num_threads = 1;
         }
         method = &Benchmark::WriteUniqueRandom;
@@ -4301,6 +4267,9 @@ class Benchmark {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
+    options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
+    options.experimental_mempurge_policy =
+        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
@@ -4732,6 +4701,13 @@ class Benchmark {
       return std::numeric_limits<uint64_t>::max();
     }
 
+    // Only available for UNIQUE_RANDOM mode.
+    uint64_t Fetch(uint64_t index) {
+      assert(mode_ == UNIQUE_RANDOM);
+      assert(index < values_.size());
+      return values_[index];
+    }
+
    private:
     Random64* rand_;
     WriteMode mode_;
@@ -4802,6 +4778,79 @@ class Benchmark {
     Slice begin_key = AllocateKey(&begin_key_guard);
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
+    double p = 0.0;
+    uint64_t num_overwrites = 0, num_unique_keys = 0, num_selective_deletes = 0;
+    // If user set overwrite_probability flag,
+    // check if value is in [0.0,1.0].
+    if (FLAGS_overwrite_probability > 0.0) {
+      p = FLAGS_overwrite_probability > 1.0 ? 1.0 : FLAGS_overwrite_probability;
+      // If overwrite set by user, and UNIQUE_RANDOM mode on,
+      // the overwrite_window_size must be > 0.
+      if (write_mode == UNIQUE_RANDOM && FLAGS_overwrite_window_size == 0) {
+        fprintf(stderr,
+                "Overwrite_window_size must be  strictly greater than 0.\n");
+        ErrorExit();
+      }
+    }
+
+    // Default_random_engine provides slightly
+    // improved throughput over mt19937.
+    std::default_random_engine overwrite_gen{
+        static_cast<unsigned int>(FLAGS_seed)};
+    std::bernoulli_distribution overwrite_decider(p);
+
+    // Inserted key window is filled with the last N
+    // keys previously inserted into the DB (with
+    // N=FLAGS_overwrite_window_size).
+    // We use a deque struct because:
+    // - random access is O(1)
+    // - insertion/removal at beginning/end is also O(1).
+    std::deque<int64_t> inserted_key_window;
+    Random64 reservoir_id_gen(FLAGS_seed);
+
+    // --- Variables used in disposable/persistent keys simulation:
+    // The following variables are used when
+    // disposable_entries_batch_size is >0. We simualte a workload
+    // where the following sequence is repeated multiple times:
+    // "A set of keys S1 is inserted ('disposable entries'), then after
+    // some delay another set of keys S2 is inserted ('persistent entries')
+    // and the first set of keys S1 is deleted. S2 artificially represents
+    // the insertion of hypothetical results from some undefined computation
+    // done on the first set of keys S1. The next sequence can start as soon
+    // as the last disposable entry in the set S1 of this sequence is
+    // inserted, if the delay is non negligible"
+    bool skip_for_loop = false, is_disposable_entry = true;
+    std::vector<uint64_t> disposable_entries_index(num_key_gens, 0);
+    std::vector<uint64_t> persistent_ent_and_del_index(num_key_gens, 0);
+    const uint64_t kNumDispAndPersEntries =
+        FLAGS_disposable_entries_batch_size +
+        FLAGS_persistent_entries_batch_size;
+    if (kNumDispAndPersEntries > 0) {
+      if ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
+          (p > 0.0)) {
+        fprintf(
+            stderr,
+            "Disposable/persistent deletes are not compatible with overwrites "
+            "and DeleteRanges; and are only supported in filluniquerandom.\n");
+        ErrorExit();
+      }
+      if (FLAGS_disposable_entries_value_size < 0 ||
+          FLAGS_persistent_entries_value_size < 0) {
+        fprintf(
+            stderr,
+            "disposable_entries_value_size and persistent_entries_value_size"
+            "have to be positive.\n");
+        ErrorExit();
+      }
+    }
+    Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    std::string random_value;
+    // Queue that stores scheduled timestamp of disposable entries deletes,
+    // along with starting index of disposable entry keys to delete.
+    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
+        num_key_gens);
+    // --- End of variables used in disposable/persistent keys simulation.
+
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
@@ -4836,9 +4885,118 @@ class Benchmark {
       int64_t batch_bytes = 0;
 
       for (int64_t j = 0; j < entries_per_batch_; j++) {
-        int64_t rand_num = key_gens[id]->Next();
+        int64_t rand_num = 0;
+        if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+          if ((inserted_key_window.size() > 0) &&
+              overwrite_decider(overwrite_gen)) {
+            num_overwrites++;
+            rand_num = inserted_key_window[reservoir_id_gen.Next() %
+                                           inserted_key_window.size()];
+          } else {
+            num_unique_keys++;
+            rand_num = key_gens[id]->Next();
+            if (inserted_key_window.size() < FLAGS_overwrite_window_size) {
+              inserted_key_window.push_back(rand_num);
+            } else {
+              inserted_key_window.pop_front();
+              inserted_key_window.push_back(rand_num);
+            }
+          }
+        } else if (kNumDispAndPersEntries > 0) {
+          // Check if queue is non-empty and if we need to insert
+          // 'persistent' KV entries (KV entries that are never deleted)
+          // and delete disposable entries previously inserted.
+          if (!disposable_entries_q[id].empty() &&
+              (disposable_entries_q[id].front().first <
+               FLAGS_env->NowMicros())) {
+            // If we need to perform a "merge op" pattern,
+            // we first write all the persistent KV entries not targeted
+            // by deletes, and then we write the disposable entries deletes.
+            if (persistent_ent_and_del_index[id] <
+                FLAGS_persistent_entries_batch_size) {
+              // Generate key to insert.
+              rand_num =
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      FLAGS_disposable_entries_batch_size +
+                                      persistent_ent_and_del_index[id]);
+              persistent_ent_and_del_index[id]++;
+              is_disposable_entry = false;
+              skip_for_loop = false;
+            } else if (persistent_ent_and_del_index[id] <
+                       kNumDispAndPersEntries) {
+              // Find key of the entry to delete.
+              rand_num =
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      (persistent_ent_and_del_index[id] -
+                                       FLAGS_persistent_entries_batch_size));
+              persistent_ent_and_del_index[id]++;
+              GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+              // For the delete operation, everything happens here and we
+              // skip the rest of the for-loop, which is designed for
+              // inserts.
+              if (FLAGS_num_column_families <= 1) {
+                batch.Delete(key);
+              } else {
+                // We use same rand_num as seed for key and column family so
+                // that we can deterministically find the cfh corresponding to a
+                // particular key while reading the key.
+                batch.Delete(db_with_cfh->GetCfh(rand_num), key);
+              }
+              // A delete only includes Key+Timestamp (no value).
+              batch_bytes += key_size_ + user_timestamp_size_;
+              bytes += key_size_ + user_timestamp_size_;
+              num_selective_deletes++;
+              // Skip rest of the for-loop (j=0, j<entries_per_batch_,j++).
+              skip_for_loop = true;
+            } else {
+              assert(false);  // should never reach this point.
+            }
+            // If disposable_entries_q needs to be updated (ie: when a selective
+            // insert+delete was successfully completed, pop the job out of the
+            // queue).
+            if (!disposable_entries_q[id].empty() &&
+                (disposable_entries_q[id].front().first <
+                 FLAGS_env->NowMicros()) &&
+                persistent_ent_and_del_index[id] == kNumDispAndPersEntries) {
+              disposable_entries_q[id].pop();
+              persistent_ent_and_del_index[id] = 0;
+            }
+
+            // If we are deleting disposable entries, skip the rest of the
+            // for-loop since there is no key-value inserts at this moment in
+            // time.
+            if (skip_for_loop) {
+              continue;
+            }
+
+          }
+          // If no job is in the queue, then we keep inserting disposable KV
+          // entries that will be deleted later by a series of deletes.
+          else {
+            rand_num = key_gens[id]->Fetch(disposable_entries_index[id]);
+            disposable_entries_index[id]++;
+            is_disposable_entry = true;
+            if ((disposable_entries_index[id] %
+                 FLAGS_disposable_entries_batch_size) == 0) {
+              // Skip the persistent KV entries inserts for now
+              disposable_entries_index[id] +=
+                  FLAGS_persistent_entries_batch_size;
+            }
+          }
+        } else {
+          rand_num = key_gens[id]->Next();
+        }
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-        Slice val = gen.Generate();
+        Slice val;
+        if (kNumDispAndPersEntries > 0) {
+          random_value = rnd_disposable_entry.RandomString(
+              is_disposable_entry ? FLAGS_disposable_entries_value_size
+                                  : FLAGS_persistent_entries_value_size);
+          val = Slice(random_value);
+          num_unique_keys++;
+        } else {
+          val = gen.Generate();
+        }
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           // Stacked BlobDB
@@ -4863,6 +5021,23 @@ class Benchmark {
         batch_bytes += val.size() + key_size_ + user_timestamp_size_;
         bytes += val.size() + key_size_ + user_timestamp_size_;
         ++num_written;
+
+        // If all disposable entries have been inserted, then we need to
+        // add in the job queue a call for 'persistent entry insertions +
+        // disposable entry deletions'.
+        if (kNumDispAndPersEntries > 0 && is_disposable_entry &&
+            ((disposable_entries_index[id] % kNumDispAndPersEntries) == 0)) {
+          // Queue contains [timestamp, starting_idx],
+          // timestamp = current_time + delay (minimum aboslute time when to
+          // start inserting the selective deletes) starting_idx = index in the
+          // keygen of the rand_num to generate the key of the first KV entry to
+          // delete (= key of the first selective delete).
+          disposable_entries_q[id].push(std::make_pair(
+              FLAGS_env->NowMicros() +
+                  FLAGS_disposable_entries_delete_delay /* timestamp */,
+              disposable_entries_index[id] - kNumDispAndPersEntries
+              /*starting idx*/));
+        }
         if (writes_per_range_tombstone_ > 0 &&
             num_written > writes_before_delete_range_ &&
             (num_written - writes_before_delete_range_) /
@@ -4963,6 +5138,17 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
       }
+    }
+    if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+      fprintf(stdout,
+              "Number of unique keys inserted: %" PRIu64
+              ".\nNumber of overwrites: %" PRIu64 "\n",
+              num_unique_keys, num_overwrites);
+    } else if (kNumDispAndPersEntries > 0) {
+      fprintf(stdout,
+              "Number of unique keys inserted (disposable+persistent): %" PRIu64
+              ".\nNumber of 'disposable entry delete': %" PRIu64 "\n",
+              num_written, num_selective_deletes);
     }
     thread->stats.AddBytes(bytes);
   }
@@ -6187,13 +6373,14 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
-    Iterator* single_iter = nullptr;
-    std::vector<Iterator*> multi_iters;
-    if (db_.db != nullptr) {
-      single_iter = db_.db->NewIterator(options);
-    } else {
-      for (const auto& db_with_cfh : multi_dbs_) {
-        multi_iters.push_back(db_with_cfh.db->NewIterator(options));
+    std::vector<Iterator*> tailing_iters;
+    if (FLAGS_use_tailing_iterator) {
+      if (db_.db != nullptr) {
+        tailing_iters.push_back(db_.db->NewIterator(options));
+      } else {
+        for (const auto& db_with_cfh : multi_dbs_) {
+          tailing_iters.push_back(db_with_cfh.db->NewIterator(options));
+        }
       }
     }
 
@@ -6227,24 +6414,22 @@ class Benchmark {
         }
       }
 
-      if (!FLAGS_use_tailing_iterator) {
-        if (db_.db != nullptr) {
-          delete single_iter;
-          single_iter = db_.db->NewIterator(options);
-        } else {
-          for (auto iter : multi_iters) {
-            delete iter;
-          }
-          multi_iters.clear();
-          for (const auto& db_with_cfh : multi_dbs_) {
-            multi_iters.push_back(db_with_cfh.db->NewIterator(options));
-          }
-        }
-      }
       // Pick a Iterator to use
-      Iterator* iter_to_use = single_iter;
-      if (single_iter == nullptr) {
-        iter_to_use = multi_iters[thread->rand.Next() % multi_iters.size()];
+      size_t db_idx_to_use =
+          (db_.db == nullptr)
+              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              : 0;
+      std::unique_ptr<Iterator> single_iter;
+      Iterator* iter_to_use;
+      if (FLAGS_use_tailing_iterator) {
+        iter_to_use = tailing_iters[db_idx_to_use];
+      } else {
+        if (db_.db != nullptr) {
+          single_iter.reset(db_.db->NewIterator(options));
+        } else {
+          single_iter.reset(multi_dbs_[db_idx_to_use].db->NewIterator(options));
+        }
+        iter_to_use = single_iter.get();
       }
 
       iter_to_use->Seek(key);
@@ -6276,8 +6461,7 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
-    delete single_iter;
-    for (auto iter : multi_iters) {
+    for (auto iter : tailing_iters) {
       delete iter;
     }
 

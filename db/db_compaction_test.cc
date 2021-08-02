@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
 };
 
 class DBCompactionTestWithParam
@@ -40,7 +40,7 @@ class DBCompactionTestWithParam
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
   DBCompactionTestWithParam()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -58,7 +58,7 @@ class DBCompactionTestWithBottommostParam
       public testing::WithParamInterface<BottommostLevelCompaction> {
  public:
   DBCompactionTestWithBottommostParam()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     bottommost_level_compaction_ = GetParam();
   }
 
@@ -5005,7 +5005,7 @@ class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
   CompactionPriTest()
-      : DBTestBase("/compaction_pri_test", /*env_do_fsync=*/true) {
+      : DBTestBase("compaction_pri_test", /*env_do_fsync=*/true) {
     compaction_pri_ = GetParam();
   }
 

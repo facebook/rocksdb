@@ -63,6 +63,7 @@
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
+#include "monitoring/instrumented_mutex.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
@@ -98,6 +99,7 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/defer.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -639,7 +641,7 @@ Status DBImpl::CloseHelper() {
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
           "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
+          LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
           s.ToString().c_str());
       // Retain the first error
       if (ret.ok()) {
@@ -733,7 +735,8 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 const Status DBImpl::CreateArchivalDirectory() {
   if (immutable_db_options_.WAL_ttl_seconds > 0 ||
       immutable_db_options_.WAL_size_limit_MB > 0) {
-    std::string archivalPath = ArchivalDirectory(immutable_db_options_.wal_dir);
+    std::string archivalPath =
+        ArchivalDirectory(immutable_db_options_.GetWalDir());
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
@@ -944,18 +947,31 @@ void DBImpl::DumpStats() {
   if (shutdown_initiated_) {
     return;
   }
+
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        // Release DB mutex for gathering cache entry stats. Pass over all
+        // column families for this first so that other stats are dumped
+        // near-atomically.
+        InstrumentedMutexUnlock u(&mutex_);
+        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+      }
+    }
+
     const std::string* property = &DB::Properties::kDBStats;
     const DBPropertyInfo* property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
     property = &DB::Properties::kCFStatsNoFileHistogram;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
@@ -966,6 +982,7 @@ void DBImpl::DumpStats() {
     property = &DB::Properties::kCFFileHistogram;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
+    assert(!property_info->need_out_of_mutex);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
@@ -1121,9 +1138,19 @@ Status DBImpl::SetDBOptions(
     InstrumentedMutexLock l(&mutex_);
     s = GetMutableDBOptionsFromStrings(mutable_db_options_, options_map,
                                        &new_options);
+
     if (new_options.bytes_per_sync == 0) {
       new_options.bytes_per_sync = 1024 * 1024;
     }
+
+    if (MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "SetDBOptions(), input option value is not changed, "
+                     "skipping updating.");
+      persist_options_status.PermitUncheckedError();
+      return s;
+    }
+
     DBOptions new_db_options =
         BuildDBOptions(immutable_db_options_, new_options);
     if (s.ok()) {
@@ -1769,6 +1796,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
+  // HACK: temporarily overwrite input struct field but restore
+  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
   if (ts_sz > 0) {
     assert(!get_impl_options
                 .callback);  // timestamp with callback is not supported
@@ -3264,16 +3293,21 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     }
     return ret_value;
   } else if (property_info->handle_string) {
-    InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetStringProperty(*property_info, property,
-                                                    value);
-  } else if (property_info->handle_string_dbimpl) {
-    std::string tmp_value;
-    bool ret_value = (this->*(property_info->handle_string_dbimpl))(&tmp_value);
-    if (ret_value) {
-      *value = tmp_value;
+    if (property_info->need_out_of_mutex) {
+      return cfd->internal_stats()->GetStringProperty(*property_info, property,
+                                                      value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return cfd->internal_stats()->GetStringProperty(*property_info, property,
+                                                      value);
     }
-    return ret_value;
+  } else if (property_info->handle_string_dbimpl) {
+    if (property_info->need_out_of_mutex) {
+      return (this->*(property_info->handle_string_dbimpl))(value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return (this->*(property_info->handle_string_dbimpl))(value);
+    }
   }
   // Shouldn't reach here since exactly one of handle_string and handle_int
   // should be non-nullptr.
@@ -3291,9 +3325,14 @@ bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
   if (property_info == nullptr) {
     return false;
   } else if (property_info->handle_map) {
-    InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetMapProperty(*property_info, property,
-                                                 value);
+    if (property_info->need_out_of_mutex) {
+      return cfd->internal_stats()->GetMapProperty(*property_info, property,
+                                                   value);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return cfd->internal_stats()->GetMapProperty(*property_info, property,
+                                                   value);
+    }
   }
   // If we reach this point it means that handle_map is not provided for the
   // requested property
@@ -4013,7 +4052,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
-  bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
+  bool wal_in_db_path = soptions.IsWalDirSameAsDBPath();
 
   // Reset the logger because it holds a handle to the
   // log file and prevents cleanup and directory removal
@@ -4079,7 +4118,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     std::vector<std::string> walDirFiles;
     std::string archivedir = ArchivalDirectory(dbname);
     bool wal_dir_exists = false;
-    if (dbname != soptions.wal_dir) {
+    if (!soptions.IsWalDirSameAsDBPath(dbname)) {
       wal_dir_exists = env->GetChildren(soptions.wal_dir, &walDirFiles).ok();
       archivedir = ArchivalDirectory(soptions.wal_dir);
     }
@@ -4169,6 +4208,8 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
 
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
+                           &db_options);
 
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());

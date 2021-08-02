@@ -858,6 +858,17 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setPeriodicCompactionSeconds(final long periodicCompactionSeconds) {
+    setPeriodicCompactionSeconds(nativeHandle_, periodicCompactionSeconds);
+    return this;
+  }
+
+  @Override
+  public long periodicCompactionSeconds() {
+    return periodicCompactionSeconds(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setCompactionOptionsUniversal(
       final CompactionOptionsUniversal compactionOptionsUniversal) {
     setCompactionOptionsUniversal(nativeHandle_,
@@ -1083,6 +1094,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native boolean reportBgIoStats(final long handle);
   private native void setTtl(final long handle, final long ttl);
   private native long ttl(final long handle);
+  private native void setPeriodicCompactionSeconds(
+      final long handle, final long periodicCompactionSeconds);
+  private native long periodicCompactionSeconds(final long handle);
   private native void setCompactionOptionsUniversal(final long handle,
     final long compactionOptionsUniversalHandle);
   private native void setCompactionOptionsFIFO(final long handle,
