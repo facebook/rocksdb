@@ -418,10 +418,9 @@ bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
   if (IsTraceFileOverMax()) {
     return true;
   }
-  if ((trace_options_.filter & kTraceFilterGet
-    && trace_type == kTraceGet)
-   || (trace_options_.filter & kTraceFilterWrite
-    && trace_type == kTraceWrite)) {
+  if ((trace_options_.filter & kTraceFilterGet && trace_type == kTraceGet) ||
+      (trace_options_.filter & kTraceFilterWrite &&
+       trace_type == kTraceWrite)) {
     return true;
   }
   ++trace_request_count_;
@@ -710,8 +709,8 @@ Status ReplayerImpl::StepWorkGet(void* arg) {
   GetPayload get_payload;
   get_payload.cf_id = 0;
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(
-        ra->trace_entry.payload, &get_payload.cf_id, &get_payload.get_key);
+    DecodeCFAndKey(ra->trace_entry.payload, &get_payload.cf_id,
+                   &get_payload.get_key);
   } else {
     TracerHelper::DecodeGetPayload(&(ra->trace_entry), &get_payload);
   }
@@ -725,11 +724,8 @@ Status ReplayerImpl::StepWorkGet(void* arg) {
   if (get_payload.cf_id == 0) {
     s = ra->db->Get(ra->roptions, get_payload.get_key, &value);
   } else {
-    s = ra->db->Get(
-        ra->roptions,
-        (*cf_map)[get_payload.cf_id],
-        get_payload.get_key,
-        &value);
+    s = ra->db->Get(ra->roptions, (*cf_map)[get_payload.cf_id],
+                    get_payload.get_key, &value);
   }
   // Treat not found as ok.
   return s.IsNotFound() ? Status::OK() : s;
@@ -771,8 +767,8 @@ Status ReplayerImpl::StepWorkIterSeek(void* arg) {
   iter_payload.cf_id = 0;
 
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(
-        ra->trace_entry.payload, &iter_payload.cf_id, &iter_payload.iter_key);
+    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
+                   &iter_payload.iter_key);
   } else {
     TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
   }
@@ -808,8 +804,8 @@ Status ReplayerImpl::StepWorkIterSeekForPrev(void* arg) {
   iter_payload.cf_id = 0;
 
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(
-        ra->trace_entry.payload, &iter_payload.cf_id, &iter_payload.iter_key);
+    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
+                   &iter_payload.iter_key);
   } else {
     TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
   }
@@ -872,4 +868,4 @@ void ReplayerImpl::BGWorkMultiGet(void* arg) {
   StepWorkMultiGet(arg).PermitUncheckedError();
 }
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

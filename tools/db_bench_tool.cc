@@ -8004,8 +8004,8 @@ class Benchmark {
           s.ToString().c_str());
       exit(1);
     }
-    Replayer *replayer = db_with_cfh->db->NewReplayer(db_with_cfh->cfh,
-                      std::move(trace_reader));
+    Replayer* replayer =
+        db_with_cfh->db->NewReplayer(db_with_cfh->cfh, std::move(trace_reader));
     s = replayer->Replay(
         ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
                       static_cast<uint32_t>(FLAGS_trace_replay_fast_forward)));

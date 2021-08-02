@@ -269,11 +269,9 @@ class ReplayerImpl : public Replayer {
   static Status StepWorkMultiGet(void* arg);
   static void BGWorkMultiGet(void* arg);
 
-  Status StepWork(
-      std::chrono::system_clock::time_point replay_epoch,
-      uint64_t header_ts,
-      double fast_forward,
-      ThreadPoolImpl* thread_pool);
+  Status StepWork(std::chrono::system_clock::time_point replay_epoch,
+                  uint64_t header_ts, double fast_forward,
+                  ThreadPoolImpl* thread_pool);
 
   DBImpl* db_;
   Env* env_;
