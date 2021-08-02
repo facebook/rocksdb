@@ -206,9 +206,6 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         // If there is any remaining requests, make sure there exists at least
         // one candidate is awake for future duties by signaling a front request
         // of a queue.
-        // TODO(ajkr): we may wish to re-select no matter what to prevent the
-        // case we get unlucky with a race condition and then stuck working in
-        // the same non-grantable request thread for a while.
         if (!queue_[Env::IO_HIGH].empty()) {
           queue_[Env::IO_HIGH].front()->cv.Signal();
         } else if (!queue_[Env::IO_LOW].empty()) {
