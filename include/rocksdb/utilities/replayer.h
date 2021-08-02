@@ -18,8 +18,8 @@ struct ReplayOptions {
   double fast_forward;
 
   ReplayOptions() : num_threads(1), fast_forward(1.0) {}
-  ReplayOptions(uint32_t num_threads, double fast_forward)
-      : num_threads(num_threads), fast_forward(fast_forward) {}
+  ReplayOptions(uint32_t num_of_threads, double fast_forward_ratio)
+      : num_threads(num_of_threads), fast_forward(fast_forward_ratio) {}
 };
 
 // Replayer helps to replay the captured RocksDB operations.
