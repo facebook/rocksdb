@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/options.h"
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
@@ -64,6 +65,35 @@ TEST_F(RepairTest, LostManifest) {
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
+}
+
+TEST_F(RepairTest, LostManifestMoreDbFeatures) {
+  // Add a couple SST files, delete the manifest, and verify RepairDB() saves
+  // the day.
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(Flush());
+  // Test an SST file containing only a range tombstone
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key2",
+                             "key3z"));
+  ASSERT_OK(Flush());
+  // Need to get path before Close() deletes db_, but delete it after Close() to
+  // ensure Close() didn't change the manifest.
+  std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+
+  Close();
+  ASSERT_OK(env_->FileExists(manifest_path));
+  ASSERT_OK(env_->DeleteFile(manifest_path));
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+  Reopen(CurrentOptions());
+
+  ASSERT_EQ(Get("key"), "val");
+  ASSERT_EQ(Get("key2"), "NOT_FOUND");
+  ASSERT_EQ(Get("key3"), "NOT_FOUND");
+  ASSERT_EQ(Get("key4"), "val4");
 }
 
 TEST_F(RepairTest, CorruptManifest) {

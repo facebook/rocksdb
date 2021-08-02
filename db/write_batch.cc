@@ -776,7 +776,7 @@ bool WriteBatchInternal::IsLatestPersistentState(const WriteBatch* b) {
   return b->is_latest_persistent_state_;
 }
 
-void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
+void WriteBatchInternal::SetAsLatestPersistentState(WriteBatch* b) {
   b->is_latest_persistent_state_ = true;
 }
 
