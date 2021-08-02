@@ -1464,13 +1464,13 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     BlockType block_type) {
   Status s;
   if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
-    return InsertBlockInCache<Block>(block_contents, handle, block_type);
+    s = InsertBlockInCache<Block>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
     if (rep_->filter_builder->IsBlockBased()) {
-      return InsertBlockInCache<Block>(block_contents, handle, block_type);
+      s = InsertBlockInCache<Block>(block_contents, handle, block_type);
     } else {
-      return InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
-                                                       block_type);
+      s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
+                                                    block_type);
     }
   }
   return s;

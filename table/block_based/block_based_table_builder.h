@@ -124,8 +124,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   template <typename TBlocklike>
   Status InsertBlockInCache(const Slice& block_contents,
-                            const BlockHandle* handle,
-                            BlockType block_type);
+                            const BlockHandle* handle, BlockType block_type);
 
   Status InsertBlockInCacheHelper(const Slice& block_contents,
                                   const BlockHandle* handle,
