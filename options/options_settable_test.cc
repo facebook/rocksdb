@@ -321,6 +321,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "preserve_deletes=false;"
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
+                             "disable_manifest_sync=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;"
                              "atomic_flush=false;"

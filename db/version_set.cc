@@ -4036,7 +4036,9 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        if (!db_options_->disable_manifest_sync) {
+          io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        }
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }

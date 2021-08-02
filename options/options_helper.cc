@@ -165,6 +165,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.disable_manifest_sync = immutable_db_options.disable_manifest_sync;
   return options;
 }
 

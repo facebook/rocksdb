@@ -1171,6 +1171,14 @@ struct DBOptions {
   //
   // Default: false
   bool allow_data_in_errors = false;
+
+  // If disable_manifest_sync is set to true the MANIFEST file will not be
+  // synced (using fsync or fdatasync) after every write. Use this only in
+  // situations where you don't care about database integrity after a power
+  // cycle.
+  //
+  // Default: false
+  bool disable_manifest_sync = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
