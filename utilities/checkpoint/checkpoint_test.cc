@@ -14,21 +14,16 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -263,12 +258,6 @@ class CheckpointTest : public testing::Test {
       result = s.ToString();
     }
     return result;
-  }
-
-  static std::string IntToFixedWidthString(size_t i, int len) {
-    std::stringstream ss;
-    ss << std::setw(len) << std::setfill('0') << i;
-    return ss.str();
   }
 };
 
@@ -911,144 +900,6 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   }
   snapshot_handles.clear();
   delete snapshot_db;
-}
-
-TEST_F(CheckpointTest, CheckpointWithOptionsDirsTest) {
-  // If the checkpoint and the source db share the same wal_dir, files may be
-  // corrupted if both write to or delete from the same wal_dir. db_log_dir
-  // should also be updated during checkpointing, but it is less important since
-  // log files are not copied or linked to the checkpoint.
-
-  // 8 bytes key, 1 kB record, 4 kB MemTable. Each batch should trigger 25
-  // flushes
-  const int key_len = 8;
-  const int value_len = 1016;
-  const size_t num_keys = 100;
-  const size_t buffer_size = 4096;
-
-  std::string value(value_len, ' ');
-
-  std::vector<std::string> dirs1 = {"", "", "", ""};
-  std::vector<std::string> dirs2 = {"/logs", "/wal", "", ""};
-  std::vector<std::string> dirs3 = {"/logs", "/wal", "/logs", "/wal"};
-
-  for (auto dirs : {dirs1, dirs2, dirs3}) {
-    std::string src_log_dir = dirs[0].empty() ? "" : dbname_ + dirs[0];
-    std::string src_wal_dir = dirs[1].empty() ? "" : dbname_ + dirs[1];
-    std::string snap_log_dir = dirs[2].empty() ? "" : snapshot_name_ + dirs[2];
-    std::string snap_wal_dir = dirs[3].empty() ? "" : snapshot_name_ + dirs[3];
-
-    Options src_opts = CurrentOptions();
-    WriteOptions w_opts;
-    ReadOptions r_opts;
-    DB* snapshotDB;
-    Checkpoint* checkpoint;
-
-    src_opts = CurrentOptions();
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, src_opts));
-
-    // Create a database
-    src_opts.create_if_missing = true;
-    src_opts.write_buffer_size = buffer_size;
-    src_opts.OptimizeUniversalStyleCompaction(buffer_size);
-    src_opts.db_log_dir = src_log_dir;
-    src_opts.wal_dir = src_wal_dir;
-
-    ASSERT_OK(DB::Open(src_opts, dbname_, &db_));
-
-    // Write to src db
-    for (size_t i = 1; i <= num_keys; i++) {
-      ASSERT_OK(db_->Put(w_opts, IntToFixedWidthString(i, key_len), value));
-    }
-
-    // Take a snapshot
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
-                                           snap_log_dir, snap_wal_dir));
-
-    // Write to src db again
-    for (size_t i = num_keys + 1; i <= num_keys * 2; i++) {
-      ASSERT_OK(db_->Put(w_opts, IntToFixedWidthString(i, key_len), value));
-    }
-
-    std::string result;
-    std::string key1 = IntToFixedWidthString(num_keys, key_len);
-    std::string key2 = IntToFixedWidthString(num_keys * 2, key_len);
-    std::string key3 = IntToFixedWidthString(num_keys * 3, key_len);
-
-    ASSERT_OK(db_->Get(r_opts, key1, &result));
-    ASSERT_OK(db_->Get(r_opts, key2, &result));
-
-    // Open snapshot with its own options
-    DBOptions snap_opts;
-    std::vector<ColumnFamilyDescriptor> snap_cfs;
-    ASSERT_OK(LoadLatestOptions(ConfigOptions(), snapshot_name_, &snap_opts,
-                                &snap_cfs));
-
-    ASSERT_EQ(snap_opts.db_log_dir, snap_log_dir);
-    ASSERT_EQ(snap_opts.wal_dir,
-              snap_wal_dir.empty() ? snapshot_name_ : snap_wal_dir);
-
-    std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(
-        DB::Open(snap_opts, snapshot_name_, snap_cfs, &handles, &snapshotDB));
-    for (ColumnFamilyHandle* handle : handles) {
-      delete handle;
-    }
-    handles.clear();
-
-    ASSERT_OK(snapshotDB->Get(r_opts, key1, &result));
-    ASSERT_TRUE(snapshotDB->Get(r_opts, key2, &result).IsNotFound());
-
-    // Write to snapshot
-    for (size_t i = num_keys * 2 + 1; i <= num_keys * 3; i++) {
-      ASSERT_OK(
-          snapshotDB->Put(w_opts, IntToFixedWidthString(i, key_len), value));
-    }
-
-    ASSERT_OK(snapshotDB->Get(r_opts, key3, &result));
-    ASSERT_TRUE(db_->Get(r_opts, key3, &result).IsNotFound());
-
-    // Close and reopen the snapshot
-    delete snapshotDB;
-    ASSERT_OK(
-        DB::Open(snap_opts, snapshot_name_, snap_cfs, &handles, &snapshotDB));
-    for (ColumnFamilyHandle* handle : handles) {
-      delete handle;
-    }
-    handles.clear();
-    ASSERT_TRUE(snapshotDB->Get(r_opts, key2, &result).IsNotFound());
-    ASSERT_OK(snapshotDB->Get(r_opts, key3, &result));
-
-    delete snapshotDB;
-
-    // Close and reopen the source db
-    delete db_;
-    src_opts.create_if_missing = false;
-    ASSERT_OK(DB::Open(src_opts, dbname_, &db_));
-    ASSERT_OK(db_->Get(r_opts, key2, &result));
-    ASSERT_TRUE(db_->Get(r_opts, key3, &result).IsNotFound());
-    delete db_;
-
-    // Delete the snapshot
-    Options del_opts;
-    del_opts.db_log_dir = snap_opts.db_log_dir;
-    del_opts.wal_dir = snap_opts.wal_dir;
-    ASSERT_OK(DestroyDB(snapshot_name_, del_opts));
-
-    // Reopen the source db again
-    ASSERT_OK(DB::Open(src_opts, dbname_, &db_));
-
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, src_opts));
-
-    dbname_ = test::PerThreadDBPath(env_, "db_test");
-
-    delete checkpoint;
-  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
