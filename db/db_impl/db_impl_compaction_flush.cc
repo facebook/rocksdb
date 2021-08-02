@@ -3469,7 +3469,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, mutable_cf_options);
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

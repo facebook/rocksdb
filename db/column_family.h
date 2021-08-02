@@ -208,8 +208,6 @@ struct SuperVersion {
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
 
-  InstrumentedMutex* db_mutex;
-
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -452,7 +450,6 @@ class ColumnFamilyData {
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   void InstallSuperVersion(SuperVersionContext* sv_context,
-                           InstrumentedMutex* db_mutex,
                            const MutableCFOptions& mutable_cf_options);
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex);

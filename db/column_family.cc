@@ -1253,14 +1253,13 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
 void ColumnFamilyData::InstallSuperVersion(
     SuperVersionContext* sv_context, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
-  return InstallSuperVersion(sv_context, db_mutex, mutable_cf_options_);
+  return InstallSuperVersion(sv_context, mutable_cf_options_);
 }
 
 void ColumnFamilyData::InstallSuperVersion(
-    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
+    SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
-  new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
   new_superversion->Init(this, mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
