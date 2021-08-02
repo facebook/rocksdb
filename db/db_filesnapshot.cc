@@ -127,7 +127,22 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
       bg_cv_.Wait();
     }
   }
-  return wal_manager_.GetSortedWalFiles(files);
+
+  // Disable deletion in order to avoid the case where a file is deleted in
+  // the middle of the process so IO error is returned.
+  Status s = DisableFileDeletions();
+  bool file_deletion_supported = !s.IsNotSupported();
+  if (s.ok() || !file_deletion_supported) {
+    s = wal_manager_.GetSortedWalFiles(files);
+    if (file_deletion_supported) {
+      Status s2 = EnableFileDeletions(false);
+      if (!s2.ok() && s.ok()) {
+        s = s2;
+      }
+    }
+  }
+
+  return s;
 }
 
 Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {

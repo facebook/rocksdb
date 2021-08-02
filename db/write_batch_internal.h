@@ -214,7 +214,7 @@ class WriteBatchInternal {
 
   // This write batch includes the latest state that should be persisted. Such
   // state meant to be used only during recovery.
-  static void SetAsLastestPersistentState(WriteBatch* b);
+  static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
 };
 

@@ -38,7 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 // lambda passed to Defer, and you can return immediately on failure when necessary.
 class Defer final {
  public:
-  Defer(std::function<void()>&& fn) : fn_(std::move(fn)) {}
+  explicit Defer(std::function<void()>&& fn) : fn_(std::move(fn)) {}
   ~Defer() { fn_(); }
 
   // Disallow copy.
@@ -47,6 +47,25 @@ class Defer final {
 
  private:
   std::function<void()> fn_;
+};
+
+// An RAII utility object that saves the current value of an object so that
+// it can be overwritten, and restores it to the saved value when the
+// SaveAndRestore object goes out of scope.
+template <typename T>
+class SaveAndRestore {
+ public:
+  // obj is non-null pointer to value to be saved and later restored.
+  explicit SaveAndRestore(T* obj) : obj_(obj), saved_(*obj) {}
+  ~SaveAndRestore() { *obj_ = std::move(saved_); }
+
+  // No copies
+  SaveAndRestore(const SaveAndRestore&) = delete;
+  SaveAndRestore& operator=(const SaveAndRestore&) = delete;
+
+ private:
+  T* const obj_;
+  T saved_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
