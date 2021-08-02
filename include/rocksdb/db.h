@@ -56,6 +56,9 @@ class StatsHistoryIterator;
 class TraceWriter;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
+#else
+class TraceReader;
+class Replayer;
 #endif
 class FileSystem;
 
@@ -1656,6 +1659,12 @@ class DB {
 
   virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
+  }
+
+  virtual Replayer* NewReplayer(
+      const std::vector<ColumnFamilyHandle*>& /*handles*/,
+      std::unique_ptr<TraceReader>&& /*reader*/) {
+    return nullptr;
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.

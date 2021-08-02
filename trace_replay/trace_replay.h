@@ -6,12 +6,15 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/replayer.h"
+#include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -222,65 +225,67 @@ class Tracer {
   uint64_t trace_request_count_;
 };
 
-// Replayer helps to replay the captured RocksDB operations, using a user
-// provided TraceReader.
-// The Replayer is instantiated via db_bench today, on using "replay" benchmark.
-class Replayer {
+class ReplayerImpl : public Replayer {
  public:
-  Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-           std::unique_ptr<TraceReader>&& reader);
-  ~Replayer();
+  ReplayerImpl(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
+               std::unique_ptr<TraceReader>&& reader);
+  ~ReplayerImpl() override;
 
-  // Replay all the traces from the provided trace stream, taking the delay
-  // between the traces into consideration.
-  Status Replay();
+  Status Prepare() override;
 
-  // Replay the provide trace stream, which is the same as Replay(), with
-  // multi-threads. Queries are scheduled in the thread pool job queue.
-  // User can set the number of threads in the thread pool.
-  Status MultiThreadReplay(uint32_t threads_num);
+  Status Step() override;
 
-  // Enables fast forwarding a replay by reducing the delay between the ingested
-  // traces.
-  // fast_forward : Rate of replay speedup.
-  //   If 1, replay the operations at the same rate as in the trace stream.
-  //   If > 1, speed up the replay by this amount.
-  Status SetFastForward(uint32_t fast_forward);
+  Status Replay(ReplayOptions options) override;
 
  private:
   Status ReadHeader(Trace* header);
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
+  Status Reset();
+
   // The background function for MultiThreadReplay to execute Get query
   // based on the trace records.
+  static Status StepWorkGet(void* arg);
   static void BGWorkGet(void* arg);
 
   // The background function for MultiThreadReplay to execute WriteBatch
   // (Put, Delete, SingleDelete, DeleteRange) based on the trace records.
+  static Status StepWorkWriteBatch(void* arg);
   static void BGWorkWriteBatch(void* arg);
 
   // The background function for MultiThreadReplay to execute Iterator (Seek)
   // based on the trace records.
+  static Status StepWorkIterSeek(void* arg);
   static void BGWorkIterSeek(void* arg);
 
   // The background function for MultiThreadReplay to execute Iterator
   // (SeekForPrev) based on the trace records.
+  static Status StepWorkIterSeekForPrev(void* arg);
   static void BGWorkIterSeekForPrev(void* arg);
 
-  // The background function for MultiThreadReplay to execute MultiGet based on
-  // the trace records
+  // The background function for MultiThreadReplay to execute MultGet query
+  // based on the trace records.
+  static Status StepWorkMultiGet(void* arg);
   static void BGWorkMultiGet(void* arg);
+
+  Status StepWork(
+      std::chrono::system_clock::time_point replay_epoch,
+      uint64_t header_ts,
+      double fast_forward,
+      ThreadPoolImpl* thread_pool);
 
   DBImpl* db_;
   Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
-  uint32_t fast_forward_;
   // When reading the trace header, the trace file version can be parsed.
   // Replayer will use different decode method to get the trace content based
   // on different trace file version.
   int trace_file_version_;
+  std::mutex mutex_;
+  bool prepared_;
+  uint64_t header_ts_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.

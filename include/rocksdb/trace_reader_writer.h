@@ -36,6 +36,10 @@ class TraceReader {
 
   virtual Status Read(std::string* data) = 0;
   virtual Status Close() = 0;
+
+  // Allow to restart from the beginning such that Replayer can replay multiple
+  // times without being recreated.
+  virtual Status Reset() = 0;
 };
 
 // Factory methods to read/write traces from/to a file.
@@ -45,4 +49,5 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader);
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -94,6 +94,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
+#include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -5123,6 +5124,11 @@ Status DBImpl::EndTrace() {
     return Status::IOError("No trace file to close");
   }
   return s;
+}
+
+Replayer* DBImpl::NewReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                              std::unique_ptr<TraceReader>&& reader) {
+  return new ReplayerImpl(this, handles, std::move(reader));
 }
 
 Status DBImpl::StartBlockCacheTrace(

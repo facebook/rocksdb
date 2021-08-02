@@ -464,6 +464,10 @@ class DBImpl : public DB {
   using DB::EndTrace;
   virtual Status EndTrace() override;
 
+  using DB::NewReplayer;
+  virtual Replayer* NewReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                                std::unique_ptr<TraceReader>&& reader) override;
+
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
       const TraceOptions& options,

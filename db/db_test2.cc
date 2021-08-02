@@ -4256,8 +4256,9 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  Replayer* replayer = db2->NewReplayer(handles_, std::move(trace_reader));
+  ASSERT_OK(replayer->Replay());
+  delete replayer;
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);
@@ -4334,8 +4335,9 @@ TEST_F(DBTest2, TraceWithLimit) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  Replayer* replayer = db2->NewReplayer(handles_, std::move(trace_reader));
+  ASSERT_OK(replayer->Replay());
+  delete replayer;
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_TRUE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
@@ -4405,8 +4407,9 @@ TEST_F(DBTest2, TraceWithSampling) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  Replayer* replayer = db2->NewReplayer(handles_, std::move(trace_reader));
+  ASSERT_OK(replayer->Replay());
+  delete replayer;
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_FALSE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
@@ -4505,8 +4508,9 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  Replayer* replayer = db2->NewReplayer(handles_, std::move(trace_reader));
+  ASSERT_OK(replayer->Replay());
+  delete replayer;
 
   // All the key-values should not present since we filter out the WRITE ops.
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());

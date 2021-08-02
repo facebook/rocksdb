@@ -390,6 +390,12 @@ class StackableDB : public DB {
   using DB::EndTrace;
   Status EndTrace() override { return db_->EndTrace(); }
 
+  using DB::NewReplayer;
+  Replayer* NewReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                        std::unique_ptr<TraceReader>&& reader) override {
+    return db_->NewReplayer(handles, std::move(reader));
+  }
+
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,

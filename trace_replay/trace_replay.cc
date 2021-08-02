@@ -6,6 +6,7 @@
 #include "trace_replay/trace_replay.h"
 
 #include <chrono>
+#include <cmath>
 #include <sstream>
 #include <thread>
 
@@ -18,7 +19,6 @@
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -471,33 +471,30 @@ Status Tracer::WriteTrace(const Trace& trace) {
 
 Status Tracer::Close() { return WriteFooter(); }
 
-Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-                   std::unique_ptr<TraceReader>&& reader)
-    : trace_reader_(std::move(reader)) {
+ReplayerImpl::ReplayerImpl(DBImpl* db,
+                           const std::vector<ColumnFamilyHandle*>& handles,
+                           std::unique_ptr<TraceReader>&& reader)
+    : Replayer(),
+      trace_reader_(std::move(reader)),
+      prepared_(false),
+      header_ts_(0) {
   assert(db != nullptr);
-  db_ = static_cast<DBImpl*>(db->GetRootDB());
+  db_ = db;
   env_ = Env::Default();
   for (ColumnFamilyHandle* cfh : handles) {
     cf_map_[cfh->GetID()] = cfh;
   }
-  fast_forward_ = 1;
 }
 
-Replayer::~Replayer() { trace_reader_.reset(); }
+ReplayerImpl::~ReplayerImpl() { trace_reader_.reset(); }
 
-Status Replayer::SetFastForward(uint32_t fast_forward) {
-  Status s;
-  if (fast_forward < 1) {
-    s = Status::InvalidArgument("Wrong fast forward speed!");
-  } else {
-    fast_forward_ = fast_forward;
-    s = Status::OK();
+Status ReplayerImpl::Prepare() {
+  std::lock_guard<std::mutex> guard(mutex_);
+  Status s = Reset();
+  if (!s.ok()) {
+    return s;
   }
-  return s;
-}
 
-Status Replayer::Replay() {
-  Status s;
   Trace header;
   int db_version;
   s = ReadHeader(&header);
@@ -508,132 +505,73 @@ Status Replayer::Replay() {
   if (!s.ok()) {
     return s;
   }
+  header_ts_ = header.ts;
+  prepared_ = true;
+  return Status::OK();
+}
 
-  std::chrono::system_clock::time_point replay_epoch =
-      std::chrono::system_clock::now();
-  WriteOptions woptions;
-  ReadOptions roptions;
-  Trace trace;
-  uint64_t ops = 0;
-  Iterator* single_iter = nullptr;
-  while (s.ok()) {
-    trace.reset();
-    s = ReadTrace(&trace);
-    if (!s.ok()) {
-      break;
+Status ReplayerImpl::Reset() {
+  std::lock_guard<std::mutex> guard(mutex_);
+  if (prepared_) {
+    Status s = trace_reader_->Reset();
+    if (s.ok()) {
+      return s;
     }
+    header_ts_ = 0;
+    prepared_ = false;
+  }
+  return Status::OK();
+}
 
-    std::this_thread::sleep_until(
-        replay_epoch +
-        std::chrono::microseconds((trace.ts - header.ts) / fast_forward_));
-    if (trace.type == kTraceWrite) {
-      if (trace_file_version_ < 2) {
-        WriteBatch batch(trace.payload);
-        db_->Write(woptions, &batch);
-      } else {
-        WritePayload w_payload;
-        TracerHelper::DecodeWritePayload(&trace, &w_payload);
-        WriteBatch batch(w_payload.write_batch_data.ToString());
-        db_->Write(woptions, &batch);
-      }
-      ops++;
-    } else if (trace.type == kTraceGet) {
-      GetPayload get_payload;
-      get_payload.cf_id = 0;
-      get_payload.get_key = 0;
-      if (trace_file_version_ < 2) {
-        DecodeCFAndKey(trace.payload, &get_payload.cf_id, &get_payload.get_key);
-      } else {
-        TracerHelper::DecodeGetPayload(&trace, &get_payload);
-      }
-      if (get_payload.cf_id > 0 &&
-          cf_map_.find(get_payload.cf_id) == cf_map_.end()) {
-        return Status::Corruption("Invalid Column Family ID.");
-      }
+Status ReplayerImpl::Step() {
+  Status s =
+      StepWork(std::chrono::system_clock::time_point::min(), 0, 1, nullptr);
+  if (s.IsIncomplete() || s.IsNotSupported()) {
+    Reset().PermitUncheckedError();
+  }
+  return s;
+}
 
-      std::string value;
-      if (get_payload.cf_id == 0) {
-        db_->Get(roptions, get_payload.get_key, &value);
-      } else {
-        db_->Get(roptions, cf_map_[get_payload.cf_id], get_payload.get_key,
-                 &value);
-      }
-      ops++;
-    } else if (trace.type == kTraceIteratorSeek) {
-      // Currently, we only support to call Seek. The Next() and Prev() is not
-      // supported.
-      IterPayload iter_payload;
-      iter_payload.cf_id = 0;
-      if (trace_file_version_ < 2) {
-        DecodeCFAndKey(trace.payload, &iter_payload.cf_id,
-                       &iter_payload.iter_key);
-      } else {
-        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
-      }
-      if (iter_payload.cf_id > 0 &&
-          cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
-        return Status::Corruption("Invalid Column Family ID.");
-      }
+Status ReplayerImpl::Replay(ReplayOptions options) {
+  if (options.fast_forward <= 0.0) {
+    return Status::InvalidArgument("Wrong fast forward speed!");
+  }
 
-      if (iter_payload.cf_id == 0) {
-        single_iter = db_->NewIterator(roptions);
-      } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[iter_payload.cf_id]);
+  {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (!prepared_) {
+      Status s = Prepare();
+      if (!s.ok()) {
+        return s;
       }
-      single_iter->Seek(iter_payload.iter_key);
-      ops++;
-      delete single_iter;
-    } else if (trace.type == kTraceIteratorSeekForPrev) {
-      // Currently, we only support to call SeekForPrev. The Next() and Prev()
-      // is not supported.
-      IterPayload iter_payload;
-      iter_payload.cf_id = 0;
-      if (trace_file_version_ < 2) {
-        DecodeCFAndKey(trace.payload, &iter_payload.cf_id,
-                       &iter_payload.iter_key);
-      } else {
-        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
-      }
-      if (iter_payload.cf_id > 0 &&
-          cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
-        return Status::Corruption("Invalid Column Family ID.");
-      }
-
-      if (iter_payload.cf_id == 0) {
-        single_iter = db_->NewIterator(roptions);
-      } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[iter_payload.cf_id]);
-      }
-      single_iter->SeekForPrev(iter_payload.iter_key);
-      ops++;
-      delete single_iter;
-    } else if (trace.type == kTraceMultiGet) {
-      MultiGetPayload multiget_payload;
-      assert(trace_file_version_ >= 2);
-      TracerHelper::DecodeMultiGetPayload(&trace, &multiget_payload);
-      std::vector<ColumnFamilyHandle*> v_cfd;
-      std::vector<Slice> keys;
-      assert(multiget_payload.cf_ids.size() ==
-             multiget_payload.multiget_keys.size());
-      for (size_t i = 0; i < multiget_payload.cf_ids.size(); i++) {
-        assert(i < multiget_payload.cf_ids.size() &&
-               i < multiget_payload.multiget_keys.size());
-        if (cf_map_.find(multiget_payload.cf_ids[i]) == cf_map_.end()) {
-          return Status::Corruption("Invalid Column Family ID.");
-        }
-        v_cfd.push_back(cf_map_[multiget_payload.cf_ids[i]]);
-        keys.push_back(Slice(multiget_payload.multiget_keys[i]));
-      }
-      std::vector<std::string> values;
-      std::vector<Status> ss = db_->MultiGet(roptions, v_cfd, keys, &values);
-    } else if (trace.type == kTraceEnd) {
-      // Do nothing for now.
-      // TODO: Add some validations later.
-      break;
     }
   }
 
-  if (s.IsIncomplete()) {
+  Status s = Status::OK();
+  ThreadPoolImpl* thread_pool = nullptr;
+  if (options.num_threads > 1) {
+    thread_pool = new ThreadPoolImpl();
+    thread_pool->SetHostEnv(env_);
+    thread_pool->SetBackgroundThreads(static_cast<int>(options.num_threads));
+  }
+
+  std::chrono::system_clock::time_point replay_epoch =
+      std::chrono::system_clock::now();
+
+  uint32_t fast_forward = options.fast_forward > 1 ? options.fast_forward : 1;
+
+  while (s.ok() || s.IsNotSupported()) {
+    s = StepWork(replay_epoch, header_ts_, fast_forward, thread_pool);
+  }
+
+  if (thread_pool) {
+    thread_pool->JoinAllThreads();
+    delete thread_pool;
+  }
+
+  Reset().PermitUncheckedError();
+
+  if (s.IsIncomplete() || s.IsNotSupported()) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
@@ -642,94 +580,80 @@ Status Replayer::Replay() {
   return s;
 }
 
-// The trace can be replayed with multithread by configurnge the number of
-// threads in the thread pool. Trace records are read from the trace file
-// sequentially and the corresponding queries are scheduled in the task
-// queue based on the timestamp. Currently, we support Write_batch (Put,
-// Delete, SingleDelete, DeleteRange), Get, Iterator (Seek and SeekForPrev).
-Status Replayer::MultiThreadReplay(uint32_t threads_num) {
-  Status s;
-  Trace header;
-  int db_version;
-  s = ReadHeader(&header);
+Status ReplayerImpl::StepWork(
+    std::chrono::system_clock::time_point replay_epoch, uint64_t header_ts,
+    double fast_forward, ThreadPoolImpl* thread_pool) {
+  std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
+  ra->db = db_;
+  Status s = ReadTrace(&(ra->trace_entry));  // ReadTrace is atomic
   if (!s.ok()) {
     return s;
   }
-  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_, &db_version);
-  if (!s.ok()) {
-    return s;
-  }
-  ThreadPoolImpl thread_pool;
-  thread_pool.SetHostEnv(env_);
+  ra->cf_map = &cf_map_;
+  ra->woptions = WriteOptions();
+  ra->roptions = ReadOptions();
+  ra->trace_file_version = trace_file_version_;
 
-  if (threads_num > 1) {
-    thread_pool.SetBackgroundThreads(static_cast<int>(threads_num));
-  } else {
-    thread_pool.SetBackgroundThreads(1);
-  }
-
-  std::chrono::system_clock::time_point replay_epoch =
-      std::chrono::system_clock::now();
-  WriteOptions woptions;
-  ReadOptions roptions;
-  uint64_t ops = 0;
-  while (s.ok()) {
-    std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
-    ra->db = db_;
-    s = ReadTrace(&(ra->trace_entry));
-    if (!s.ok()) {
-      break;
-    }
-    ra->cf_map = &cf_map_;
-    ra->woptions = woptions;
-    ra->roptions = roptions;
-    ra->trace_file_version = trace_file_version_;
-
+  if (replay_epoch > std::chrono::system_clock::time_point::min()) {
     std::this_thread::sleep_until(
-        replay_epoch + std::chrono::microseconds(
-                           (ra->trace_entry.ts - header.ts) / fast_forward_));
-    if (ra->trace_entry.type == kTraceWrite) {
-      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra.release(), nullptr,
-                           nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceGet) {
-      thread_pool.Schedule(&Replayer::BGWorkGet, ra.release(), nullptr,
-                           nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceIteratorSeek) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra.release(), nullptr,
-                           nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra.release(),
-                           nullptr, nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceMultiGet) {
-      thread_pool.Schedule(&Replayer::BGWorkMultiGet, ra.release(), nullptr,
-                           nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceEnd) {
-      // Do nothing for now.
-      // TODO: Add some validations later.
-      break;
-    } else {
-      // Other trace entry types that are not implemented for replay.
-      // To finish the replay, we continue the process.
-      continue;
+        replay_epoch +
+        std::chrono::microseconds(static_cast<uint64_t>(
+            llround(1.0 * (ra->trace_entry.ts - header_ts) / fast_forward))));
+  }
+
+  switch (ra->trace_entry.type) {
+    case kTraceWrite: {
+      if (thread_pool) {
+        thread_pool->Schedule(&ReplayerImpl::BGWorkWriteBatch, ra.release(),
+                              nullptr, nullptr);
+        break;
+      }
+      return StepWorkWriteBatch(ra.release());
+    }
+    case kTraceGet: {
+      if (thread_pool) {
+        thread_pool->Schedule(&ReplayerImpl::BGWorkGet, ra.release(), nullptr,
+                              nullptr);
+        break;
+      }
+      return StepWorkGet(ra.release());
+    }
+    case kTraceIteratorSeek: {
+      if (thread_pool) {
+        thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeek, ra.release(),
+                              nullptr, nullptr);
+        break;
+      }
+      return StepWorkIterSeek(ra.release());
+    }
+    case kTraceIteratorSeekForPrev: {
+      if (thread_pool) {
+        thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeekForPrev,
+                              ra.release(), nullptr, nullptr);
+        break;
+      }
+      return StepWorkIterSeekForPrev(ra.release());
+    }
+    case kTraceMultiGet: {
+      if (thread_pool) {
+        thread_pool->Schedule(&ReplayerImpl::BGWorkMultiGet, ra.release(),
+                              nullptr, nullptr);
+        break;
+      }
+      return StepWorkMultiGet(ra.release());
+    }
+    case kTraceEnd: {
+      return Status::Incomplete("Trace end.");
+    }
+    default: {
+      return Status::NotSupported("Unsupported trace entry type.");
     }
   }
 
-  if (s.IsIncomplete()) {
-    // Reaching eof returns Incomplete status at the moment.
-    // Could happen when killing a process without calling EndTrace() API.
-    // TODO: Add better error handling.
-    s = Status::OK();
-  }
-  thread_pool.JoinAllThreads();
   return s;
 }
 
-Status Replayer::ReadHeader(Trace* header) {
+Status ReplayerImpl::ReadHeader(Trace* header) {
   assert(header != nullptr);
   std::string encoded_trace;
   // Read the trace head
@@ -750,7 +674,7 @@ Status Replayer::ReadHeader(Trace* header) {
   return s;
 }
 
-Status Replayer::ReadFooter(Trace* footer) {
+Status ReplayerImpl::ReadFooter(Trace* footer) {
   assert(footer != nullptr);
   Status s = ReadTrace(footer);
   if (!s.ok()) {
@@ -764,17 +688,20 @@ Status Replayer::ReadFooter(Trace* footer) {
   return s;
 }
 
-Status Replayer::ReadTrace(Trace* trace) {
+Status ReplayerImpl::ReadTrace(Trace* trace) {
   assert(trace != nullptr);
   std::string encoded_trace;
-  Status s = trace_reader_->Read(&encoded_trace);
-  if (!s.ok()) {
-    return s;
+  {
+    std::lock_guard<std::mutex> guard(mutex_);
+    Status s = trace_reader_->Read(&encoded_trace);
+    if (!s.ok()) {
+      return s;
+    }
   }
   return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
-void Replayer::BGWorkGet(void* arg) {
+Status ReplayerImpl::StepWorkGet(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
@@ -783,44 +710,58 @@ void Replayer::BGWorkGet(void* arg) {
   GetPayload get_payload;
   get_payload.cf_id = 0;
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &get_payload.cf_id,
-                   &get_payload.get_key);
+    DecodeCFAndKey(
+        ra->trace_entry.payload, &get_payload.cf_id, &get_payload.get_key);
   } else {
     TracerHelper::DecodeGetPayload(&(ra->trace_entry), &get_payload);
   }
   if (get_payload.cf_id > 0 &&
       cf_map->find(get_payload.cf_id) == cf_map->end()) {
-    return;
+    return Status::Corruption("Invalid Column Family ID.");
   }
 
+  Status s;
   std::string value;
   if (get_payload.cf_id == 0) {
-    ra->db->Get(ra->roptions, get_payload.get_key, &value);
+    s = ra->db->Get(ra->roptions, get_payload.get_key, &value);
   } else {
-    ra->db->Get(ra->roptions, (*cf_map)[get_payload.cf_id], get_payload.get_key,
-                &value);
+    s = ra->db->Get(
+        ra->roptions,
+        (*cf_map)[get_payload.cf_id],
+        get_payload.get_key,
+        &value);
   }
-  return;
+  // Treat not found as ok.
+  return s.IsNotFound() ? Status::OK() : s;
 }
 
-void Replayer::BGWorkWriteBatch(void* arg) {
+void ReplayerImpl::BGWorkGet(void* arg) {
+  StepWorkGet(arg).PermitUncheckedError();
+}
+
+Status ReplayerImpl::StepWorkWriteBatch(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
 
+  Status s;
   if (ra->trace_file_version < 2) {
     WriteBatch batch(ra->trace_entry.payload);
-    ra->db->Write(ra->woptions, &batch);
+    s = ra->db->Write(ra->woptions, &batch);
   } else {
     WritePayload w_payload;
     TracerHelper::DecodeWritePayload(&(ra->trace_entry), &w_payload);
     WriteBatch batch(w_payload.write_batch_data.ToString());
-    ra->db->Write(ra->woptions, &batch);
+    s = ra->db->Write(ra->woptions, &batch);
   }
-  return;
+  return s;
 }
 
-void Replayer::BGWorkIterSeek(void* arg) {
+void ReplayerImpl::BGWorkWriteBatch(void* arg) {
+  StepWorkWriteBatch(arg).PermitUncheckedError();
+}
+
+Status ReplayerImpl::StepWorkIterSeek(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
@@ -830,14 +771,14 @@ void Replayer::BGWorkIterSeek(void* arg) {
   iter_payload.cf_id = 0;
 
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
-                   &iter_payload.iter_key);
+    DecodeCFAndKey(
+        ra->trace_entry.payload, &iter_payload.cf_id, &iter_payload.iter_key);
   } else {
     TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
   }
   if (iter_payload.cf_id > 0 &&
       cf_map->find(iter_payload.cf_id) == cf_map->end()) {
-    return;
+    return Status::Corruption("Invalid Column Family ID.");
   }
 
   Iterator* single_iter = nullptr;
@@ -848,11 +789,16 @@ void Replayer::BGWorkIterSeek(void* arg) {
         ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
   }
   single_iter->Seek(iter_payload.iter_key);
+  Status s = single_iter->status();
   delete single_iter;
-  return;
+  return s;
 }
 
-void Replayer::BGWorkIterSeekForPrev(void* arg) {
+void ReplayerImpl::BGWorkIterSeek(void* arg) {
+  StepWorkIterSeek(arg).PermitUncheckedError();
+}
+
+Status ReplayerImpl::StepWorkIterSeekForPrev(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
@@ -862,14 +808,14 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
   iter_payload.cf_id = 0;
 
   if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
-                   &iter_payload.iter_key);
+    DecodeCFAndKey(
+        ra->trace_entry.payload, &iter_payload.cf_id, &iter_payload.iter_key);
   } else {
     TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
   }
   if (iter_payload.cf_id > 0 &&
       cf_map->find(iter_payload.cf_id) == cf_map->end()) {
-    return;
+    return Status::Corruption("Invalid Column Family ID.");
   }
 
   Iterator* single_iter = nullptr;
@@ -880,36 +826,50 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
         ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
   }
   single_iter->SeekForPrev(iter_payload.iter_key);
+  Status s = single_iter->status();
   delete single_iter;
-  return;
+  return s;
 }
 
-void Replayer::BGWorkMultiGet(void* arg) {
+void ReplayerImpl::BGWorkIterSeekForPrev(void* arg) {
+  StepWorkIterSeekForPrev(arg).PermitUncheckedError();
+}
+
+Status ReplayerImpl::StepWorkMultiGet(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
+  assert(ra->trace_file_version >= 2);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
   MultiGetPayload multiget_payload;
-  if (ra->trace_file_version < 2) {
-    return;
-  }
   TracerHelper::DecodeMultiGetPayload(&(ra->trace_entry), &multiget_payload);
-  std::vector<ColumnFamilyHandle*> v_cfd;
-  std::vector<Slice> keys;
-  if (multiget_payload.cf_ids.size() != multiget_payload.multiget_keys.size()) {
-    return;
-  }
-  for (size_t i = 0; i < multiget_payload.cf_ids.size(); i++) {
-    if (cf_map->find(multiget_payload.cf_ids[i]) == cf_map->end()) {
-      return;
+
+  std::vector<ColumnFamilyHandle*> handles;
+  handles.reserve(multiget_payload.multiget_size);
+  for (uint32_t cf_id : multiget_payload.cf_ids) {
+    if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+      return Status::Corruption("Invalid Column Family ID.");
     }
-    v_cfd.push_back((*cf_map)[multiget_payload.cf_ids[i]]);
-    keys.push_back(Slice(multiget_payload.multiget_keys[i]));
+    handles.push_back((*cf_map)[cf_id]);
   }
+
+  std::vector<Slice> keys(multiget_payload.multiget_keys.begin(),
+                          multiget_payload.multiget_keys.end());
   std::vector<std::string> values;
-  std::vector<Status> ss = ra->db->MultiGet(ra->roptions, v_cfd, keys, &values);
-  return;
+  std::vector<Status> sts =
+      ra->db->MultiGet(ra->roptions, handles, keys, &values);
+  // Treat not found as ok.
+  for (Status st : sts) {
+    if (!st.ok() && !st.IsNotFound()) {
+      return st;
+    }
+  }
+  return Status::OK();
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+void ReplayerImpl::BGWorkMultiGet(void* arg) {
+  StepWorkMultiGet(arg).PermitUncheckedError();
+}
+
+} // namespace ROCKSDB_NAMESPACE

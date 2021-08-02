@@ -63,6 +63,7 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
+#include "rocksdb/utilities/replayer.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -8003,12 +8004,12 @@ class Benchmark {
           s.ToString().c_str());
       exit(1);
     }
-    Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
+    Replayer *replayer = db_with_cfh->db->NewReplayer(db_with_cfh->cfh,
                       std::move(trace_reader));
-    replayer.SetFastForward(
-        static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.MultiThreadReplay(
-        static_cast<uint32_t>(FLAGS_trace_replay_threads));
+    s = replayer->Replay(
+        ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
+                      static_cast<uint32_t>(FLAGS_trace_replay_fast_forward)));
+    delete replayer;
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());
