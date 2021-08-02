@@ -195,6 +195,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         ++num_drains_;
         waiting_ = true;
         r.cv.TimedWait(clock_->NowMicros() + time_until_refill_us);
+        TEST_SYNC_POINT("GenericRateLimiter::Request:PostTimedWait");
         waiting_ = false;
       }
     } else {
