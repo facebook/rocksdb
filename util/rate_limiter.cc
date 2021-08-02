@@ -194,7 +194,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         waiting_ = true;
-        r.cv.TimedWait(time_until_refill_us);
+        r.cv.TimedWait(clock_->NowMicros() + time_until_refill_us);
         waiting_ = false;
       }
     } else {
