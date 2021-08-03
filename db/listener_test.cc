@@ -356,32 +356,38 @@ TEST_F(EventListenerTest, MultiCF) {
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
-  TestFlushListener* listener = new TestFlushListener(options.env, this);
-  options.listeners.emplace_back(listener);
-  options.table_properties_collector_factories.push_back(
-      std::make_shared<TestPropertiesCollectorFactory>());
-  std::vector<std::string> cf_names = {
-      "pikachu", "ilya", "muromec", "dobrynia",
-      "nikitich", "alyosha", "popovich"};
-  CreateAndReopenWithCF(cf_names, options);
+  for (auto atomic_flush : {false, true}) {
+    options.atomic_flush = atomic_flush;
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+    TestFlushListener* listener = new TestFlushListener(options.env, this);
+    options.listeners.emplace_back(listener);
+    options.table_properties_collector_factories.push_back(
+        std::make_shared<TestPropertiesCollectorFactory>());
+    std::vector<std::string> cf_names = {"pikachu",  "ilya",     "muromec",
+                                         "dobrynia", "nikitich", "alyosha",
+                                         "popovich"};
+    CreateAndReopenWithCF(cf_names, options);
 
-  ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
-  ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
-  ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
-  ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
-  ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
-  ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
-  ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
-  for (int i = 1; i < 8; ++i) {
-    ASSERT_OK(Flush(i));
-    ASSERT_EQ(listener->flushed_dbs_.size(), i);
-    ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
-  }
+    ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+    ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
+    ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
+    ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
+    ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
+    ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
+    ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
+    for (int i = 1; i < 8; ++i) {
+      ASSERT_OK(Flush(i));
+      ASSERT_EQ(listener->flushed_dbs_.size(), i);
+      ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
+    }
 
-  // make sure callback functions are called in the right order
-  for (size_t i = 0; i < cf_names.size(); i++) {
-    ASSERT_EQ(listener->flushed_dbs_[i], db_);
-    ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
+    // make sure callback functions are called in the right order
+    for (size_t i = 0; i < cf_names.size(); i++) {
+      ASSERT_EQ(listener->flushed_dbs_[i], db_);
+      ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
+    }
+    Close();
   }
 }
 
