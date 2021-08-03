@@ -16,22 +16,6 @@
 #include "table/internal_iterator.h"
 #include "test_util/sync_point.h"
 
-#define DEFINITELY_IN_SNAPSHOT(seq, snapshot)                       \
-  ((seq) <= (snapshot) &&                                           \
-   (snapshot_checker_ == nullptr ||                                 \
-    LIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
-           SnapshotCheckerResult::kInSnapshot)))
-
-#define DEFINITELY_NOT_IN_SNAPSHOT(seq, snapshot)                     \
-  ((seq) > (snapshot) ||                                              \
-   (snapshot_checker_ != nullptr &&                                   \
-    UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
-             SnapshotCheckerResult::kNotInSnapshot)))
-
-#define IN_EARLIEST_SNAPSHOT(seq) \
-  ((seq) <= earliest_snapshot_ && \
-   (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))))
-
 namespace ROCKSDB_NAMESPACE {
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -574,7 +558,7 @@ void CompactionIterator::NextFromInput() {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
         if (prev_snapshot == 0 ||
-            DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot)) {
+            DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
           if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes in a row.  This could be due to
             // unexpected user input.
@@ -586,8 +570,8 @@ void CompactionIterator::NextFromInput() {
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
           } else if (has_outputted_key_ ||
-                     DEFINITELY_IN_SNAPSHOT(
-                         ikey_.sequence, earliest_write_conflict_snapshot_)) {
+                     DefinitelyInSnapshot(ikey_.sequence,
+                                          earliest_write_conflict_snapshot_)) {
             // Found a matching value, we can drop the single delete and the
             // value.  It is safe to drop both records since we've already
             // outputted a key in this snapshot, or there is no earlier
@@ -635,7 +619,7 @@ void CompactionIterator::NextFromInput() {
         // iteration. If the next key is corrupt, we return before the
         // comparison, so the value of has_current_user_key does not matter.
         has_current_user_key_ = false;
-        if (compaction_ != nullptr && IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
+        if (compaction_ != nullptr && InEarliestSnapshot(ikey_.sequence) &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                        &level_ptrs_)) {
           // Key doesn't exist outside of this range.
@@ -679,7 +663,7 @@ void CompactionIterator::NextFromInput() {
                (ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
-               IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
+               InEarliestSnapshot(ikey_.sequence) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                           &level_ptrs_)) {
@@ -734,7 +718,7 @@ void CompactionIterator::NextFromInput() {
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
-              DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
+              DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
       // If you find you still need to output a row with this key, we need to output the
@@ -977,7 +961,7 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
-        IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
+        InEarliestSnapshot(ikey_.sequence) && ikey_.type != kTypeMerge) {
       assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
       if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
         ROCKS_LOG_FATAL(info_log_,
