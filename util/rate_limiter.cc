@@ -219,16 +219,6 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
            (!queue_[Env::IO_LOW].empty() &&
             &r == queue_[Env::IO_LOW].front()));
 
-    // Assertion: request thread running through this point is one of the
-    // following in terms of the current leader situation:
-    // (1) there is no leader;
-    // (2) there is a leader and leader sits at the front of its queue;
-    assert(leader_ == nullptr ||
-           (!queue_[Env::IO_HIGH].empty() &&
-            leader_ == queue_[Env::IO_HIGH].front()) ||
-           (!queue_[Env::IO_LOW].empty() &&
-            leader_ == queue_[Env::IO_LOW].front()));
-
     if (leader_ == &r) {
       // The leader request thread is now running.
       // It might or might not has been TimedWait().
