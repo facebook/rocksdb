@@ -191,7 +191,6 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       r.cv.Wait();
     }
 
-    // request_mutex_ is held from now on
     if (stop_) {
       // It is now in the clean-up of ~GenericRateLimiter().
       // Therefore any woken-up request will exit here,
