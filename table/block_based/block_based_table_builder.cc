@@ -1472,6 +1472,9 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
     }
+  } else if (block_type == BlockType::kCompressionDictionary) {
+    s = InsertBlockInCache<UncompressionDict>(block_contents, handle,
+                                              block_type);
   }
   return s;
 }

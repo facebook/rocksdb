@@ -464,11 +464,11 @@ struct BlockBasedTableOptions {
   // Default: 256 KB (256 * 1024).
   size_t max_auto_readahead_size = 256 * 1024;
 
-  // If enabled, prepopulate warm/hot blocks (data, index and filter blocks)
-  // which are already in memory into block cache at the time of flush. On a
-  // flush, the block that is in memory (in memtables) get flushed to the
-  // device. If using Direct IO, additional IO is incurred to read this data
-  // back into memory again, which is avoided by enabling this option. This
+  // If enabled, prepopulate warm/hot blocks (data, uncompressed dict, index and
+  // filter blocks) which are already in memory into block cache at the time of
+  // flush. On a flush, the block that is in memory (in memtables) get flushed
+  // to the device. If using Direct IO, additional IO is incurred to read this
+  // data back into memory again, which is avoided by enabling this option. This
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
