@@ -143,6 +143,10 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     bool timedout = false;
 
     // Leader election:
+    //  Leader request's duty:
+    //  (1) Waiting for the next refill time;
+    //  (2) Refilling the bytes and granting requests.
+    //
     //  If the following three conditions are all true for a request,
     //  then the request is selected as a leader:
     //  (1) The request thread acquired the request_mutex_ and is running;
