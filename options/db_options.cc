@@ -997,6 +997,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
                    max_background_jobs);
+  ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
+                   base_background_compactions);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
   ROCKS_LOG_HEADER(log, "            Options.max_subcompactions: %" PRIu32,

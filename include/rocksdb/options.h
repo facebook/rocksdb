@@ -275,6 +275,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions = false;
 
+  // Disable write stall mechanism.
+  //
+  // Dynamically changeable through SetOptions() API
+  bool disable_write_stall = false;
+
   // This is a factory that provides TableFactory objects.
   // Default: a block-based table factory that provides a default
   // implementation of TableBuilder and TableReader with default

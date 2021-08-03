@@ -565,6 +565,87 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
   }
 }
 
+TEST_F(DBOptionsTest, EnableAutoCompactionButDisableStall) {
+  const std::string kValue(1024, 'v');
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.disable_write_stall = true;
+  options.write_buffer_size = 1024 * 1024 * 10;
+  options.compression = CompressionType::kNoCompression;
+  options.level0_file_num_compaction_trigger = 1;
+  options.level0_stop_writes_trigger = std::numeric_limits<int>::max();
+  options.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
+  options.hard_pending_compaction_bytes_limit =
+      std::numeric_limits<uint64_t>::max();
+  options.soft_pending_compaction_bytes_limit =
+      std::numeric_limits<uint64_t>::max();
+  options.env = env_;
+
+  DestroyAndReopen(options);
+  int i = 0;
+  for (; i < 1024; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  for (; i < 1024 * 2; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  uint64_t l0_size = SizeAtLevel(0);
+
+  options.hard_pending_compaction_bytes_limit = l0_size;
+  options.soft_pending_compaction_bytes_limit = l0_size;
+
+  Reopen(options);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
+  ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBOptionsTest::EnableAutoCompactionButDisableStall:1",
+        "BackgroundCallCompaction:0"},
+       {"DBImpl::BackgroundCompaction():BeforePickCompaction",
+        "DBOptionsTest::EnableAutoCompactionButDisableStall:2"},
+       {"DBOptionsTest::EnableAutoCompactionButDisableStall:3",
+        "DBImpl::BackgroundCompaction():AfterPickCompaction"}});
+  // Block background compaction.
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  TEST_SYNC_POINT("DBOptionsTest::EnableAutoCompactionButDisableStall:1");
+  // Wait for stall condition recalculate.
+  TEST_SYNC_POINT("DBOptionsTest::EnableAutoCompactionButDisableStall:2");
+
+  ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
+  ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(dbfull()->TEST_write_controler().NeedSpeedupCompaction());
+
+  TEST_SYNC_POINT("DBOptionsTest::EnableAutoCompactionButDisableStall:3");
+
+  // Background compaction executed.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
+  ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_FALSE(dbfull()->TEST_write_controler().NeedSpeedupCompaction());
+}
+
+TEST_F(DBOptionsTest, SetOptionsDisableWriteStall) {
+  Options options;
+  options.create_if_missing = true;
+  options.disable_write_stall = false;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(false, dbfull()->GetOptions().disable_write_stall);
+
+  ASSERT_OK(dbfull()->SetOptions({{"disable_write_stall", "true"}}));
+  ASSERT_EQ(true, dbfull()->GetOptions().disable_write_stall);
+  ASSERT_OK(dbfull()->SetOptions({{"disable_write_stall", "false"}}));
+  ASSERT_EQ(false, dbfull()->GetOptions().disable_write_stall);
+}
+
 TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
   options.create_if_missing = true;
@@ -593,8 +674,21 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   ASSERT_OK(dbfull()->SetDBOptions({{"max_background_compactions", "3"}}));
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
-  auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+  {
+    auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+    ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
+  }
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "2"}}));
+  ASSERT_EQ(2, dbfull()->TEST_BGCompactionsAllowed());
+  ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "5"}}));
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
+  ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "1"}}));
+  ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  {
+    auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+    ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
+  }
 }
 
 TEST_F(DBOptionsTest, SetBackgroundFlushThreads) {

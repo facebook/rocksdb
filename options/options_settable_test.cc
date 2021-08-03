@@ -507,6 +507,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compaction_pri=kMinOverlappingRatio;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
+      "disable_write_stall=false;"
       "report_bg_io_stats=true;"
       "ttl=60;"
       "periodic_compaction_seconds=3600;"

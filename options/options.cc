@@ -281,6 +281,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
+    ROCKS_LOG_HEADER(log, "               Options.disable_write_stall: %d",
+                     disable_write_stall);
 
     const auto& it_compaction_style =
         compaction_style_to_string.find(compaction_style);

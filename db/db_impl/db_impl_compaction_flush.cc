@@ -2495,12 +2495,14 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   return GetBGJobLimits(mutable_db_options_.max_background_flushes,
                         mutable_db_options_.max_background_compactions,
                         mutable_db_options_.max_background_jobs,
+                        mutable_db_options_.base_background_compactions,
                         write_controller_.NeedSpeedupCompaction());
 }
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
                                            int max_background_compactions,
                                            int max_background_jobs,
+                                           int base_background_compactions,
                                            bool parallelize_compactions) {
   BGJobLimits res;
   if (max_background_flushes == -1 && max_background_compactions == -1) {
@@ -2516,7 +2518,8 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
   }
   if (!parallelize_compactions) {
     // throttle background compactions until we deem necessary
-    res.max_compactions = 1;
+    res.max_compactions =
+        std::max(1, std::min(base_background_compactions, res.max_compactions));
   }
   return res;
 }

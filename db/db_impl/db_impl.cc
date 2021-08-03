@@ -1191,11 +1191,14 @@ Status DBImpl::SetDBOptions(
           GetBGJobLimits(mutable_db_options_.max_background_flushes,
                          mutable_db_options_.max_background_compactions,
                          mutable_db_options_.max_background_jobs,
+                         mutable_db_options_.base_background_compactions,
                          /* parallelize_compactions */ true);
-      const BGJobLimits new_bg_job_limits = GetBGJobLimits(
-          new_options.max_background_flushes,
-          new_options.max_background_compactions,
-          new_options.max_background_jobs, /* parallelize_compactions */ true);
+      const BGJobLimits new_bg_job_limits =
+          GetBGJobLimits(new_options.max_background_flushes,
+                         new_options.max_background_compactions,
+                         new_options.max_background_jobs,
+                         new_options.base_background_compactions,
+                         /* parallelize_compactions */ true);
 
       const bool max_flushes_increased =
           new_bg_job_limits.max_flushes > current_bg_job_limits.max_flushes;
