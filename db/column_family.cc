@@ -457,7 +457,7 @@ void SuperVersion::Cleanup() {
     to_delete.push_back(m);
   }
   current->Unref();
-  cfd->UnrefAndTryDelete(this);
+  cfd->UnrefAndTryDelete();
 }
 
 void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
@@ -475,10 +475,10 @@ void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
 
 namespace {
 void SuperVersionUnrefHandle(void* ptr) {
-  // UnrefHandle is called when a thread exists or a ThreadLocalPtr gets
-  // destroyed. When former happens, the thread shouldn't see kSVInUse.
-  // When latter happens, we are in ~ColumnFamilyData(), no get should happen as
-  // well.
+  // UnrefHandle is called when a thread exits or a ThreadLocalPtr gets
+  // destroyed. When the former happens, the thread shouldn't see kSVInUse.
+  // When the latter happens, only super_version_ holds a reference
+  // to ColumnFamilyData, so no further queries are possible.
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
   bool was_last_ref __attribute__((__unused__));
   was_last_ref = sv->Unref();
@@ -668,7 +668,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
-bool ColumnFamilyData::UnrefAndTryDelete(SuperVersion* sv_under_cleanup) {
+bool ColumnFamilyData::UnrefAndTryDelete() {
   int old_refs = refs_.fetch_sub(1);
   assert(old_refs > 0);
 
@@ -678,22 +678,17 @@ bool ColumnFamilyData::UnrefAndTryDelete(SuperVersion* sv_under_cleanup) {
     return true;
   }
 
-  // If called under SuperVersion::Cleanup, we should not re-enter Cleanup on
-  // the same SuperVersion. (But while installing a new SuperVersion, this
-  // cfd could be referenced only by two SuperVersions.)
-  if (old_refs == 2 && super_version_ != nullptr &&
-      super_version_ != sv_under_cleanup) {
+  if (old_refs == 2 && super_version_ != nullptr) {
     // Only the super_version_ holds me
     SuperVersion* sv = super_version_;
     super_version_ = nullptr;
-    // Release SuperVersion reference kept in ThreadLocalPtr.
-    // This must be done outside of mutex_ since unref handler can lock mutex.
-    sv->db_mutex->Unlock();
+
+    // Release SuperVersion references kept in ThreadLocalPtr.
     local_sv_.reset();
-    sv->db_mutex->Lock();
 
     if (sv->Unref()) {
-      // May delete this ColumnFamilyData after calling Cleanup()
+      // Note: sv will delete this ColumnFamilyData during Cleanup()
+      assert(sv->cfd == this);
       sv->Cleanup();
       delete sv;
       return true;
@@ -1258,14 +1253,13 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
 void ColumnFamilyData::InstallSuperVersion(
     SuperVersionContext* sv_context, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
-  return InstallSuperVersion(sv_context, db_mutex, mutable_cf_options_);
+  return InstallSuperVersion(sv_context, mutable_cf_options_);
 }
 
 void ColumnFamilyData::InstallSuperVersion(
-    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
+    SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
-  new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
   new_superversion->Init(this, mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
