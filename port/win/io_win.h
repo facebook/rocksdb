@@ -67,12 +67,17 @@ class WinFileData {
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   const bool use_direct_io_;
+  const size_t sector_size_;
 
  public:
   // We want this class be usable both for inheritance (prive
   // or protected) and for containment so __ctor and __dtor public
-  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io)
-      : filename_(filename), hFile_(hFile), use_direct_io_(direct_io) {}
+  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io,
+              size_t sector_size)
+      : filename_(filename),
+        hFile_(hFile),
+        use_direct_io_(direct_io),
+        sector_size_(sector_size) {}
 
   virtual ~WinFileData() { this->CloseFile(); }
 
@@ -93,6 +98,8 @@ class WinFileData {
 
   bool use_direct_io() const { return use_direct_io_; }
 
+  size_t GetSectorSize() const { return sector_size_; }
+
   WinFileData(const WinFileData&) = delete;
   WinFileData& operator=(const WinFileData&) = delete;
 };
@@ -104,7 +111,7 @@ class WinSequentialFile : protected WinFileData, public FSSequentialFile {
                                           size_t& bytes_read) const;
 
  public:
-  WinSequentialFile(const std::string& fname, HANDLE f,
+  WinSequentialFile(const std::string& fname, HANDLE f, size_t sector_size,
                     const FileOptions& options);
 
   ~WinSequentialFile();
@@ -276,7 +283,7 @@ class WinRandomAccessFile
       public FSRandomAccessFile {
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                      const FileOptions& options);
+                      size_t sector_size, const FileOptions& options);
 
   ~WinRandomAccessFile();
 
@@ -321,7 +328,7 @@ class WinWritableImpl {
 
   ~WinWritableImpl() {}
 
-  uint64_t GetAlignement() const { return alignment_; }
+  uint64_t GetAlignment() const { return alignment_; }
 
   IOStatus AppendImpl(const Slice& data);
 
@@ -357,7 +364,8 @@ class WinWritableFile : private WinFileData,
                         public FSWritableFile {
  public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  size_t capacity, const FileOptions& options);
+                  size_t capacity, size_t sector_size,
+                  const FileOptions& options);
 
   ~WinWritableFile();
 
@@ -418,7 +426,7 @@ class WinRandomRWFile : private WinFileData,
                         public FSRandomRWFile {
  public:
   WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  const FileOptions& options);
+                  size_t sector_size, const FileOptions& options);
 
   ~WinRandomRWFile() {}
 
