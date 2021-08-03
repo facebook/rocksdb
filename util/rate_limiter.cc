@@ -147,16 +147,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     //  then the request is selected as a leader:
     //  (1) The request thread acquired the request_mutex_ and is running;
     //  (2) There is currently no leader;
-    //  (3) The request sits at the front of a queue;
+    //  (3) The request sits at the front of a queue.
     //
     //  If not selected as a leader, the request thread will wait
     //  for one of the following signals to wake up and
     //  compete for the request_mutex_:
     //  (1) Signal from the previous leader to exit since its requested bytes
-    //      are fully granted
+    //      are fully granted;
     //  (2) Signal from the previous leader to particpate in next-round
-    //      leader election
-    //  (3) Signal from rate limiter's destructor as part of the clean-up
+    //      leader election;
+    //  (3) Signal from rate limiter's destructor as part of the clean-up.
     //
     //  Therefore, a leader request can only be one of the following types:
     //  (1) a new incoming request placed at the front of a queue;
@@ -164,7 +164,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     //      granted yet due to its lower priority, hence still at
     //      the front of a queue;
     //  (3) a waiting request at the front of a queue, which got
-    //      signaled by the previous leader to participate in leader election;
+    //      signaled by the previous leader to participate in leader election.
     if (leader_ == nullptr &&
         ((!queue_[Env::IO_HIGH].empty() &&
             &r == queue_[Env::IO_HIGH].front()) ||
@@ -204,7 +204,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     // (2) a non-leader request that got fully granted with quota and is
     //     running to exit;
     // (3) a non-leader request that is not fully granted with quota and
-    //     is running to particpate in next-round leader election;
+    //     is running to particpate in next-round leader election.
     assert((&r == leader_ && !r.granted) || (&r != leader_ && r.granted) ||
            (&r != leader_ && !r.granted));
 
@@ -212,7 +212,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     // following in terms of its position in queue:
     // (1) a request got popped off the queue because it is fully granted
     //     with bytes;
-    // (2) a request sits at the front of its queue;
+    // (2) a request sits at the front of its queue.
     assert(r.granted ||
            (!queue_[Env::IO_HIGH].empty() &&
             &r == queue_[Env::IO_HIGH].front()) ||
