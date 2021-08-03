@@ -278,7 +278,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       //     request thread does after it was signaled. The new request might
       //     sit at front of a queue and hence become the next-round leader
       //     instead.
-      assert(!timedout);
+      assert(&r != leader_);
     }
   } while (!r.granted);
 }
