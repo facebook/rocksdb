@@ -227,7 +227,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // It might or might not has been TimedWait().
       if (timedout) {
         // Time for the leader to do refill and grant bytes to requests
-        Refill();
+        RefillBytesAndGrantRequests();
 
         // The leader request retires after refilling and granting bytes
         // regardless. This is to simplify the election handling.
@@ -283,8 +283,8 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   } while (!r.granted);
 }
 
-void GenericRateLimiter::Refill() {
-  TEST_SYNC_POINT("GenericRateLimiter::Refill");
+void GenericRateLimiter::RefillBytesAndGrantRequests() {
+  TEST_SYNC_POINT("GenericRateLimiter::RefillBytesAndGrantRequests");
   next_refill_us_ = NowMicrosMonotonic() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
