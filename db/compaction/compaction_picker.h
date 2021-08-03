@@ -46,7 +46,7 @@ struct CompactionInputFiles;
 // compaction style specific logic for them.
 class CompactionPicker {
  public:
-  CompactionPicker(const ImmutableCFOptions& ioptions,
+  CompactionPicker(const ImmutableOptions& ioptions,
                    const InternalKeyComparator* icmp);
   virtual ~CompactionPicker();
 
@@ -218,7 +218,7 @@ class CompactionPicker {
   }
 
  protected:
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
 
 // A helper function to SanitizeCompactionInputFiles() that
 // sanitizes "input_files" by adding necessary files.
@@ -244,7 +244,7 @@ class CompactionPicker {
 // compaction.
 class NullCompactionPicker : public CompactionPicker {
  public:
-  NullCompactionPicker(const ImmutableCFOptions& ioptions,
+  NullCompactionPicker(const ImmutableOptions& ioptions,
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
   virtual ~NullCompactionPicker() {}

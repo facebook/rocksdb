@@ -132,16 +132,8 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 }
 }  // namespace
 
-static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
-    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
-  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
-      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
-  return composite_env.get();
-}
-
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
-  const char* env_uri = nullptr;
-  const char* fs_uri = nullptr;
+  std::string env_uri, fs_uri;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -354,32 +346,17 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   // If caller of SSTDumpTool::Run(...) does not specify a different env other
   // than Env::Default(), then try to load custom env based on env_uri/fs_uri.
   // Otherwise, the caller is responsible for creating custom env.
-
-  if (env_uri && fs_uri) {
-    fprintf(stderr, "cannot specify --fs_uri and --env_uri.\n\n");
-    exit(1);
-  }
-
-  if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
-    Env* env = Env::Default();
-    if (env_uri) {
-      Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-      if (!s.ok() && !s.IsNotFound()) {
-        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-        exit(1);
-      }
-    } else if (fs_uri) {
-      std::shared_ptr<FileSystem> fs;
-      Status s = FileSystem::Load(fs_uri, &fs);
-      if (fs == nullptr) {
-        fprintf(stderr, "FileSystem Load: %s\n", s.ToString().c_str());
-        exit(1);
-      }
-      env = GetCompositeEnv(fs);
+  {
+    ConfigOptions config_options;
+    config_options.env = options.env;
+    Status s = Env::CreateFromUri(config_options, env_uri, fs_uri, &options.env,
+                                  &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "CreateEnvFromUri: %s\n", s.ToString().c_str());
+      exit(1);
+    } else {
+      fprintf(stdout, "options.env is %p\n", options.env);
     }
-    options.env = env;
-  } else {
-    fprintf(stdout, "options.env is %p\n", options.env);
   }
 
   std::vector<std::string> filenames;

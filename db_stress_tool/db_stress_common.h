@@ -131,6 +131,7 @@ DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
+DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
@@ -140,6 +141,8 @@ DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
+DECLARE_bool(experimental_allow_mempurge);
+DECLARE_string(experimental_mempurge_policy);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
@@ -258,9 +261,11 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_string(secondary_cache_uri);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -334,6 +339,18 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     ret_compression_type = ROCKSDB_NAMESPACE::kSnappyCompression;
   }
   return ret_compression_type;
+}
+
+inline enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
+    const char* mpolicy) {
+  assert(mpolicy);
+  if (!strcasecmp(mpolicy, "kAlways")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
+  } else if (!strcasecmp(mpolicy, "kAlternate")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+  }
+  fprintf(stderr, "Cannot parse mempurge policy: '%s'\n", mpolicy);
+  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
 }
 
 inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(

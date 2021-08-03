@@ -160,8 +160,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, WRITE_WITH_WAL);
   }
 
-  StopWatch write_sw(immutable_db_options_.clock,
-                     immutable_db_options_.statistics.get(), DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
+                     DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
@@ -220,7 +220,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   bool need_log_sync = write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
-  if (!two_write_queues_ || !disable_memtable) {
+  assert(!two_write_queues_ || !disable_memtable);
+  {
     // With concurrent writes we do preprocess only in the write thread that
     // also does write to memtable to avoid sync issue on shared data structure
     // with the other thread
@@ -251,6 +252,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
   IOStatus io_s;
+  Status pre_release_cb_status;
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
@@ -361,7 +363,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               writer->sequence, disable_memtable, writer->log_used, index++,
               pre_release_callback_cnt);
           if (!ws.ok()) {
-            status = ws;
+            status = pre_release_cb_status = ws;
             break;
           }
         }
@@ -414,10 +416,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
+      assert(pre_release_cb_status.ok());
       IOStatusCheck(io_s);
     } else {
-      WriteStatusCheck(status);
+      WriteStatusCheck(pre_release_cb_status);
     }
+  } else {
+    assert(io_s.ok() && pre_release_cb_status.ok());
   }
 
   if (need_log_sync) {
@@ -466,8 +471,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   uint64_t* log_used, uint64_t log_ref,
                                   bool disable_memtable, uint64_t* seq_used) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  StopWatch write_sw(immutable_db_options_.clock,
-                     immutable_db_options_.statistics.get(), DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
+                     DB_WRITE);
 
   WriteContext write_context;
 
@@ -623,8 +628,8 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       SequenceNumber seq,
                                       const size_t sub_batch_cnt) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  StopWatch write_sw(immutable_db_options_.clock,
-                     immutable_db_options_.statistics.get(), DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
+                     DB_WRITE);
 
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         false /*disable_memtable*/);
@@ -679,8 +684,8 @@ Status DBImpl::WriteImplWALOnly(
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
-  StopWatch write_sw(immutable_db_options_.clock,
-                     immutable_db_options_.statistics.get(), DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
+                     DB_WRITE);
 
   write_thread->JoinBatchGroup(&w);
   assert(w.state != WriteThread::STATE_PARALLEL_MEMTABLE_WRITER);
@@ -1647,12 +1652,7 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   for (auto& cfd : cfds) {
     autovector<MemTable*> to_delete;
     bool trimmed = cfd->imm()->TrimHistory(
-        &to_delete, cfd->mem()->ApproximateMemoryUsage());
-    if (!to_delete.empty()) {
-      for (auto m : to_delete) {
-        delete m;
-      }
-    }
+        &context->memtables_to_free_, cfd->mem()->ApproximateMemoryUsage());
     if (trimmed) {
       context->superversion_context.NewSuperVersion();
       assert(context->superversion_context.new_superversion.get() != nullptr);
@@ -1911,6 +1911,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       for (auto cf : empty_cfs) {
         if (cf->IsEmpty()) {
           cf->SetLogNumber(logfile_number_);
+          // MEMPURGE: No need to change this, because new adds
+          // should still receive new sequence numbers.
           cf->mem()->SetCreationSeq(versions_->LastSequence());
         }  // cf may become non-empty.
       }
@@ -1933,11 +1935,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
+  assert(new_mem != nullptr);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
                                      mutable_cf_options);
+
 #ifndef ROCKSDB_LITE
   mutex_.Unlock();
   // Notify client that memtable is sealed, now that we have successfully

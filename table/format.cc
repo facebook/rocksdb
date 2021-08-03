@@ -347,7 +347,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator) {
   Status ret = Status::OK();
 
   assert(uncompression_info.type() != kNoCompression &&
@@ -396,7 +396,7 @@ Status UncompressBlockContentsForCompressionType(
 Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
-                               const ImmutableCFOptions& ioptions,
+                               const ImmutableOptions& ioptions,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == static_cast<char>(uncompression_info.type()));

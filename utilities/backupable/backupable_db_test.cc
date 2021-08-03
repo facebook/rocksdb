@@ -598,7 +598,7 @@ void AssertEmpty(DB* db, int from, int to) {
 }
 }  // namespace
 
-class BackupableDBTest : public testing::Test {
+class BackupEngineTest : public testing::Test {
  public:
   enum ShareOption {
     kNoShare,
@@ -609,10 +609,10 @@ class BackupableDBTest : public testing::Test {
   const std::vector<ShareOption> kAllShareOptions = {
       kNoShare, kShareNoChecksum, kShareWithChecksum};
 
-  BackupableDBTest() {
+  BackupEngineTest() {
     // set up files
-    std::string db_chroot = test::PerThreadDBPath("backupable_db");
-    std::string backup_chroot = test::PerThreadDBPath("backupable_db_backup");
+    std::string db_chroot = test::PerThreadDBPath("db_for_backup");
+    std::string backup_chroot = test::PerThreadDBPath("db_backups");
     EXPECT_OK(Env::Default()->CreateDirIfMissing(db_chroot));
     EXPECT_OK(Env::Default()->CreateDirIfMissing(backup_chroot));
     dbname_ = "/tempdb";
@@ -946,7 +946,7 @@ class BackupableDBTest : public testing::Test {
   std::unique_ptr<FileManager> db_file_manager_;
 
   // all the dbs!
-  DummyDB* dummy_db_; // BackupableDB owns dummy_db_
+  DummyDB* dummy_db_;  // owned as db_ when present
   std::unique_ptr<DB> db_;
   std::unique_ptr<BackupEngine> backup_engine_;
 
@@ -955,7 +955,7 @@ class BackupableDBTest : public testing::Test {
 
  protected:
   std::unique_ptr<BackupableDBOptions> backupable_options_;
-}; // BackupableDBTest
+};  // BackupEngineTest
 
 void AppendPath(const std::string& path, std::vector<std::string>& v) {
   for (auto& f : v) {
@@ -963,16 +963,16 @@ void AppendPath(const std::string& path, std::vector<std::string>& v) {
   }
 }
 
-class BackupableDBTestWithParam : public BackupableDBTest,
+class BackupEngineTestWithParam : public BackupEngineTest,
                                   public testing::WithParamInterface<bool> {
  public:
-  BackupableDBTestWithParam() {
+  BackupEngineTestWithParam() {
     backupable_options_->share_files_with_checksum = GetParam();
   }
   void OpenDBAndBackupEngine(
       bool destroy_old_data = false, bool dummy = false,
       ShareOption shared_option = kShareNoChecksum) override {
-    BackupableDBTest::InitializeDBAndBackupEngine(dummy);
+    BackupEngineTest::InitializeDBAndBackupEngine(dummy);
     // reset backup env defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     backupable_options_->destroy_old_data = destroy_old_data;
@@ -982,7 +982,7 @@ class BackupableDBTestWithParam : public BackupableDBTest,
   }
 };
 
-TEST_F(BackupableDBTest, FileCollision) {
+TEST_F(BackupEngineTest, FileCollision) {
   const int keys_iteration = 5000;
   for (const auto& sopt : kAllShareOptions) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
@@ -1019,7 +1019,7 @@ TEST_F(BackupableDBTest, FileCollision) {
 
 // This test verifies that the verifyBackup method correctly identifies
 // invalid backups
-TEST_P(BackupableDBTestWithParam, VerifyBackup) {
+TEST_P(BackupEngineTestWithParam, VerifyBackup) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create five backups
@@ -1048,8 +1048,9 @@ TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   CloseDBAndBackupEngine();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // open DB, write, close DB, backup, restore, repeat
-TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
+TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
   const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
@@ -1097,7 +1098,7 @@ TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
 }
 
 // open DB, write, backup, write, backup, close, restore
-TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
+TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
   const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
@@ -1158,12 +1159,13 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
 
   CloseBackupEngine();
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
-INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
+INSTANTIATE_TEST_CASE_P(BackupEngineTestWithParam, BackupEngineTestWithParam,
                         ::testing::Bool());
 
 // this will make sure that backup does not copy the same file twice
-TEST_F(BackupableDBTest, NoDoubleCopy_And_AutoGC) {
+TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
   OpenDBAndBackupEngine(true, true);
 
   // should write 5 DB files + one meta file
@@ -1270,7 +1272,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy_And_AutoGC) {
 //      fine
 // 3. Corrupted checksum value - if the checksum is not a valid uint32_t,
 //      db open should fail, otherwise, it aborts during the restore process.
-TEST_F(BackupableDBTest, CorruptionsTest) {
+TEST_F(BackupEngineTest, CorruptionsTest) {
   const int keys_iteration = 5000;
   Random rnd(6);
   Status s;
@@ -1371,7 +1373,7 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
 }
 
 // Corrupt a file but maintain its size
-TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
+TEST_F(BackupEngineTest, CorruptFileMaintainSize) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create a backup
@@ -1437,7 +1439,7 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
 }
 
 // Corrupt a blob file but maintain its size
-TEST_P(BackupableDBTestWithParam, CorruptBlobFileMaintainSize) {
+TEST_P(BackupEngineTestWithParam, CorruptBlobFileMaintainSize) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create a backup
@@ -1483,7 +1485,7 @@ TEST_P(BackupableDBTestWithParam, CorruptBlobFileMaintainSize) {
 
 // Test if BackupEngine will fail to create new backup if some table has been
 // corrupted and the table file checksum is stored in the DB manifest
-TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
+TEST_F(BackupEngineTest, TableFileCorruptedBeforeBackup) {
   const int keys_iteration = 50000;
 
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
@@ -1516,7 +1518,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
 
 // Test if BackupEngine will fail to create new backup if some blob files has
 // been corrupted and the blob file checksum is stored in the DB manifest
-TEST_F(BackupableDBTest, BlobFileCorruptedBeforeBackup) {
+TEST_F(BackupEngineTest, BlobFileCorruptedBeforeBackup) {
   const int keys_iteration = 50000;
 
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
@@ -1548,10 +1550,11 @@ TEST_F(BackupableDBTest, BlobFileCorruptedBeforeBackup) {
   CloseDBAndBackupEngine();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test if BackupEngine will fail to create new backup if some table has been
 // corrupted and the table file checksum is stored in the DB manifest for the
 // case when backup table files will be stored in a shared directory
-TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
+TEST_P(BackupEngineTestWithParam, TableFileCorruptedBeforeBackup) {
   const int keys_iteration = 50000;
 
   OpenDBAndBackupEngine(true /* destroy_old_data */);
@@ -1581,7 +1584,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 // Test if BackupEngine will fail to create new backup if some blob files have
 // been corrupted and the blob file checksum is stored in the DB manifest for
 // the case when backup blob files will be stored in a shared directory
-TEST_P(BackupableDBTestWithParam, BlobFileCorruptedBeforeBackup) {
+TEST_P(BackupEngineTestWithParam, BlobFileCorruptedBeforeBackup) {
   const int keys_iteration = 50000;
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
@@ -1606,8 +1609,9 @@ TEST_P(BackupableDBTestWithParam, BlobFileCorruptedBeforeBackup) {
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
-TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
+TEST_F(BackupEngineTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
   backupable_options_->share_files_with_checksum_naming =
       kLegacyCrc32cAndFileSize;
@@ -1648,7 +1652,7 @@ TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   ASSERT_OK(DestroyDB(dbname_, options_));
 }
 
-TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
+TEST_F(BackupEngineTest, TableFileWithDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   for (auto& sopt : kAllShareOptions) {
@@ -1688,7 +1692,7 @@ TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
   }
 }
 
-TEST_F(BackupableDBTest, InterruptCreationTest) {
+TEST_F(BackupEngineTest, InterruptCreationTest) {
   // Interrupt backup creation by failing new writes and failing cleanup of the
   // partial state. Then verify a subsequent backup can still succeed.
   const int keys_iteration = 5000;
@@ -1713,7 +1717,7 @@ TEST_F(BackupableDBTest, InterruptCreationTest) {
   AssertBackupConsistency(0, 0, keys_iteration);
 }
 
-TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
+TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
   const int keys_iteration = 5000;
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   for (const auto& sopt : kAllShareOptions) {
@@ -1722,13 +1726,13 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
     // That FillDB leaves a mix of flushed and unflushed data
     SyncPoint::GetInstance()->LoadDependency(
         {{"CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1",
-          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before"},
-         {"BackupableDBTest::FlushCompactDuringBackupCheckpoint:After",
+          "BackupEngineTest::FlushCompactDuringBackupCheckpoint:Before"},
+         {"BackupEngineTest::FlushCompactDuringBackupCheckpoint:After",
           "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2"}});
     SyncPoint::GetInstance()->EnableProcessing();
     ROCKSDB_NAMESPACE::port::Thread flush_thread{[this]() {
       TEST_SYNC_POINT(
-          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before");
+          "BackupEngineTest::FlushCompactDuringBackupCheckpoint:Before");
       FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
       ASSERT_OK(db_->Flush(FlushOptions()));
       DBImpl* dbi = static_cast<DBImpl*>(db_.get());
@@ -1736,7 +1740,7 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
       ASSERT_OK(dbi->TEST_WaitForCompact());
       TEST_SYNC_POINT(
-          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:After");
+          "BackupEngineTest::FlushCompactDuringBackupCheckpoint:After");
     }};
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     flush_thread.join();
@@ -1774,7 +1778,7 @@ inline std::string OptionsPath(std::string ret, int backupID) {
 // Backup the LATEST options file to
 // "<backup_dir>/private/<backup_id>/OPTIONS<number>"
 
-TEST_F(BackupableDBTest, BackupOptions) {
+TEST_F(BackupEngineTest, BackupOptions) {
   OpenDBAndBackupEngine(true);
   for (int i = 1; i < 5; i++) {
     std::string name;
@@ -1799,17 +1803,17 @@ TEST_F(BackupableDBTest, BackupOptions) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
+TEST_F(BackupEngineTest, SetOptionsBackupRaceCondition) {
   OpenDBAndBackupEngine(true);
   SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
-        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions"},
-       {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
+        "BackupEngineTest::SetOptionsBackupRaceCondition:BeforeSetOptions"},
+       {"BackupEngineTest::SetOptionsBackupRaceCondition:AfterSetOptions",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   SyncPoint::GetInstance()->EnableProcessing();
   ROCKSDB_NAMESPACE::port::Thread setoptions_thread{[this]() {
     TEST_SYNC_POINT(
-        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
+        "BackupEngineTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
     DBImpl* dbi = static_cast<DBImpl*>(db_.get());
     // Change arbitrary option to trigger OPTIONS file deletion
     ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
@@ -1819,7 +1823,7 @@ TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
     ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "false"}}));
     TEST_SYNC_POINT(
-        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions");
+        "BackupEngineTest::SetOptionsBackupRaceCondition:AfterSetOptions");
   }};
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   setoptions_thread.join();
@@ -1828,7 +1832,7 @@ TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
 
 // This test verifies we don't delete the latest backup when read-only option is
 // set
-TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
+TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
   const int keys_iteration = 5000;
   Random rnd(6);
 
@@ -1860,7 +1864,7 @@ TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
   delete read_only_backup_engine;
 }
 
-TEST_F(BackupableDBTest, FailOverwritingBackups) {
+TEST_F(BackupEngineTest, FailOverwritingBackups) {
   options_.write_buffer_size = 1024 * 1024 * 1024;  // 1GB
   options_.disable_auto_compactions = true;
 
@@ -1898,7 +1902,7 @@ TEST_F(BackupableDBTest, FailOverwritingBackups) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, NoShareTableFiles) {
+TEST_F(BackupEngineTest, NoShareTableFiles) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true, false, kNoShare);
   for (int i = 0; i < 5; ++i) {
@@ -1914,7 +1918,7 @@ TEST_F(BackupableDBTest, NoShareTableFiles) {
 }
 
 // Verify that you can backup and restore with share_files_with_checksum on
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksums) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   for (int i = 0; i < 5; ++i) {
@@ -1931,7 +1935,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
 
 // Verify that you can backup and restore using share_files_with_checksum set to
 // false and then transition this option to true
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsTransition) {
   const int keys_iteration = 5000;
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
@@ -1973,7 +1977,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 // Verify backup and restore with various naming options, check names
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
               kNamingDefault);
 
@@ -2017,7 +2021,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
 
 // Mimic SST file generated by pre-6.12 releases and verify that
 // old names are always used regardless of naming option.
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
   const int keys_iteration = 5000;
 
   // Pre-6.12 release did not include db id and db session id properties.
@@ -2058,7 +2062,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
 
 // Test how naming options interact with detecting DB corruption
 // between incremental backups
-TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
+TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
   const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
 
   for (bool corrupt_before_first_backup : {false, true}) {
@@ -2166,7 +2170,7 @@ TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
 
 // Test how naming options interact with detecting file size corruption
 // between incremental backups
-TEST_F(BackupableDBTest, FileSizeForIncremental) {
+TEST_F(BackupEngineTest, FileSizeForIncremental) {
   const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
   // TODO: enable blob files once Integrated BlobDB supports DB session id.
   options_.enable_blob_files = false;
@@ -2292,7 +2296,7 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
 // Verify backup and restore with share_files_with_checksum off and then
 // transition this option to on and share_files_with_checksum_naming to be
 // based on kUseDbSessionId
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   const int keys_iteration = 5000;
   // We may set share_files_with_checksum_naming to kLegacyCrc32cAndFileSize
   // here but even if we don't, it should have no effect when
@@ -2366,7 +2370,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 
 // Verify backup and restore with share_files_with_checksum on and transition
 // from kLegacyCrc32cAndFileSize to kUseDbSessionId
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
+TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   backupable_options_->share_files_with_checksum_naming =
       kLegacyCrc32cAndFileSize;
   const int keys_iteration = 5000;
@@ -2431,7 +2435,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
 
 // This test simulates cleaning up after aborted or incomplete creation
 // of a new backup.
-TEST_F(BackupableDBTest, DeleteTmpFiles) {
+TEST_F(BackupEngineTest, DeleteTmpFiles) {
   for (int cleanup_fn : {1, 2, 3, 4}) {
     for (ShareOption shared_option : kAllShareOptions) {
       OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
@@ -2509,7 +2513,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
   }
 }
 
-TEST_F(BackupableDBTest, KeepLogFiles) {
+TEST_F(BackupEngineTest, KeepLogFiles) {
   backupable_options_->backup_log_files = false;
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
@@ -2526,20 +2530,21 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
-class BackupableDBRateLimitingTestWithParam
-    : public BackupableDBTest,
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+class BackupEngineRateLimitingTestWithParam
+    : public BackupEngineTest,
       public testing::WithParamInterface<
           std::tuple<bool /* make throttle */,
                      int /* 0 = single threaded, 1 = multi threaded*/,
                      std::pair<uint64_t, uint64_t> /* limits */>> {
  public:
-  BackupableDBRateLimitingTestWithParam() {}
+  BackupEngineRateLimitingTestWithParam() {}
 };
 
 uint64_t const MB = 1024 * 1024;
 
 INSTANTIATE_TEST_CASE_P(
-    RateLimiting, BackupableDBRateLimitingTestWithParam,
+    RateLimiting, BackupEngineRateLimitingTestWithParam,
     ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
                       std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
@@ -2550,7 +2555,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, 1,
                                       std::make_pair(2 * MB, 3 * MB))));
 
-TEST_P(BackupableDBRateLimitingTestWithParam, RateLimiting) {
+TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   size_t const kMicrosPerSec = 1000 * 1000LL;
 
   std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
@@ -2600,8 +2605,9 @@ TEST_P(BackupableDBRateLimitingTestWithParam, RateLimiting) {
 
   AssertBackupConsistency(0, 0, 100000, 100010);
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
-TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
+TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   DestroyDB(dbname_, options_);
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
@@ -2633,7 +2639,7 @@ TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
   delete db;
 }
 
-TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
+TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   DestroyDB(dbname_, options_);
   options_.write_dbid_to_manifest = false;
 
@@ -2699,7 +2705,7 @@ TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
 }
 
-TEST_F(BackupableDBTest, ProgressCallbackDuringBackup) {
+TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {
   DestroyDB(dbname_, options_);
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
@@ -2713,7 +2719,7 @@ TEST_F(BackupableDBTest, ProgressCallbackDuringBackup) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
+TEST_F(BackupEngineTest, GarbageCollectionBeforeBackup) {
   DestroyDB(dbname_, options_);
   OpenDBAndBackupEngine(true);
 
@@ -2739,7 +2745,7 @@ TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
 }
 
 // Test that we properly propagate Env failures
-TEST_F(BackupableDBTest, EnvFailures) {
+TEST_F(BackupEngineTest, EnvFailures) {
   BackupEngine* backup_engine;
 
   // get children failure
@@ -2792,7 +2798,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
 
 // Verify manifest can roll while a backup is being created with the old
 // manifest.
-TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
+TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   DestroyDB(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
   OpenDBAndBackupEngine(true);
@@ -2831,7 +2837,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
 }
 
 // see https://github.com/facebook/rocksdb/issues/921
-TEST_F(BackupableDBTest, Issue921Test) {
+TEST_F(BackupEngineTest, Issue921Test) {
   BackupEngine* backup_engine;
   backupable_options_->share_table_files = false;
   ASSERT_OK(
@@ -2843,7 +2849,7 @@ TEST_F(BackupableDBTest, Issue921Test) {
   delete backup_engine;
 }
 
-TEST_F(BackupableDBTest, BackupWithMetadata) {
+TEST_F(BackupEngineTest, BackupWithMetadata) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create five backups
@@ -2881,7 +2887,7 @@ TEST_F(BackupableDBTest, BackupWithMetadata) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupableDBTest, BinaryMetadata) {
+TEST_F(BackupEngineTest, BinaryMetadata) {
   OpenDBAndBackupEngine(true);
   std::string binaryMetadata = "abc\ndef";
   binaryMetadata.push_back('\0');
@@ -2899,7 +2905,7 @@ TEST_F(BackupableDBTest, BinaryMetadata) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupableDBTest, MetadataTooLarge) {
+TEST_F(BackupEngineTest, MetadataTooLarge) {
   OpenDBAndBackupEngine(true);
   std::string largeMetadata(1024 * 1024 + 1, 0);
   ASSERT_NOK(
@@ -2908,7 +2914,7 @@ TEST_F(BackupableDBTest, MetadataTooLarge) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_SizeCorruption) {
+TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_SizeCorruption) {
   OpenDBAndBackupEngine(true);
 
   // Backup 1: no future schema, no sizes, with checksums
@@ -2971,7 +2977,7 @@ TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_SizeCorruption) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_NotSupported) {
+TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
   TEST_FutureSchemaVersion2Options test_opts;
   std::string app_metadata = "abc\ndef";
 
@@ -3023,7 +3029,7 @@ TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_NotSupported) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_Restore) {
+TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   TEST_FutureSchemaVersion2Options test_opts;
   const int keys_iteration = 5000;
 
@@ -3090,7 +3096,7 @@ TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_Restore) {
   }
 }
 
-TEST_F(BackupableDBTest, Concurrency) {
+TEST_F(BackupEngineTest, Concurrency) {
   // Check that we can simultaneously:
   // * Run several read operations in different threads on a single
   // BackupEngine object, and
@@ -3226,7 +3232,7 @@ TEST_F(BackupableDBTest, Concurrency) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, LimitBackupsOpened) {
+TEST_F(BackupEngineTest, LimitBackupsOpened) {
   // Verify the specified max backups are opened, including skipping over
   // corrupted backups.
   //
@@ -3263,7 +3269,7 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   delete read_only_backup_engine;
 }
 
-TEST_F(BackupableDBTest, IgnoreLimitBackupsOpenedWhenNotReadOnly) {
+TEST_F(BackupEngineTest, IgnoreLimitBackupsOpenedWhenNotReadOnly) {
   // Verify the specified max_valid_backups_to_open is ignored if the engine
   // is not read-only.
   //
@@ -3297,7 +3303,7 @@ TEST_F(BackupableDBTest, IgnoreLimitBackupsOpenedWhenNotReadOnly) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
+TEST_F(BackupEngineTest, CreateWhenLatestBackupCorrupted) {
   // we should pick an ID greater than corrupted backups' IDs so creation can
   // succeed even when latest backup is corrupted.
   const int kNumKeys = 5000;
@@ -3334,7 +3340,7 @@ TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
       backup_engine_->GetBackupInfo(999999U, &backup_info).IsNotFound());
 }
 
-TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
+TEST_F(BackupEngineTest, WriteOnlyEngineNoSharedFileDeletion) {
   // Verifies a write-only BackupEngine does not delete files belonging to valid
   // backups when GarbageCollect, PurgeOldBackups, or DeleteBackup are called.
   const int kNumKeys = 5000;
@@ -3366,7 +3372,7 @@ TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
   }
 }
 
-TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
+TEST_P(BackupEngineTestWithParam, BackupUsingDirectIO) {
   // Tests direct I/O on the backup engine's reads and writes on the DB env and
   // backup env
   // We use ChrootEnv underneath so the below line checks for direct I/O support
@@ -3419,7 +3425,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   }
 }
 
-TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
+TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
   std::atomic<CpuPriority> priority(CpuPriority::kNormal);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackupEngineImpl::Initialize:SetCpuPriority", [&](void* new_priority) {
@@ -3518,7 +3524,7 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as BackupableDB is not supported in ROCKSDB_LITE\n");
+  fprintf(stderr, "SKIPPED as BackupEngine is not supported in ROCKSDB_LITE\n");
   return 0;
 }
 

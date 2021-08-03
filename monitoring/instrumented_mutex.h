@@ -51,8 +51,7 @@ class InstrumentedMutex {
   int stats_code_;
 };
 
-// A wrapper class for port::Mutex that provides additional layer
-// for collecting stats and instrumentation.
+// RAII wrapper for InstrumentedMutex
 class InstrumentedMutexLock {
  public:
   explicit InstrumentedMutexLock(InstrumentedMutex* mutex) : mutex_(mutex) {
@@ -67,6 +66,22 @@ class InstrumentedMutexLock {
   InstrumentedMutex* const mutex_;
   InstrumentedMutexLock(const InstrumentedMutexLock&) = delete;
   void operator=(const InstrumentedMutexLock&) = delete;
+};
+
+// RAII wrapper for temporary releasing InstrumentedMutex inside
+// InstrumentedMutexLock
+class InstrumentedMutexUnlock {
+ public:
+  explicit InstrumentedMutexUnlock(InstrumentedMutex* mutex) : mutex_(mutex) {
+    mutex_->Unlock();
+  }
+
+  ~InstrumentedMutexUnlock() { mutex_->Lock(); }
+
+ private:
+  InstrumentedMutex* const mutex_;
+  InstrumentedMutexUnlock(const InstrumentedMutexUnlock&) = delete;
+  void operator=(const InstrumentedMutexUnlock&) = delete;
 };
 
 class InstrumentedCondVar {

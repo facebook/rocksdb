@@ -22,7 +22,7 @@ class VersionBuilderTest : public testing::Test {
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   VersionStorageInfo vstorage_;
   uint32_t file_num_;
@@ -659,7 +659,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
   constexpr char checksum_method[] = "SHA1";
-  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
@@ -703,7 +705,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
   constexpr char checksum_method[] = "SHA1";
-  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
   constexpr uint64_t garbage_blob_count = 123;
   constexpr uint64_t garbage_blob_bytes = 456789;
 
@@ -744,7 +748,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
   constexpr char checksum_method[] = "SHA1";
-  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
@@ -764,7 +770,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
   constexpr char checksum_method[] = "SHA1";
-  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
   constexpr uint64_t garbage_blob_count = 123;
   constexpr uint64_t garbage_blob_bytes = 456789;
 
@@ -841,7 +849,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
   constexpr char checksum_method[] = "SHA1";
-  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
 
   addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                        checksum_method, checksum_value);

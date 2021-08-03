@@ -1257,6 +1257,14 @@ public class OptionsTest {
   }
 
   @Test
+  public void periodicCompactionSeconds() {
+    try (final Options options = new Options()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
   public void compactionOptionsUniversal() {
     try (final Options options = new Options();
          final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()

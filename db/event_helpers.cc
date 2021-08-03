@@ -5,7 +5,18 @@
 
 #include "db/event_helpers.h"
 
+#include "rocksdb/convenience.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/utilities/customizable_util.h"
+
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
+Status EventListener::CreateFromString(const ConfigOptions& config_options,
+                                       const std::string& id,
+                                       std::shared_ptr<EventListener>* result) {
+  return LoadSharedObject<EventListener>(config_options, id, nullptr, result);
+}
+#endif  // ROCKSDB_LITE
 
 namespace {
 template <class T>
@@ -108,6 +119,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
                             table_properties.num_entries)
               << "num_data_blocks" << table_properties.num_data_blocks
               << "num_entries" << table_properties.num_entries
+              << "num_filter_entries" << table_properties.num_filter_entries
               << "num_deletions" << table_properties.num_deletions
               << "num_merge_operands" << table_properties.num_merge_operands
               << "num_range_deletions" << table_properties.num_range_deletions

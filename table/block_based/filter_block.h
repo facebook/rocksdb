@@ -62,7 +62,9 @@ class FilterBlockBuilder {
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(
       const Slice& key_without_ts) = 0;        // Add a key to current filter
-  virtual size_t NumAdded() const = 0;         // Number of keys added
+  virtual bool IsEmpty() const = 0;            // Empty == none added
+  // For reporting stats on how many entries the builder considered unique
+  virtual size_t EstimateEntriesAdded() = 0;
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;

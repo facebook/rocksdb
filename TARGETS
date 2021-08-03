@@ -10,7 +10,7 @@ load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
 
-ROCKSDB_COMPILER_FLAGS = [
+ROCKSDB_COMPILER_FLAGS_0 = [
     "-fno-builtin-memcmp",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
@@ -28,7 +28,7 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("zstd", None, "zstd"),
 ]
 
-ROCKSDB_OS_DEPS = [
+ROCKSDB_OS_DEPS_0 = [
     (
         "linux",
         ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
@@ -39,7 +39,7 @@ ROCKSDB_OS_DEPS = [
     ),
 ]
 
-ROCKSDB_OS_PREPROCESSOR_FLAGS = [
+ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
     (
         "linux",
         [
@@ -107,18 +107,18 @@ is_opt_mode = build_mode.startswith("opt")
 
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
-ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+ROCKSDB_COMPILER_FLAGS = ROCKSDB_COMPILER_FLAGS_0 + (["-DNDEBUG"] if is_opt_mode else [])
 
 sanitizer = read_config("fbcode", "sanitizer")
 
 # Do not enable jemalloc if sanitizer presents. RocksDB will further detect
 # whether the binary is linked with jemalloc at runtime.
-ROCKSDB_OS_PREPROCESSOR_FLAGS += ([(
+ROCKSDB_OS_PREPROCESSOR_FLAGS = ROCKSDB_OS_PREPROCESSOR_FLAGS_0 + ([(
     "linux",
     ["-DROCKSDB_JEMALLOC"],
 )] if sanitizer == "" else [])
 
-ROCKSDB_OS_DEPS += ([(
+ROCKSDB_OS_DEPS = ROCKSDB_OS_DEPS_0 + ([(
     "linux",
     ["third-party//jemalloc:headers"],
 )] if sanitizer == "" else [])
@@ -132,16 +132,19 @@ cpp_library(
     name = "rocksdb_lib",
     srcs = [
         "cache/cache.cc",
+        "cache/cache_entry_roles.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
+        "db/blob/blob_fetcher.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
+        "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
@@ -442,16 +445,19 @@ cpp_library(
     name = "rocksdb_whole_archive_lib",
     srcs = [
         "cache/cache.cc",
+        "cache/cache_entry_roles.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
+        "db/blob/blob_fetcher.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
+        "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
@@ -780,8 +786,24 @@ cpp_library(
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
+        "tools/simulated_hybrid_file_system.cc",
         "tools/trace_analyzer_tool.cc",
     ],
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    deps = [":rocksdb_lib"],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    link_whole = False,
+)
+
+cpp_library(
+    name = "rocksdb_cache_bench_tools_lib",
+    srcs = ["cache/cache_bench_tool.cc"],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
@@ -887,6 +909,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "blob_counting_iterator_test",
+        "db/blob/blob_counting_iterator_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "blob_db_test",
         "utilities/blob_db/blob_db_test.cc",
         "parallel",
@@ -924,6 +953,13 @@ ROCKS_TESTS = [
     [
         "blob_file_reader_test",
         "db/blob/blob_file_reader_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "blob_garbage_meter_test",
+        "db/blob/blob_garbage_meter_test.cc",
         "parallel",
         [],
         [],
@@ -1034,6 +1070,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "clipping_iterator_test",
+        "db/compaction/clipping_iterator_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "coding_test",
         "util/coding_test.cc",
         "parallel",
@@ -1085,6 +1128,13 @@ ROCKS_TESTS = [
     [
         "compaction_picker_test",
         "db/compaction/compaction_picker_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "compaction_service_test",
+        "db/compaction/compaction_service_test.cc",
         "parallel",
         [],
         [],

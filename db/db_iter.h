@@ -114,7 +114,7 @@ class DBIter final : public Iterator {
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableCFOptions& cf_options,
+         const ImmutableOptions& ioptions,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
@@ -299,6 +299,8 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
+  Status Merge(const Slice* val, const Slice& user_key);
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   SystemClock* clock_;
@@ -383,8 +385,7 @@ class DBIter final : public Iterator {
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
-    Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const Version* version, const SequenceNumber& sequence,

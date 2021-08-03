@@ -15,7 +15,6 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
-
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +31,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
@@ -81,9 +81,7 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
 
-static uint64_t gettid() {
-  return Env::Default()->GetThreadID();
-}
+static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -267,8 +265,7 @@ class PosixFileSystem : public FileSystem {
   }
 
   virtual IOStatus OpenWritableFile(const std::string& fname,
-                                    const FileOptions& options,
-                                    bool reopen,
+                                    const FileOptions& options, bool reopen,
                                     std::unique_ptr<FSWritableFile>* result,
                                     IODebugContext* /*dbg*/) {
     result->reset();
@@ -551,8 +548,8 @@ class PosixFileSystem : public FileSystem {
   }
 
   IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
-                   std::shared_ptr<Logger>* result,
-                   IODebugContext* /*dbg*/) override {
+                     std::shared_ptr<Logger>* result,
+                     IODebugContext* /*dbg*/) override {
     FILE* f = nullptr;
     int fd;
     {
@@ -909,7 +906,17 @@ class PosixFileSystem : public FileSystem {
       return IOError("While doing statvfs", fname, errno);
     }
 
-    *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
+    // sbuf.bfree is total free space available to root
+    // sbuf.bavail is total free space available to unprivileged user
+    //  sbuf.bavail <= sbuf.bfree ... pick correct based upon effective user id
+    if (geteuid()) {
+      // non-zero user is unprivileged, or -1 if error.  take more conservative
+      // size
+      *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bavail);
+    } else {
+      // root user can access all disk space
+      *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
+    }
     return IOStatus::OK();
   }
 
@@ -938,7 +945,7 @@ class PosixFileSystem : public FileSystem {
   }
 
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
-                                 const DBOptions& db_options) const override {
+                                  const DBOptions& db_options) const override {
     FileOptions optimized = file_options;
     optimized.use_mmap_writes = false;
     optimized.use_direct_writes = false;

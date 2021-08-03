@@ -8,6 +8,7 @@
 #include <list>
 #include <string>
 #include <unordered_map>
+
 #include "db/dbformat.h"
 #include "index_builder.h"
 #include "rocksdb/options.h"
@@ -33,6 +34,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   void AddKey(const Slice& key) override;
   void Add(const Slice& key) override;
+  size_t EstimateEntriesAdded() override;
 
   virtual Slice Finish(const BlockHandle& last_partition_block_handle,
                        Status* status) override;
@@ -62,6 +64,9 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t keys_per_partition_;
   // The number of keys added to the last partition so far
   uint32_t keys_added_to_partition_;
+  // According to the bits builders, how many keys/prefixes added
+  // in all the filters we have fully built
+  uint64_t total_added_in_built_;
   BlockHandle last_encoded_handle_;
 };
 

@@ -88,6 +88,7 @@ using ROCKSDB_NAMESPACE::NewBloomFilterPolicy;
 using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
+using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
@@ -2864,9 +2865,29 @@ void rocksdb_options_set_compression_options_zstd_max_train_bytes(
   opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
+int rocksdb_options_get_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.zstd_max_train_bytes;
+}
+
+void rocksdb_options_set_compression_options_parallel_threads(
+    rocksdb_options_t* opt, int value) {
+  opt->rep.compression_opts.parallel_threads = value;
+}
+
+int rocksdb_options_get_compression_options_parallel_threads(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.parallel_threads;
+}
+
 void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes) {
   opt->rep.compression_opts.max_dict_buffer_bytes = max_dict_buffer_bytes;
+}
+
+uint64_t rocksdb_options_get_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.max_dict_buffer_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(
@@ -3006,6 +3027,11 @@ void rocksdb_options_set_advise_random_on_open(
 unsigned char rocksdb_options_get_advise_random_on_open(
     rocksdb_options_t* opt) {
   return opt->rep.advise_random_on_open;
+}
+
+void rocksdb_options_set_experimental_allow_mempurge(rocksdb_options_t* opt,
+                                                     unsigned char v) {
+  opt->rep.experimental_allow_mempurge = v;
 }
 
 void rocksdb_options_set_access_hint_on_compaction_start(
@@ -3855,6 +3881,47 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(int bits_per_key)
 
 rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
   return rocksdb_filterpolicy_create_bloom_format(bits_per_key, true);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
+    int bloom_equivalent_bits_per_key) {
+  // Make a rocksdb_filterpolicy_t, but override all of its methods so
+  // they delegate to a NewRibbonFilterPolicy() instead of user
+  // supplied C functions.
+  struct Wrapper : public rocksdb_filterpolicy_t {
+    const FilterPolicy* rep_;
+    ~Wrapper() override { delete rep_; }
+    const char* Name() const override { return rep_->Name(); }
+    void CreateFilter(const Slice* keys, int n,
+                      std::string* dst) const override {
+      return rep_->CreateFilter(keys, n, dst);
+    }
+    bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
+      return rep_->KeyMayMatch(key, filter);
+    }
+    ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
+        const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
+        const override {
+      return rep_->GetBuilderWithContext(context);
+    }
+    ROCKSDB_NAMESPACE::FilterBitsReader* GetFilterBitsReader(
+        const Slice& contents) const override {
+      return rep_->GetFilterBitsReader(contents);
+    }
+    static void DoNothing(void*) {}
+  };
+  Wrapper* wrapper = new Wrapper;
+  wrapper->rep_ = NewRibbonFilterPolicy(bloom_equivalent_bits_per_key);
+  wrapper->state_ = nullptr;
+  wrapper->delete_filter_ = nullptr;
+  wrapper->destructor_ = &Wrapper::DoNothing;
+  return wrapper;
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon(
+    int bloom_equivalent_bits_per_key) {
+  return rocksdb_filterpolicy_create_ribbon_format(
+      bloom_equivalent_bits_per_key);
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(

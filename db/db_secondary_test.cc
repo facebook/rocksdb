@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
 
@@ -19,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBSecondaryTest : public DBTestBase {
  public:
   DBSecondaryTest()
-      : DBTestBase("/db_secondary_test", /*env_do_fsync=*/true),
+      : DBTestBase("db_secondary_test", /*env_do_fsync=*/true),
         secondary_path_(),
         handles_secondary_(),
         db_secondary_(nullptr) {
@@ -114,6 +115,18 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_manifest, manifest_cnt);
 }
 
+TEST_F(DBSecondaryTest, NonExistingDb) {
+  Destroy(last_options_);
+
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.max_open_files = -1;
+  const std::string dbname = "/doesnt/exist";
+  Status s =
+      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  ASSERT_TRUE(s.IsIOError());
+}
+
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
   options.env = env_;
@@ -187,6 +200,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(result.output_path, this->secondary_path_);
   ASSERT_EQ(result.num_output_records, 2);
   ASSERT_GT(result.bytes_written, 0);
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
@@ -235,6 +249,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   CompactionServiceResult result;
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input1,
                                                                  &result));
+  ASSERT_OK(result.status);
 
   // pick 2 files on level 1 for compaction, which has 6 overlap files on L2
   CompactionServiceInput input2;
@@ -247,6 +262,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   input2.output_level = 2;
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
                                                                  &result));
+  ASSERT_OK(result.status);
 
   CloseSecondary();
 
@@ -259,6 +275,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   Status s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
                                                                   &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 
   // TODO: L0 -> L1 compaction should success, currently version is not built
   // if files is missing.
@@ -304,6 +321,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   Status s =
       db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
@@ -340,11 +358,13 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   Status s =
       db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
 
   input.input_files.erase(input.input_files.begin());
 
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
                                                                  &result));
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondary) {
@@ -591,17 +611,19 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"VersionSet::ProcessManifestWrites:AfterNewManifest",
+       {"DBImpl::Open:AfterDeleteFilesAndSyncDir",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure db calls RecoverLogFiles so as to trigger a manifest write,
-  // which causes the db to switch to a new MANIFEST upon start.
   port::Thread ro_db_thread([&]() {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
+    Status s = TryOpenSecondary(options1);
+    ASSERT_TRUE(s.IsTryAgain());
+
+    // Try again
     OpenSecondary(options1);
     CloseSecondary();
   });
@@ -1108,6 +1130,39 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   Status s = db_secondary_->TryCatchUpWithPrimary();
   ASSERT_TRUE(s.IsCorruption());
 }
+
+TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db;
+
+  std::vector<std::string> cfs = {"new_CF"};
+  CreateColumnFamilies(cfs, options);
+  ASSERT_EQ(handles_.size(), 1);
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn1, nullptr);
+  ASSERT_OK(txn1->Put(handles_[0], "k1", "v1"));
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  ASSERT_OK(TryOpenSecondary(options));
+}
+
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

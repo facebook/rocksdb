@@ -1,16 +1,19 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
+  cache/cache_entry_roles.cc                                    \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_cache.cc                                    \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_file_reader.cc                                   \
+  db/blob/blob_garbage_meter.cc                                 \
   db/blob/blob_log_format.cc                                    \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
@@ -318,6 +321,10 @@ MOCK_LIB_SOURCES =                                              \
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
+  tools/simulated_hybrid_file_system.cc                         \
+
+CACHE_BENCH_LIB_SOURCES =					\
+  cache/cache_bench_tool.cc                                     \
 
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
@@ -372,21 +379,25 @@ BENCH_MAIN_SOURCES =                                                    \
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/lru_cache_test.cc                                               \
+  db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
   db/blob/blob_file_cache_test.cc                                       \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/blob_file_reader_test.cc                                      \
+  db/blob/blob_garbage_meter_test.cc                                    \
   db/blob/db_blob_basic_test.cc                                         \
   db/blob/db_blob_compaction_test.cc                                    \
   db/blob/db_blob_corruption_test.cc                                    \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
+  db/compaction/clipping_iterator_test.cc                               \
   db/compaction/compaction_iterator_test.cc                             \
   db/compaction/compaction_job_test.cc                                  \
   db/compaction/compaction_job_stats_test.cc                            \
   db/compaction/compaction_picker_test.cc                               \
+  db/compaction/compaction_service_test.cc                              \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -555,6 +566,8 @@ TEST_MAIN_SOURCES =                                                     \
 TEST_MAIN_SOURCES_C = \
   db/c_test.c                                                           \
 
+MICROBENCH_SOURCES =                                          \
+  microbench/ribbon_bench.cc                                  \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

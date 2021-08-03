@@ -9,10 +9,13 @@
 //
 
 #pragma once
+
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
 #include "db/version_set.h"
 #include "rocksdb/system_clock.h"
 
@@ -20,6 +23,8 @@ class ColumnFamilyData;
 
 namespace ROCKSDB_NAMESPACE {
 
+template <class Stats>
+class CacheEntryStatsCollector;
 class DBImpl;
 class MemTableList;
 
@@ -125,18 +130,7 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd)
-      : db_stats_{},
-        cf_stats_value_{},
-        cf_stats_count_{},
-        comp_stats_(num_levels),
-        comp_stats_by_pri_(Env::Priority::TOTAL),
-        file_read_latency_(num_levels),
-        bg_error_count_(0),
-        number_levels_(num_levels),
-        clock_(clock),
-        cfd_(cfd),
-        started_at_(clock->NowMicros()) {}
+  InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd);
 
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
@@ -357,6 +351,39 @@ class InternalStats {
     }
   };
 
+  // For use with CacheEntryStatsCollector
+  struct CacheEntryRoleStats {
+    uint64_t cache_capacity = 0;
+    std::string cache_id;
+    std::array<uint64_t, kNumCacheEntryRoles> total_charges;
+    std::array<size_t, kNumCacheEntryRoles> entry_counts;
+    uint32_t collection_count = 0;
+    uint32_t copies_of_last_collection = 0;
+    uint64_t last_start_time_micros_ = 0;
+    uint64_t last_end_time_micros_ = 0;
+
+    void Clear() {
+      // Wipe everything except collection_count
+      uint32_t saved_collection_count = collection_count;
+      *this = CacheEntryRoleStats();
+      collection_count = saved_collection_count;
+    }
+
+    void BeginCollection(Cache*, SystemClock*, uint64_t start_time_micros);
+    std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
+    GetEntryCallback();
+    void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);
+    void SkippedCollection();
+
+    std::string ToString(SystemClock* clock) const;
+    void ToMap(std::map<std::string, std::string>* values,
+               SystemClock* clock) const;
+
+   private:
+    std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map_;
+    uint64_t GetLastDurationMicros() const;
+  };
+
   void Clear() {
     for (int i = 0; i < kIntStatsNumMax; i++) {
       db_stats_[i].store(0);
@@ -431,11 +458,20 @@ class InternalStats {
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
 
+  // Unless there is a recent enough collection of the stats, collect and
+  // saved new cache entry stats. If `foreground`, require data to be more
+  // recent to skip re-collection.
+  //
+  // This should only be called while NOT holding the DB mutex.
+  void CollectCacheEntryStats(bool foreground);
+
   const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
 
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
   }
+
+  void TEST_GetCacheEntryRoleStats(CacheEntryRoleStats* stats, bool foreground);
 
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
@@ -455,13 +491,20 @@ class InternalStats {
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
 
-  bool HandleBlockCacheStat(Cache** block_cache);
+  bool GetBlockCacheForStats(Cache** block_cache);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
   // Per-ColumnFamily stats
   uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
   uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
+  // Initialize/reference the collector in constructor so that we don't need
+  // additional synchronization in InternalStats, relying on synchronization
+  // in CacheEntryStatsCollector::GetStats. This collector is pinned in cache
+  // (through a shared_ptr) so that it does not get immediately ejected from
+  // a full cache, which would force a re-scan on the next GetStats.
+  std::shared_ptr<CacheEntryStatsCollector<CacheEntryRoleStats>>
+      cache_entry_stats_collector_;
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
@@ -629,6 +672,9 @@ class InternalStats {
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleBlockCacheEntryStats(std::string* value, Slice suffix);
+  bool HandleBlockCacheEntryStatsMap(std::map<std::string, std::string>* values,
+                                     Slice suffix);
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
   // be caused by any possible reason, including file system errors, out of

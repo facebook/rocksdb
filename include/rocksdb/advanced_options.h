@@ -173,9 +173,10 @@ struct CompressionOptions {
         parallel_threads(1),
         enabled(false),
         max_dict_buffer_bytes(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes, int _parallel_threads,
-                     bool _enabled, uint64_t _max_dict_buffer_bytes)
+  CompressionOptions(int wbits, int _lev, int _strategy,
+                     uint32_t _max_dict_bytes, uint32_t _zstd_max_train_bytes,
+                     uint32_t _parallel_threads, bool _enabled,
+                     uint64_t _max_dict_buffer_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
@@ -184,6 +185,17 @@ struct CompressionOptions {
         parallel_threads(_parallel_threads),
         enabled(_enabled),
         max_dict_buffer_bytes(_max_dict_buffer_bytes) {}
+};
+
+// Temperature of a file. Used to pass to FileSystem for a different
+// placement and/or coding.
+// Reserve some numbers in the middle, in case we need to insert new tier
+// there.
+enum class Temperature : uint8_t {
+  kUnknown = 0,
+  kHot = 0x04,
+  kWarm = 0x08,
+  kCold = 0x0C,
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
@@ -380,7 +392,8 @@ struct AdvancedColumnFamilyOptions {
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
-  // writer_buffer_size, rounded up to a multiple of 4KB).
+  // writer_buffer_size, rounded up to a multiple of 4KB, or 1MB which ever is
+  // smaller).
   //
   // There are two additional restriction of the specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
@@ -757,6 +770,13 @@ struct AdvancedColumnFamilyOptions {
   // The compressibility is reported as stats and the stored
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
+
+  // EXPERIMENTAL
+  // The feature is still in development and is incomplete.
+  // If this option is set, when creating bottommost files, pass this
+  // temperature to FileSystem used. Should be no-op for default FileSystem
+  // and users need to plug in their own FileSystem to take advantage of it.
+  Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write

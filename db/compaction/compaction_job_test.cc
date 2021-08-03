@@ -82,10 +82,11 @@ class CompactionJobTestBase : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_,
-            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
+        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr,
+                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
@@ -269,7 +270,8 @@ class CompactionJobTestBase : public testing::Test {
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 
@@ -344,13 +346,14 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_TRUE(full_history_ts_low_.empty() ||
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     CompactionJob compaction_job(
-        0, &compaction, db_options_, env_options_, versions_.get(),
-        &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        0, &compaction, db_options_, mutable_db_options_, env_options_,
+        versions_.get(), &shutting_down_, preserve_deletes_seqnum_, &log_buffer,
+        nullptr, nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */,
-        /*manual_compaction_paused=*/nullptr, /*db_id=*/"",
+        /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, /*db_id=*/"",
         /*db_session_id=*/"", full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
@@ -1094,6 +1097,185 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   RunCompaction({files}, expected_results, std::vector<SequenceNumber>(),
                 kMaxSequenceNumber, /* output_level */ 1, /* verify */ true,
                 /* expected_oldest_blob_file_number */ 19);
+}
+
+TEST_F(CompactionJobTest, InputSerialization) {
+  // Setup a random CompactionServiceInput
+  CompactionServiceInput input;
+  const int kStrMaxLen = 1000;
+  Random rnd(static_cast<uint32_t>(time(nullptr)));
+  Random64 rnd64(time(nullptr));
+  input.column_family.name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
+  input.column_family.options.comparator = ReverseBytewiseComparator();
+  input.column_family.options.max_bytes_for_level_base =
+      rnd64.Uniform(UINT64_MAX);
+  input.column_family.options.disable_auto_compactions = rnd.OneIn(2);
+  input.column_family.options.compression = kZSTD;
+  input.column_family.options.compression_opts.level = 4;
+  input.db_options.max_background_flushes = 10;
+  input.db_options.paranoid_checks = rnd.OneIn(2);
+  input.db_options.statistics = CreateDBStatistics();
+  input.db_options.env = env_;
+  while (!rnd.OneIn(10)) {
+    input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
+  }
+  while (!rnd.OneIn(10)) {
+    input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+  }
+  input.output_level = 4;
+  input.has_begin = rnd.OneIn(2);
+  if (input.has_begin) {
+    input.begin = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  }
+  input.has_end = rnd.OneIn(2);
+  if (input.has_end) {
+    input.end = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  }
+  input.approx_size = rnd64.Uniform(UINT64_MAX);
+
+  std::string output;
+  ASSERT_OK(input.Write(&output));
+
+  // Test deserialization
+  CompactionServiceInput deserialized1;
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized1));
+  ASSERT_TRUE(deserialized1.TEST_Equals(&input));
+
+  // Test mismatch
+  deserialized1.db_options.max_background_flushes += 10;
+  std::string mismatch;
+  ASSERT_FALSE(deserialized1.TEST_Equals(&input, &mismatch));
+  ASSERT_EQ(mismatch, "db_options.max_background_flushes");
+
+  // Test unknown field
+  CompactionServiceInput deserialized2;
+  output.clear();
+  ASSERT_OK(input.Write(&output));
+  output.append("new_field=123;");
+
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized2));
+  ASSERT_TRUE(deserialized2.TEST_Equals(&input));
+
+  // Test missing field
+  CompactionServiceInput deserialized3;
+  deserialized3.output_level = 0;
+  std::string to_remove = "output_level=4;";
+  size_t pos = output.find(to_remove);
+  ASSERT_TRUE(pos != std::string::npos);
+  output.erase(pos, to_remove.length());
+  ASSERT_OK(CompactionServiceInput::Read(output, &deserialized3));
+  mismatch.clear();
+  ASSERT_FALSE(deserialized3.TEST_Equals(&input, &mismatch));
+  ASSERT_EQ(mismatch, "output_level");
+
+  // manually set the value back, should match the original structure
+  deserialized3.output_level = 4;
+  ASSERT_TRUE(deserialized3.TEST_Equals(&input));
+
+  // Test invalid version
+  output.clear();
+  ASSERT_OK(input.Write(&output));
+
+  uint32_t data_version = DecodeFixed32(output.data());
+  const size_t kDataVersionSize = sizeof(data_version);
+  ASSERT_EQ(data_version,
+            1U);  // Update once the default data version is changed
+  char buf[kDataVersionSize];
+  EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
+  output.replace(0, kDataVersionSize, buf, kDataVersionSize);
+  Status s = CompactionServiceInput::Read(output, &deserialized3);
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
+TEST_F(CompactionJobTest, ResultSerialization) {
+  // Setup a random CompactionServiceResult
+  CompactionServiceResult result;
+  const int kStrMaxLen = 1000;
+  Random rnd(static_cast<uint32_t>(time(nullptr)));
+  Random64 rnd64(time(nullptr));
+  std::vector<Status> status_list = {
+      Status::OK(),
+      Status::InvalidArgument("invalid option"),
+      Status::Aborted("failed to run"),
+      Status::NotSupported("not supported option"),
+  };
+  result.status =
+      status_list.at(rnd.Uniform(static_cast<int>(status_list.size())));
+  while (!rnd.OneIn(10)) {
+    result.output_files.emplace_back(
+        rnd.RandomString(rnd.Uniform(kStrMaxLen)), rnd64.Uniform(UINT64_MAX),
+        rnd64.Uniform(UINT64_MAX),
+        rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
+        rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
+        rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX),
+        rnd64.Uniform(UINT64_MAX), rnd.OneIn(2));
+  }
+  result.output_level = rnd.Uniform(10);
+  result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
+  result.num_output_records = rnd64.Uniform(UINT64_MAX);
+  result.total_bytes = rnd64.Uniform(UINT64_MAX);
+  result.bytes_read = 123;
+  result.bytes_written = rnd64.Uniform(UINT64_MAX);
+  result.stats.elapsed_micros = rnd64.Uniform(UINT64_MAX);
+  result.stats.num_output_files = rnd.Uniform(1000);
+  result.stats.is_full_compaction = rnd.OneIn(2);
+  result.stats.num_single_del_mismatch = rnd64.Uniform(UINT64_MAX);
+  result.stats.num_input_files = 9;
+
+  std::string output;
+  ASSERT_OK(result.Write(&output));
+
+  // Test deserialization
+  CompactionServiceResult deserialized1;
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized1));
+  ASSERT_TRUE(deserialized1.TEST_Equals(&result));
+
+  // Test mismatch
+  deserialized1.stats.num_input_files += 10;
+  std::string mismatch;
+  ASSERT_FALSE(deserialized1.TEST_Equals(&result, &mismatch));
+  ASSERT_EQ(mismatch, "stats.num_input_files");
+
+  // Test unknown field
+  CompactionServiceResult deserialized2;
+  output.clear();
+  ASSERT_OK(result.Write(&output));
+  output.append("new_field=123;");
+
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized2));
+  ASSERT_TRUE(deserialized2.TEST_Equals(&result));
+
+  // Test missing field
+  CompactionServiceResult deserialized3;
+  deserialized3.bytes_read = 0;
+  std::string to_remove = "bytes_read=123;";
+  size_t pos = output.find(to_remove);
+  ASSERT_TRUE(pos != std::string::npos);
+  output.erase(pos, to_remove.length());
+  ASSERT_OK(CompactionServiceResult::Read(output, &deserialized3));
+  mismatch.clear();
+  ASSERT_FALSE(deserialized3.TEST_Equals(&result, &mismatch));
+  ASSERT_EQ(mismatch, "bytes_read");
+
+  deserialized3.bytes_read = 123;
+  ASSERT_TRUE(deserialized3.TEST_Equals(&result));
+
+  // Test invalid version
+  output.clear();
+  ASSERT_OK(result.Write(&output));
+
+  uint32_t data_version = DecodeFixed32(output.data());
+  const size_t kDataVersionSize = sizeof(data_version);
+  ASSERT_EQ(data_version,
+            1U);  // Update once the default data version is changed
+  char buf[kDataVersionSize];
+  EncodeFixed32(buf, data_version + 10);  // make sure it's not valid
+  output.replace(0, kDataVersionSize, buf, kDataVersionSize);
+  Status s = CompactionServiceResult::Read(output, &deserialized3);
+  ASSERT_TRUE(s.IsNotSupported());
+  for (const auto& item : status_list) {
+    item.PermitUncheckedError();
+  }
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {

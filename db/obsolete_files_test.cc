@@ -34,7 +34,7 @@ namespace ROCKSDB_NAMESPACE {
 class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
-      : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
+      : DBTestBase("obsolete_files_test", /*env_do_fsync=*/true),
         wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
@@ -228,7 +228,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,

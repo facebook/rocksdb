@@ -4996,6 +4996,10 @@ class TickerTypeJni {
         return -0x1A;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
         return -0x1B;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH:
+        return -0x1C;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
+        return -0x1D;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -5322,6 +5326,10 @@ class TickerTypeJni {
       case -0x1B:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT;
+      case -0x1C:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH;
+      case -0x1D:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
@@ -7723,7 +7731,7 @@ class SanityLevelJni {
 class EnabledEventCallbackJni {
  public:
   // Returns the set of equivalent C++
-  // rocksdb::EnabledEventCallbackJni::EnabledEventCallback enums for
+  // ROCKSDB_NAMESPACE::EnabledEventCallbackJni::EnabledEventCallback enums for
   // the provided Java jenabled_event_callback_values
   static std::set<EnabledEventCallback> toCppEnabledEventCallbacks(
       jlong jenabled_event_callback_values) {
