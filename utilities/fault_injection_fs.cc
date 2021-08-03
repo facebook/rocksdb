@@ -730,10 +730,9 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   open_files_.erase(f);
 }
 
-IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(ErrorOperation /*op*/,
-                                                             Slice* /*result*/,
-                                                             bool /*direct_io*/,
-                                                             char* /*scratch*/) {
+IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
+    ErrorOperation /*op*/, Slice* /*result*/, bool /*direct_io*/,
+    char* /*scratch*/) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
