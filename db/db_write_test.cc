@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
  public:
-  DBWriteTest() : DBTestBase("/db_write_test", /*env_do_fsync=*/true) {}
+  DBWriteTest() : DBTestBase("db_write_test", /*env_do_fsync=*/true) {}
 
   Options GetOptions() { return DBTestBase::GetOptions(GetParam()); }
 

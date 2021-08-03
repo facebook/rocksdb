@@ -237,7 +237,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
 class DBWritableFileWriterTest : public DBTestBase {
  public:
   DBWritableFileWriterTest()
-      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }

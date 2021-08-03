@@ -189,9 +189,6 @@ EOF
                 COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
             fi
         fi
-        if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-          USE_FOLLY_DISTRIBUTED_MUTEX=1
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -594,6 +591,16 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
+        fi
+    fi
+    if ! test $ROCKSDB_DISABLE_BENCHMARK; then
+        # Test whether google benchmark is available
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+          #include <benchmark/benchmark.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
         fi
     fi
 fi

@@ -7731,7 +7731,7 @@ class SanityLevelJni {
 class EnabledEventCallbackJni {
  public:
   // Returns the set of equivalent C++
-  // rocksdb::EnabledEventCallbackJni::EnabledEventCallback enums for
+  // ROCKSDB_NAMESPACE::EnabledEventCallbackJni::EnabledEventCallback enums for
   // the provided Java jenabled_event_callback_values
   static std::set<EnabledEventCallback> toCppEnabledEventCallbacks(
       jlong jenabled_event_callback_values) {

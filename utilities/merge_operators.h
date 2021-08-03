@@ -20,6 +20,8 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator(char delim_char);
+  static std::shared_ptr<MergeOperator> CreateStringAppendOperator(
+      const std::string& delim);
   static std::shared_ptr<MergeOperator> CreateStringAppendTESTOperator();
   static std::shared_ptr<MergeOperator> CreateMaxOperator();
   static std::shared_ptr<MergeOperator> CreateBytesXOROperator();

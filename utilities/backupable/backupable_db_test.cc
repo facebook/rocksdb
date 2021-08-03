@@ -1048,6 +1048,7 @@ TEST_P(BackupEngineTestWithParam, VerifyBackup) {
   CloseDBAndBackupEngine();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // open DB, write, close DB, backup, restore, repeat
 TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
@@ -1158,6 +1159,7 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
 
   CloseBackupEngine();
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 INSTANTIATE_TEST_CASE_P(BackupEngineTestWithParam, BackupEngineTestWithParam,
                         ::testing::Bool());
@@ -1548,6 +1550,7 @@ TEST_F(BackupEngineTest, BlobFileCorruptedBeforeBackup) {
   CloseDBAndBackupEngine();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test if BackupEngine will fail to create new backup if some table has been
 // corrupted and the table file checksum is stored in the DB manifest for the
 // case when backup table files will be stored in a shared directory
@@ -1606,6 +1609,7 @@ TEST_P(BackupEngineTestWithParam, BlobFileCorruptedBeforeBackup) {
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(BackupEngineTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
@@ -2526,6 +2530,7 @@ TEST_F(BackupEngineTest, KeepLogFiles) {
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class BackupEngineRateLimitingTestWithParam
     : public BackupEngineTest,
       public testing::WithParamInterface<
@@ -2600,6 +2605,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
 
   AssertBackupConsistency(0, 0, 100000, 100010);
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   DestroyDB(dbname_, options_);

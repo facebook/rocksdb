@@ -578,13 +578,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
           *static_cast<const ChecksumType*>(opt_address), value);
-    case OptionType::kFlushBlockPolicyFactory: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
-              opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kEncodingType:
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
@@ -631,10 +624,13 @@ Status StringToMap(const std::string& opts_str,
   }
 
   while (pos < opts.size()) {
-    size_t eq_pos = opts.find('=', pos);
+    size_t eq_pos = opts.find_first_of("={};", pos);
     if (eq_pos == std::string::npos) {
       return Status::InvalidArgument("Mismatched key value pair, '=' expected");
+    } else if (opts[eq_pos] != '=') {
+      return Status::InvalidArgument("Unexpected char in key");
     }
+
     std::string key = trim(opts.substr(pos, eq_pos - pos));
     if (key.empty()) {
       return Status::InvalidArgument("Empty key found");

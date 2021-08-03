@@ -269,6 +269,12 @@ class CompactionIterator {
 
   bool IsInEarliestSnapshot(SequenceNumber sequence);
 
+  bool DefinitelyInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
+
+  bool DefinitelyNotInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
+
+  bool InEarliestSnapshot(SequenceNumber seq);
+
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
   inline void UpdateTimestampAndCompareWithFullHistoryLow() {
@@ -412,4 +418,26 @@ class CompactionIterator {
             manual_compaction_canceled_->load(std::memory_order_relaxed));
   }
 };
+
+inline bool CompactionIterator::DefinitelyInSnapshot(SequenceNumber seq,
+                                                     SequenceNumber snapshot) {
+  return ((seq) <= (snapshot) &&
+          (snapshot_checker_ == nullptr ||
+           LIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) ==
+                  SnapshotCheckerResult::kInSnapshot)));
+}
+
+inline bool CompactionIterator::DefinitelyNotInSnapshot(
+    SequenceNumber seq, SequenceNumber snapshot) {
+  return ((seq) > (snapshot) ||
+          (snapshot_checker_ != nullptr &&
+           UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) ==
+                    SnapshotCheckerResult::kNotInSnapshot)));
+}
+
+inline bool CompactionIterator::InEarliestSnapshot(SequenceNumber seq) {
+  return ((seq) <= earliest_snapshot_ &&
+          (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))));
+}
+
 }  // namespace ROCKSDB_NAMESPACE

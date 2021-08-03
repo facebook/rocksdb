@@ -69,8 +69,9 @@ bool StringAppendTESTOperator::FullMergeV2(
                                 merge_in.existing_value->size());
     printDelim = true;
   } else if (numBytes) {
-    merge_out->new_value.reserve(
-        numBytes - 1);  // Minus 1 since we have one less delimiter
+    // Without the existing (initial) value, the delimiter before the first of
+    // subsequent operands becomes redundant.
+    merge_out->new_value.reserve(numBytes - delim_.size());
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
@@ -108,7 +109,7 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
   for (const auto& operand : operand_list) {
     size += operand.size();
   }
-  size += (operand_list.size() - 1) * delim_.size();  // Delimiters
+  size += (operand_list.size() - 1) * delim_.length();  // Delimiters
   new_value->reserve(size);
 
   // Apply concatenation

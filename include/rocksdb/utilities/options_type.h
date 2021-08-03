@@ -38,7 +38,6 @@ enum class OptionType {
   kCompactionStopStyle,
   kMemTableRepFactory,
   kFilterPolicy,
-  kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
   kEnv,

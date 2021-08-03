@@ -112,17 +112,6 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
 #endif
 }
 
-bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
-  bool same = false;
-  assert(!db_options->db_paths.empty());
-  Status s = db_options->env->AreFilesSame(db_options->wal_dir,
-                                           db_options->db_paths[0].path, &same);
-  if (s.IsNotSupported()) {
-    same = db_options->wal_dir == db_options->db_paths[0].path;
-  }
-  return same;
-}
-
 // requested_checksum_func_name brings the function name of the checksum
 // generator in checksum_factory. Empty string is permitted, in which case the
 // name of the generator created by the factory is unchecked. When

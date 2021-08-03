@@ -1602,6 +1602,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
 rocksdb_filterpolicy_create_bloom(int bits_per_key);
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
 rocksdb_filterpolicy_create_bloom_full(int bits_per_key);
+extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
+rocksdb_filterpolicy_create_ribbon(int bloom_equivalent_bits_per_key);
 
 /* Merge Operator */
 

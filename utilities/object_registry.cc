@@ -15,6 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 // Otherwise, nullptr is returned
 const ObjectLibrary::Entry *ObjectLibrary::FindEntry(
     const std::string &type, const std::string &name) const {
+  std::unique_lock<std::mutex> lock(mu_);
   auto entries = entries_.find(type);
   if (entries != entries_.end()) {
     for (const auto &entry : entries->second) {
@@ -28,11 +29,13 @@ const ObjectLibrary::Entry *ObjectLibrary::FindEntry(
 
 void ObjectLibrary::AddEntry(const std::string &type,
                              std::unique_ptr<Entry> &entry) {
+  std::unique_lock<std::mutex> lock(mu_);
   auto &entries = entries_[type];
   entries.emplace_back(std::move(entry));
 }
 
 size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
+  std::unique_lock<std::mutex> lock(mu_);
   *types = entries_.size();
   size_t factories = 0;
   for (const auto &e : entries_) {
@@ -42,6 +45,7 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
 }
 
 void ObjectLibrary::Dump(Logger *logger) const {
+  std::unique_lock<std::mutex> lock(mu_);
   for (const auto &iter : entries_) {
     ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
                      iter.first.c_str());
