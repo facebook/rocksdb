@@ -488,9 +488,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   constexpr uint32_t path_id = 0;
   constexpr SequenceNumber smallest_seq = 100;
   constexpr SequenceNumber largest_seq = 500;
-  constexpr uint64_t num_entries = 0;
+  constexpr uint64_t num_entries = 1000;
   constexpr uint64_t num_deletions = 0;
-  constexpr bool sampled = false;
+  constexpr bool sampled = true;
   constexpr SequenceNumber smallest_seqno = 1;
   constexpr SequenceNumber largest_seqno = 1000;
   constexpr bool marked_for_compaction = false;
