@@ -999,7 +999,7 @@ DEFINE_bool(use_stderr_info_logger, false,
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
 DEFINE_double(trace_replay_fast_forward, 1.0,
-             "Fast forward trace replay, must > 0. ");
+              "Fast forward trace replay, must > 0.0.");
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
