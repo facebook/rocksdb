@@ -1729,7 +1729,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     // kWalFile lives in wal_dir and all the rest live in db_dir
     if (type == kWalFile) {
       dst = wal_dir + "/" + dst;
-      if (!wal_dir_for_fsync) {
+      if (options_.sync && !wal_dir_for_fsync) {
         s = db_env_->NewDirectory(wal_dir, &db_dir_for_fsync);
         if (!s.ok()) {
           return s;
@@ -1737,14 +1737,16 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
       }
     } else {
       dst = db_dir + "/" + dst;
-      if (!db_dir_for_fsync) {
+      if (options_.sync && !db_dir_for_fsync) {
         s = db_env_->NewDirectory(db_dir, &db_dir_for_fsync);
         if (!s.ok()) {
           return s;
         }
       }
     }
-    // For atomicity, initially restore CURRENT file to a temporary name
+    // For atomicity, initially restore CURRENT file to a temporary name.
+    // This is useful even without options_.sync e.g. in case the restore
+    // process is interrupted.
     if (type == kCurrentFile) {
       final_current_file = dst;
       dst = temporary_current_file = dst + ".tmp";
@@ -1754,7 +1756,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
                    dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        EnvOptions() /* src_env_options */, false, rate_limiter,
+        EnvOptions() /* src_env_options */, options_.sync, rate_limiter,
         0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
@@ -1783,8 +1785,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     }
   }
 
-  // First Fsync is to ensure all files are fully persisted before renaming
-  // CURRENT.tmp
+  // When enabled, the first Fsync is to ensure all files are fully persisted
+  // before renaming CURRENT.tmp
   if (s.ok() && db_dir_for_fsync) {
     ROCKS_LOG_INFO(options_.info_log, "Restore: fsync\n");
     s = db_dir_for_fsync->Fsync();
@@ -1800,7 +1802,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     s = db_env_->RenameFile(temporary_current_file, final_current_file);
   }
 
-  if (s.ok() && !temporary_current_file.empty()) {
+  if (s.ok() && db_dir_for_fsync && !temporary_current_file.empty()) {
     // Second Fsync is to ensure the final atomic rename of DB restore is
     // fully persisted even if power goes out right after restore operation
     // returns success

@@ -642,9 +642,22 @@ class BackupEngineTest : public testing::Test {
     CreateLoggerFromOptions(dbname_, logger_options, &logger_)
         .PermitUncheckedError();
 
+    // The sync option is not easily testable in unit tests, but should be
+    // smoke tested across all the other backup tests. However, it is
+    // certainly not worth doubling the runtime of backup tests for it.
+    // Thus, we can enable sync for one of our alternate testing
+    // configurations.
+    constexpr bool kUseSync =
+#ifdef ROCKSDB_MODIFY_NPHASH
+        true;
+#else
+        false;
+#endif  // ROCKSDB_MODIFY_NPHASH
+
     // set up backup db options
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), true, logger_.get(), true));
+        backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
+        logger_.get(), kUseSync));
 
     // most tests will use multi-threaded backups
     backupable_options_->max_background_operations = 7;
