@@ -557,10 +557,8 @@ Status ReplayerImpl::Replay(ReplayOptions options) {
   std::chrono::system_clock::time_point replay_epoch =
       std::chrono::system_clock::now();
 
-  uint32_t fast_forward = options.fast_forward > 1 ? options.fast_forward : 1;
-
   while (s.ok() || s.IsNotSupported()) {
-    s = StepWork(replay_epoch, header_ts_, fast_forward, thread_pool);
+    s = StepWork(replay_epoch, header_ts_, options.fast_forward, thread_pool);
   }
 
   if (thread_pool) {
