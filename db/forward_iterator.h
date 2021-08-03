@@ -25,7 +25,7 @@ struct SuperVersion;
 class ColumnFamilyData;
 class ForwardLevelIterator;
 class VersionStorageInfo;
-struct FileMetaData;
+class FileMetaData;
 
 class MinIterComparator {
  public:

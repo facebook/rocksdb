@@ -158,12 +158,13 @@ struct FileSampledStats {
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
 
-struct FileMetaData {
+class FileMetaData {
+ public:
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
 
-  // Needs to be disposed when refs becomes 0.
+  // Needs to be disposed when refs_ becomes 0.
   Cache::Handle* table_reader_handle = nullptr;
 
   FileSampledStats stats;
@@ -180,8 +181,6 @@ struct FileMetaData {
   uint64_t num_deletions = 0;   // the number of deletion entries.
   uint64_t raw_key_size = 0;    // total uncompressed key size.
   uint64_t raw_value_size = 0;  // total uncompressed value size.
-
-  int refs = 0;  // Reference count
 
   bool being_compacted = false;       // Is this file undergoing compaction?
   int being_moved_to = -1;            // Is this file undergoing trivial move?
@@ -232,11 +231,11 @@ struct FileMetaData {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
-  void Ref() { ++refs; }
+  void Ref() { ++refs_; }
 
   bool Unref() {
-    assert(refs >= 1);
-    return --refs <= 0;
+    assert(refs_ >= 1);
+    return --refs_ <= 0;
   }
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
@@ -281,6 +280,9 @@ struct FileMetaData {
     }
     return kUnknownFileCreationTime;
   }
+
+ private:
+  int refs_ = 0;  // Reference count
 };
 
 // A compressed copy of file meta data that just contain minimum data needed

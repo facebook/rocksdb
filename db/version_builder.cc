@@ -894,6 +894,7 @@ class VersionBuilder::Rep {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_vstorage_->LevelFiles(level);
+      const auto& del_files = levels_[level].deleted_base_files;
       const auto& unordered_added_files = levels_[level].added_files;
       const auto& unordered_moved_files = levels_[level].moved_files;
 
@@ -935,9 +936,24 @@ class VersionBuilder::Rep {
       while (delta_iter != delta_end || base_iter != base_end) {
         if (delta_iter == delta_end ||
             (base_iter != base_end && cmp(*base_iter, *delta_iter))) {
-          MaybeAddFile(vstorage, level, *base_iter++);
+          FileMetaData* f = *base_iter++;
+          const uint64_t file_number = f->fd.GetNumber();
+
+          if (del_files.find(file_number) != del_files.end()) {
+            vstorage->RemoveCurrentStats(f);
+          } else {
+#ifndef NDEBUG
+            assert(unordered_added_files.find(file_number) ==
+                   unordered_added_files.end());
+#endif
+            vstorage->AddFile(level, f);
+          }
         } else {
-          vstorage->AddFile(level, *delta_iter++);
+          FileMetaData* f = *delta_iter++;
+          if (f->init_stats_from_file) {
+            vstorage->UpdateAccumulatedStats(f);
+          }
+          vstorage->AddFile(level, f);
         }
       }
     }
@@ -1048,21 +1064,6 @@ class VersionBuilder::Rep {
       }
     }
     return ret;
-  }
-
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
-    const uint64_t file_number = f->fd.GetNumber();
-    const auto& level_state = levels_[level];
-    const auto& del_files = level_state.deleted_base_files;
-
-    if (del_files.find(file_number) != del_files.end()) {
-      return;
-    }
-#ifndef NDEBUG
-    const auto& add_files = level_state.added_files;
-    assert(add_files.find(file_number) == add_files.end());
-#endif
-    vstorage->AddFile(level, f);
   }
 };
 

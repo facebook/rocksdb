@@ -19,7 +19,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Comparator;
-struct FileMetaData;
+class FileMetaData;
 struct FdWithKeyRange;
 struct FileLevel;
 

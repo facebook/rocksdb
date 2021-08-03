@@ -20,7 +20,7 @@ struct ImmutableCFOptions;
 class TableCache;
 class VersionStorageInfo;
 class VersionEdit;
-struct FileMetaData;
+class FileMetaData;
 class InternalStats;
 class Version;
 class VersionSet;

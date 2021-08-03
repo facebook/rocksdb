@@ -549,6 +549,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
                                     force_consistency_checks);
     ASSERT_OK(builder.SaveTo(&new_vstorage));
     ASSERT_EQ(new_vstorage.GetFileLocation(file_number).GetLevel(), level + 1);
+    // File movement should not change key estimation.
+    ASSERT_EQ(vstorage_.GetEstimatedActiveKeys(),
+              new_vstorage.GetEstimatedActiveKeys());
     FileReferenceChecker checker;
     ASSERT_TRUE(checker.Check(&vstorage_));
     ASSERT_TRUE(checker.Check(&new_vstorage));
@@ -606,6 +609,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
                                     force_consistency_checks);
     ASSERT_OK(builder.SaveTo(&new_vstorage));
     ASSERT_EQ(new_vstorage.GetFileLocation(file_number).GetLevel(), level + 2);
+    // File movement should not change key estimation.
+    ASSERT_EQ(vstorage_.GetEstimatedActiveKeys(),
+              new_vstorage.GetEstimatedActiveKeys());
     FileReferenceChecker checker;
     ASSERT_TRUE(checker.Check(&vstorage_));
     ASSERT_TRUE(checker.Check(&new_vstorage));
