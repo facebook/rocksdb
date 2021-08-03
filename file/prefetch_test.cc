@@ -14,8 +14,7 @@ class MockRandomAccessFile : public FSRandomAccessFileWrapper {
  public:
   MockRandomAccessFile(std::unique_ptr<FSRandomAccessFile>& file,
                        bool support_prefetch, std::atomic_int& prefetch_count)
-      : FSRandomAccessFileWrapper(file.get()),
-        file_(std::move(file)),
+      : FSRandomAccessFileWrapper(std::move(file)),
         support_prefetch_(support_prefetch),
         prefetch_count_(prefetch_count) {}
 
@@ -30,7 +29,6 @@ class MockRandomAccessFile : public FSRandomAccessFileWrapper {
   }
 
  private:
-  std::unique_ptr<FSRandomAccessFile> file_;
   const bool support_prefetch_;
   std::atomic_int& prefetch_count_;
 };

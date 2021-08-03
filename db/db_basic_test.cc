@@ -3214,9 +3214,7 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
  public:
   DeadlineRandomAccessFile(DeadlineFS& fs,
                            std::unique_ptr<FSRandomAccessFile>& file)
-      : FSRandomAccessFileWrapper(file.get()),
-        fs_(fs),
-        file_(std::move(file)) {}
+      : FSRandomAccessFileWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
                 Slice* result, char* scratch,

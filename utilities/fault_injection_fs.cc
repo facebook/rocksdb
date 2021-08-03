@@ -544,7 +544,7 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   }
   IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSSequentialFile(result->release(), this));
+    result->reset(new TestFSSequentialFile(std::move(*result), this));
   }
   return io_s;
 }
