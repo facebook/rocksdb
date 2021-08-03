@@ -25,7 +25,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 class FileMetaData;
-
 class VersionSet;
 class BlobFileAddition;
 class SnapshotChecker;

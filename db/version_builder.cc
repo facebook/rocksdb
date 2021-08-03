@@ -931,7 +931,7 @@ class VersionBuilder::Rep {
       auto delta_iter = delta_files.begin();
       auto delta_end = delta_files.end();
 
-      // Delta file supersede base file because base is masked by
+      // Delta file supersedes base file because base is masked by
       // deleted_base_files.
       while (delta_iter != delta_end || base_iter != base_end) {
         if (delta_iter == delta_end ||
@@ -940,6 +940,8 @@ class VersionBuilder::Rep {
           const uint64_t file_number = f->fd.GetNumber();
 
           if (del_files.find(file_number) != del_files.end()) {
+            // vstorage inherited base_vstorage_'s stats, need to account for
+            // deleted base files.
             vstorage->RemoveCurrentStats(f);
           } else {
 #ifndef NDEBUG
@@ -951,6 +953,8 @@ class VersionBuilder::Rep {
         } else {
           FileMetaData* f = *delta_iter++;
           if (f->init_stats_from_file) {
+            // A moved file whose stats is inited by base_vstorage_ and then
+            // deleted from it.
             vstorage->UpdateAccumulatedStats(f);
           }
           vstorage->AddFile(level, f);
