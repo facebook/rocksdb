@@ -231,10 +231,13 @@ class ReplayerImpl : public Replayer {
                std::unique_ptr<TraceReader>&& reader);
   ~ReplayerImpl() override;
 
+  using Replayer::Prepare;
   Status Prepare() override;
 
+  using Replayer::Step;
   Status Step() override;
 
+  using Replayer::Replay;
   Status Replay(ReplayOptions options) override;
 
  private:

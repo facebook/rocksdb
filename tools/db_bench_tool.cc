@@ -998,8 +998,8 @@ DEFINE_bool(use_stderr_info_logger, false,
 
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
-DEFINE_int32(trace_replay_fast_forward, 1,
-             "Fast forward trace replay, must >= 1. ");
+DEFINE_double(trace_replay_fast_forward, 1.0,
+             "Fast forward trace replay, must > 0. ");
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
@@ -8004,12 +8004,20 @@ class Benchmark {
           s.ToString().c_str());
       exit(1);
     }
-    Replayer* replayer =
-        db_with_cfh->db->NewReplayer(db_with_cfh->cfh, std::move(trace_reader));
+    std::unique_ptr<Replayer> replayer;
+    s = db_with_cfh->db->NewDefaultReplayer(db_with_cfh->cfh,
+                                            std::move(trace_reader), &replayer);
+    if (!s.ok()) {
+      fprintf(stderr,
+              "Encountered an error creating a default Replayer. "
+              "Error: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
     s = replayer->Replay(
         ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
                       static_cast<uint32_t>(FLAGS_trace_replay_fast_forward)));
-    delete replayer;
+    replayer.reset();
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());

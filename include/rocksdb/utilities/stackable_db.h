@@ -390,10 +390,11 @@ class StackableDB : public DB {
   using DB::EndTrace;
   Status EndTrace() override { return db_->EndTrace(); }
 
-  using DB::NewReplayer;
-  Replayer* NewReplayer(const std::vector<ColumnFamilyHandle*>& handles,
-                        std::unique_ptr<TraceReader>&& reader) override {
-    return db_->NewReplayer(handles, std::move(reader));
+  using DB::NewDefaultReplayer;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override {
+    return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
   }
 
 #endif  // ROCKSDB_LITE

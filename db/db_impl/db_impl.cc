@@ -5126,9 +5126,12 @@ Status DBImpl::EndTrace() {
   return s;
 }
 
-Replayer* DBImpl::NewReplayer(const std::vector<ColumnFamilyHandle*>& handles,
-                              std::unique_ptr<TraceReader>&& reader) {
-  return new ReplayerImpl(this, handles, std::move(reader));
+Status DBImpl::NewDefaultReplayer(
+    const std::vector<ColumnFamilyHandle*>& handles,
+    std::unique_ptr<TraceReader>&& reader,
+    std::unique_ptr<Replayer>* replayer) {
+  replayer->reset(new ReplayerImpl(this, handles, std::move(reader)));
+  return Status::OK();
 }
 
 Status DBImpl::StartBlockCacheTrace(

@@ -37,8 +37,9 @@ class TraceReader {
   virtual Status Read(std::string* data) = 0;
   virtual Status Close() = 0;
 
-  // Allow to restart from the beginning such that Replayer can replay multiple
-  // times without being recreated.
+  // Seek back to the trace header. Replayer can call this method for
+  // repeatedly replaying. Note this method may fail if the reader is already
+  // closed.
   virtual Status Reset() = 0;
 };
 

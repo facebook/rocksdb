@@ -14,7 +14,15 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct ReplayOptions {
+  // Number of threads used for replaying.
   uint32_t num_threads;
+
+  // Enables fast forwarding a replay by reducing the delay between the ingested
+  // traces.
+  // fast_forward : Rate of replay speedup.
+  //   If > 0.0 and < 1.0, slow down the replay by this amount.
+  //   If 1.0, replay the operations at the same rate as in the trace stream.
+  //   If > 1, speed up the replay by this amount.
   double fast_forward;
 
   ReplayOptions() : num_threads(1), fast_forward(1.0) {}
@@ -22,7 +30,7 @@ struct ReplayOptions {
       : num_threads(num_of_threads), fast_forward(fast_forward_ratio) {}
 };
 
-// Replayer helps to replay the captured RocksDB operations.
+// Replayer helps to replay the captured RocksDB query level operations.
 // The Replayer can either be created from DB::NewReplayer method, or be
 // instantiated via db_bench today, on using "replay" benchmark.
 class Replayer {

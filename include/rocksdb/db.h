@@ -1661,10 +1661,12 @@ class DB {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 
-  virtual Replayer* NewReplayer(
+  // Create a default trace replayer.
+  virtual Status NewDefaultReplayer(
       const std::vector<ColumnFamilyHandle*>& /*handles*/,
-      std::unique_ptr<TraceReader>&& /*reader*/) {
-    return nullptr;
+      std::unique_ptr<TraceReader>&& /*reader*/,
+      std::unique_ptr<Replayer>* /*replayer*/) {
+    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
