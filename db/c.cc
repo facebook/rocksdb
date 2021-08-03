@@ -5349,10 +5349,9 @@ rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
 
 // Write batch into OptimisticTransactionDB
 void rocksdb_optimistictransactiondb_write(
-        rocksdb_optimistictransactiondb_t* otxn_db,
-        const rocksdb_writeoptions_t* options,
-        rocksdb_writebatch_t* batch,
-        char** errptr) {
+    rocksdb_optimistictransactiondb_t* otxn_db,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
+    char** errptr) {
   SaveError(errptr, otxn_db->rep->Write(options->rep, &batch->rep));
 }
 

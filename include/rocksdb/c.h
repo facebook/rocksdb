@@ -2198,16 +2198,15 @@ rocksdb_optimistictransaction_begin(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_write(
     rocksdb_optimistictransactiondb_t* otxn_db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_writebatch_t* batch,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
     char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db);
 
 extern ROCKSDB_LIBRARY_API rocksdb_checkpoint_t*
-rocksdb_optimistictransactiondb_checkpoint_object_create(rocksdb_optimistictransactiondb_t* otxn_db,
-    char** errptr);
+rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr);
 
 /* Transaction Options */
 
