@@ -3626,6 +3626,29 @@ jlong Java_org_rocksdb_Options_ttl(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setPeriodicCompactionSeconds
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setPeriodicCompactionSeconds(
+    JNIEnv*, jobject, jlong jhandle, jlong jperiodicCompactionSeconds) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->periodic_compaction_seconds =
+      static_cast<uint64_t>(jperiodicCompactionSeconds);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    periodicCompactionSeconds
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_periodicCompactionSeconds(JNIEnv*, jobject,
+                                                         jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jlong>(opts->periodic_compaction_seconds);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setCompactionOptionsUniversal
  * Signature: (JJ)V
  */
@@ -5146,6 +5169,32 @@ JNIEXPORT jlong JNICALL Java_org_rocksdb_ColumnFamilyOptions_ttl(
   auto* cf_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jlong>(cf_opts->ttl);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setPeriodicCompactionSeconds
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setPeriodicCompactionSeconds(
+    JNIEnv*, jobject, jlong jhandle, jlong jperiodicCompactionSeconds) {
+  auto* cf_opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  cf_opts->periodic_compaction_seconds =
+      static_cast<uint64_t>(jperiodicCompactionSeconds);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    periodicCompactionSeconds
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_ColumnFamilyOptions_periodicCompactionSeconds(JNIEnv*, jobject,
+                                                               jlong jhandle) {
+  auto* cf_opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jlong>(cf_opts->periodic_compaction_seconds);
 }
 
 /*

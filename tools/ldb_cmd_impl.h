@@ -549,6 +549,12 @@ class RepairCommand : public LDBCommand {
   virtual void OverrideBaseOptions() override;
 
   static void Help(std::string& ret);
+
+ protected:
+  bool verbose_;
+
+ private:
+  static const std::string ARG_VERBOSE;
 };
 
 class BackupableCommand : public LDBCommand {

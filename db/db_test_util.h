@@ -764,6 +764,8 @@ class SpecialEnv : public EnvWrapper {
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "OnFileDeletionListener"; }
 
   void SetExpectedFileName(const std::string file_name) {
     expected_file_name_ = file_name;
@@ -788,6 +790,8 @@ class OnFileDeletionListener : public EventListener {
 
 class FlushCounterListener : public EventListener {
  public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "FlushCounterListener"; }
   std::atomic<int> count{0};
   std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
 

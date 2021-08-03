@@ -123,6 +123,7 @@ class FlushJob {
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
   Status MemPurge();
+  bool MemPurgeDecider();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE
@@ -190,6 +191,9 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  // Used when experimental_allow_mempurge set to true.
+  bool contains_mempurge_outcome_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

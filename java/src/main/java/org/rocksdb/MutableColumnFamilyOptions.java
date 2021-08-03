@@ -117,7 +117,8 @@ public class MutableColumnFamilyOptions
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
-    ttl(ValueType.LONG);
+    ttl(ValueType.LONG),
+    periodic_compaction_seconds(ValueType.LONG);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -464,6 +465,17 @@ public class MutableColumnFamilyOptions
     @Override
     public long ttl() {
       return getLong(CompactionOption.ttl);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setPeriodicCompactionSeconds(
+        final long periodicCompactionSeconds) {
+      return setLong(CompactionOption.periodic_compaction_seconds, periodicCompactionSeconds);
+    }
+
+    @Override
+    public long periodicCompactionSeconds() {
+      return getLong(CompactionOption.periodic_compaction_seconds);
     }
   }
 }
