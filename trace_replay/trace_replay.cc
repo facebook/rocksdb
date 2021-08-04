@@ -607,9 +607,13 @@ uint64_t ReplayerImpl::GetHeaderTimestamp() const { return header_ts_; }
 
 Status ReplayerImpl::ReadHeader(Trace* header) {
   assert(header != nullptr);
+  Status s = trace_reader_->Reset();
+  if (!s.ok()) {
+    return s;
+  }
   std::string encoded_trace;
   // Read the trace head
-  Status s = trace_reader_->Read(&encoded_trace);
+  s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
     return s;
   }
