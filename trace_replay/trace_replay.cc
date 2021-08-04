@@ -488,15 +488,9 @@ ReplayerImpl::ReplayerImpl(DBImpl* db,
 ReplayerImpl::~ReplayerImpl() { trace_reader_.reset(); }
 
 Status ReplayerImpl::Prepare() {
-  std::lock_guard<std::mutex> guard(mutex_);
-  Status s = Reset();
-  if (!s.ok()) {
-    return s;
-  }
-
   Trace header;
   int db_version;
-  s = ReadHeader(&header);
+  Status s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
@@ -509,41 +503,65 @@ Status ReplayerImpl::Prepare() {
   return Status::OK();
 }
 
-Status ReplayerImpl::Reset() {
-  std::lock_guard<std::mutex> guard(mutex_);
-  if (prepared_) {
-    Status s = trace_reader_->Reset();
-    if (s.ok()) {
-      return s;
-    }
-    header_ts_ = 0;
-    prepared_ = false;
+Status ReplayerImpl::NextTraceRecord(std::unique_ptr<TraceRecord>* record) {
+  if (!prepared_) {
+    return Status::Incomplete("Not prepared!");
   }
-  return Status::OK();
+
+  Trace trace;
+  Status s = ReadTrace(&trace);  // ReadTrace is atomic
+  if (!s.ok() || record == nullptr) {
+    return s;
+  }
+
+  switch (trace.type) {
+    case kTraceWrite:
+      return ToWriteTraceRecord(&trace, record);
+    case kTraceGet:
+      return ToGetTraceRecord(&trace, record);
+    case kTraceIteratorSeek:
+      return ToIterSeekTraceRecord(&trace, record);
+    case kTraceIteratorSeekForPrev:
+      return ToIterSeekPrevTraceRecord(&trace, record);
+    case kTraceMultiGet:
+      return ToMultiGetTraceRecord(&trace, record);
+    case kTraceEnd:
+      return Status::Incomplete("Trace end.");
+    default:
+      return Status::NotSupported("Unsupported trace type.");
+  }
 }
 
-Status ReplayerImpl::Step() {
-  Status s =
-      StepWork(std::chrono::system_clock::time_point::min(), 0, 1, nullptr);
-  if (s.IsIncomplete() || s.IsNotSupported()) {
-    Reset().PermitUncheckedError();
+Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record) {
+  std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
+  ra->db = db_;
+  ra->record = std::move(record);
+
+  switch (ra->record->GetTraceType()) {
+    case kTraceWrite:
+      return ExecuteWriteTrace(ra.release());
+    case kTraceGet:
+      return ExecuteGetTrace(ra.release());
+    case kTraceIteratorSeek:
+      return ExecuteIterSeekTrace(ra.release());
+    case kTraceIteratorSeekForPrev:
+      return ExecuteIterSeekPrevTrace(ra.release());
+    case kTraceMultiGet:
+      return ExecuteMultiGetTrace(ra.release());
+    case kTraceEnd:
+      return Status::Incomplete("Trace end.");
+    default:
+      return Status::NotSupported("Unsupported trace type.");
   }
-  return s;
 }
 
-Status ReplayerImpl::Replay(ReplayOptions options) {
+Status ReplayerImpl::Replay(const ReplayOptions& options) {
   if (options.fast_forward <= 0.0) {
     return Status::InvalidArgument("Wrong fast forward speed!");
   }
 
-  {
-    std::lock_guard<std::mutex> guard(mutex_);
-    if (!prepared_) {
-      Status s = Prepare();
-      if (!s.ok()) {
-        return s;
-      }
-    }
+  if (!prepared_) {
+    return Status::Incomplete("Not prepared!");
   }
 
   Status s = Status::OK();
@@ -558,7 +576,63 @@ Status ReplayerImpl::Replay(ReplayOptions options) {
       std::chrono::system_clock::now();
 
   while (s.ok() || s.IsNotSupported()) {
-    s = StepWork(replay_epoch, header_ts_, options.fast_forward, thread_pool);
+    std::unique_ptr<TraceRecord> record;
+    s = NextTraceRecord(&record);
+    if (!s.ok()) {
+      break;
+    }
+
+    TraceType trace_type = record->GetTraceType();
+
+    if (trace_type == kTraceEnd) {
+      s = Status::Incomplete("Trace end.");
+      break;
+    }
+
+    std::this_thread::sleep_until(
+        replay_epoch +
+        std::chrono::microseconds(static_cast<uint64_t>(llround(
+            1.0 * (record->timestamp - header_ts_) / options.fast_forward))));
+
+    if (thread_pool) {
+      std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
+      ra->db = db_;
+      ra->record = std::move(record);
+
+      switch (trace_type) {
+        case kTraceGet: {
+          thread_pool->Schedule(&ReplayerImpl::BGWorkGet, ra.release(), nullptr,
+                                nullptr);
+          break;
+        }
+        case kTraceWrite: {
+          thread_pool->Schedule(&ReplayerImpl::BGWorkWrite, ra.release(),
+                                nullptr, nullptr);
+          break;
+        }
+        case kTraceIteratorSeek: {
+          thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeek, ra.release(),
+                                nullptr, nullptr);
+          break;
+        }
+        case kTraceIteratorSeekForPrev: {
+          thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeekPrev, ra.release(),
+                                nullptr, nullptr);
+          break;
+        }
+        case kTraceMultiGet: {
+          thread_pool->Schedule(&ReplayerImpl::BGWorkMultiGet, ra.release(),
+                                nullptr, nullptr);
+          break;
+        }
+        default: {
+          s = Status::NotSupported("Unsupported trace type.");
+          break;
+        }
+      }
+    } else {
+      s = Execute(std::move(record));
+    }
   }
 
   if (thread_pool) {
@@ -566,9 +640,7 @@ Status ReplayerImpl::Replay(ReplayOptions options) {
     delete thread_pool;
   }
 
-  Reset().PermitUncheckedError();
-
-  if (s.IsIncomplete() || s.IsNotSupported()) {
+  if (s.IsIncomplete()) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
@@ -577,78 +649,7 @@ Status ReplayerImpl::Replay(ReplayOptions options) {
   return s;
 }
 
-Status ReplayerImpl::StepWork(
-    std::chrono::system_clock::time_point replay_epoch, uint64_t header_ts,
-    double fast_forward, ThreadPoolImpl* thread_pool) {
-  std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
-  ra->db = db_;
-  Status s = ReadTrace(&(ra->trace_entry));  // ReadTrace is atomic
-  if (!s.ok()) {
-    return s;
-  }
-  ra->cf_map = &cf_map_;
-  ra->woptions = WriteOptions();
-  ra->roptions = ReadOptions();
-  ra->trace_file_version = trace_file_version_;
-
-  if (replay_epoch > std::chrono::system_clock::time_point::min()) {
-    std::this_thread::sleep_until(
-        replay_epoch +
-        std::chrono::microseconds(static_cast<uint64_t>(
-            llround(1.0 * (ra->trace_entry.ts - header_ts) / fast_forward))));
-  }
-
-  switch (ra->trace_entry.type) {
-    case kTraceWrite: {
-      if (thread_pool) {
-        thread_pool->Schedule(&ReplayerImpl::BGWorkWriteBatch, ra.release(),
-                              nullptr, nullptr);
-        break;
-      }
-      return StepWorkWriteBatch(ra.release());
-    }
-    case kTraceGet: {
-      if (thread_pool) {
-        thread_pool->Schedule(&ReplayerImpl::BGWorkGet, ra.release(), nullptr,
-                              nullptr);
-        break;
-      }
-      return StepWorkGet(ra.release());
-    }
-    case kTraceIteratorSeek: {
-      if (thread_pool) {
-        thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeek, ra.release(),
-                              nullptr, nullptr);
-        break;
-      }
-      return StepWorkIterSeek(ra.release());
-    }
-    case kTraceIteratorSeekForPrev: {
-      if (thread_pool) {
-        thread_pool->Schedule(&ReplayerImpl::BGWorkIterSeekForPrev,
-                              ra.release(), nullptr, nullptr);
-        break;
-      }
-      return StepWorkIterSeekForPrev(ra.release());
-    }
-    case kTraceMultiGet: {
-      if (thread_pool) {
-        thread_pool->Schedule(&ReplayerImpl::BGWorkMultiGet, ra.release(),
-                              nullptr, nullptr);
-        break;
-      }
-      return StepWorkMultiGet(ra.release());
-    }
-    case kTraceEnd: {
-      return Status::Incomplete("Trace end.");
-    }
-    default: {
-      return Status::NotSupported("Unsupported trace entry type.");
-    }
-  }
-
-  return s;
-}
+uint64_t ReplayerImpl::GetHeaderTimestamp() const { return header_ts_; }
 
 Status ReplayerImpl::ReadHeader(Trace* header) {
   assert(header != nullptr);
@@ -698,172 +699,237 @@ Status ReplayerImpl::ReadTrace(Trace* trace) {
   return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
-Status ReplayerImpl::StepWorkGet(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
-  assert(ra != nullptr);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra->cf_map);
+Status ReplayerImpl::ToWriteTraceRecord(Trace* trace,
+                                        std::unique_ptr<TraceRecord>* record) {
+  if (record == nullptr) {
+    return Status::OK();
+  }
+
+  if (record != nullptr) {
+    WriteQueryTraceRecord* r = new WriteQueryTraceRecord(trace->ts);
+
+    if (trace_file_version_ < 2) {
+      r->batch = WriteBatch(trace->payload);
+    } else {
+      WritePayload w_payload;
+      TracerHelper::DecodeWritePayload(trace, &w_payload);
+      r->batch = WriteBatch(w_payload.write_batch_data.ToString());
+    }
+    record->reset(r);
+  }
+  return Status::OK();
+}
+
+Status ReplayerImpl::ToGetTraceRecord(Trace* trace,
+                                      std::unique_ptr<TraceRecord>* record) {
   GetPayload get_payload;
   get_payload.cf_id = 0;
-  if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &get_payload.cf_id,
-                   &get_payload.get_key);
+  if (trace_file_version_ < 2) {
+    DecodeCFAndKey(trace->payload, &get_payload.cf_id, &get_payload.get_key);
   } else {
-    TracerHelper::DecodeGetPayload(&(ra->trace_entry), &get_payload);
+    TracerHelper::DecodeGetPayload(trace, &get_payload);
   }
   if (get_payload.cf_id > 0 &&
-      cf_map->find(get_payload.cf_id) == cf_map->end()) {
+      cf_map_.find(get_payload.cf_id) == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  Status s;
-  std::string value;
-  if (get_payload.cf_id == 0) {
-    s = ra->db->Get(ra->roptions, get_payload.get_key, &value);
-  } else {
-    s = ra->db->Get(ra->roptions, (*cf_map)[get_payload.cf_id],
-                    get_payload.get_key, &value);
+  if (record != nullptr) {
+    GetQueryTraceRecord* r = new GetQueryTraceRecord(trace->ts);
+    r->handle = cf_map_[get_payload.cf_id];
+    r->key = get_payload.get_key;
+    record->reset(r);
   }
-  // Treat not found as ok.
-  return s.IsNotFound() ? Status::OK() : s;
+  return Status::OK();
 }
 
-void ReplayerImpl::BGWorkGet(void* arg) {
-  StepWorkGet(arg).PermitUncheckedError();
-}
-
-Status ReplayerImpl::StepWorkWriteBatch(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
-  assert(ra != nullptr);
-
-  Status s;
-  if (ra->trace_file_version < 2) {
-    WriteBatch batch(ra->trace_entry.payload);
-    s = ra->db->Write(ra->woptions, &batch);
-  } else {
-    WritePayload w_payload;
-    TracerHelper::DecodeWritePayload(&(ra->trace_entry), &w_payload);
-    WriteBatch batch(w_payload.write_batch_data.ToString());
-    s = ra->db->Write(ra->woptions, &batch);
-  }
-  return s;
-}
-
-void ReplayerImpl::BGWorkWriteBatch(void* arg) {
-  StepWorkWriteBatch(arg).PermitUncheckedError();
-}
-
-Status ReplayerImpl::StepWorkIterSeek(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
-  assert(ra != nullptr);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra->cf_map);
+Status ReplayerImpl::ToIterSeekTraceRecord(
+    Trace* trace, std::unique_ptr<TraceRecord>* record) {
   IterPayload iter_payload;
   iter_payload.cf_id = 0;
 
-  if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
-                   &iter_payload.iter_key);
+  if (trace_file_version_ < 2) {
+    DecodeCFAndKey(trace->payload, &iter_payload.cf_id, &iter_payload.iter_key);
   } else {
-    TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
+    TracerHelper::DecodeIterPayload(trace, &iter_payload);
   }
   if (iter_payload.cf_id > 0 &&
-      cf_map->find(iter_payload.cf_id) == cf_map->end()) {
+      cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  Iterator* single_iter = nullptr;
-  if (iter_payload.cf_id == 0) {
-    single_iter = ra->db->NewIterator(ra->roptions);
-  } else {
-    single_iter =
-        ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
+  if (record != nullptr) {
+    IteratorSeekQueryTraceRecord* r =
+        new IteratorSeekQueryTraceRecord(trace->ts);
+    r->handle = cf_map_[iter_payload.cf_id];
+    r->key = iter_payload.iter_key;
+    record->reset(r);
   }
-  single_iter->Seek(iter_payload.iter_key);
-  Status s = single_iter->status();
-  delete single_iter;
-  return s;
+  return Status::OK();
 }
 
-void ReplayerImpl::BGWorkIterSeek(void* arg) {
-  StepWorkIterSeek(arg).PermitUncheckedError();
-}
-
-Status ReplayerImpl::StepWorkIterSeekForPrev(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
-  assert(ra != nullptr);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra->cf_map);
+Status ReplayerImpl::ToIterSeekPrevTraceRecord(
+    Trace* trace, std::unique_ptr<TraceRecord>* record) {
   IterPayload iter_payload;
   iter_payload.cf_id = 0;
 
-  if (ra->trace_file_version < 2) {
-    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
-                   &iter_payload.iter_key);
+  if (trace_file_version_ < 2) {
+    DecodeCFAndKey(trace->payload, &iter_payload.cf_id, &iter_payload.iter_key);
   } else {
-    TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
+    TracerHelper::DecodeIterPayload(trace, &iter_payload);
   }
   if (iter_payload.cf_id > 0 &&
-      cf_map->find(iter_payload.cf_id) == cf_map->end()) {
+      cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  Iterator* single_iter = nullptr;
-  if (iter_payload.cf_id == 0) {
-    single_iter = ra->db->NewIterator(ra->roptions);
-  } else {
-    single_iter =
-        ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
+  if (record != nullptr) {
+    IteratorSeekForPrevQueryTraceRecord* r =
+        new IteratorSeekForPrevQueryTraceRecord(trace->ts);
+    r->handle = cf_map_[iter_payload.cf_id];
+    r->key = iter_payload.iter_key;
+    record->reset(r);
   }
-  single_iter->SeekForPrev(iter_payload.iter_key);
-  Status s = single_iter->status();
-  delete single_iter;
-  return s;
+  return Status::OK();
 }
 
-void ReplayerImpl::BGWorkIterSeekForPrev(void* arg) {
-  StepWorkIterSeekForPrev(arg).PermitUncheckedError();
-}
-
-Status ReplayerImpl::StepWorkMultiGet(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
-  assert(ra != nullptr);
-  assert(ra->trace_file_version >= 2);
-  auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra->cf_map);
+Status ReplayerImpl::ToMultiGetTraceRecord(
+    Trace* trace, std::unique_ptr<TraceRecord>* record) {
   MultiGetPayload multiget_payload;
-  TracerHelper::DecodeMultiGetPayload(&(ra->trace_entry), &multiget_payload);
+  if (trace_file_version_ < 2) {
+    return Status::Corruption("MultiGet is not supported.");
+  }
+  if (static_cast<uint32_t>(multiget_payload.cf_ids.size()) !=
+          multiget_payload.multiget_size ||
+      static_cast<uint32_t>(multiget_payload.multiget_keys.size()) !=
+          multiget_payload.multiget_size) {
+    return Status::Corruption("MultiGet size mismatch.");
+  }
+
+  TracerHelper::DecodeMultiGetPayload(trace, &multiget_payload);
 
   std::vector<ColumnFamilyHandle*> handles;
   handles.reserve(multiget_payload.multiget_size);
   for (uint32_t cf_id : multiget_payload.cf_ids) {
-    if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+    if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
       return Status::Corruption("Invalid Column Family ID.");
     }
-    handles.push_back((*cf_map)[cf_id]);
+    handles.push_back(cf_map_[cf_id]);
   }
 
-  std::vector<Slice> keys(multiget_payload.multiget_keys.begin(),
-                          multiget_payload.multiget_keys.end());
-  std::vector<std::string> values;
-  std::vector<Status> sts =
-      ra->db->MultiGet(ra->roptions, handles, keys, &values);
+  if (record != nullptr) {
+    MultiGetQueryTraceRecord* r = new MultiGetQueryTraceRecord(trace->ts);
+    r->handles = std::move(handles);
+    r->keys.assign(multiget_payload.multiget_keys.begin(),
+                   multiget_payload.multiget_keys.end());
+    record->reset(r);
+  }
+  return Status::OK();
+}
+
+Status ReplayerImpl::ExecuteWriteTrace(void* arg) {
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
+
+  std::unique_ptr<WriteQueryTraceRecord> r(
+      reinterpret_cast<WriteQueryTraceRecord*>(ra->record.release()));
+
+  return ra->db->Write(WriteOptions(), &(r->batch));
+}
+
+Status ReplayerImpl::ExecuteGetTrace(void* arg) {
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
+
+  std::unique_ptr<GetQueryTraceRecord> r(
+      reinterpret_cast<GetQueryTraceRecord*>(ra->record.release()));
+  assert(r->handle != nullptr);
+
+  std::string value;
+  Status s = ra->db->Get(ReadOptions(), r->handle, r->key, &value);
+
   // Treat not found as ok.
-  for (Status st : sts) {
-    if (!st.ok() && !st.IsNotFound()) {
-      return st;
+  return s.IsNotFound() ? Status::OK() : s;
+}
+
+Status ReplayerImpl::ExecuteIterSeekTrace(void* arg) {
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
+
+  std::unique_ptr<IteratorSeekQueryTraceRecord> r(
+      reinterpret_cast<IteratorSeekQueryTraceRecord*>(ra->record.release()));
+  assert(r->handle != nullptr);
+
+  Iterator* single_iter = ra->db->NewIterator(ReadOptions(), r->handle);
+
+  single_iter->Seek(r->key);
+  Status s = single_iter->status();
+  delete single_iter;
+  return s;
+}
+
+Status ReplayerImpl::ExecuteIterSeekPrevTrace(void* arg) {
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
+
+  std::unique_ptr<IteratorSeekForPrevQueryTraceRecord> r(
+      reinterpret_cast<IteratorSeekForPrevQueryTraceRecord*>(
+          ra->record.release()));
+  assert(r->handle != nullptr);
+
+  Iterator* single_iter = ra->db->NewIterator(ReadOptions(), r->handle);
+
+  single_iter->SeekForPrev(r->key);
+  Status s = single_iter->status();
+  delete single_iter;
+  return s;
+}
+
+Status ReplayerImpl::ExecuteMultiGetTrace(void* arg) {
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
+
+  std::unique_ptr<MultiGetQueryTraceRecord> r(
+      reinterpret_cast<MultiGetQueryTraceRecord*>(ra->record.release()));
+  assert(!r->handles.empty());
+  assert(!r->keys.empty());
+
+  std::vector<std::string> values;
+  std::vector<Status> ss =
+      ra->db->MultiGet(ReadOptions(), r->handles, r->keys, &values);
+
+  // Treat not found as ok.
+  for (Status s : ss) {
+    if (!s.ok() && !s.IsNotFound()) {
+      return s;
     }
   }
   return Status::OK();
 }
 
+void ReplayerImpl::BGWorkWrite(void* arg) {
+  ExecuteWriteTrace(arg).PermitUncheckedError();
+}
+
+void ReplayerImpl::BGWorkGet(void* arg) {
+  ExecuteGetTrace(arg).PermitUncheckedError();
+}
+
+void ReplayerImpl::BGWorkIterSeek(void* arg) {
+  ExecuteIterSeekTrace(arg).PermitUncheckedError();
+}
+
+void ReplayerImpl::BGWorkIterSeekPrev(void* arg) {
+  ExecuteIterSeekPrevTrace(arg).PermitUncheckedError();
+}
+
 void ReplayerImpl::BGWorkMultiGet(void* arg) {
-  StepWorkMultiGet(arg).PermitUncheckedError();
+  ExecuteMultiGetTrace(arg).PermitUncheckedError();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

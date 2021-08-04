@@ -8014,16 +8014,20 @@ class Benchmark {
               s.ToString().c_str());
       exit(1);
     }
+    s = replayer->Prepare();
+    if (!s.ok()) {
+      fprintf(stderr, "Prepare for replay failed. Error: %s\n",
+              s.ToString().c_str());
+    }
     s = replayer->Replay(
         ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
                       static_cast<uint32_t>(FLAGS_trace_replay_fast_forward)));
     replayer.reset();
     if (s.ok()) {
-      fprintf(stdout, "Replay started from trace_file: %s\n",
+      fprintf(stdout, "Replay completed from trace_file: %s\n",
               FLAGS_trace_file.c_str());
     } else {
-      fprintf(stderr, "Starting replay failed. Error: %s\n",
-              s.ToString().c_str());
+      fprintf(stderr, "Replay failed. Error: %s\n", s.ToString().c_str());
     }
   }
 };

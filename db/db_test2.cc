@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
+#include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -4258,7 +4259,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
   std::unique_ptr<Replayer> replayer;
   ASSERT_OK(
-      db2->NewDefaultReplayer(handles_, std::move(trace_reader), &replayer));
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay());
   replayer.reset();
 
@@ -4339,7 +4341,8 @@ TEST_F(DBTest2, TraceWithLimit) {
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
   std::unique_ptr<Replayer> replayer;
   ASSERT_OK(
-      db2->NewDefaultReplayer(handles_, std::move(trace_reader), &replayer));
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay());
   replayer.reset();
 
@@ -4413,7 +4416,8 @@ TEST_F(DBTest2, TraceWithSampling) {
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
   std::unique_ptr<Replayer> replayer;
   ASSERT_OK(
-      db2->NewDefaultReplayer(handles_, std::move(trace_reader), &replayer));
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay());
   replayer.reset();
 
@@ -4516,7 +4520,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
   std::unique_ptr<Replayer> replayer;
   ASSERT_OK(
-      db2->NewDefaultReplayer(handles_, std::move(trace_reader), &replayer));
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay());
   replayer.reset();
 

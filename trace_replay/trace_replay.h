@@ -13,6 +13,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
 #include "util/threadpool_imp.h"
 
@@ -45,28 +46,6 @@ const unsigned int kTraceMetadataSize =
 
 static const int kTraceFileMajorVersion = 0;
 static const int kTraceFileMinorVersion = 2;
-
-// Supported Trace types.
-enum TraceType : char {
-  kTraceBegin = 1,
-  kTraceEnd = 2,
-  kTraceWrite = 3,
-  kTraceGet = 4,
-  kTraceIteratorSeek = 5,
-  kTraceIteratorSeekForPrev = 6,
-  // Block cache related types.
-  kBlockTraceIndexBlock = 7,
-  kBlockTraceFilterBlock = 8,
-  kBlockTraceDataBlock = 9,
-  kBlockTraceUncompressionDictBlock = 10,
-  kBlockTraceRangeDeletionBlock = 11,
-  // For IOTracing.
-  kIOTracer = 12,
-  // For query tracing
-  kTraceMultiGet = 13,
-  // All trace types should be added before kTraceMax
-  kTraceMax,
-};
 
 // TODO: This should also be made part of public interface to help users build
 // custom TracerReaders and TraceWriters.
@@ -234,47 +213,64 @@ class ReplayerImpl : public Replayer {
   using Replayer::Prepare;
   Status Prepare() override;
 
-  using Replayer::Step;
-  Status Step() override;
+  using Replayer::NextTraceRecord;
+  Status NextTraceRecord(std::unique_ptr<TraceRecord>* record) override;
+
+  using Replayer::Execute;
+  Status Execute(std::unique_ptr<TraceRecord>&& record) override;
 
   using Replayer::Replay;
-  Status Replay(ReplayOptions options) override;
+  Status Replay(const ReplayOptions& options) override;
+
+  using Replayer::GetHeaderTimestamp;
+  uint64_t GetHeaderTimestamp() const override;
 
  private:
   Status ReadHeader(Trace* header);
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
-  Status Reset();
+  // To do: Decoding to TraceRecord should be done in BG* functions.
 
-  // The background function for MultiThreadReplay to execute Get query
-  // based on the trace records.
-  static Status StepWorkGet(void* arg);
+  // Functions to convert to TraceRecord.
+  // TraceRecord for DB::Write().
+  Status ToWriteTraceRecord(Trace* trace, std::unique_ptr<TraceRecord>* record);
+  // TraceRecord for DB::Get().
+  Status ToGetTraceRecord(Trace* trace, std::unique_ptr<TraceRecord>* record);
+  // TraceRecord for Iterator::Seek().
+  Status ToIterSeekTraceRecord(Trace* trace,
+                               std::unique_ptr<TraceRecord>* record);
+  // TraceRecord for Iterator::SeekForPrev().
+  Status ToIterSeekPrevTraceRecord(Trace* trace,
+                                   std::unique_ptr<TraceRecord>* record);
+  // TraceRecord for DB::MultiGet().
+  Status ToMultiGetTraceRecord(Trace* trace,
+                               std::unique_ptr<TraceRecord>* record);
+
+  // Functions to execute a trace record.
+  // Execute a WriteQueryTraceRecord (Put, Delete, SingleDelete and DeleteRange
+  // as a WriteBatch).
+  static Status ExecuteWriteTrace(void* arg);
+  // Execute a GetQueryTraceRecord.
+  static Status ExecuteGetTrace(void* arg);
+  // Execute an IteratorSeekQueryTraceRecord.
+  static Status ExecuteIterSeekTrace(void* arg);
+  // Execute an IteratorSeekForPrevQueryTraceRecord.
+  static Status ExecuteIterSeekPrevTrace(void* arg);
+  // Execute a MultiGetQueryTraceRecord.
+  static Status ExecuteMultiGetTrace(void* arg);
+
+  // Background functions to execute TraceRecord.
+  // Execute a WriteQueryTraceRecord in a thread pool.
+  static void BGWorkWrite(void* arg);
+  // Execute a GetQueryTraceRecord in a thread pool.
   static void BGWorkGet(void* arg);
-
-  // The background function for MultiThreadReplay to execute WriteBatch
-  // (Put, Delete, SingleDelete, DeleteRange) based on the trace records.
-  static Status StepWorkWriteBatch(void* arg);
-  static void BGWorkWriteBatch(void* arg);
-
-  // The background function for MultiThreadReplay to execute Iterator (Seek)
-  // based on the trace records.
-  static Status StepWorkIterSeek(void* arg);
+  // Execute an IteratorSeekQueryTraceRecord in a thread pool.
   static void BGWorkIterSeek(void* arg);
-
-  // The background function for MultiThreadReplay to execute Iterator
-  // (SeekForPrev) based on the trace records.
-  static Status StepWorkIterSeekForPrev(void* arg);
-  static void BGWorkIterSeekForPrev(void* arg);
-
-  // The background function for MultiThreadReplay to execute MultGet query
-  // based on the trace records.
-  static Status StepWorkMultiGet(void* arg);
+  // Execute an IteratorSeekForPrevQueryTraceRecord in a thread pool.
+  static void BGWorkIterSeekPrev(void* arg);
+  // Execute a MultiGetQueryTraceRecord in a thread pool.
   static void BGWorkMultiGet(void* arg);
-
-  Status StepWork(std::chrono::system_clock::time_point replay_epoch,
-                  uint64_t header_ts, double fast_forward,
-                  ThreadPoolImpl* thread_pool);
 
   DBImpl* db_;
   Env* env_;
@@ -292,11 +288,7 @@ class ReplayerImpl : public Replayer {
 // The passin arg of MultiThreadRepkay for each trace record.
 struct ReplayerWorkerArg {
   DB* db;
-  Trace trace_entry;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
-  WriteOptions woptions;
-  ReadOptions roptions;
-  int trace_file_version;
+  std::unique_ptr<TraceRecord> record;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
