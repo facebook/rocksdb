@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -282,7 +283,7 @@ class ReplayerImpl : public Replayer {
   // on different trace file version.
   int trace_file_version_;
   std::mutex mutex_;
-  bool prepared_;
+  std::atomic<bool> prepared_;
   uint64_t header_ts_;
 };
 

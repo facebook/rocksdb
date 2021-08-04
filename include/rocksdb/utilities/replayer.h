@@ -14,7 +14,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct ReplayOptions {
-  // Number of threads used for replaying.
+  // Number of threads used for replaying. If 0 or 1, replay using
+  // single thread.
   uint32_t num_threads;
 
   // Enables fast forwarding a replay by increasing/reducing the delay between
@@ -43,19 +44,20 @@ class Replayer {
   // Return the timestamp when the trace recording was started.
   virtual uint64_t GetHeaderTimestamp() const = 0;
 
-  // Atomically read one trace into a TraceRecord. Return Status::OK() on
-  // succes; Status::Incomplete() if Prepare() was not called or no more
-  // available trace; Status::NotSupported() if the read trace type is not
-  // supported.
+  // Atomically read one trace into a TraceRecord (excluding the header and
+  // footer traces). Return Status::OK() on succes; Status::Incomplete() if
+  // Prepare() was not called or no more available trace; Status::NotSupported()
+  // if the read trace type is not supported.
   virtual Status NextTraceRecord(std::unique_ptr<TraceRecord>* record) = 0;
 
   // Execute one TraceRecord.
-  // Return Status::OK() if the execution was successful. Get/MultiGet types
-  // will still return Status::OK() even if they returned Status::NotFound();
+  // Return Status::OK() if the execution was successful. Get/MultiGet traces
+  // will still return Status::OK() even if they got Status::NotFound()
+  // from DB::Get() or DB::MultiGet();
   // Status::Incomplete() if Prepare() was not called or no more available
   // trace;
   // Status::NotSupported() if the operation is not supported;
-  // Otherwise, return the corresponding error.
+  // Otherwise, return the corresponding error status.
   virtual Status Execute(std::unique_ptr<TraceRecord>&& record) = 0;
 
   // Replay all the traces from the provided trace stream, taking the delay

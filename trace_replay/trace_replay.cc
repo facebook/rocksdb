@@ -511,6 +511,9 @@ Status ReplayerImpl::NextTraceRecord(std::unique_ptr<TraceRecord>* record) {
   Trace trace;
   Status s = ReadTrace(&trace);  // ReadTrace is atomic
   if (!s.ok() || record == nullptr) {
+    if (s.IsIncomplete()) {
+      prepared_ = false;
+    }
     return s;
   }
 
@@ -551,6 +554,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
     TraceType trace_type = trace.type;
 
     if (trace_type == kTraceEnd) {
+      prepared_ = false;
       s = Status::Incomplete("Trace end.");
       break;
     }

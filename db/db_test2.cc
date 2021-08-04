@@ -4260,9 +4260,11 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::unique_ptr<Replayer> replayer;
   ASSERT_OK(
       db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  // Unprepared replay should fail with Status::Incomplete()
+  ASSERT_TRUE(replayer->Replay().IsIncomplete());
   ASSERT_OK(replayer->Prepare());
+  // Replay using 1 thread, 1x speed.
   ASSERT_OK(replayer->Replay());
-  replayer.reset();
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);
@@ -4275,6 +4277,62 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_EQ("bar", value);
   ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
   ASSERT_EQ("rocks", value);
+
+  // Re-replay should fail with Status::Incomplete without calling Prepare()
+  // first.
+  ASSERT_TRUE(replayer->Replay().IsIncomplete());
+
+  // Re-replay using 4 threads, 2x speed.
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay(ReplayOptions(4, 2.0)));
+
+  // Re-replay using 4 threads, 1/2 speed.
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay(ReplayOptions(4, 0.5)));
+
+  // Manual replay
+  // Iteration 1: Manul replay should succeed;
+  // Iteration 2: Manul replay should fail with no Prepare();
+  // Iteration 3: Manul replay again should succeed with Prepare();
+  for (uint32_t i = 1; i <= 3; i++) {
+    // Do not Prepare() for the 2nd iteration,
+    if (i != 2) {
+      ASSERT_OK(replayer->Prepare());
+    }
+    Status s = Status::OK();
+    uint64_t last_ts = replayer->GetHeaderTimestamp();
+    uint32_t num_ops = 0;
+    // Looping until trace end.
+    while (s.ok()) {
+      std::unique_ptr<TraceRecord> record;
+      s = replayer->NextTraceRecord(&record);
+      if (s.IsNotSupported()) {
+        continue;
+      }
+      if (s.ok()) {
+        // A TraceRecord's timestamp must be no smaller than the header
+        // timestamp and the timestamp of its previous trace record.
+        ASSERT_GE(record->timestamp, last_ts);
+        last_ts = record->timestamp;
+        ASSERT_OK(replayer->Execute(std::move(record)));
+        num_ops++;
+      }
+    }
+    // The 2nd iteration was not prepared, hence no trace record should be read
+    // and executed (the first call to NextTraceRecord should return
+    // Status::Incomplete()).
+    if (i == 2) {
+      ASSERT_EQ(num_ops, 0);
+    } else {
+      ASSERT_GE(num_ops, 1);
+    }
+    // Reaching the trace end returns Status::Incomplete().
+    ASSERT_TRUE(s.IsIncomplete());
+    // Calling NextTraceRecord() after reaching the trace end should still
+    // return Status::Incomplete().
+    ASSERT_TRUE(replayer->NextTraceRecord(nullptr).IsIncomplete());
+  }
+  replayer.reset();
 
   for (auto handle : handles) {
     delete handle;
