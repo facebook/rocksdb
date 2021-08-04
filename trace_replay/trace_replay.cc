@@ -511,6 +511,7 @@ Status ReplayerImpl::NextTraceRecord(std::unique_ptr<TraceRecord>* record) {
   Trace trace;
   Status s = ReadTrace(&trace);  // ReadTrace is atomic
   if (!s.ok() || record == nullptr) {
+    // Reached the trace end.
     if (s.IsIncomplete()) {
       prepared_ = false;
     }
@@ -535,6 +536,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
 
   Status s = Status::OK();
   ThreadPoolImpl* thread_pool = nullptr;
+  // num_threads == 0 or num_threads == 1 uses single thread.
   if (options.num_threads > 1) {
     thread_pool = new ThreadPoolImpl();
     thread_pool->SetHostEnv(env_);
@@ -547,12 +549,14 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
   while (s.ok() || s.IsNotSupported()) {
     Trace trace;
     s = ReadTrace(&trace);
+    // If already at trace end, ReadTrace should return Status::Incomplete().
     if (!s.ok()) {
       break;
     }
 
     TraceType trace_type = trace.type;
 
+    // No need to sleep before breaking the loop if at the trace end.
     if (trace_type == kTraceEnd) {
       prepared_ = false;
       s = Status::Incomplete("Trace end.");
@@ -651,6 +655,9 @@ Status ReplayerImpl::ReadFooter(Trace* footer) {
 Status ReplayerImpl::ReadTrace(Trace* trace) {
   assert(trace != nullptr);
   std::string encoded_trace;
+  // We don't know if TraceReader is implemented thread-safe, so we protect the
+  // reading trace part with a mutex. The decoding part does not need to be
+  // protected since it's local.
   {
     std::lock_guard<std::mutex> guard(mutex_);
     Status s = trace_reader_->Read(&encoded_trace);
@@ -722,6 +729,7 @@ Status ReplayerImpl::ToWriteTraceRecord(
     return Status::OK();
   }
 
+  // To do: is there any validation to convert a payload string to a WriteBatch?
   if (record != nullptr) {
     WriteQueryTraceRecord* r = new WriteQueryTraceRecord(trace->ts);
 
@@ -851,7 +859,7 @@ Status ReplayerImpl::ExecuteGetTrace(DB* db,
   std::string value;
   Status s = db->Get(ReadOptions(), r->handle, r->key, &value);
 
-  // Treat not found as ok.
+  // Treat not found as ok and return other errors.
   return s.IsNotFound() ? Status::OK() : s;
 }
 
@@ -891,7 +899,7 @@ Status ReplayerImpl::ExecuteMultiGetTrace(
   std::vector<Status> ss =
       db->MultiGet(ReadOptions(), r->handles, r->keys, &values);
 
-  // Treat not found as ok.
+  // Treat not found as ok, return other errors.
   for (Status s : ss) {
     if (!s.ok() && !s.IsNotFound()) {
       return s;
