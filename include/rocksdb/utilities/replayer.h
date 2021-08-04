@@ -61,8 +61,7 @@ class Replayer {
 
   // Replay all the traces from the provided trace stream, taking the delay
   // between the traces into consideration.
-  virtual Status Replay(const ReplayOptions& options) = 0;
-  virtual Status Replay() { return Replay(ReplayOptions()); }
+  virtual Status Replay(const ReplayOptions& options = ReplayOptions()) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

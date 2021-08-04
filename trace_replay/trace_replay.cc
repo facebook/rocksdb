@@ -470,6 +470,8 @@ Status Tracer::WriteTrace(const Trace& trace) {
 
 Status Tracer::Close() { return WriteFooter(); }
 
+#ifndef ROCKSDB_LITE
+
 ReplayerImpl::ReplayerImpl(DBImpl* db,
                            const std::vector<ColumnFamilyHandle*>& handles,
                            std::unique_ptr<TraceReader>&& reader)
@@ -895,5 +897,7 @@ Status ReplayerImpl::ExecuteMultiGetTrace(
   }
   return Status::OK();
 }
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
