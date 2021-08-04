@@ -48,9 +48,6 @@ const unsigned int kTraceMetadataSize =
 static const int kTraceFileMajorVersion = 0;
 static const int kTraceFileMinorVersion = 2;
 
-// TODO: This should also be made part of public interface to help users build
-// custom TracerReaders and TraceWriters.
-//
 // The data structure that defines a single trace.
 struct Trace {
   uint64_t ts;  // timestamp
@@ -284,6 +281,7 @@ class ReplayerImpl : public Replayer {
   int trace_file_version_;
   std::mutex mutex_;
   std::atomic<bool> prepared_;
+  std::atomic<bool> trace_end_;
   uint64_t header_ts_;
 };
 

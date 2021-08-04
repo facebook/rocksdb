@@ -476,6 +476,7 @@ ReplayerImpl::ReplayerImpl(DBImpl* db,
     : Replayer(),
       trace_reader_(std::move(reader)),
       prepared_(false),
+      trace_end_(false),
       header_ts_(0) {
   assert(db != nullptr);
   db_ = db;
@@ -500,6 +501,7 @@ Status ReplayerImpl::Prepare() {
   }
   header_ts_ = header.ts;
   prepared_ = true;
+  trace_end_ = false;
   return Status::OK();
 }
 
@@ -507,14 +509,18 @@ Status ReplayerImpl::NextTraceRecord(std::unique_ptr<TraceRecord>* record) {
   if (!prepared_) {
     return Status::Incomplete("Not prepared!");
   }
+  if (trace_end_) {
+    return Status::Incomplete("Trace end.");
+  }
 
   Trace trace;
   Status s = ReadTrace(&trace);  // ReadTrace is atomic
+  // Reached the trace end.
+  if (s.ok() && trace.type == kTraceEnd) {
+    trace_end_ = true;
+    return Status::Incomplete("Trace end.");
+  }
   if (!s.ok() || record == nullptr) {
-    // Reached the trace end.
-    if (s.IsIncomplete()) {
-      prepared_ = false;
-    }
     return s;
   }
 
@@ -532,6 +538,9 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
 
   if (!prepared_) {
     return Status::Incomplete("Not prepared!");
+  }
+  if (trace_end_) {
+    return Status::Incomplete("Trace end.");
   }
 
   Status s = Status::OK();
@@ -558,7 +567,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
 
     // No need to sleep before breaking the loop if at the trace end.
     if (trace_type == kTraceEnd) {
-      prepared_ = false;
+      trace_end_ = true;
       s = Status::Incomplete("Trace end.");
       break;
     }
@@ -602,7 +611,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
     delete thread_pool;
   }
 
-  if (s.IsIncomplete()) {
+  if (s.IsIncomplete() && trace_end_) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
