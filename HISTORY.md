@@ -3,6 +3,7 @@
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
 * Fixed a race related to the destruction of `ColumnFamilyData` objects. The earlier logic unlocked the DB mutex before destroying the thread-local `SuperVersion` pointers, which could result in a process crash if another thread managed to get a reference to the `ColumnFamilyData` object.
+* Fixed an issue where `OnFlushCompleted` was not called for atomic flush.
 
 ### New Features
 * Made the EventListener extend the Customizable class.
