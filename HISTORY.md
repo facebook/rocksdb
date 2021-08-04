@@ -2,6 +2,7 @@
 ## 6.23.2 (2021-08-04)
 ### Bug Fixes
 * Fixed a race related to the destruction of `ColumnFamilyData` objects. The earlier logic unlocked the DB mutex before destroying the thread-local `SuperVersion` pointers, which could result in a process crash if another thread managed to get a reference to the `ColumnFamilyData` object.
+* Fixed an issue where `OnFlushCompleted` was not called for atomic flush.
 
 ## 6.23.1 (2021-07-22)
 ### Bug Fixes
