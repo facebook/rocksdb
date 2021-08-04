@@ -3,9 +3,11 @@
 # REQUIRE: db_bench binary exists in the current directory
 
 if [ $# -lt 1 ]; then
-  echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
-  echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/"
-  echo    "mergerandom/randomtransaction/compact/multireadrandom]"
+  echo -n "./benchmark.sh [bulkload/fillseq_disable_wal/fillseq_enable_wal/overwrite/"
+  echo    "updaterandom/readrandom/mergerandom/filluniquerandom/multireadrandom/"
+  echo    "fwdrange/revrange/readwhilewriting/readwhilemerging/"
+  echo    "fwdrangewhilewriting/revrangewhilewriting/fwdrangewhilemerging/revrangewhilemerging/"
+  echo    "randomtransaction/universal_compaction/debug]"
   exit 0
 fi
 bench_cmd=$1
