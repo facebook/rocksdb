@@ -1508,18 +1508,17 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
             false /*rep_->blocks_definitely_zstd_compressed*/,
             rep_->table_options.filter_policy.get()));
 
-    if (block_holder->own_bytes()) {
-      size_t charge = block_holder->ApproximateMemoryUsage();
-      s = block_cache->Insert(key, block_holder.release(), charge,
-                              &DeleteEntryCached<TBlocklike>);
+    assert(block_holder->own_bytes());
+    size_t charge = block_holder->ApproximateMemoryUsage();
+    s = block_cache->Insert(key, block_holder.release(), charge,
+                            &DeleteEntryCached<TBlocklike>);
 
-      if (s.ok()) {
-        BlockBasedTable::UpdateCacheInsertionMetrics(
-            block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
-            rep_->ioptions.stats);
-      } else {
-        RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
-      }
+    if (s.ok()) {
+      BlockBasedTable::UpdateCacheInsertionMetrics(
+          block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
+          rep_->ioptions.stats);
+    } else {
+      RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
     }
   }
   return s;
