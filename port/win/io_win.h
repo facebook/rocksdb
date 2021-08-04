@@ -72,12 +72,7 @@ class WinFileData {
  public:
   // We want this class be usable both for inheritance (prive
   // or protected) and for containment so __ctor and __dtor public
-  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io,
-              size_t sector_size)
-      : filename_(filename),
-        hFile_(hFile),
-        use_direct_io_(direct_io),
-        sector_size_(sector_size) {}
+  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io);
 
   virtual ~WinFileData() { this->CloseFile(); }
 
@@ -100,6 +95,8 @@ class WinFileData {
 
   size_t GetSectorSize() const { return sector_size_; }
 
+  bool IsSectorAligned(const size_t off) const;
+
   WinFileData(const WinFileData&) = delete;
   WinFileData& operator=(const WinFileData&) = delete;
 };
@@ -111,7 +108,7 @@ class WinSequentialFile : protected WinFileData, public FSSequentialFile {
                                           size_t& bytes_read) const;
 
  public:
-  WinSequentialFile(const std::string& fname, HANDLE f, size_t sector_size,
+  WinSequentialFile(const std::string& fname, HANDLE f,
                     const FileOptions& options);
 
   ~WinSequentialFile();
@@ -283,7 +280,7 @@ class WinRandomAccessFile
       public FSRandomAccessFile {
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                      size_t sector_size, const FileOptions& options);
+                      const FileOptions& options);
 
   ~WinRandomAccessFile();
 
@@ -364,8 +361,7 @@ class WinWritableFile : private WinFileData,
                         public FSWritableFile {
  public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  size_t capacity, size_t sector_size,
-                  const FileOptions& options);
+                  size_t capacity, const FileOptions& options);
 
   ~WinWritableFile();
 
@@ -426,7 +422,7 @@ class WinRandomRWFile : private WinFileData,
                         public FSRandomRWFile {
  public:
   WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  size_t sector_size, const FileOptions& options);
+                  const FileOptions& options);
 
   ~WinRandomRWFile() {}
 

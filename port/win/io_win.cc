@@ -11,6 +11,7 @@
 
 #include "port/win/io_win.h"
 
+#include "env_win.h"
 #include "monitoring/iostats_context_imp.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
@@ -28,11 +29,6 @@ const size_t kSectorSize = 512;
 
 inline bool IsPowerOfTwo(const size_t alignment) {
   return ((alignment) & (alignment - 1)) == 0;
-}
-
-inline bool IsSectorAligned(size_t sector_size, const size_t off) {
-  assert((sector_size & (sector_size - 1)) == 0);
-  return (off & (sector_size - 1)) == 0;
 }
 
 inline bool IsAligned(size_t alignment, const void* ptr) {
@@ -187,6 +183,17 @@ size_t GetUniqueIdFromFile(HANDLE /*hFile*/, char* /*id*/,
   return 0;
 }
 
+WinFileData::WinFileData(const std::string& filename, HANDLE hFile,
+                         bool direct_io)
+    : filename_(filename),
+      hFile_(hFile),
+      use_direct_io_(direct_io),
+      sector_size_(WinFileSystem::GetSectorSize(filename)) {}
+
+bool WinFileData::IsSectorAligned(const size_t off) const {
+  return (off & (sector_size_ - 1)) == 0;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // WinMmapReadableFile
 
@@ -194,7 +201,7 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
                                          HANDLE hFile, HANDLE hMap,
                                          const void* mapped_region,
                                          size_t length)
-    : WinFileData(fileName, hFile, false /* use_direct_io */, kSectorSize),
+    : WinFileData(fileName, hFile, false /* use_direct_io */),
       hMap_(hMap),
       mapped_region_(mapped_region),
       length_(length) {}
@@ -341,7 +348,7 @@ IOStatus WinMmapFile::PreallocateInternal(uint64_t spaceToReserve) {
 WinMmapFile::WinMmapFile(const std::string& fname, HANDLE hFile,
                          size_t page_size, size_t allocation_granularity,
                          const FileOptions& options)
-    : WinFileData(fname, hFile, false, kSectorSize),
+    : WinFileData(fname, hFile, false),
       FSWritableFile(options),
       hMap_(NULL),
       page_size_(page_size),
@@ -568,9 +575,8 @@ size_t WinMmapFile::GetUniqueId(char* id, size_t max_size) const {
 // WinSequentialFile
 
 WinSequentialFile::WinSequentialFile(const std::string& fname, HANDLE f,
-                                     size_t sector_size,
                                      const FileOptions& options)
-    : WinFileData(fname, f, options.use_direct_reads, sector_size) {}
+    : WinFileData(fname, f, options.use_direct_reads) {}
 
 WinSequentialFile::~WinSequentialFile() {
   assert(hFile_ != INVALID_HANDLE_VALUE);
@@ -626,8 +632,8 @@ IOStatus WinSequentialFile::PositionedRead(uint64_t offset, size_t n,
     return IOStatus::NotSupported("This function is only used for direct_io");
   }
 
-  assert(IsSectorAligned(GetSectorSize(), static_cast<size_t>(offset)));
-  assert(IsSectorAligned(GetSectorSize(), static_cast<size_t>(n)));
+  assert(IsSectorAligned(static_cast<size_t>(offset)));
+  assert(IsSectorAligned(static_cast<size_t>(n)));
 
   size_t bytes_read = 0;  // out param
   IOStatus s = PositionedReadInternal(scratch, static_cast<size_t>(n), offset,
@@ -671,7 +677,8 @@ inline IOStatus WinRandomAccessImpl::PositionedReadInternal(
 inline WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
                                                 size_t alignment,
                                                 const FileOptions& options)
-    : file_base_(file_base), alignment_(alignment) {
+    : file_base_(file_base),
+      alignment_(std::max(alignment, file_base->GetSectorSize())) {
   assert(!options.use_mmap_reads);
 }
 
@@ -680,8 +687,7 @@ inline IOStatus WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n,
                                               char* scratch) const {
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
-    assert(IsSectorAligned(file_base_->GetSectorSize(),
-                           static_cast<size_t>(offset)));
+    assert(file_base_->IsSectorAligned(static_cast<size_t>(offset)));
     assert(IsAligned(alignment_, scratch));
   }
 
@@ -700,9 +706,9 @@ inline IOStatus WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n,
 /// WinRandomAccessFile
 
 WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile,
-                                         size_t alignment, size_t sector_size,
+                                         size_t alignment,
                                          const FileOptions& options)
-    : WinFileData(fname, hFile, options.use_direct_reads, sector_size),
+    : WinFileData(fname, hFile, options.use_direct_reads),
       WinRandomAccessImpl(this, alignment, options) {}
 
 WinRandomAccessFile::~WinRandomAccessFile() {}
@@ -738,7 +744,7 @@ inline IOStatus WinWritableImpl::PreallocateInternal(uint64_t spaceToReserve) {
 inline WinWritableImpl::WinWritableImpl(WinFileData* file_data,
                                         size_t alignment)
     : file_data_(file_data),
-      alignment_(alignment),
+      alignment_(std::max(alignment, file_data->GetSectorSize())),
       next_write_offset_(0),
       reservedsize_(0) {
   // Query current position in case ReopenWritableFile is called
@@ -771,8 +777,8 @@ inline IOStatus WinWritableImpl::AppendImpl(const Slice& data) {
   if (file_data_->use_direct_io()) {
     // With no offset specified we are appending
     // to the end of the file
-    assert(IsSectorAligned(file_data_->GetSectorSize(), next_write_offset_));
-    assert(IsSectorAligned(file_data_->GetSectorSize(), data.size()));
+    assert(file_data_->IsSectorAligned(next_write_offset_));
+    assert(file_data_->IsSectorAligned(data.size()));
     assert(IsAligned(static_cast<size_t>(GetAlignment()), data.data()));
     s = pwrite(file_data_, data, next_write_offset_, bytes_written);
   } else {
@@ -805,9 +811,8 @@ inline IOStatus WinWritableImpl::AppendImpl(const Slice& data) {
 inline IOStatus WinWritableImpl::PositionedAppendImpl(const Slice& data,
                                                       uint64_t offset) {
   if (file_data_->use_direct_io()) {
-    assert(IsSectorAligned(file_data_->GetSectorSize(),
-                           static_cast<size_t>(offset)));
-    assert(IsSectorAligned(file_data_->GetSectorSize(), data.size()));
+    assert(file_data_->IsSectorAligned(static_cast<size_t>(offset)));
+    assert(file_data_->IsSectorAligned(data.size()));
     assert(IsAligned(static_cast<size_t>(GetAlignment()), data.data()));
   }
 
@@ -905,8 +910,8 @@ inline IOStatus WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
 
 WinWritableFile::WinWritableFile(const std::string& fname, HANDLE hFile,
                                  size_t alignment, size_t /* capacity */,
-                                 size_t sector_size, const FileOptions& options)
-    : WinFileData(fname, hFile, options.use_direct_writes, sector_size),
+                                 const FileOptions& options)
+    : WinFileData(fname, hFile, options.use_direct_writes),
       WinWritableImpl(this, alignment),
       FSWritableFile(options) {
   assert(!options.use_mmap_writes);
@@ -983,11 +988,9 @@ size_t WinWritableFile::GetUniqueId(char* id, size_t max_size) const {
 /// WinRandomRWFile
 
 WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
-                                 size_t alignment, size_t sector_size,
-                                 const FileOptions& options)
+                                 size_t alignment, const FileOptions& options)
     : WinFileData(fname, hFile,
-                  options.use_direct_reads && options.use_direct_writes,
-                  sector_size),
+                  options.use_direct_reads && options.use_direct_writes),
       WinRandomAccessImpl(this, alignment, options),
       WinWritableImpl(this, alignment) {}
 

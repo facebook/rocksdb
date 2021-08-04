@@ -258,8 +258,7 @@ IOStatus WinFileSystem::NewSequentialFile(
     s = IOErrorFromWindowsError("Failed to open NewSequentialFile" + fname,
                                 lastError);
   } else {
-    result->reset(
-        new WinSequentialFile(fname, hFile, GetSectorSize(fname), options));
+    result->reset(new WinSequentialFile(fname, hFile, options));
   }
   return s;
 }
@@ -348,9 +347,7 @@ IOStatus WinFileSystem::NewRandomAccessFile(
       fileGuard.release();
     }
   } else {
-    size_t sector_size = GetSectorSize(fname);
-    result->reset(new WinRandomAccessFile(
-        fname, hFile, std::max(sector_size, page_size_), sector_size, options));
+    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
     fileGuard.release();
   }
   return s;
@@ -435,10 +432,8 @@ IOStatus WinFileSystem::OpenWritableFile(
   } else {
     // Here we want the buffer allocation to be aligned by the SSD page size
     // and to be a multiple of it
-    size_t sector_size = GetSectorSize(fname);
-    result->reset(
-        new WinWritableFile(fname, hFile, std::max(sector_size, GetPageSize()),
-                            c_BufferCapacity, sector_size, local_options));
+    result->reset(new WinWritableFile(fname, hFile, GetPageSize(),
+                                      c_BufferCapacity, local_options));
   }
   return s;
 }
@@ -490,10 +485,7 @@ IOStatus WinFileSystem::NewRandomRWFile(const std::string& fname,
   }
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
-  size_t sector_size = GetSectorSize(fname);
-  result->reset(new WinRandomRWFile(fname, hFile,
-                                    std::max(sector_size, GetPageSize()),
-                                    sector_size, options));
+  result->reset(new WinRandomRWFile(fname, hFile, GetPageSize(), options));
   fileGuard.release();
 
   return s;
@@ -1200,9 +1192,10 @@ size_t WinFileSystem::GetSectorSize(const std::string& fname) {
     }
     rx_current_dir.resize(len);
     std::string current_dir = FN_TO_RX(rx_current_dir);
-    strncat_s(devicename, sizeof(devicename), current_dir.c_str(), 2);
+    erresult =
+        strncat_s(devicename, sizeof(devicename), current_dir.c_str(), 2);
   } else {
-    strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+    erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
   }
 
   if (erresult) {
