@@ -799,14 +799,15 @@ Status ReplayerImpl::ToMultiGetTraceRecord(
   if (trace_file_version_ < 2) {
     return Status::Corruption("MultiGet is not supported.");
   }
+
+  TracerHelper::DecodeMultiGetPayload(trace, &multiget_payload);
+
   if (static_cast<uint32_t>(multiget_payload.cf_ids.size()) !=
           multiget_payload.multiget_size ||
       static_cast<uint32_t>(multiget_payload.multiget_keys.size()) !=
           multiget_payload.multiget_size) {
     return Status::Corruption("MultiGet size mismatch.");
   }
-
-  TracerHelper::DecodeMultiGetPayload(trace, &multiget_payload);
 
   std::vector<ColumnFamilyHandle*> handles;
   handles.reserve(multiget_payload.multiget_size);
