@@ -49,18 +49,17 @@ struct CompactionOptions;
 struct CompactRangeOptions;
 struct TableProperties;
 struct ExternalSstFileInfo;
-class WriteBatch;
-class Env;
-class EventListener;
-class StatsHistoryIterator;
-class TraceWriter;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
-#else
-class TraceReader;
-class Replayer;
 #endif
+class Env;
+class EventListener;
 class FileSystem;
+class Replayer;
+class StatsHistoryIterator;
+class TraceReader;
+class TraceWriter;
+class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -1661,14 +1660,6 @@ class DB {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 
-  // Create a default trace replayer.
-  virtual Status NewDefaultReplayer(
-      const std::vector<ColumnFamilyHandle*>& /*handles*/,
-      std::unique_ptr<TraceReader>&& /*reader*/,
-      std::unique_ptr<Replayer>* /*replayer*/) {
-    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
-  }
-
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
   virtual Status StartIOTrace(const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
@@ -1690,6 +1681,14 @@ class DB {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
 #endif  // ROCKSDB_LITE
+
+  // Create a default trace replayer.
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& /*handles*/,
+      std::unique_ptr<TraceReader>&& /*reader*/,
+      std::unique_ptr<Replayer>* /*replayer*/) {
+    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
+  }
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }

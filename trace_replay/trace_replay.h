@@ -204,8 +204,6 @@ class Tracer {
   uint64_t trace_request_count_;
 };
 
-#ifndef ROCKSDB_LITE
-
 class ReplayerImpl : public Replayer {
  public:
   ReplayerImpl(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
@@ -295,7 +293,5 @@ struct ReplayerWorkerArg {
   std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
   int trace_file_version;
 };
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
