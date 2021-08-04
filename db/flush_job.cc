@@ -622,6 +622,7 @@ Status FlushJob::MemPurge() {
 }
 
 bool FlushJob::MemPurgeDecider() {
+  // new incoming decider!
   MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
   if (policy == MemPurgePolicy::kAlways) {
     return true;
