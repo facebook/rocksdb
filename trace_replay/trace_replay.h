@@ -230,47 +230,48 @@ class ReplayerImpl : public Replayer {
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
-  // To do: Decoding to TraceRecord should be done in BG* functions.
+  // General function to convert a Trace to TraceRecord.
+  static Status ToTraceRecord(
+      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      int trace_file_version, std::unique_ptr<TraceRecord>* record);
 
-  // Functions to convert to TraceRecord.
+  // General function to execute a TraceRecord.
+  static Status ExecuteTrace(DB* db, std::unique_ptr<TraceRecord>&& record);
+
+  // General function to execute a Trace in a thread pool.
+  static void BackgroundWork(void* arg);
+
+  // Functions to convert to the corresponding TraceRecord.
   // TraceRecord for DB::Write().
-  Status ToWriteTraceRecord(Trace* trace, std::unique_ptr<TraceRecord>* record);
+  static Status ToWriteTraceRecord(
+      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      int trace_file_version, std::unique_ptr<TraceRecord>* record);
   // TraceRecord for DB::Get().
-  Status ToGetTraceRecord(Trace* trace, std::unique_ptr<TraceRecord>* record);
+  static Status ToGetTraceRecord(
+      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      int trace_file_version, std::unique_ptr<TraceRecord>* record);
   // TraceRecord for Iterator::Seek().
-  Status ToIterSeekTraceRecord(Trace* trace,
-                               std::unique_ptr<TraceRecord>* record);
-  // TraceRecord for Iterator::SeekForPrev().
-  Status ToIterSeekPrevTraceRecord(Trace* trace,
-                                   std::unique_ptr<TraceRecord>* record);
+  static Status ToIterSeekTraceRecord(
+      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      int trace_file_version, std::unique_ptr<TraceRecord>* record);
   // TraceRecord for DB::MultiGet().
-  Status ToMultiGetTraceRecord(Trace* trace,
-                               std::unique_ptr<TraceRecord>* record);
+  static Status ToMultiGetTraceRecord(
+      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      int trace_file_version, std::unique_ptr<TraceRecord>* record);
 
-  // Functions to execute a trace record.
+  // Functions to execute a trace record depending on its type.
   // Execute a WriteQueryTraceRecord (Put, Delete, SingleDelete and DeleteRange
   // as a WriteBatch).
-  static Status ExecuteWriteTrace(void* arg);
+  static Status ExecuteWriteTrace(DB* db,
+                                  std::unique_ptr<TraceRecord>&& record);
   // Execute a GetQueryTraceRecord.
-  static Status ExecuteGetTrace(void* arg);
+  static Status ExecuteGetTrace(DB* db, std::unique_ptr<TraceRecord>&& record);
   // Execute an IteratorSeekQueryTraceRecord.
-  static Status ExecuteIterSeekTrace(void* arg);
-  // Execute an IteratorSeekForPrevQueryTraceRecord.
-  static Status ExecuteIterSeekPrevTrace(void* arg);
+  static Status ExecuteIterSeekTrace(DB* db,
+                                     std::unique_ptr<TraceRecord>&& record);
   // Execute a MultiGetQueryTraceRecord.
-  static Status ExecuteMultiGetTrace(void* arg);
-
-  // Background functions to execute TraceRecord.
-  // Execute a WriteQueryTraceRecord in a thread pool.
-  static void BGWorkWrite(void* arg);
-  // Execute a GetQueryTraceRecord in a thread pool.
-  static void BGWorkGet(void* arg);
-  // Execute an IteratorSeekQueryTraceRecord in a thread pool.
-  static void BGWorkIterSeek(void* arg);
-  // Execute an IteratorSeekForPrevQueryTraceRecord in a thread pool.
-  static void BGWorkIterSeekPrev(void* arg);
-  // Execute a MultiGetQueryTraceRecord in a thread pool.
-  static void BGWorkMultiGet(void* arg);
+  static Status ExecuteMultiGetTrace(DB* db,
+                                     std::unique_ptr<TraceRecord>&& record);
 
   DBImpl* db_;
   Env* env_;
@@ -288,7 +289,9 @@ class ReplayerImpl : public Replayer {
 // The passin arg of MultiThreadRepkay for each trace record.
 struct ReplayerWorkerArg {
   DB* db;
-  std::unique_ptr<TraceRecord> record;
+  Trace trace_entry;
+  std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
+  int trace_file_version;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

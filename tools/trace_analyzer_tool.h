@@ -15,6 +15,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/write_batch.h"
 #include "trace_replay/trace_replay.h"
 

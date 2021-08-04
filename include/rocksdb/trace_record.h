@@ -42,7 +42,7 @@ class TraceRecord {
   explicit TraceRecord(uint64_t ts = 0) : timestamp(ts) {}
   virtual ~TraceRecord() {}
 
-  virtual TraceType GetTraceType() const = 0;
+  virtual TraceType GetType() const = 0;
 
   // Timestamp (in microseconds) of this trace.
   uint64_t timestamp;
@@ -55,13 +55,13 @@ class QueryTraceRecord : public TraceRecord {
   virtual ~QueryTraceRecord() override {}
 };
 
-// Trace record for DB::Write() operation
+// Trace record for DB::Write() operation.
 class WriteQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit WriteQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
   virtual ~WriteQueryTraceRecord() override {}
 
-  TraceType GetTraceType() const override { return kTraceWrite; };
+  TraceType GetType() const override { return kTraceWrite; };
 
   WriteBatch batch;
 };
@@ -73,7 +73,7 @@ class GetQueryTraceRecord : public QueryTraceRecord {
       : QueryTraceRecord(ts), handle(nullptr) {}
   virtual ~GetQueryTraceRecord() override {}
 
-  TraceType GetTraceType() const override { return kTraceGet; };
+  TraceType GetType() const override { return kTraceGet; };
 
   // Column family to search.
   ColumnFamilyHandle* handle;
@@ -82,18 +82,31 @@ class GetQueryTraceRecord : public QueryTraceRecord {
   Slice key;
 };
 
-// To do: shall we merge IteratorSeekQueryTraceRecord and
-// IteratorSeekForPrevQueryTraceRecord into one, and add a SeekType enum to the
-// class?
-
-// Trace record for Iterator::Seek() operation
-class IteratorSeekQueryTraceRecord : public QueryTraceRecord {
+// Base class for all Iterator related operations.
+class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
+  explicit IteratorQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
+  virtual ~IteratorQueryTraceRecord() override {}
+};
+
+// Trace record for Iterator::Seek() and Iterator::SeekForPrev() operation.
+class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
+ public:
+  // Currently we only Seek() and SeekForPrev().
+  enum SeekType {
+    kSeek = kTraceIteratorSeek,
+    kSeekForPrev = kTraceIteratorSeekForPrev
+  };
+
   explicit IteratorSeekQueryTraceRecord(uint64_t ts = 0)
-      : QueryTraceRecord(ts), handle(nullptr) {}
+      : IteratorQueryTraceRecord(ts), seekType(kSeek), handle(nullptr) {}
   virtual ~IteratorSeekQueryTraceRecord() override {}
 
-  TraceType GetTraceType() const override { return kTraceIteratorSeek; };
+  TraceType GetType() const override {
+    return static_cast<TraceType>(seekType);
+  }
+
+  SeekType seekType;
 
   // Used to create an Iterator object.
   ColumnFamilyHandle* handle;
@@ -102,29 +115,13 @@ class IteratorSeekQueryTraceRecord : public QueryTraceRecord {
   Slice key;
 };
 
-// Trace record for Iterator::SeekForPrev() operation
-class IteratorSeekForPrevQueryTraceRecord : public QueryTraceRecord {
- public:
-  explicit IteratorSeekForPrevQueryTraceRecord(uint64_t ts = 0)
-      : QueryTraceRecord(ts) {}
-  virtual ~IteratorSeekForPrevQueryTraceRecord() override {}
-
-  TraceType GetTraceType() const override { return kTraceIteratorSeekForPrev; };
-
-  // Used to create an Iterator object.
-  ColumnFamilyHandle* handle;
-
-  // Key to seek to.
-  Slice key;
-};
-
-// Trace record for DB::MultiGet() operation
+// Trace record for DB::MultiGet() operation.
 class MultiGetQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit MultiGetQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
   virtual ~MultiGetQueryTraceRecord() override {}
 
-  TraceType GetTraceType() const override { return kTraceMultiGet; };
+  TraceType GetType() const override { return kTraceMultiGet; };
 
   // Column families to search.
   std::vector<ColumnFamilyHandle*> handles;
