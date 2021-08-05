@@ -195,12 +195,6 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   return (op1 * op2);
 }
 
-void DecodeCFAndKeyFromString(std::string& buffer, uint32_t* cf_id, Slice* key) {
-  Slice buf(buffer);
-  GetFixed32(&buf, cf_id);
-  GetLengthPrefixedSlice(&buf, key);
-}
-
 }  // namespace
 
 // The default constructor of AnalyzerOptions
@@ -477,74 +471,86 @@ Status TraceAnalyzer::StartProcessing() {
 
     total_requests_++;
     end_time_ = trace.ts;
-    if (trace.type == kTraceWrite) {
-      total_writes_++;
-      c_time_ = trace.ts;
-      Slice batch_data;
-      if (trace_file_version_ < 2) {
-        Slice tmp_data(trace.payload);
-        batch_data = tmp_data;
-      } else {
-        WritePayload w_payload;
-        TracerHelper::DecodeWritePayload(&trace, &w_payload);
-        batch_data = w_payload.write_batch_data;
-      }
-      // Note that, if the write happens in a transaction,
-      // 'Write' will be called twice, one for Prepare, one for
-      // Commit. Thus, in the trace, for the same WriteBatch, there
-      // will be two reords if it is in a transaction. Here, we only
-      // process the reord that is committed. If write is non-transaction,
-      // HasBeginPrepare()==false, so we process it normally.
-      WriteBatch batch(batch_data.ToString());
-      if (batch.HasBeginPrepare() && !batch.HasCommit()) {
-        continue;
-      }
-      TraceWriteHandler write_handler(this);
-      s = batch.Iterate(&write_handler);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the write batch in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceGet) {
-      GetPayload get_payload;
-      get_payload.get_key = 0;
-      if (trace_file_version_ < 2) {
-        DecodeCFAndKeyFromString(trace.payload, &get_payload.cf_id,
-                                 &get_payload.get_key);
-      } else {
-        TracerHelper::DecodeGetPayload(&trace, &get_payload);
-      }
-      total_gets_++;
-
-      s = HandleGet(get_payload.cf_id, get_payload.get_key.ToString(), trace.ts,
-                    1);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the get in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceIteratorSeek ||
-               trace.type == kTraceIteratorSeekForPrev) {
-      IterPayload iter_payload;
-      iter_payload.cf_id = 0;
-      if (trace_file_version_ < 2) {
-        DecodeCFAndKeyFromString(trace.payload, &iter_payload.cf_id,
-                                 &iter_payload.iter_key);
-      } else {
-        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
-      }
-      s = HandleIter(iter_payload.cf_id, iter_payload.iter_key.ToString(),
-                     trace.ts, trace.type);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the iterator in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceMultiGet) {
-      MultiGetPayload multiget_payload;
-      assert(trace_file_version_ >= 2);
-      TracerHelper::DecodeMultiGetPayload(&trace, &multiget_payload);
-      s = HandleMultiGet(multiget_payload, trace.ts);
-    } else if (trace.type == kTraceEnd) {
+    if (trace.type == kTraceEnd) {
       break;
+    }
+
+    std::unique_ptr<TraceRecord> record;
+    switch (trace.type) {
+      case kTraceWrite: {
+        s = TracerHelper::DecodeWriteRecord(&trace, trace_file_version_,
+                                            &record);
+        if (!s.ok()) {
+          return s;
+        }
+        total_writes_++;
+        c_time_ = trace.ts;
+        std::unique_ptr<WriteQueryTraceRecord> r(
+            reinterpret_cast<WriteQueryTraceRecord*>(record.release()));
+        // Note that, if the write happens in a transaction,
+        // 'Write' will be called twice, one for Prepare, one for
+        // Commit. Thus, in the trace, for the same WriteBatch, there
+        // will be two reords if it is in a transaction. Here, we only
+        // process the reord that is committed. If write is non-transaction,
+        // HasBeginPrepare()==false, so we process it normally.
+        WriteBatch batch(std::move(r->rep));
+        if (batch.HasBeginPrepare() && !batch.HasCommit()) {
+          continue;
+        }
+        TraceWriteHandler write_handler(this);
+        s = batch.Iterate(&write_handler);
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the write batch in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceGet: {
+        s = TracerHelper::DecodeGetRecord(&trace, trace_file_version_, &record);
+        if (!s.ok()) {
+          return s;
+        }
+        total_gets_++;
+        std::unique_ptr<GetQueryTraceRecord> r(
+            reinterpret_cast<GetQueryTraceRecord*>(record.release()));
+        s = HandleGet(r->cf_id, r->key.ToString(), trace.ts, 1);
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the get in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceIteratorSeek:
+      case kTraceIteratorSeekForPrev: {
+        s = TracerHelper::DecodeIterRecord(&trace, trace_file_version_,
+                                           &record);
+        if (!s.ok()) {
+          return s;
+        }
+        std::unique_ptr<IteratorSeekQueryTraceRecord> r(
+            reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
+        s = HandleIter(r->cf_id, r->key.ToString(), trace.ts, trace.type);
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the iterator in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceMultiGet: {
+        s = TracerHelper::DecodeMultiGetRecord(&trace, trace_file_version_,
+                                               &record);
+        if (!s.ok()) {
+          return s;
+        }
+        std::unique_ptr<MultiGetQueryTraceRecord> r(
+            reinterpret_cast<MultiGetQueryTraceRecord*>(record.release()));
+        s = HandleMultiGet(r->cf_ids, r->keys, trace.ts);
+        break;
+      }
+      default: {
+        // Skip unsupported types
+        break;
+      }
     }
   }
   if (s.IsIncomplete()) {
@@ -1796,24 +1802,23 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
 }
 
 // Handle MultiGet queries in the trace
-Status TraceAnalyzer::HandleMultiGet(MultiGetPayload& multiget_payload,
-                                     const uint64_t& ts) {
+Status TraceAnalyzer::HandleMultiGet(
+    const std::vector<uint32_t>& column_family_ids,
+    const std::vector<Slice>& keys, const uint64_t& ts) {
   Status s;
   size_t value_size = 0;
-  if (multiget_payload.cf_ids.size() != multiget_payload.multiget_keys.size()) {
+  if (column_family_ids.size() != keys.size()) {
     // The size does not match is not the error of tracing and anayzing, we just
     // report it to the user. The analyzing continues.
     printf("The CF ID vector size does not match the keys vector size!\n");
   }
-  size_t vector_size = std::min(multiget_payload.cf_ids.size(),
-                                multiget_payload.multiget_keys.size());
+  size_t vector_size = std::min(column_family_ids.size(), keys.size());
   if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     for (size_t i = 0; i < vector_size; i++) {
-      assert(i < multiget_payload.cf_ids.size() &&
-             i < multiget_payload.multiget_keys.size());
+      assert(i < column_family_ids.size() && i < keys.size());
       s = WriteTraceSequence(TraceOperationType::kMultiGet,
-                             multiget_payload.cf_ids[i],
-                             multiget_payload.multiget_keys[i], value_size, ts);
+                             column_family_ids[i], keys[i].ToString(),
+                             value_size, ts);
     }
     if (!s.ok()) {
       return Status::Corruption("Failed to write the trace sequence to file");
@@ -1833,11 +1838,9 @@ Status TraceAnalyzer::HandleMultiGet(MultiGetPayload& multiget_payload,
     return Status::OK();
   }
   for (size_t i = 0; i < vector_size; i++) {
-    assert(i < multiget_payload.cf_ids.size() &&
-           i < multiget_payload.multiget_keys.size());
-    s = KeyStatsInsertion(TraceOperationType::kMultiGet,
-                          multiget_payload.cf_ids[i],
-                          multiget_payload.multiget_keys[i], value_size, ts);
+    assert(i < column_family_ids.size() && i < keys.size());
+    s = KeyStatsInsertion(TraceOperationType::kMultiGet, column_family_ids[i],
+                          keys[i].ToString(), value_size, ts);
   }
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");

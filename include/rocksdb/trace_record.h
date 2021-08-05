@@ -7,30 +7,30 @@
 
 // To do: ROCKSDB_LITE ?
 
-#include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Supported Trace types.
+// Supported trace record types.
 enum TraceType : char {
   kTraceNone = 0,
   kTraceBegin = 1,
   kTraceEnd = 2,
+  // Query level tracing related trace types.
   kTraceWrite = 3,
   kTraceGet = 4,
   kTraceIteratorSeek = 5,
   kTraceIteratorSeekForPrev = 6,
-  // Block cache related types.
+  // Block cache tracing related trace types.
   kBlockTraceIndexBlock = 7,
   kBlockTraceFilterBlock = 8,
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
-  // For IOTracing.
+  // IO tracing related trace type.
   kIOTracer = 12,
-  // For query tracing
+  // Query level tracing related trace type.
   kTraceMultiGet = 13,
   // All trace types should be added before kTraceMax
   kTraceMax,
@@ -63,20 +63,21 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   TraceType GetType() const override { return kTraceWrite; };
 
-  WriteBatch batch;
+  // Serialized string object to construct a WriteBatch.
+  std::string rep;
 };
 
 // Trace record for DB::Get() operation
 class GetQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit GetQueryTraceRecord(uint64_t ts = 0)
-      : QueryTraceRecord(ts), handle(nullptr) {}
+      : QueryTraceRecord(ts), cf_id(0) {}
   virtual ~GetQueryTraceRecord() override {}
 
   TraceType GetType() const override { return kTraceGet; };
 
-  // Column family to search.
-  ColumnFamilyHandle* handle;
+  // Column family ID.
+  uint32_t cf_id;
 
   // Key to get.
   Slice key;
@@ -99,7 +100,7 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   };
 
   explicit IteratorSeekQueryTraceRecord(uint64_t ts = 0)
-      : IteratorQueryTraceRecord(ts), seekType(kSeek), handle(nullptr) {}
+      : IteratorQueryTraceRecord(ts), seekType(kSeek), cf_id(0) {}
   virtual ~IteratorSeekQueryTraceRecord() override {}
 
   TraceType GetType() const override {
@@ -108,8 +109,8 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 
   SeekType seekType;
 
-  // Used to create an Iterator object.
-  ColumnFamilyHandle* handle;
+  // Column family ID.
+  uint32_t cf_id;
 
   // Key to seek to.
   Slice key;
@@ -123,8 +124,8 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
 
   TraceType GetType() const override { return kTraceMultiGet; };
 
-  // Column families to search.
-  std::vector<ColumnFamilyHandle*> handles;
+  // Column familiy IDs.
+  std::vector<uint32_t> cf_ids;
 
   // Keys to get.
   std::vector<Slice> keys;

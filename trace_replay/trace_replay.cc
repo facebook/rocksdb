@@ -112,82 +112,158 @@ bool TracerHelper::SetPayloadMap(uint64_t& payload_map,
   return old_state != payload_map;
 }
 
-void TracerHelper::DecodeWritePayload(Trace* trace,
-                                      WritePayload* write_payload) {
-  assert(write_payload != nullptr);
-  Slice buf(trace->payload);
-  GetFixed64(&buf, &trace->payload_map);
-  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
-  while (payload_map) {
-    // Find the rightmost set bit.
-    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
-    switch (set_pos) {
-      case TracePayloadType::kWriteBatchData:
-        GetLengthPrefixedSlice(&buf, &(write_payload->write_batch_data));
-        break;
-      default:
-        assert(false);
+Status TracerHelper::DecodeWriteRecord(Trace* trace, int trace_file_version,
+                                       std::unique_ptr<TraceRecord>* record) {
+  assert(trace != nullptr);
+  assert(trace->type == kTraceWrite);
+
+  std::string rep;
+  if (trace_file_version < 2) {
+    rep = trace->payload;
+  } else {
+    Slice buf(trace->payload);
+    GetFixed64(&buf, &trace->payload_map);
+    int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+    Slice write_batch_data;
+    while (payload_map) {
+      // Find the rightmost set bit.
+      uint32_t set_pos =
+          static_cast<uint32_t>(log2(payload_map & -payload_map));
+      switch (set_pos) {
+        case TracePayloadType::kWriteBatchData:
+          GetLengthPrefixedSlice(&buf, &write_batch_data);
+          break;
+        default:
+          assert(false);
+      }
+      // unset the rightmost bit.
+      payload_map &= (payload_map - 1);
     }
-    // unset the rightmost bit.
-    payload_map &= (payload_map - 1);
+    rep = write_batch_data.ToString();
   }
+
+  if (record != nullptr) {
+    WriteQueryTraceRecord* r = new WriteQueryTraceRecord(trace->ts);
+    r->rep.swap(rep);
+    record->reset(r);
+  }
+
+  return Status::OK();
 }
 
-void TracerHelper::DecodeGetPayload(Trace* trace, GetPayload* get_payload) {
-  assert(get_payload != nullptr);
-  Slice buf(trace->payload);
-  GetFixed64(&buf, &trace->payload_map);
-  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
-  while (payload_map) {
-    // Find the rightmost set bit.
-    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
-    switch (set_pos) {
-      case TracePayloadType::kGetCFID:
-        GetFixed32(&buf, &(get_payload->cf_id));
-        break;
-      case TracePayloadType::kGetKey:
-        GetLengthPrefixedSlice(&buf, &(get_payload->get_key));
-        break;
-      default:
-        assert(false);
+Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
+                                     std::unique_ptr<TraceRecord>* record) {
+  assert(trace != nullptr);
+  assert(trace->type == kTraceGet);
+
+  uint32_t cf_id = 0;
+  Slice get_key;
+
+  if (trace_file_version < 2) {
+    DecodeCFAndKey(trace->payload, &cf_id, &get_key);
+  } else {
+    Slice buf(trace->payload);
+    GetFixed64(&buf, &trace->payload_map);
+    int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+    while (payload_map) {
+      // Find the rightmost set bit.
+      uint32_t set_pos =
+          static_cast<uint32_t>(log2(payload_map & -payload_map));
+      switch (set_pos) {
+        case TracePayloadType::kGetCFID:
+          GetFixed32(&buf, &cf_id);
+          break;
+        case TracePayloadType::kGetKey:
+          GetLengthPrefixedSlice(&buf, &get_key);
+          break;
+        default:
+          assert(false);
+      }
+      // unset the rightmost bit.
+      payload_map &= (payload_map - 1);
     }
-    // unset the rightmost bit.
-    payload_map &= (payload_map - 1);
   }
+
+  if (record != nullptr) {
+    GetQueryTraceRecord* r = new GetQueryTraceRecord(trace->ts);
+    r->cf_id = cf_id;
+    r->key = std::move(get_key);
+    record->reset(r);
+  }
+
+  return Status::OK();
 }
 
-void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
-  assert(iter_payload != nullptr);
-  Slice buf(trace->payload);
-  GetFixed64(&buf, &trace->payload_map);
-  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
-  while (payload_map) {
-    // Find the rightmost set bit.
-    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
-    switch (set_pos) {
-      case TracePayloadType::kIterCFID:
-        GetFixed32(&buf, &(iter_payload->cf_id));
-        break;
-      case TracePayloadType::kIterKey:
-        GetLengthPrefixedSlice(&buf, &(iter_payload->iter_key));
-        break;
-      case TracePayloadType::kIterLowerBound:
-        GetLengthPrefixedSlice(&buf, &(iter_payload->lower_bound));
-        break;
-      case TracePayloadType::kIterUpperBound:
-        GetLengthPrefixedSlice(&buf, &(iter_payload->upper_bound));
-        break;
-      default:
-        assert(false);
+Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
+                                      std::unique_ptr<TraceRecord>* record) {
+  assert(trace != nullptr);
+  assert(trace->type == kTraceIteratorSeek ||
+         trace->type == kTraceIteratorSeekForPrev);
+
+  uint32_t cf_id = 0;
+  Slice iter_key;
+
+  if (trace_file_version < 2) {
+    DecodeCFAndKey(trace->payload, &cf_id, &iter_key);
+  } else {
+    // Are these two used anywhere?
+    Slice lower_bound;
+    Slice upper_bound;
+
+    Slice buf(trace->payload);
+    GetFixed64(&buf, &trace->payload_map);
+    int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+    while (payload_map) {
+      // Find the rightmost set bit.
+      uint32_t set_pos =
+          static_cast<uint32_t>(log2(payload_map & -payload_map));
+      switch (set_pos) {
+        case TracePayloadType::kIterCFID:
+          GetFixed32(&buf, &cf_id);
+          break;
+        case TracePayloadType::kIterKey:
+          GetLengthPrefixedSlice(&buf, &iter_key);
+          break;
+        case TracePayloadType::kIterLowerBound:
+          GetLengthPrefixedSlice(&buf, &lower_bound);
+          break;
+        case TracePayloadType::kIterUpperBound:
+          GetLengthPrefixedSlice(&buf, &upper_bound);
+          break;
+        default:
+          assert(false);
+      }
+      // unset the rightmost bit.
+      payload_map &= (payload_map - 1);
     }
-    // unset the rightmost bit.
-    payload_map &= (payload_map - 1);
   }
+
+  if (record != nullptr) {
+    IteratorSeekQueryTraceRecord* r =
+        new IteratorSeekQueryTraceRecord(trace->ts);
+    r->seekType =
+        static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type);
+    r->cf_id = cf_id;
+    r->key = std::move(iter_key);
+    record->reset(r);
+  }
+
+  return Status::OK();
 }
 
-void TracerHelper::DecodeMultiGetPayload(Trace* trace,
-                                         MultiGetPayload* multiget_payload) {
-  assert(multiget_payload != nullptr);
+Status TracerHelper::DecodeMultiGetRecord(
+    Trace* trace, int trace_file_version,
+    std::unique_ptr<TraceRecord>* record) {
+  assert(trace != nullptr);
+  assert(trace->type == kTraceMultiGet);
+  if (trace_file_version < 2) {
+    return Status::Corruption("MultiGet is not supported.");
+  }
+
+  uint32_t multiget_size;
+  std::vector<uint32_t> cf_ids;
+  std::vector<Slice> multiget_keys;
+
   Slice cfids_payload;
   Slice keys_payload;
   Slice buf(trace->payload);
@@ -198,7 +274,7 @@ void TracerHelper::DecodeMultiGetPayload(Trace* trace,
     uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
     switch (set_pos) {
       case TracePayloadType::kMultiGetSize:
-        GetFixed32(&buf, &(multiget_payload->multiget_size));
+        GetFixed32(&buf, &multiget_size);
         break;
       case TracePayloadType::kMultiGetCFIDs:
         GetLengthPrefixedSlice(&buf, &cfids_payload);
@@ -214,16 +290,25 @@ void TracerHelper::DecodeMultiGetPayload(Trace* trace,
   }
 
   // Decode the cfids_payload and keys_payload
-  multiget_payload->cf_ids.reserve(multiget_payload->multiget_size);
-  multiget_payload->multiget_keys.reserve(multiget_payload->multiget_size);
-  for (uint32_t i = 0; i < multiget_payload->multiget_size; i++) {
+  cf_ids.reserve(multiget_size);
+  multiget_keys.reserve(multiget_size);
+  for (uint32_t i = 0; i < multiget_size; i++) {
     uint32_t tmp_cfid;
     Slice tmp_key;
     GetFixed32(&cfids_payload, &tmp_cfid);
     GetLengthPrefixedSlice(&keys_payload, &tmp_key);
-    multiget_payload->cf_ids.push_back(tmp_cfid);
-    multiget_payload->multiget_keys.push_back(tmp_key.ToString());
+    cf_ids.push_back(tmp_cfid);
+    multiget_keys.push_back(tmp_key);
   }
+
+  if (record != nullptr) {
+    MultiGetQueryTraceRecord* r = new MultiGetQueryTraceRecord(trace->ts);
+    r->cf_ids.swap(cf_ids);
+    r->keys.swap(multiget_keys);
+    record->reset(r);
+  }
+
+  return Status::OK();
 }
 
 Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
@@ -524,11 +609,11 @@ Status ReplayerImpl::NextTraceRecord(std::unique_ptr<TraceRecord>* record) {
     return s;
   }
 
-  return ToTraceRecord(&trace, &cf_map_, trace_file_version_, record);
+  return ToTraceRecord(&trace, trace_file_version_, record);
 }
 
 Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record) {
-  return ExecuteTrace(db_, std::move(record));
+  return ExecuteTrace(db_, &cf_map_, std::move(record));
 }
 
 Status ReplayerImpl::Replay(const ReplayOptions& options) {
@@ -599,9 +684,9 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
       }
     } else {
       std::unique_ptr<TraceRecord> record;
-      s = ToTraceRecord(&trace, &cf_map_, trace_file_version_, &record);
+      s = ToTraceRecord(&trace, trace_file_version_, &record);
       if (s.ok()) {
-        s = ExecuteTrace(db_, std::move(record));
+        s = ExecuteTrace(db_, &cf_map_, std::move(record));
       }
     }
   }
@@ -611,10 +696,11 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
     delete thread_pool;
   }
 
-  if (s.IsIncomplete() && trace_end_) {
+  if (s.IsIncomplete()) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
+    trace_end_ = true;
     return Status::OK();
   }
   return s;
@@ -677,19 +763,18 @@ Status ReplayerImpl::ReadTrace(Trace* trace) {
   return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
-Status ReplayerImpl::ToTraceRecord(
-    Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-    int trace_file_version, std::unique_ptr<TraceRecord>* record) {
+Status ReplayerImpl::ToTraceRecord(Trace* trace, int trace_file_version,
+                                   std::unique_ptr<TraceRecord>* record) {
   switch (trace->type) {
     case kTraceWrite:
-      return ToWriteTraceRecord(trace, cf_map, trace_file_version, record);
+      return TracerHelper::DecodeWriteRecord(trace, trace_file_version, record);
     case kTraceGet:
-      return ToGetTraceRecord(trace, cf_map, trace_file_version, record);
+      return TracerHelper::DecodeGetRecord(trace, trace_file_version, record);
     case kTraceIteratorSeek:
     case kTraceIteratorSeekForPrev:
-      return ToIterSeekTraceRecord(trace, cf_map, trace_file_version, record);
+      return TracerHelper::DecodeIterRecord(trace, trace_file_version, record);
     case kTraceMultiGet:
-      return ToMultiGetTraceRecord(trace, cf_map, trace_file_version, record);
+      return TracerHelper::DecodeMultiGetRecord(trace, trace_file_version, record);
     case kTraceEnd:
       return Status::Incomplete("Trace end.");
     default:
@@ -697,18 +782,19 @@ Status ReplayerImpl::ToTraceRecord(
   }
 }
 
-Status ReplayerImpl::ExecuteTrace(DB* db,
-                                  std::unique_ptr<TraceRecord>&& record) {
+Status ReplayerImpl::ExecuteTrace(
+    DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+    std::unique_ptr<TraceRecord>&& record) {
   switch (record->GetType()) {
     case kTraceWrite:
       return ExecuteWriteTrace(db, std::move(record));
     case kTraceGet:
-      return ExecuteGetTrace(db, std::move(record));
+      return ExecuteGetTrace(db, cf_map, std::move(record));
     case kTraceIteratorSeek:
     case kTraceIteratorSeekForPrev:
-      return ExecuteIterSeekTrace(db, std::move(record));
+      return ExecuteIterSeekTrace(db, cf_map, std::move(record));
     case kTraceMultiGet:
-      return ExecuteMultiGetTrace(db, std::move(record));
+      return ExecuteMultiGetTrace(db, cf_map, std::move(record));
     case kTraceEnd:
       return Status::Incomplete("Trace end.");
     default:
@@ -722,131 +808,10 @@ void ReplayerImpl::BackgroundWork(void* arg) {
   assert(ra != nullptr);
 
   std::unique_ptr<TraceRecord> record;
-  Status s = ToTraceRecord(&(ra->trace_entry), ra->cf_map,
-                           ra->trace_file_version, &record);
+  Status s = ToTraceRecord(&(ra->trace_entry), ra->trace_file_version, &record);
   if (s.ok()) {
-    ExecuteTrace(ra->db, std::move(record)).PermitUncheckedError();
+    ExecuteTrace(ra->db, ra->cf_map, std::move(record)).PermitUncheckedError();
   }
-}
-
-Status ReplayerImpl::ToWriteTraceRecord(
-    Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* /*cf_map*/,
-    int trace_file_version, std::unique_ptr<TraceRecord>* record) {
-  assert(trace != nullptr);
-  assert(trace->type == kTraceWrite);
-  if (record == nullptr) {
-    return Status::OK();
-  }
-
-  // To do: is there any validation to convert a payload string to a WriteBatch?
-  if (record != nullptr) {
-    WriteQueryTraceRecord* r = new WriteQueryTraceRecord(trace->ts);
-
-    if (trace_file_version < 2) {
-      r->batch = WriteBatch(trace->payload);
-    } else {
-      WritePayload w_payload;
-      TracerHelper::DecodeWritePayload(trace, &w_payload);
-      r->batch = WriteBatch(w_payload.write_batch_data.ToString());
-    }
-    record->reset(r);
-  }
-  return Status::OK();
-}
-
-Status ReplayerImpl::ToGetTraceRecord(
-    Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-    int trace_file_version, std::unique_ptr<TraceRecord>* record) {
-  assert(trace != nullptr);
-  assert(trace->type == kTraceGet);
-  GetPayload get_payload;
-  get_payload.cf_id = 0;
-  if (trace_file_version < 2) {
-    DecodeCFAndKey(trace->payload, &get_payload.cf_id, &get_payload.get_key);
-  } else {
-    TracerHelper::DecodeGetPayload(trace, &get_payload);
-  }
-  if (get_payload.cf_id > 0 &&
-      cf_map->find(get_payload.cf_id) == cf_map->end()) {
-    return Status::Corruption("Invalid Column Family ID.");
-  }
-
-  if (record != nullptr) {
-    GetQueryTraceRecord* r = new GetQueryTraceRecord(trace->ts);
-    r->handle = (*cf_map)[get_payload.cf_id];
-    r->key = get_payload.get_key;
-    record->reset(r);
-  }
-  return Status::OK();
-}
-
-Status ReplayerImpl::ToIterSeekTraceRecord(
-    Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-    int trace_file_version, std::unique_ptr<TraceRecord>* record) {
-  assert(trace != nullptr);
-  assert(trace->type == kTraceIteratorSeek ||
-         trace->type == kTraceIteratorSeekForPrev);
-  IterPayload iter_payload;
-  iter_payload.cf_id = 0;
-
-  if (trace_file_version < 2) {
-    DecodeCFAndKey(trace->payload, &iter_payload.cf_id, &iter_payload.iter_key);
-  } else {
-    TracerHelper::DecodeIterPayload(trace, &iter_payload);
-  }
-  if (iter_payload.cf_id > 0 &&
-      cf_map->find(iter_payload.cf_id) == cf_map->end()) {
-    return Status::Corruption("Invalid Column Family ID.");
-  }
-
-  if (record != nullptr) {
-    IteratorSeekQueryTraceRecord* r =
-        new IteratorSeekQueryTraceRecord(trace->ts);
-    r->seekType =
-        static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type);
-    r->handle = (*cf_map)[iter_payload.cf_id];
-    r->key = iter_payload.iter_key;
-    record->reset(r);
-  }
-  return Status::OK();
-}
-
-Status ReplayerImpl::ToMultiGetTraceRecord(
-    Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-    int trace_file_version, std::unique_ptr<TraceRecord>* record) {
-  assert(trace != nullptr);
-  assert(trace->type == kTraceMultiGet);
-  MultiGetPayload multiget_payload;
-  if (trace_file_version < 2) {
-    return Status::Corruption("MultiGet is not supported.");
-  }
-
-  TracerHelper::DecodeMultiGetPayload(trace, &multiget_payload);
-
-  if (static_cast<uint32_t>(multiget_payload.cf_ids.size()) !=
-          multiget_payload.multiget_size ||
-      static_cast<uint32_t>(multiget_payload.multiget_keys.size()) !=
-          multiget_payload.multiget_size) {
-    return Status::Corruption("MultiGet size mismatch.");
-  }
-
-  std::vector<ColumnFamilyHandle*> handles;
-  handles.reserve(multiget_payload.multiget_size);
-  for (uint32_t cf_id : multiget_payload.cf_ids) {
-    if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
-      return Status::Corruption("Invalid Column Family ID.");
-    }
-    handles.push_back((*cf_map)[cf_id]);
-  }
-
-  if (record != nullptr) {
-    MultiGetQueryTraceRecord* r = new MultiGetQueryTraceRecord(trace->ts);
-    r->handles = std::move(handles);
-    r->keys.assign(multiget_payload.multiget_keys.begin(),
-                   multiget_payload.multiget_keys.end());
-    record->reset(r);
-  }
-  return Status::OK();
 }
 
 Status ReplayerImpl::ExecuteWriteTrace(DB* db,
@@ -855,31 +820,42 @@ Status ReplayerImpl::ExecuteWriteTrace(DB* db,
       reinterpret_cast<WriteQueryTraceRecord*>(record.release()));
   assert(r != nullptr);
 
-  return db->Write(WriteOptions(), &(r->batch));
+  WriteBatch write_batch(std::move(r->rep));
+  return db->Write(WriteOptions(), &write_batch);
 }
 
-Status ReplayerImpl::ExecuteGetTrace(DB* db,
-                                     std::unique_ptr<TraceRecord>&& record) {
+Status ReplayerImpl::ExecuteGetTrace(
+    DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+    std::unique_ptr<TraceRecord>&& record) {
   std::unique_ptr<GetQueryTraceRecord> r(
       reinterpret_cast<GetQueryTraceRecord*>(record.release()));
   assert(r != nullptr);
-  assert(r->handle != nullptr);
+
+  if (r->cf_id > 0 && cf_map->find(r->cf_id) == cf_map->end()) {
+    return Status::Corruption("Invalid Column Family ID.");
+  }
+  ColumnFamilyHandle* handle = (*cf_map)[r->cf_id];
 
   std::string value;
-  Status s = db->Get(ReadOptions(), r->handle, r->key, &value);
+  Status s = db->Get(ReadOptions(), handle, r->key, &value);
 
   // Treat not found as ok and return other errors.
   return s.IsNotFound() ? Status::OK() : s;
 }
 
 Status ReplayerImpl::ExecuteIterSeekTrace(
-    DB* db, std::unique_ptr<TraceRecord>&& record) {
+    DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+    std::unique_ptr<TraceRecord>&& record) {
   std::unique_ptr<IteratorSeekQueryTraceRecord> r(
       reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
   assert(r != nullptr);
-  assert(r->handle != nullptr);
 
-  Iterator* single_iter = db->NewIterator(ReadOptions(), r->handle);
+  if (r->cf_id > 0 && cf_map->find(r->cf_id) == cf_map->end()) {
+    return Status::Corruption("Invalid Column Family ID.");
+  }
+  ColumnFamilyHandle* handle = (*cf_map)[r->cf_id];
+
+  Iterator* single_iter = db->NewIterator(ReadOptions(), handle);
 
   switch (r->seekType) {
     case IteratorSeekQueryTraceRecord::kSeekForPrev: {
@@ -897,16 +873,30 @@ Status ReplayerImpl::ExecuteIterSeekTrace(
 }
 
 Status ReplayerImpl::ExecuteMultiGetTrace(
-    DB* db, std::unique_ptr<TraceRecord>&& record) {
+    DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+    std::unique_ptr<TraceRecord>&& record) {
   std::unique_ptr<MultiGetQueryTraceRecord> r(
       reinterpret_cast<MultiGetQueryTraceRecord*>(record.release()));
   assert(r != nullptr);
-  assert(!r->handles.empty());
-  assert(!r->keys.empty());
+  if (r->cf_ids.empty() || r->keys.empty()) {
+    return Status::InvalidArgument("Empty MultiGet cf_ids or keys.");
+  }
+  if (r->cf_ids.size() != r->keys.size()) {
+    return Status::Corruption("MultiGet cf_ids and keys size mismatch.");
+  }
+
+  std::vector<ColumnFamilyHandle*> handles;
+  handles.reserve(r->cf_ids.size());
+  for (uint32_t cf_id : r->cf_ids) {
+    if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+      return Status::Corruption("Invalid Column Family ID.");
+    }
+    handles.push_back((*cf_map)[cf_id]);
+  }
 
   std::vector<std::string> values;
   std::vector<Status> ss =
-      db->MultiGet(ReadOptions(), r->handles, r->keys, &values);
+      db->MultiGet(ReadOptions(), handles, r->keys, &values);
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {

@@ -85,28 +85,6 @@ enum TracePayloadType : char {
   kMultiGetKeys = 10,
 };
 
-struct WritePayload {
-  Slice write_batch_data;
-};
-
-struct GetPayload {
-  uint32_t cf_id = 0;
-  Slice get_key;
-};
-
-struct IterPayload {
-  uint32_t cf_id = 0;
-  Slice iter_key;
-  Slice lower_bound;
-  Slice upper_bound;
-};
-
-struct MultiGetPayload {
-  uint32_t multiget_size;
-  std::vector<uint32_t> cf_ids;
-  std::vector<std::string> multiget_keys;
-};
-
 class TracerHelper {
  public:
   // Parse the string with major and minor version only
@@ -127,17 +105,20 @@ class TracerHelper {
                             const TracePayloadType payload_type);
 
   // Decode the write payload and store in WrteiPayload
-  static void DecodeWritePayload(Trace* trace, WritePayload* write_payload);
+  static Status DecodeWriteRecord(Trace* trace, int trace_file_version,
+                                  std::unique_ptr<TraceRecord>* record);
 
   // Decode the get payload and store in WrteiPayload
-  static void DecodeGetPayload(Trace* trace, GetPayload* get_payload);
+  static Status DecodeGetRecord(Trace* trace, int trace_file_version,
+                                std::unique_ptr<TraceRecord>* record);
 
   // Decode the iter payload and store in WrteiPayload
-  static void DecodeIterPayload(Trace* trace, IterPayload* iter_payload);
+  static Status DecodeIterRecord(Trace* trace, int trace_file_version,
+                                 std::unique_ptr<TraceRecord>* record);
 
   // Decode the multiget payload and store in MultiGetPayload
-  static void DecodeMultiGetPayload(Trace* trace,
-                                    MultiGetPayload* multiget_payload);
+  static Status DecodeMultiGetRecord(Trace* trace, int trace_file_version,
+                                     std::unique_ptr<TraceRecord>* record);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -229,47 +210,35 @@ class ReplayerImpl : public Replayer {
   Status ReadTrace(Trace* trace);
 
   // General function to convert a Trace to TraceRecord.
-  static Status ToTraceRecord(
-      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-      int trace_file_version, std::unique_ptr<TraceRecord>* record);
+  static Status ToTraceRecord(Trace* trace, int trace_file_version,
+                              std::unique_ptr<TraceRecord>* record);
 
   // General function to execute a TraceRecord.
-  static Status ExecuteTrace(DB* db, std::unique_ptr<TraceRecord>&& record);
+  static Status ExecuteTrace(
+      DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      std::unique_ptr<TraceRecord>&& record);
 
   // General function to execute a Trace in a thread pool.
   static void BackgroundWork(void* arg);
 
-  // Functions to convert to the corresponding TraceRecord.
-  // TraceRecord for DB::Write().
-  static Status ToWriteTraceRecord(
-      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-      int trace_file_version, std::unique_ptr<TraceRecord>* record);
-  // TraceRecord for DB::Get().
-  static Status ToGetTraceRecord(
-      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-      int trace_file_version, std::unique_ptr<TraceRecord>* record);
-  // TraceRecord for Iterator::Seek().
-  static Status ToIterSeekTraceRecord(
-      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-      int trace_file_version, std::unique_ptr<TraceRecord>* record);
-  // TraceRecord for DB::MultiGet().
-  static Status ToMultiGetTraceRecord(
-      Trace* trace, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
-      int trace_file_version, std::unique_ptr<TraceRecord>* record);
-
   // Functions to execute a trace record depending on its type.
   // Execute a WriteQueryTraceRecord (Put, Delete, SingleDelete and DeleteRange
   // as a WriteBatch).
+  // Write operation does not need ColumnFamilyHandle.
   static Status ExecuteWriteTrace(DB* db,
                                   std::unique_ptr<TraceRecord>&& record);
   // Execute a GetQueryTraceRecord.
-  static Status ExecuteGetTrace(DB* db, std::unique_ptr<TraceRecord>&& record);
+  static Status ExecuteGetTrace(
+      DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      std::unique_ptr<TraceRecord>&& record);
   // Execute an IteratorSeekQueryTraceRecord.
-  static Status ExecuteIterSeekTrace(DB* db,
-                                     std::unique_ptr<TraceRecord>&& record);
+  static Status ExecuteIterSeekTrace(
+      DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      std::unique_ptr<TraceRecord>&& record);
   // Execute a MultiGetQueryTraceRecord.
-  static Status ExecuteMultiGetTrace(DB* db,
-                                     std::unique_ptr<TraceRecord>&& record);
+  static Status ExecuteMultiGetTrace(
+      DB* db, std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map,
+      std::unique_ptr<TraceRecord>&& record);
 
   DBImpl* db_;
   Env* env_;

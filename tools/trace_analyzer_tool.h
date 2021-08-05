@@ -195,7 +195,8 @@ class TraceAnalyzer {
                      const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
                     const uint64_t& ts, TraceType& trace_type);
-  Status HandleMultiGet(MultiGetPayload& multiget_payload, const uint64_t& ts);
+  Status HandleMultiGet(const std::vector<uint32_t>& column_family_ids,
+                        const std::vector<Slice>& keys, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:

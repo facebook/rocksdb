@@ -4293,9 +4293,9 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 0.5)));
 
   // Manual replay
-  // Iteration 1: Manul replay should succeed;
-  // Iteration 2: Manul replay should fail with no Prepare();
-  // Iteration 3: Manul replay again should succeed with Prepare();
+  // Iteration 1: Manual replay should succeed;
+  // Iteration 2: Manual replay should fail with no Prepare();
+  // Iteration 3: Manual replay again should succeed with Prepare();
   for (int i = 1; i <= 3; i++) {
     // Do not Prepare() for the 2nd iteration,
     if (i != 2) {
