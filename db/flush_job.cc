@@ -576,12 +576,12 @@ Status FlushJob::MemPurge() {
           cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
         }
         new_mem->SetID(new_mem_id);
-        cfd_->imm()->AddMemPurgeOutputID(new_mem_id);
+        new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
+                           mutable_cf_options_.write_buffer_size;
+        cfd_->imm()->AddMemPurgeOutputID(new_mem_id, new_mem_capacity);
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
-        new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
-                           mutable_cf_options_.write_buffer_size;
         new_mem->Ref();
         db_mutex_->Unlock();
       } else {
@@ -622,47 +622,53 @@ Status FlushJob::MemPurge() {
 }
 
 bool FlushJob::MemPurgeDecider() {
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  Arena arena;
-  size_t counter = 0, useful_payload = 0;
-  Random rndDecider(1234);  // put seed in this!!!!!
-  for (MemTable* mt : mems_) {
-    if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
-      continue;
-    } else {
-      uint64_t nentries = mt->num_entries();
-      std::unordered_set<const char*> sentries = {};
-      uint64_t ssize = 10;
-      mt->RandomSample(ssize, &sentries);
-      for (const char* ss : sentries) {
-        ParsedInternalKey res;
-        bool resbool = true;
-        ParseInternalKey(GetLengthPrefixedSlice(ss), &res, resbool);
-        (void)res;
-        (void)resbool;
-        ROCKS_LOG_INFO(
-            db_options_.info_log,
-            "Mempurge something something, res is %s, seq is %" PRIu64,
-            res.user_key.data(), res.sequence);
-      }
+  MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
+  policy = MemPurgePolicy::kSampling;
+  if (policy == MemPurgePolicy::kAlways) {
+    return true;
+  } else if (policy == MemPurgePolicy::kAlternate) {
+    // Note: if at least one of the flushed memtables is
+    // an output of a previous mempurge process, then flush
+    // to storage.
+    return !(contains_mempurge_outcome_);
+  } else if (policy == MemPurgePolicy::kSampling) {
+    // Payload and useful_payload (in bytes).
+    // The useful payload ratio of a given MemTable
+    // is estimated to be useful_payload/payload.
+    uint64_t payload = 0, useful_payload = 0;
+    // If estimated_useful_payload is > 100%,
+    // then flush to storage, else MemPurge.
+    double estimated_useful_payload = 0.0;
+    // // Cochran formula for determining sample size.
+    // double n0 = (1.96*1.96)*0.25/(0.07*0.07)
+    // Cochran formula for determining sample size.
+    // 95% confidence interval, 7% precision.
+    // double n0 = (1.96*1.96)*0.25/(0.07*0.07)
+    double n0 = 196.0;
+    ReadOptions ro;
+    ro.total_order_seek = true;
 
-      (void)nentries;
-      InternalIterator* it = mt->NewIterator(ro, &arena);
-
-      // Should we update "OldestKeyTime" ???? -> timestamp appear
-      // to still be an "experimental" feature.
-      // s = new_mem->Add(
-      //     ikey.sequence, ikey.type, ikey.user_key, value,
-
-      for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        if (rndDecider.OneIn(1)) {
-          const Slice k = it->key();
+    // Iterate over each memtable of the set.
+    for (MemTable* mt : mems_) {
+      // If the memtable is the output of a previous mempurge,
+      // its approximate useful payload ratio is already calculated.
+      if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
+        estimated_useful_payload +=
+            cfd_->imm()->MemPurgeOutputUsefulPayload(mt->GetID());
+      } else {
+        // Else sample from the table.
+        uint64_t nentries = mt->num_entries();
+        // Corrected Cochran formula for small populations
+        // (converges to n0 for large populations).
+        uint64_t sample_size =
+            static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
+        std::unordered_set<const char*> sentries = {};
+        mt->UniqueRandomSample(sample_size, &sentries);
+        for (const char* ss : sentries) {
           ParsedInternalKey res;
-          bool resbool = true;
-          ParseInternalKey(k, &res, resbool);
+          Slice entry_slice = GetLengthPrefixedSlice(ss);
+          ParseInternalKey(entry_slice, &res, true /*dont rememebr*/);
           LookupKey lkey(res.user_key, kMaxSequenceNumber);
-          const Slice value = it->value();
           std::string vget;
           Status s;
           MergeContext merge_context;
@@ -671,28 +677,27 @@ bool FlushJob::MemPurgeDecider() {
           bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, &sqno, ro);
           (void)gres;
-          if (s.ok() && value.compare(Slice(vget)) == 0 &&
-              sqno == res.sequence) {
-            useful_payload++;
+          payload += entry_slice.size();
+          if (res.type == kTypeValue && s.ok() && sqno == res.sequence) {
+            useful_payload += entry_slice.size();
+          } else if (((res.type == kTypeDeletion) ||
+                      (res.type == kTypeSingleDeletion)) &&
+                     s.IsNotFound()) {
+            useful_payload += entry_slice.size();
           }
-          (void)value;
-          (void)k;
-          (void)res;
-          (void)resbool;
-          counter++;
+          ROCKS_LOG_INFO(
+              db_options_.info_log,
+              "Mempurge something something, res is %s, seq is %" PRIu64 ".\n",
+              res.user_key.data(), res.sequence);
         }
+        estimated_useful_payload += useful_payload * 1.0 / payload;
+        ROCKS_LOG_INFO(
+            db_options_.info_log,
+            "Mempurge something something, garbage ratio from sampling: %f.\n",
+            (payload - useful_payload) * 1.0 / payload);
       }
     }
-  }
-  // new incoming decider!
-  MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
-  if (policy == MemPurgePolicy::kAlways) {
-    return true;
-  } else if (policy == MemPurgePolicy::kAlternate) {
-    // Note: if at least one of the flushed memtables is
-    // an output of a previous mempurge process, then flush
-    // to storage.
-    return !(contains_mempurge_outcome_);
+    return estimated_useful_payload < 1.0;
   }
   return false;
 }

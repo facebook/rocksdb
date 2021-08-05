@@ -95,8 +95,8 @@ public:
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
-  void RandomSample(const uint64_t& sample_size,
-                    std::unordered_set<const char*>* entries) override {
+  void UniqueRandomSample(const uint64_t& sample_size,
+                          std::unordered_set<const char*>* entries) override {
     // double ApproximateGarbageRatio(const uint64_t sample_size) override {
     entries->clear();
     SkipListRep::Iterator iter(&skip_list_);

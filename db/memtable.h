@@ -151,12 +151,18 @@ class MemTable {
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  void RandomSample(const uint64_t& sample_size,
-                    std::unordered_set<const char*>* entries) {
+  void UniqueRandomSample(const uint64_t& sample_size,
+                          std::unordered_set<const char*>* entries) {
     if (sample_size > (num_entries_ / 2)) {
-      assert(false);
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      Arena arena;
+      InternalIterator* iter(NewIterator(ro, &arena));
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        entries->insert(iter->key().data());
+      }
     }
-    table_->RandomSample(sample_size, entries);
+    table_->UniqueRandomSample(sample_size, entries);
   }
 
   // This method heuristically determines if the memtable should continue to

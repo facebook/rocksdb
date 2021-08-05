@@ -372,6 +372,7 @@ extern const char* kHostnameForDbHostId;
 enum class MemPurgePolicy : char {
   kAlternate = 0x00,
   kAlways = 0x01,
+  kSampling = 0x02,
 };
 
 enum class CompactionServiceJobStatus : char {

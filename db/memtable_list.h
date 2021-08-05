@@ -390,10 +390,8 @@ class MemTableList {
   // not freed, but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
-  void AddMemPurgeOutputID(uint64_t mid) {
-    if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
-      mempurged_ids_.insert(mid);
-    }
+  void AddMemPurgeOutputID(uint64_t mid, double useful_payload_ratio) {
+    mempurged_ids_[mid] = useful_payload_ratio;
   }
 
   void RemoveMemPurgeOutputID(uint64_t mid) {
@@ -407,6 +405,13 @@ class MemTableList {
       return false;
     }
     return true;
+  }
+
+  double MemPurgeOutputUsefulPayload(uint64_t mid) {
+    if (mempurged_ids_.find(mid) != mempurged_ids_.end()) {
+      return mempurged_ids_[mid];
+    }
+    return -1.0;
   }
 
  private:
@@ -457,7 +462,7 @@ class MemTableList {
 
   // Store the IDs of the memtables installed in this
   // list that result from a mempurge operation.
-  std::unordered_set<uint64_t> mempurged_ids_;
+  std::unordered_map<uint64_t, double> mempurged_ids_;
 };
 
 // Installs memtable atomic flush results.

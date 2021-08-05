@@ -196,8 +196,8 @@ class MemTableRep {
     return 0;
   }
 
-  virtual void RandomSample(const uint64_t& sample_size,
-                            std::unordered_set<const char*>* entries) {
+  virtual void UniqueRandomSample(const uint64_t& sample_size,
+                                  std::unordered_set<const char*>* entries) {
     (void)sample_size;
     (void)entries;
   }
