@@ -612,6 +612,9 @@ void CompactionIterator::NextFromInput() {
             // Set up the Put to be outputted in the next iteration.
             // (Optimization 3).
             clear_and_output_next_key_ = true;
+            TEST_SYNC_POINT_CALLBACK(
+                "CompactionIterator::NextFromInput:KeepSDForWW",
+                /*arg=*/nullptr);
           }
         } else {
           // We hit the next snapshot without hitting a put, so the iterator

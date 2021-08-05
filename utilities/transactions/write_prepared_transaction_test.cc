@@ -2909,6 +2909,44 @@ TEST_P(WritePreparedTransactionTest,
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest,
+       ReleaseSnapshotBetweenSDAndPutDuringCompaction) {
+  constexpr size_t snapshot_cache_bits = 7;  // same as default
+  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Create a dummy transaction to take a snapshot for ww-conflict detection.
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  auto* dummy_txn =
+      db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr);
+  // Increment seq
+  ASSERT_OK(db->Put(WriteOptions(), "bar", "value"));
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "foo"));
+  auto* snapshot1 = db->GetSnapshot();
+  // Increment seq
+  ASSERT_OK(db->Put(WriteOptions(), "dontcare", "value"));
+  auto* snapshot2 = db->GetSnapshot();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:KeepSDForWW", [&](void* /*arg*/) {
+        db->ReleaseSnapshot(snapshot1);
+
+        ASSERT_OK(db->Put(WriteOptions(), "dontcare2", "value2"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  db->ReleaseSnapshot(snapshot2);
+  ASSERT_OK(dummy_txn->Commit());
+  delete dummy_txn;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
