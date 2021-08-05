@@ -95,6 +95,19 @@ public:
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
+  void RandomSample(const uint64_t& sample_size,
+                    std::unordered_set<const char*>* entries) override {
+    // double ApproximateGarbageRatio(const uint64_t sample_size) override {
+    entries->clear();
+    SkipListRep::Iterator iter(&skip_list_);
+    for (uint64_t i = 0; i < sample_size; i++) {
+      do {
+        iter.RandomSeek();
+      } while (!iter.Valid() || (entries->find(iter.key()) != entries->end()));
+      entries->insert(iter.key());
+    }
+  }
+
   ~SkipListRep() override {}
 
   // Iteration over the contents of a skip list
@@ -142,6 +155,8 @@ public:
         iter_.SeekForPrev(EncodeKey(&tmp_, user_key));
       }
     }
+
+    void RandomSeek() override { iter_.RandomSeek(); }
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.

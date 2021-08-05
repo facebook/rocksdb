@@ -622,6 +622,68 @@ Status FlushJob::MemPurge() {
 }
 
 bool FlushJob::MemPurgeDecider() {
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Arena arena;
+  size_t counter = 0, useful_payload = 0;
+  Random rndDecider(1234);  // put seed in this!!!!!
+  for (MemTable* mt : mems_) {
+    if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
+      continue;
+    } else {
+      uint64_t nentries = mt->num_entries();
+      std::unordered_set<const char*> sentries = {};
+      uint64_t ssize = 10;
+      mt->RandomSample(ssize, &sentries);
+      for (const char* ss : sentries) {
+        ParsedInternalKey res;
+        bool resbool = true;
+        ParseInternalKey(GetLengthPrefixedSlice(ss), &res, resbool);
+        (void)res;
+        (void)resbool;
+        ROCKS_LOG_INFO(
+            db_options_.info_log,
+            "Mempurge something something, res is %s, seq is %" PRIu64,
+            res.user_key.data(), res.sequence);
+      }
+
+      (void)nentries;
+      InternalIterator* it = mt->NewIterator(ro, &arena);
+
+      // Should we update "OldestKeyTime" ???? -> timestamp appear
+      // to still be an "experimental" feature.
+      // s = new_mem->Add(
+      //     ikey.sequence, ikey.type, ikey.user_key, value,
+
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        if (rndDecider.OneIn(1)) {
+          const Slice k = it->key();
+          ParsedInternalKey res;
+          bool resbool = true;
+          ParseInternalKey(k, &res, resbool);
+          LookupKey lkey(res.user_key, kMaxSequenceNumber);
+          const Slice value = it->value();
+          std::string vget;
+          Status s;
+          MergeContext merge_context;
+          SequenceNumber max_covering_tombstone_seq = 0, sqno = 0;
+
+          bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
+                              &max_covering_tombstone_seq, &sqno, ro);
+          (void)gres;
+          if (s.ok() && value.compare(Slice(vget)) == 0 &&
+              sqno == res.sequence) {
+            useful_payload++;
+          }
+          (void)value;
+          (void)k;
+          (void)res;
+          (void)resbool;
+          counter++;
+        }
+      }
+    }
+  }
   // new incoming decider!
   MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
   if (policy == MemPurgePolicy::kAlways) {

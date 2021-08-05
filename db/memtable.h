@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "db/dbformat.h"
@@ -143,6 +144,19 @@ class MemTable {
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
+
+  // Returns an estimate of the number of bytes of data in use by this
+  // data structure.
+  //
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  void RandomSample(const uint64_t& sample_size,
+                    std::unordered_set<const char*>* entries) {
+    if (sample_size > (num_entries_ / 2)) {
+      assert(false);
+    }
+    table_->RandomSample(sample_size, entries);
   }
 
   // This method heuristically determines if the memtable should continue to

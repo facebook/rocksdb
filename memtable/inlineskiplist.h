@@ -177,6 +177,9 @@ class InlineSkipList {
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const char* target);
 
+    // Advance to a random entry in the list.
+    void RandomSeek();
+
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToFirst();
@@ -251,6 +254,9 @@ class InlineSkipList {
   // Return the last node in the list.
   // Return head_ if list is empty.
   Node* FindLast() const;
+
+  // Returns a random entry.
+  Node* FindRandomEntry() const;
 
   // Traverses a single level of the list, setting *out_prev to the last
   // node before the key and *out_next to the first node after. Assumes
@@ -413,6 +419,11 @@ inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
 }
 
 template <class Comparator>
+inline void InlineSkipList<Comparator>::Iterator::RandomSeek() {
+  node_ = list_->FindRandomEntry();
+}
+
+template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::SeekToFirst() {
   node_ = list_->head_->Next(0);
 }
@@ -556,6 +567,37 @@ InlineSkipList<Comparator>::FindLast() const {
       x = next;
     }
   }
+}
+
+template <class Comparator>
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::FindRandomEntry() const {
+  // Note: It looks like we could reduce duplication by implementing
+  // this function as FindLessThan(key)->Next(0), but we wouldn't be able
+  // to exit early on equality and the result wouldn't even be correct.
+  // A concurrent insert might occur after FindLessThan(key) but before
+  // we get a chance to call Next(0).
+  Node *x = head_, *scan_node = nullptr, *limit_node = nullptr;
+  std::vector<Node*> lvl_nodes;
+  Random* rnd = Random::GetTLSInstance();
+  int level = GetMaxHeight() - 1;
+  // PREFETCH(x->Next(level));
+
+  while (level >= 0) {
+    lvl_nodes.clear();
+    scan_node = x;
+    while (scan_node != limit_node) {
+      lvl_nodes.push_back(scan_node);
+      scan_node = scan_node->Next(level);
+    }
+    uint32_t rnd_idx = rnd->Next() % lvl_nodes.size();
+    x = lvl_nodes[rnd_idx];
+    if (rnd_idx + 1 < lvl_nodes.size()) {
+      limit_node = lvl_nodes[rnd_idx + 1];
+    }
+    level--;
+  }
+  return x == head_ ? head_->Next(0) : x;
 }
 
 template <class Comparator>
