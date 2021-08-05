@@ -1501,24 +1501,30 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     const size_t read_amp_bytes_per_bit =
         rep_->table_options.read_amp_bytes_per_bit;
 
-    TBlocklike* block_holder = BlocklikeTraits<TBlocklike>::Create(
-        std::move(results), read_amp_bytes_per_bit,
-        rep_->ioptions.statistics.get(),
-        false /*rep_->blocks_definitely_zstd_compressed*/,
-        rep_->table_options.filter_policy.get());
+    // TODO akanksha:: Dedup below code by calling
+    // BlockBasedTable::PutDataBlockToCache.
+    std::unique_ptr<TBlocklike> block_holder(
+        BlocklikeTraits<TBlocklike>::Create(
+            std::move(results), read_amp_bytes_per_bit,
+            rep_->ioptions.statistics.get(),
+            false /*rep_->blocks_definitely_zstd_compressed*/,
+            rep_->table_options.filter_policy.get()));
 
-    if (block_holder->own_bytes()) {
-      size_t charge = block_holder->ApproximateMemoryUsage();
-      s = block_cache->Insert(key, block_holder, charge,
-                              &DeleteEntryCached<TBlocklike>);
+    assert(block_holder->own_bytes());
+    size_t charge = block_holder->ApproximateMemoryUsage();
+    s = block_cache->Insert(
+        key, block_holder.get(),
+        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
+        nullptr, Cache::Priority::LOW);
 
-      if (s.ok()) {
-        BlockBasedTable::UpdateCacheInsertionMetrics(
-            block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
-            rep_->ioptions.stats);
-      } else {
-        RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
-      }
+    if (s.ok()) {
+      // Release ownership of block_holder.
+      block_holder.release();
+      BlockBasedTable::UpdateCacheInsertionMetrics(
+          block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
+          rep_->ioptions.stats);
+    } else {
+      RecordTick(rep_->ioptions.stats, BLOCK_CACHE_ADD_FAILURES);
     }
   }
   return s;
