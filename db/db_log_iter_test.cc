@@ -191,15 +191,12 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
     ASSERT_OK(dbfull()->Flush(FlushOptions()));
     ASSERT_OK(dbfull()->FlushWAL(false));
     // Corrupt this log to create a gap
-    ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
+    VectorLogPtr wal_files;
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_FALSE(wal_files.empty());
     const auto logfile_path = dbname_ + "/" + wal_files.front()->PathName();
-    if (mem_env_) {
-      mem_env_->Truncate(logfile_path, wal_files.front()->SizeFileBytes() / 2);
-    } else {
-      ASSERT_EQ(0, truncate(logfile_path.c_str(),
-                   wal_files.front()->SizeFileBytes() / 2));
-    }
+    test::TruncateFile(env_, logfile_path,
+                       wal_files.front()->SizeFileBytes() / 2);
 
     // Insert a new entry to a new log file
     ASSERT_OK(Put("key1025", DummyString(10)));
