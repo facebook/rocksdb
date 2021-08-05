@@ -730,10 +730,9 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   open_files_.erase(f);
 }
 
-IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(ErrorOperation op,
-                                                             Slice* result,
-                                                             bool direct_io,
-                                                             char* scratch) {
+IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
+    ErrorOperation /*op*/, Slice* /*result*/, bool /*direct_io*/,
+    char* /*scratch*/) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
@@ -746,63 +745,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(ErrorOperation op,
       free(ctx->callstack);
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
-    switch (op) {
-      case kRead:
-      {
-        if (!direct_io) {
-          ctx->type =
-            static_cast<ErrorType>(ctx->rand.Uniform(ErrorType::kErrorTypeMax));
-        } else {
-          // In Direct IO mode, the actual read will read extra data due to
-          // alignment restrictions. So don't inject corruption or
-          // truncated reads as we don't know if it will actually cause a
-          // detectable error
-          ctx->type = ErrorType::kErrorTypeStatus;
-        }
-        switch (ctx->type) {
-          // Inject IO error
-          case ErrorType::kErrorTypeStatus:
-            return IOStatus::IOError();
-          // Inject random corruption
-          case ErrorType::kErrorTypeCorruption:
-          {
-            if (result->data() == scratch) {
-              uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
-              uint64_t len =
-                std::min<uint64_t>(result->size() - offset, 64UL);
-              assert(offset < result->size());
-              assert(offset + len <= result->size());
-              std::string str;
-              // The randomly generated string could be identical to the
-              // original one, so retry
-              do {
-                str = ctx->rand.RandomString(static_cast<int>(len));
-              } while (str == std::string(scratch + offset, len));
-              memcpy(scratch + offset, str.data(), len);
-              break;
-            } else {
-              FALLTHROUGH_INTENDED;
-            }
-          }
-          // Truncate the result
-          case ErrorType::kErrorTypeTruncated:
-          {
-            assert(result->size() > 0);
-            uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
-            assert(offset < result->size());
-            *result = Slice(result->data(), offset);
-            break;
-          }
-          default:
-            assert(false);
-        }
-        break;
-      }
-      case kOpen:
-        return IOStatus::IOError();
-      default:
-        assert(false);
-    }
+    return IOStatus::IOError();
   }
   return IOStatus::OK();
 }
