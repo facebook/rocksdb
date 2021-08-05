@@ -70,7 +70,7 @@ class GenericRateLimiter : public RateLimiter {
   }
 
  private:
-  void Refill();
+  void RefillBytesAndGrantRequests();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
