@@ -34,16 +34,16 @@ static bool LoadMergeOperator(const std::string& id,
 #ifdef ROCKSDB_LITE
     // The remainder of the classes are handled by the ObjectRegistry in
     // non-LITE mode
-  } else if (id == StringAppendOperator::kShortName() ||
+  } else if (id == StringAppendOperator::kNickName() ||
              id == StringAppendOperator::kClassName()) {
     *result = MergeOperators::CreateStringAppendOperator();
-  } else if (id == StringAppendTESTOperator::kShortName() ||
+  } else if (id == StringAppendTESTOperator::kNickName() ||
              id == StringAppendTESTOperator::kClassName()) {
     *result = MergeOperators::CreateStringAppendTESTOperator();
-  } else if (id == BytesXOROperator::kShortName() ||
+  } else if (id == BytesXOROperator::kNickName() ||
              id == BytesXOROperator::kClassName()) {
     *result = MergeOperators::CreateBytesXOROperator();
-  } else if (id == SortList::kShortName() || id == SortList::kClassName()) {
+  } else if (id == SortList::kNickName() || id == SortList::kClassName()) {
     *result = MergeOperators::CreateSortOperator();
 #endif  // ROCKSDB_LITE
   } else {
@@ -65,7 +65,7 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
 
   library.Register<MergeOperator>(
       AsRegex(StringAppendOperator::kClassName(),
-              StringAppendOperator::kShortName()),
+              StringAppendOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendOperator(","));
@@ -73,21 +73,21 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       });
   library.Register<MergeOperator>(
       AsRegex(StringAppendTESTOperator::kClassName(),
-              StringAppendTESTOperator::kShortName()),
+              StringAppendTESTOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendTESTOperator(","));
         return guard->get();
       });
   library.Register<MergeOperator>(
-      AsRegex(SortList::kClassName(), SortList::kShortName()),
+      AsRegex(SortList::kClassName(), SortList::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new SortList());
         return guard->get();
       });
   library.Register<MergeOperator>(
-      AsRegex(BytesXOROperator::kClassName(), BytesXOROperator::kShortName()),
+      AsRegex(BytesXOROperator::kClassName(), BytesXOROperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new BytesXOROperator());

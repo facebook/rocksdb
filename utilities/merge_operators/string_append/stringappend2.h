@@ -35,9 +35,9 @@ class StringAppendTESTOperator : public MergeOperator {
       override;
 
   static const char* kClassName() { return "StringAppendTESTOperator"; }
-  static const char* kShortName() { return "stringappendtest"; }
+  static const char* kNickName() { return "stringappendtest"; }
   const char* Name() const override { return kClassName(); }
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   // A version of PartialMerge that actually performs "partial merging".

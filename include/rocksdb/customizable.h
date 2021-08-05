@@ -92,8 +92,8 @@ class Customizable : public Configurable {
     } else if (name == Name()) {
       return true;
     } else {
-      auto sname = ShortName();
-      if (sname != nullptr && name == sname) {
+      const char* nickname = NickName();
+      if (nickname != nullptr && name == nickname) {
         return true;
       } else {
         return false;
@@ -190,10 +190,10 @@ class Customizable : public Configurable {
   virtual const Customizable* Inner() const { return nullptr; }
 
  protected:
-  // Some classes have both a class/long name (e.g. PutOperator) and a short
-  // name (e.g. put). Classes can override this method to return a
-  // short/alternate name.  These names are used for object
-  virtual const char* ShortName() const { return ""; }
+  // Some classes have both a class name (e.g. PutOperator) and a nickname
+  // (e.g. put). Classes can override this method to return a
+  // nickname.  Nicknames can be used by InstanceOf and object creation.
+  virtual const char* NickName() const { return ""; }
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
 #ifndef ROCKSDB_LITE

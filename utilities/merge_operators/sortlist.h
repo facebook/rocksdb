@@ -28,10 +28,10 @@ class SortList : public MergeOperator {
                          std::string* new_value, Logger* logger) const override;
 
   static const char* kClassName() { return "MergeSortOperator"; }
-  static const char* kShortName() { return "sortlist"; }
+  static const char* kNickName() { return "sortlist"; }
 
   const char* Name() const override { return kClassName(); }
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
 
   void MakeVector(std::vector<int>& operand, Slice slice) const;
 

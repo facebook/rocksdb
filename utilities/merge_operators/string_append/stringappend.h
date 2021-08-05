@@ -23,9 +23,9 @@ class StringAppendOperator : public AssociativeMergeOperator {
                      Logger* logger) const override;
 
   static const char* kClassName() { return "StringAppendOperator"; }
-  static const char* kShortName() { return "stringappend"; }
+  static const char* kNickName() { return "stringappend"; }
   virtual const char* Name() const override { return kClassName(); }
-  virtual const char* ShortName() const override { return kShortName(); }
+  virtual const char* NickName() const override { return kNickName(); }
 
  private:
   std::string delim_;  // The delimiter is inserted between elements

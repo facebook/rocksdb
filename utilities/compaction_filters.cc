@@ -25,13 +25,13 @@ static int RegisterBuiltinCompactionFilters(ObjectLibrary& library,
       });
   return 1;
 }
-static std::once_flag load_once;
 #endif  // ROCKSDB_LITE
 Status CompactionFilter::CreateFromString(const ConfigOptions& config_options,
                                           const std::string& value,
                                           const CompactionFilter** result) {
 #ifndef ROCKSDB_LITE
-  std::call_once(load_once, [&]() {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
     RegisterBuiltinCompactionFilters(*(ObjectLibrary::Default().get()), "");
   });
 #endif  // ROCKSDB_LITE
@@ -47,11 +47,8 @@ Status CompactionFilter::CreateFromString(const ConfigOptions& config_options,
 Status CompactionFilterFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<CompactionFilterFactory>* result) {
-#ifndef ROCKSDB_LITE
-  std::call_once(load_once, [&]() {
-    RegisterBuiltinCompactionFilters(*(ObjectLibrary::Default().get()), "");
-  });
-#endif  // ROCKSDB_LITE
+  // Currently there are no builtin CompactionFilterFactories.
+  // If any are introduced, they need to be registered here.
   Status status = LoadSharedObject<CompactionFilterFactory>(
       config_options, value, nullptr, result);
   return status;

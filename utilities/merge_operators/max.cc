@@ -65,9 +65,9 @@ class MaxOperator : public MergeOperator {
   }
 
   static const char* kClassName() { return "MaxOperator"; }
-  static const char* kShortName() { return "max"; }
+  static const char* kNickName() { return "max"; }
   const char* Name() const override { return kClassName(); }
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
 };
 
 }  // end of anonymous namespace

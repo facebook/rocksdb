@@ -29,9 +29,9 @@ class BytesXOROperator : public AssociativeMergeOperator {
                      Logger* logger) const override;
 
   static const char* kClassName() { return "BytesXOR"; }
-  static const char* kShortName() { return "bytesxor"; }
+  static const char* kNickName() { return "bytesxor"; }
 
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
   const char* Name() const override { return kClassName(); }
 
   void XOR(const Slice* existing_value, const Slice& value,

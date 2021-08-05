@@ -49,9 +49,9 @@ class PutOperator : public MergeOperator {
   }
 
   static const char* kClassName() { return "PutOperator"; }
-  static const char* kShortName() { return "put_v1"; }
+  static const char* kNickName() { return "put_v1"; }
   const char* Name() const override { return kClassName(); }
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
 };
 
 class PutOperatorV2 : public PutOperator {
@@ -71,8 +71,8 @@ class PutOperatorV2 : public PutOperator {
     return true;
   }
 
-  static const char* kShortName() { return "put"; }
-  const char* ShortName() const override { return kShortName(); }
+  static const char* kNickName() { return "put"; }
+  const char* NickName() const override { return kNickName(); }
 };
 
 } // end of anonymous namespace

@@ -37,9 +37,9 @@ class UInt64AddOperator : public AssociativeMergeOperator {
   }
 
   static const char* kClassName() { return "UInt64AddOperator"; }
-  static const char* kShortName() { return "uint64add"; }
+  static const char* kNickName() { return "uint64add"; }
   const char* Name() const override { return kClassName(); }
-  const char* ShortName() const override { return kShortName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   // Takes the string and decodes it into a uint64_t
