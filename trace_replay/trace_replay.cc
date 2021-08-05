@@ -831,7 +831,7 @@ Status ReplayerImpl::ExecuteGetTrace(
   ColumnFamilyHandle* handle = (*cf_map)[r->cf_id];
 
   std::string value;
-  Status s = db->Get(ReadOptions(), handle, r->key, &value);
+  Status s = db->Get(ReadOptions(), handle, std::move(r->key), &value);
 
   // Treat not found as ok and return other errors.
   return s.IsNotFound() ? Status::OK() : s;
@@ -853,11 +853,11 @@ Status ReplayerImpl::ExecuteIterSeekTrace(
 
   switch (r->seekType) {
     case IteratorSeekQueryTraceRecord::kSeekForPrev: {
-      single_iter->SeekForPrev(r->key);
+      single_iter->SeekForPrev(std::move(r->key));
       break;
     }
     default: {
-      single_iter->Seek(r->key);
+      single_iter->Seek(std::move(r->key));
       break;
     }
   }
@@ -890,7 +890,7 @@ Status ReplayerImpl::ExecuteMultiGetTrace(
 
   std::vector<std::string> values;
   std::vector<Status> ss =
-      db->MultiGet(ReadOptions(), handles, r->keys, &values);
+      db->MultiGet(ReadOptions(), handles, std::move(r->keys), &values);
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {
