@@ -632,7 +632,8 @@ void CompactionIterator::NextFromInput() {
         // iteration. If the next key is corrupt, we return before the
         // comparison, so the value of has_current_user_key does not matter.
         has_current_user_key_ = false;
-        if (compaction_ != nullptr && InEarliestSnapshot(ikey_.sequence) &&
+        if (compaction_ != nullptr &&
+            DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                        &level_ptrs_)) {
           // Key doesn't exist outside of this range.
@@ -676,7 +677,7 @@ void CompactionIterator::NextFromInput() {
                (ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
-               InEarliestSnapshot(ikey_.sequence) &&
+               DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                           &level_ptrs_)) {
@@ -984,7 +985,8 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
-        InEarliestSnapshot(ikey_.sequence) && ikey_.type != kTypeMerge) {
+        DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
+        ikey_.type != kTypeMerge) {
       assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
       if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
         ROCKS_LOG_FATAL(info_log_,

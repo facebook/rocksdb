@@ -2758,6 +2758,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  SequenceNumber put_seq = db->GetLatestSequenceNumber();
   auto* transaction =
       db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
   ASSERT_OK(transaction->SetName("txn"));
@@ -2799,7 +2800,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   // Since the delete tombstone is not visible to snapshot2, we need to keep
   // at least one version of the key, for write-conflict check.
   VerifyInternalKeys({{"key1", "", del_seq, kTypeDeletion},
-                      {"key1", "value1", 0, kTypeValue}});
+                      {"key1", "value1", put_seq, kTypeValue}});
   db->ReleaseSnapshot(snapshot2);
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
