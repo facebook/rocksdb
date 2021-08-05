@@ -143,9 +143,7 @@ Status TracerHelper::DecodeWriteRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
-    WriteQueryTraceRecord* r = new WriteQueryTraceRecord(trace->ts);
-    r->rep.swap(rep);
-    record->reset(r);
+    record->reset(new WriteQueryTraceRecord(std::move(rep), trace->ts));
   }
 
   return Status::OK();
@@ -185,10 +183,8 @@ Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
-    GetQueryTraceRecord* r = new GetQueryTraceRecord(trace->ts);
-    r->cf_id = cf_id;
-    r->key = std::move(get_key);
-    record->reset(r);
+    record->reset(
+        new GetQueryTraceRecord(cf_id, std::move(get_key), trace->ts));
   }
 
   return Status::OK();
@@ -239,13 +235,9 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
-    IteratorSeekQueryTraceRecord* r =
-        new IteratorSeekQueryTraceRecord(trace->ts);
-    r->seekType =
-        static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type);
-    r->cf_id = cf_id;
-    r->key = std::move(iter_key);
-    record->reset(r);
+    record->reset(new IteratorSeekQueryTraceRecord(
+        static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
+        std::move(iter_key), trace->ts));
   }
 
   return Status::OK();
@@ -302,10 +294,8 @@ Status TracerHelper::DecodeMultiGetRecord(
   }
 
   if (record != nullptr) {
-    MultiGetQueryTraceRecord* r = new MultiGetQueryTraceRecord(trace->ts);
-    r->cf_ids.swap(cf_ids);
-    r->keys.swap(multiget_keys);
-    record->reset(r);
+    record->reset(new MultiGetQueryTraceRecord(
+        std::move(cf_ids), std::move(multiget_keys), trace->ts));
   }
 
   return Status::OK();
@@ -774,7 +764,8 @@ Status ReplayerImpl::ToTraceRecord(Trace* trace, int trace_file_version,
     case kTraceIteratorSeekForPrev:
       return TracerHelper::DecodeIterRecord(trace, trace_file_version, record);
     case kTraceMultiGet:
-      return TracerHelper::DecodeMultiGetRecord(trace, trace_file_version, record);
+      return TracerHelper::DecodeMultiGetRecord(trace, trace_file_version,
+                                                record);
     case kTraceEnd:
       return Status::Incomplete("Trace end.");
     default:

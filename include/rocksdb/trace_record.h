@@ -39,7 +39,8 @@ enum TraceType : char {
 // Base class for all types of trace records.
 class TraceRecord {
  public:
-  explicit TraceRecord(uint64_t ts = 0) : timestamp(ts) {}
+  TraceRecord() : timestamp(0) {}
+  explicit TraceRecord(uint64_t ts) : timestamp(ts) {}
   virtual ~TraceRecord() {}
 
   virtual TraceType GetType() const = 0;
@@ -51,14 +52,19 @@ class TraceRecord {
 // Base class for all query types of trace records.
 class QueryTraceRecord : public TraceRecord {
  public:
-  explicit QueryTraceRecord(uint64_t ts = 0) : TraceRecord(ts) {}
+  explicit QueryTraceRecord() : TraceRecord() {}
+  explicit QueryTraceRecord(uint64_t ts) : TraceRecord(ts) {}
   virtual ~QueryTraceRecord() override {}
 };
 
 // Trace record for DB::Write() operation.
 class WriteQueryTraceRecord : public QueryTraceRecord {
  public:
-  explicit WriteQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
+  WriteQueryTraceRecord() : QueryTraceRecord() {}
+  WriteQueryTraceRecord(const std::string& batch_rep, uint64_t ts)
+      : QueryTraceRecord(ts), rep(batch_rep) {}
+  WriteQueryTraceRecord(std::string&& batch_rep, uint64_t ts)
+      : QueryTraceRecord(ts), rep(std::move(batch_rep)) {}
   virtual ~WriteQueryTraceRecord() override {}
 
   TraceType GetType() const override { return kTraceWrite; };
@@ -70,8 +76,11 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 // Trace record for DB::Get() operation
 class GetQueryTraceRecord : public QueryTraceRecord {
  public:
-  explicit GetQueryTraceRecord(uint64_t ts = 0)
-      : QueryTraceRecord(ts), cf_id(0) {}
+  GetQueryTraceRecord() : QueryTraceRecord(), cf_id(0) {}
+  GetQueryTraceRecord(uint32_t get_cf_id, const Slice& get_key, uint64_t ts)
+      : QueryTraceRecord(ts), cf_id(get_cf_id), key(get_key) {}
+  GetQueryTraceRecord(uint32_t get_cf_id, Slice&& get_key, uint64_t ts)
+      : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
   virtual ~GetQueryTraceRecord() override {}
 
   TraceType GetType() const override { return kTraceGet; };
@@ -86,7 +95,8 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 // Base class for all Iterator related operations.
 class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
-  explicit IteratorQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
+  IteratorQueryTraceRecord() : QueryTraceRecord() {}
+  explicit IteratorQueryTraceRecord(uint64_t ts) : QueryTraceRecord(ts) {}
   virtual ~IteratorQueryTraceRecord() override {}
 };
 
@@ -99,8 +109,21 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
     kSeekForPrev = kTraceIteratorSeekForPrev
   };
 
-  explicit IteratorSeekQueryTraceRecord(uint64_t ts = 0)
-      : IteratorQueryTraceRecord(ts), seekType(kSeek), cf_id(0) {}
+  IteratorSeekQueryTraceRecord()
+      : IteratorQueryTraceRecord(), seekType(kSeek), cf_id(0) {}
+  IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
+                               const Slice& iter_key, uint64_t ts)
+      : IteratorQueryTraceRecord(ts),
+        seekType(type),
+        cf_id(iter_cf_id),
+        key(iter_key) {}
+  IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
+                               Slice&& iter_key, uint64_t ts)
+      : IteratorQueryTraceRecord(ts),
+        seekType(type),
+        cf_id(iter_cf_id),
+        key(std::move(iter_key)) {}
+
   virtual ~IteratorSeekQueryTraceRecord() override {}
 
   TraceType GetType() const override {
@@ -119,7 +142,15 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 // Trace record for DB::MultiGet() operation.
 class MultiGetQueryTraceRecord : public QueryTraceRecord {
  public:
-  explicit MultiGetQueryTraceRecord(uint64_t ts = 0) : QueryTraceRecord(ts) {}
+  MultiGetQueryTraceRecord() : QueryTraceRecord() {}
+  MultiGetQueryTraceRecord(const std::vector<uint32_t>& multiget_cf_ids,
+                           const std::vector<Slice>& multiget_keys, uint64_t ts)
+      : QueryTraceRecord(ts), cf_ids(multiget_cf_ids), keys(multiget_keys) {}
+  MultiGetQueryTraceRecord(std::vector<uint32_t>&& multiget_cf_ids,
+                           std::vector<Slice>&& multiget_keys, uint64_t ts)
+      : QueryTraceRecord(ts),
+        cf_ids(std::move(multiget_cf_ids)),
+        keys(std::move(multiget_keys)) {}
   virtual ~MultiGetQueryTraceRecord() override {}
 
   TraceType GetType() const override { return kTraceMultiGet; };

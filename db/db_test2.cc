@@ -4280,8 +4280,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
   ASSERT_EQ("rocks", value);
 
-  // Re-replay should fail with Status::Incomplete() if Prepare()
-  // was not called.
+  // Re-replay should fail with Status::Incomplete() if Prepare() was not
+  // called. Currently we don't distinguish between unprepared and trace end.
   ASSERT_TRUE(replayer->Replay().IsIncomplete());
 
   // Re-replay using 2 threads, 2x speed.
@@ -4291,49 +4291,203 @@ TEST_F(DBTest2, TraceAndReplay) {
   // Re-replay using 2 threads, 1/2 speed.
   ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 0.5)));
+  replayer.reset();
 
-  // Manual replay
-  // Iteration 1: Manual replay should succeed;
-  // Iteration 2: Manual replay should fail with no Prepare();
-  // Iteration 3: Manual replay again should succeed with Prepare();
-  for (int i = 1; i <= 3; i++) {
-    // Do not Prepare() for the 2nd iteration,
-    if (i != 2) {
-      ASSERT_OK(replayer->Prepare());
-    }
+  for (auto handle : handles) {
+    delete handle;
+  }
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(DBTest2, TraceAndManualReplay) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  ReadOptions ro;
+  WriteOptions wo;
+  TraceOptions trace_opts;
+  EnvOptions env_opts;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Random rnd(301);
+  Iterator* single_iter = nullptr;
+
+  ASSERT_TRUE(db_->EndTrace().IsIOError());
+
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
+
+  ASSERT_OK(Put(0, "a", "1"));
+  ASSERT_OK(Merge(0, "b", "2"));
+  ASSERT_OK(Delete(0, "c"));
+  ASSERT_OK(SingleDelete(0, "d"));
+  ASSERT_OK(db_->DeleteRange(wo, dbfull()->DefaultColumnFamily(), "e", "f"));
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("f", "11"));
+  ASSERT_OK(batch.Merge("g", "12"));
+  ASSERT_OK(batch.Delete("h"));
+  ASSERT_OK(batch.SingleDelete("i"));
+  ASSERT_OK(batch.DeleteRange("j", "k"));
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  single_iter = db_->NewIterator(ro);
+  single_iter->Seek("f");
+  single_iter->SeekForPrev("g");
+  delete single_iter;
+
+  ASSERT_EQ("1", Get(0, "a"));
+  ASSERT_EQ("12", Get(0, "g"));
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "rocksdb", "rocks"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
+
+  ASSERT_OK(db_->EndTrace());
+  // These should not get into the trace file as it is after EndTrace.
+  Put("hello", "world");
+  Merge("foo", "bar");
+
+  // Open another db, replay, and verify the data
+  std::string value;
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay");
+  ASSERT_OK(DestroyDB(dbname2, options));
+
+  // Using a different name than db2, to pacify infer's use-after-lifetime
+  // warnings (http://fbinfer.com).
+  DB* db2_init = nullptr;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(
+      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
+  delete cf;
+  delete db2_init;
+
+  DB* db2 = nullptr;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  ColumnFamilyOptions cf_options;
+  cf_options.merge_operator = MergeOperators::CreatePutOperator();
+  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
+  column_families.push_back(
+      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  std::vector<ColumnFamilyHandle*> handles;
+  DBOptions db_opts;
+  db_opts.env = env_;
+  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+
+  env_->SleepForMicroseconds(100);
+  // Verify that the keys don't already exist
+  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+
+  // Manual replay for 2 times. The 2nd checks if the replay can restart.
+  std::unique_ptr<TraceRecord> record;
+  for (int i = 0; i < 2; i++) {
+    // NextTraceRecord should fail if unprepared.
+    ASSERT_TRUE(replayer->NextTraceRecord(nullptr).IsIncomplete());
+    ASSERT_OK(replayer->Prepare());
     Status s = Status::OK();
-    uint64_t last_ts = replayer->GetHeaderTimestamp();
-    int num_ops = 0;
     // Looping until trace end.
     while (s.ok()) {
-      std::unique_ptr<TraceRecord> record;
       s = replayer->NextTraceRecord(&record);
       // Skip unsupported operations.
       if (s.IsNotSupported()) {
         continue;
       }
       if (s.ok()) {
-        // A TraceRecord's timestamp must be no smaller than the header
-        // timestamp and the timestamp of its previous trace record.
-        ASSERT_GE(record->timestamp, last_ts);
-        last_ts = record->timestamp;
         ASSERT_OK(replayer->Execute(std::move(record)));
-        num_ops++;
       }
-    }
-    // The 2nd iteration was not prepared, hence no trace record should be read
-    // and executed (the first call to NextTraceRecord should return
-    // Status::Incomplete()).
-    if (i == 2) {
-      ASSERT_EQ(num_ops, 0);
-    } else {
-      ASSERT_GE(num_ops, 1);
     }
     // Status::Incomplete() will be returned when manually reading the trace
     // end, or Prepare() was not called.
     ASSERT_TRUE(s.IsIncomplete());
     ASSERT_TRUE(replayer->NextTraceRecord(nullptr).IsIncomplete());
   }
+
+  ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
+  ASSERT_EQ("1", value);
+  ASSERT_OK(db2->Get(ro, handles[0], "g", &value));
+  ASSERT_EQ("12", value);
+  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
+
+  ASSERT_OK(db2->Get(ro, handles[1], "foo", &value));
+  ASSERT_EQ("bar", value);
+  ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
+  ASSERT_EQ("rocks", value);
+
+  // Test execution of artificially created TraceRecords.
+  uint64_t fake_ts = 1U;
+  // Write
+  batch.Clear();
+  batch.Put("trace-record-write1", "write1");
+  batch.Put("trace-record-write2", "write2");
+  record.reset(new WriteQueryTraceRecord(batch.Data(), fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write1", &value));
+  ASSERT_EQ("write1", value);
+  ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write2", &value));
+  ASSERT_EQ("write2", value);
+
+  // Get related
+  // Get an existing key.
+  record.reset(new GetQueryTraceRecord(handles[0]->GetID(),
+                                       "trace-record-write1", fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get an non-existing key, should still return Status::OK().
+  record.reset(new GetQueryTraceRecord(handles[0]->GetID(), "trace-record-get",
+                                       fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get from an invalid (non-existing) cf_id.
+  uint32_t invalid_cf_id = handles[1]->GetID() + 1;
+  record.reset(new GetQueryTraceRecord(invalid_cf_id, "whatever", fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+
+  // Iteration related
+  for (IteratorSeekQueryTraceRecord::SeekType seekType :
+       {IteratorSeekQueryTraceRecord::kSeek,
+        IteratorSeekQueryTraceRecord::kSeekForPrev}) {
+    // Seek to an existing key.
+    record.reset(new IteratorSeekQueryTraceRecord(
+        seekType, handles[0]->GetID(), "trace-record-write1", fake_ts++));
+    ASSERT_OK(replayer->Execute(std::move(record)));
+    // Seek to an non-existing key, should still return Status::OK().
+    record.reset(new IteratorSeekQueryTraceRecord(
+        seekType, handles[0]->GetID(), "trace-record-get", fake_ts++));
+    ASSERT_OK(replayer->Execute(std::move(record)));
+    // Seek from an invalid cf_id.
+    record.reset(new IteratorSeekQueryTraceRecord(seekType, invalid_cf_id,
+                                                  "whatever", fake_ts++));
+    ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+  }
+
+  // MultiGet related
+  // Get existing keys.
+  record.reset(new MultiGetQueryTraceRecord(
+      {handles[0]->GetID(), handles[1]->GetID()}, {"a", "foo"}, fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get all non-existing keys, should still return Status::OK().
+  record.reset(new MultiGetQueryTraceRecord(
+      {handles[0]->GetID(), handles[1]->GetID()}, {"no1", "no2"}, fake_ts++));
+  // Get mixed of existing and non-existing keys, should still return
+  // Status::OK().
+  record.reset(new MultiGetQueryTraceRecord(
+      {handles[0]->GetID(), handles[1]->GetID()}, {"a", "no2"}, fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get from an invalid (non-existing) cf_id.
+  record.reset(new MultiGetQueryTraceRecord(
+      {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id},
+      {"a", "foo", "whatever"}, fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+
   replayer.reset();
 
   for (auto handle : handles) {
