@@ -495,11 +495,11 @@ void CompactionIterator::NextFromInput() {
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
       }
-      assert(current_user_key_snapshot_ == last_snapshot);
-      if (current_user_key_snapshot_ != last_snapshot) {
+      assert(current_user_key_snapshot_ >= last_snapshot);
+      if (current_user_key_snapshot_ < last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
                         "current_user_key_snapshot_ (%" PRIu64
-                        ") != last_snapshot (%" PRIu64 ")",
+                        ") < last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
       }
 
