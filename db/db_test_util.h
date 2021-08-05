@@ -675,6 +675,14 @@ class SpecialEnv : public EnvWrapper {
     }
   }
 
+  Status RenameFile(const std::string& src, const std::string& dest) override {
+    rename_count_.fetch_add(1);
+    if (rename_error_.load(std::memory_order_acquire)) {
+      return Status::NotSupported("Simulated `RenameFile()` error.");
+    }
+    return target()->RenameFile(src, dest);
+  }
+
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
 
@@ -701,6 +709,9 @@ class SpecialEnv : public EnvWrapper {
 
   // Force write to log files to fail while this pointer is non-nullptr
   std::atomic<bool> log_write_error_;
+
+  // Force `RenameFile()` to fail while this pointer is non-nullptr
+  std::atomic<bool> rename_error_{false};
 
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
@@ -744,6 +755,8 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
+
+  std::atomic<int> rename_count_{0};
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 

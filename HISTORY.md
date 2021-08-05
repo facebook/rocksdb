@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Removed a call to `RenameFile()` on a non-existent info log file ("LOG") when opening a new DB. Such a call was guaranteed to fail though did not impact applications since we swallowed the error. Now we also stopped swallowing errors in renaming "LOG" file.
+
 ## 6.23.2 (2021-08-04)
 ### Bug Fixes
 * Fixed a race related to the destruction of `ColumnFamilyData` objects. The earlier logic unlocked the DB mutex before destroying the thread-local `SuperVersion` pointers, which could result in a process crash if another thread managed to get a reference to the `ColumnFamilyData` object.
