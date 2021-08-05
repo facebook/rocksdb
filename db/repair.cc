@@ -286,23 +286,15 @@ class Repairer {
     }
 
     // search wal_dir if user uses a customize wal_dir
-    bool same = false;
-    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
-    if (status.IsNotSupported()) {
-      same = db_options_.wal_dir == dbname_;
-      status = Status::OK();
-    } else if (!status.ok()) {
-      return status;
-    }
-
+    bool same = immutable_db_options_.IsWalDirSameAsDBPath(dbname_);
     if (!same) {
-      to_search_paths.push_back(db_options_.wal_dir);
+      to_search_paths.push_back(immutable_db_options_.wal_dir);
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
       ROCKS_LOG_INFO(db_options_.info_log, "Searching path %s\n",
                      to_search_paths[path_id].c_str());
-      status = env_->GetChildren(to_search_paths[path_id], &filenames);
+      Status status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -339,10 +331,11 @@ class Repairer {
   }
 
   void ConvertLogFilesToTables() {
+    const auto& wal_dir = immutable_db_options_.GetWalDir();
     for (size_t i = 0; i < logs_.size(); i++) {
       // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
-      std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
-      Status status = ConvertLogToTable(logs_[i]);
+      std::string logname = LogFileName(wal_dir, logs_[i]);
+      Status status = ConvertLogToTable(wal_dir, logs_[i]);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Log #%" PRIu64 ": ignoring conversion error: %s",
@@ -352,7 +345,7 @@ class Repairer {
     }
   }
 
-  Status ConvertLogToTable(uint64_t log) {
+  Status ConvertLogToTable(const std::string& wal_dir, uint64_t log) {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
       std::shared_ptr<Logger> info_log;
@@ -365,7 +358,7 @@ class Repairer {
     };
 
     // Open the log file
-    std::string logname = LogFileName(db_options_.wal_dir, log);
+    std::string logname = LogFileName(wal_dir, log);
     const auto& fs = env_->GetFileSystem();
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(

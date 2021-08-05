@@ -590,6 +590,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
+    autovector<std::list<std::unique_ptr<FlushJobInfo>>*>
+        committed_flush_jobs_info;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i]->GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
@@ -597,13 +599,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
         tmp_file_meta.emplace_back(&file_meta[i]);
+#ifndef ROCKSDB_LITE
+        committed_flush_jobs_info.emplace_back(
+            jobs[i]->GetCommittedFlushJobsInfo());
+#endif  //! ROCKSDB_LITE
       }
     }
 
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
         versions_.get(), &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
-        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+        committed_flush_jobs_info, &job_context->memtables_to_free,
+        directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok()) {
@@ -3469,7 +3476,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, mutable_cf_options);
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

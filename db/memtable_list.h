@@ -140,6 +140,8 @@ class MemTableListVersion {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, LogsWithPrepTracker* prep_tracker,
       InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+      const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+          committed_flush_jobs_info,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
@@ -275,8 +277,7 @@ class MemTableList {
   // By default, adding memtables will flag that the memtable list needs to be
   // flushed, but in certain situations, like after a mempurge, we may want to
   // avoid flushing the memtable list upon addition of a memtable.
-  void Add(MemTable* m, autovector<MemTable*>* to_delete,
-           bool trigger_flush = true);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
@@ -416,6 +417,8 @@ class MemTableList {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, LogsWithPrepTracker* prep_tracker,
       InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+      const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+          committed_flush_jobs_info,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
@@ -470,6 +473,8 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
     const autovector<FileMetaData*>& file_meta,
+    const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+        committed_flush_jobs_info,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer);
 }  // namespace ROCKSDB_NAMESPACE
