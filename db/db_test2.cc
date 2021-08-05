@@ -4487,6 +4487,13 @@ TEST_F(DBTest2, TraceAndManualReplay) {
       {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id},
       {"a", "foo", "whatever"}, fake_ts++));
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+  // Empty MultiGet
+  record.reset(new MultiGetQueryTraceRecord({}, {}, fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
+  // MultiGet size mismatch
+  record.reset(new MultiGetQueryTraceRecord(
+      {handles[0]->GetID(), handles[1]->GetID()}, {"a"}, fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
 
   replayer.reset();
 

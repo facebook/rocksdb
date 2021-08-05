@@ -252,7 +252,7 @@ Status TracerHelper::DecodeMultiGetRecord(
     return Status::Corruption("MultiGet is not supported.");
   }
 
-  uint32_t multiget_size;
+  uint32_t multiget_size = 0;
   std::vector<uint32_t> cf_ids;
   std::vector<Slice> multiget_keys;
 
@@ -279,6 +279,9 @@ Status TracerHelper::DecodeMultiGetRecord(
     }
     // unset the rightmost bit.
     payload_map &= (payload_map - 1);
+  }
+  if (multiget_size == 0) {
+    return Status::InvalidArgument("Empty MultiGet cf_ids or keys.");
   }
 
   // Decode the cfids_payload and keys_payload
@@ -873,7 +876,7 @@ Status ReplayerImpl::ExecuteMultiGetTrace(
     return Status::InvalidArgument("Empty MultiGet cf_ids or keys.");
   }
   if (r->cf_ids.size() != r->keys.size()) {
-    return Status::Corruption("MultiGet cf_ids and keys size mismatch.");
+    return Status::InvalidArgument("MultiGet cf_ids and keys size mismatch.");
   }
 
   std::vector<ColumnFamilyHandle*> handles;
