@@ -307,11 +307,13 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), 0, 0, 0, 0, kNoCompression,
-      mutable_cf_options.compression_opts, Temperature::kWarm,
+      std::move(inputs), 0, 0 /* output file size limit */,
+      0 /* max compaction bytes, not applicable */, 0 /* output path ID */,
+      mutable_cf_options.compression, mutable_cf_options.compression_opts,
+      Temperature::kWarm,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       vstorage->CompactionScore(0),
-      /* is deletion compaction */ false, CompactionReason::kFIFOTtl);
+      /* is deletion compaction */ false, CompactionReason::kChangeTemperature);
   return c;
 }
 
