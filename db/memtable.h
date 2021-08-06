@@ -148,13 +148,22 @@ class MemTable {
 
   // Returns a vector of unique random memtable entries of size 'sample_size'.
   //
+  // Note: the entries are stored in the unordered_set as length-prefixed keys,
+  //       hence their representation in the set as "const char*".
+  // Note2: the size of the output set 'entries' is not enforced to be strictly
+  //        equal to 'target_sample_size'. Its final size might be slightly
+  //        greater or slightly less than 'target_sample_size'
+  //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  void UniqueRandomSample(const uint64_t& sample_size,
+  // REQUIRES: SkipList memtable representation. This function is not
+  // implemented for any other type of memtable representation (vectorrep,
+  // hashskiplist,...).
+  void UniqueRandomSample(const uint64_t& target_sample_size,
                           std::unordered_set<const char*>* entries) {
     // TODO(bjlemaire): at the moment, only supported by skiplistrep.
     // Extend it to all other memtable representations.
-    table_->UniqueRandomSample(num_entries(), sample_size, entries);
+    table_->UniqueRandomSample(num_entries(), target_sample_size, entries);
   }
 
   // This method heuristically determines if the memtable should continue to

@@ -462,6 +462,8 @@ class MemTableList {
 
   // Store the IDs of the memtables installed in this
   // list that result from a mempurge operation.
+  // The value stored in the map is the estimated useful payload ratio
+  // at the time the mempurge happens.
   std::unordered_map<uint64_t, double> mempurged_ids_;
 };
 

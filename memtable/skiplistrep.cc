@@ -96,32 +96,49 @@ public:
   }
 
   void UniqueRandomSample(const uint64_t& num_entries,
-                          const uint64_t& sample_size,
+                          const uint64_t& target_sample_size,
                           std::unordered_set<const char*>* entries) override {
     entries->clear();
+    // Avoid divide-by-0.
+    assert(target_sample_size > 0);
+    assert(num_entries > 0);
+    // NOTE: the size of entries is not enforced to be exactly
+    // target_sample_size at the end of this function, it might be slightly
+    // greater or smaller.
     SkipListRep::Iterator iter(&skip_list_);
-    // If the sample size is at least 25% of the total number of elements
-    // in the skip list, then simply iterate linearly over the list.
-    // (25% is arbitrary, could sample_size>N/log(N) if we assume iterating
-    // over each sample is O(N) and RandomSeek calls would be
-    // O(sample_size*log(N))).
-    if (sample_size >= (num_entries / 4)) {
-      Random rnd(1234);
-      int n = (sample_size > num_entries)
+    // There are two methods to create the subset of samples (size m)
+    // from the table containing N elements:
+    // 1-Iterate through N, and sample a Bernoulli distribution of p=m/N.
+    // 2-Pick m random elements without repetition.
+    // We pick Option 2 when m<N/10 and
+    // Option 1 when m > N/10.
+    if (target_sample_size > num_entries / 10) {
+      // Option 1: iterate through each element, and store it in sample
+      // subset if Bernoulli dist returns true.
+      Random* rnd = Random::GetTLSInstance();
+      int n = (target_sample_size > num_entries)
                   ? 1
-                  : static_cast<int>(num_entries / sample_size);
+                  : static_cast<int>(num_entries / target_sample_size);
       for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
-        if (rnd.OneIn(n)) {
+        if (rnd->OneIn(n)) {
           entries->insert(iter.key());
         }
       }
     } else {
-      for (uint64_t i = 0; i < sample_size; i++) {
-        do {
-          iter.RandomSeek();
-        } while (!iter.Valid() ||
-                 (entries->find(iter.key()) != entries->end()));
-        entries->insert(iter.key());
+      // Option 2: pick m random elements
+      // If Option 2 is picked, then target_sample_size<N/10
+      // Using a set spares the need to check for duplicates.
+      for (uint64_t i = 0; i < target_sample_size; i++) {
+        // We give it 5 attempts to find a non-duplicate
+        // At worst, for the final pick , when m=N/10 there is 10%
+        // chances to find a duplicate. So chances to fail finding
+        // a non-duplicate after 5 attempts is 0.001%.
+        for (uint64_t j = 0; j < 5; j++) {
+          if (entries->find(iter.key()) == entries->end()) {
+            entries->insert(iter.key());
+            break;
+          }
+        }
       }
     }
   }

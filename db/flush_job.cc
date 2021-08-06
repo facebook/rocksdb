@@ -638,8 +638,6 @@ bool FlushJob::MemPurgeDecider() {
     // If estimated_useful_payload is > 100%,
     // then flush to storage, else MemPurge.
     double estimated_useful_payload = 0.0;
-    // // Cochran formula for determining sample size.
-    // double n0 = (1.96*1.96)*0.25/(0.07*0.07)
     // Cochran formula for determining sample size.
     // 95% confidence interval, 7% precision.
     // double n0 = (1.96*1.96)*0.25/(0.07*0.07)
@@ -659,11 +657,11 @@ bool FlushJob::MemPurgeDecider() {
         uint64_t nentries = mt->num_entries();
         // Corrected Cochran formula for small populations
         // (converges to n0 for large populations).
-        uint64_t sample_size =
+        uint64_t target_sample_size =
             static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
         std::unordered_set<const char*> sentries = {};
         // Populate sample entries set.
-        mt->UniqueRandomSample(sample_size, &sentries);
+        mt->UniqueRandomSample(target_sample_size, &sentries);
 
         // Estimate the garbage ratio by comparing if
         // each sample corresponds to a valid entry.
@@ -727,6 +725,10 @@ bool FlushJob::MemPurgeDecider() {
         }
         if (payload > 0) {
           estimated_useful_payload += useful_payload * 1.0 / payload;
+          ROCKS_LOG_INFO(
+              db_options_.info_log,
+              "Mempurge kSampling policy: garbage ratio from sampling: %f.\n",
+              (payload - useful_payload) * 1.0 / payload);
         } else {
           ROCKS_LOG_WARN(
               db_options_.info_log,
@@ -734,10 +736,6 @@ bool FlushJob::MemPurgeDecider() {
               "sample size is %zu\n.",
               sentries.size());
         }
-        ROCKS_LOG_INFO(
-            db_options_.info_log,
-            "Mempurge kSampling policy: garbage ratio from sampling: %f.\n",
-            (payload - useful_payload) * 1.0 / payload);
       }
     }
     return estimated_useful_payload < 1.0;
