@@ -262,54 +262,8 @@ class OptionTypeInfo {
   // @param map The string to enum mapping for this enum
   template <typename T>
   static OptionTypeInfo Enum(
-      int offset, const std::unordered_map<std::string, T>* const map) {
-    return OptionTypeInfo(
-        offset, OptionType::kEnum, OptionVerificationType::kNormal,
-        OptionTypeFlags::kNone,
-        // Uses the map argument to convert the input string into
-        // its corresponding enum value.  If value is found in the map,
-        // addr is updated to the corresponding map entry.
-        // @return OK if the value is found in the map
-        // @return InvalidArgument if the value is not found in the map
-        [map](const ConfigOptions&, const std::string& name,
-              const std::string& value, void* addr) {
-          if (map == nullptr) {
-            return Status::NotSupported("No enum mapping ", name);
-          } else if (ParseEnum<T>(*map, value, static_cast<T*>(addr))) {
-            return Status::OK();
-          } else {
-            return Status::InvalidArgument("No mapping for enum ", name);
-          }
-        },
-        // Uses the map argument to convert the input enum into
-        // its corresponding string value.  If enum value is found in the map,
-        // value is updated to the corresponding string value in the map.
-        // @return OK if the enum is found in the map
-        // @return InvalidArgument if the enum is not found in the map
-        [map](const ConfigOptions&, const std::string& name, const void* addr,
-              std::string* value) {
-          if (map == nullptr) {
-            return Status::NotSupported("No enum mapping ", name);
-          } else if (SerializeEnum<T>(*map, (*static_cast<const T*>(addr)),
-                                      value)) {
-            return Status::OK();
-          } else {
-            return Status::InvalidArgument("No mapping for enum ", name);
-          }
-        },
-        // Casts addr1 and addr2 to the enum type and returns true if
-        // they are equal, false otherwise.
-        [](const ConfigOptions&, const std::string&, const void* addr1,
-           const void* addr2, std::string*) {
-          return (*static_cast<const T*>(addr1) ==
-                  *static_cast<const T*>(addr2));
-        });
-  }  // End OptionTypeInfo::Enum
-
-  template <typename T>
-  static OptionTypeInfo Enum(
       int offset, const std::unordered_map<std::string, T>* const map,
-      OptionTypeFlags flags) {
+      OptionTypeFlags flags = OptionTypeFlags::kNone) {
     return OptionTypeInfo(
         offset, OptionType::kEnum, OptionVerificationType::kNormal, flags,
         // Uses the map argument to convert the input string into
