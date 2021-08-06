@@ -2,6 +2,7 @@
 ## 6.23.3 (2021-08-04)
 ### Bug Fixes
 * Removed a call to `RenameFile()` on a non-existent info log file ("LOG") when opening a new DB. Such a call was guaranteed to fail though did not impact applications since we swallowed the error. Now we also stopped swallowing errors in renaming "LOG" file.
+* Fixed a bug affecting the batched `MultiGet` API when used with keys spanning multiple column families and `sorted_input == false`.
 
 ## 6.23.2 (2021-08-04)
 ### Bug Fixes
