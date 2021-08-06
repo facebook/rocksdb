@@ -196,8 +196,11 @@ class MemTableRep {
     return 0;
   }
 
-  virtual void UniqueRandomSample(const uint64_t& sample_size,
+  // Returns a vector of unique random memtable entries of size 'sample_size'.
+  virtual void UniqueRandomSample(const uint64_t& num_entries,
+                                  const uint64_t& sample_size,
                                   std::unordered_set<const char*>* entries) {
+    (void)num_entries;
     (void)sample_size;
     (void)entries;
   }

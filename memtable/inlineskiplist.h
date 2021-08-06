@@ -572,16 +572,25 @@ InlineSkipList<Comparator>::FindLast() const {
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindRandomEntry() const {
-  // Note: It looks like we could reduce duplication by implementing
-  // this function as FindLessThan(key)->Next(0), but we wouldn't be able
-  // to exit early on equality and the result wouldn't even be correct.
-  // A concurrent insert might occur after FindLessThan(key) but before
-  // we get a chance to call Next(0).
+  // TODO(bjlemaire): consider adding PREFETCH calls.
   Node *x = head_, *scan_node = nullptr, *limit_node = nullptr;
+
+  // We start at the max level.
+  // FOr each level, we look at all the nodes at the level, and
+  // we randomly pick one of them. Then decrement the level
+  // and reiterate the process.
+  // eg: assume GetMaxHeight()=5, and there are #100 elements (nodes).
+  // level 4 nodes: lvl_nodes={#1, #15, #67, #84}. Randomly pick #15.
+  // We will consider all the nodes between #15 (inclusive) and #67
+  // (exclusive). #67 is called 'limit_node' here.
+  // level 3 nodes: lvl_nodes={#15, #21, #45, #51}. Randomly choose
+  // #51. #67 remains 'limit_node'.
+  // [...]
+  // level 0 nodes: lvl_nodes={#56,#57,#58,#59}. Randomly pick $57.
+  // Return Node #57.
   std::vector<Node*> lvl_nodes;
   Random* rnd = Random::GetTLSInstance();
   int level = GetMaxHeight() - 1;
-  // PREFETCH(x->Next(level));
 
   while (level >= 0) {
     lvl_nodes.clear();
@@ -597,6 +606,8 @@ InlineSkipList<Comparator>::FindRandomEntry() const {
     }
     level--;
   }
+  // There is a special case where x could still be the head_
+  // (note that the head_ contains no key).
   return x == head_ ? head_->Next(0) : x;
 }
 

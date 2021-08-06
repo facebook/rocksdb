@@ -1046,6 +1046,8 @@ static enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
     return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
   } else if (!strcasecmp(mpolicy, "kAlternate")) {
     return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
+  } else if (!strcasecmp(mpolicy, "kSampling")) {
+    return ROCKSDB_NAMESPACE::MemPurgePolicy::kSampling;
   }
 
   fprintf(stdout, "Cannot parse mempurge policy '%s'\n", mpolicy);

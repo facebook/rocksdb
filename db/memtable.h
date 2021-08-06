@@ -146,23 +146,15 @@ class MemTable {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
   }
 
-  // Returns an estimate of the number of bytes of data in use by this
-  // data structure.
+  // Returns a vector of unique random memtable entries of size 'sample_size'.
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
   void UniqueRandomSample(const uint64_t& sample_size,
                           std::unordered_set<const char*>* entries) {
-    if (sample_size > (num_entries_ / 2)) {
-      ReadOptions ro;
-      ro.total_order_seek = true;
-      Arena arena;
-      InternalIterator* iter(NewIterator(ro, &arena));
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        entries->insert(iter->key().data());
-      }
-    }
-    table_->UniqueRandomSample(sample_size, entries);
+    // TODO(bjlemaire): at the moment, only supported by skiplistrep.
+    // Extend it to all other memtable representations.
+    table_->UniqueRandomSample(num_entries(), sample_size, entries);
   }
 
   // This method heuristically determines if the memtable should continue to

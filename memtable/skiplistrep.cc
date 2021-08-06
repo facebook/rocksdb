@@ -95,16 +95,32 @@ public:
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
-  void UniqueRandomSample(const uint64_t& sample_size,
+  void UniqueRandomSample(const uint64_t& num_entries,
+                          const uint64_t& sample_size,
                           std::unordered_set<const char*>* entries) override {
-    // double ApproximateGarbageRatio(const uint64_t sample_size) override {
     entries->clear();
     SkipListRep::Iterator iter(&skip_list_);
-    for (uint64_t i = 0; i < sample_size; i++) {
-      do {
-        iter.RandomSeek();
-      } while (!iter.Valid() || (entries->find(iter.key()) != entries->end()));
-      entries->insert(iter.key());
+    // If the sample size is at least 25% of the total number of elements
+    // in the skip list, then simply iterate linearly over the list.
+    // (25% is arbitrary, could sample_size>N/log(N) if we assume iterating
+    // over each sample is O(N) and RandomSeek calls would be
+    // O(sample_size*log(N))).
+    if (sample_size >= (num_entries / 4)) {
+      Random rnd(1234);
+      int n = (sample_size > num_entries) ? 1 : num_entries / sample_size;
+      for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
+        if (rnd.OneIn(n)) {
+          entries->insert(iter.key());
+        }
+      }
+    } else {
+      for (uint64_t i = 0; i < sample_size; i++) {
+        do {
+          iter.RandomSeek();
+        } while (!iter.Valid() ||
+                 (entries->find(iter.key()) != entries->end()));
+        entries->insert(iter.key());
+      }
     }
   }
 

@@ -623,7 +623,6 @@ Status FlushJob::MemPurge() {
 
 bool FlushJob::MemPurgeDecider() {
   MemPurgePolicy policy = db_options_.experimental_mempurge_policy;
-  policy = MemPurgePolicy::kSampling;
   if (policy == MemPurgePolicy::kAlways) {
     return true;
   } else if (policy == MemPurgePolicy::kAlternate) {
@@ -663,7 +662,11 @@ bool FlushJob::MemPurgeDecider() {
         uint64_t sample_size =
             static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
         std::unordered_set<const char*> sentries = {};
+        // Populate sample entries set.
         mt->UniqueRandomSample(sample_size, &sentries);
+
+        // Estimate the garbage ratio by comparing if
+        // each sample corresponds to a valid entry.
         for (const char* ss : sentries) {
           ParsedInternalKey res;
           Slice entry_slice = GetLengthPrefixedSlice(ss);
@@ -678,6 +681,7 @@ bool FlushJob::MemPurgeDecider() {
                               &max_covering_tombstone_seq, &sqno, ro);
           (void)gres;
           payload += entry_slice.size();
+          // TODO(bjlemaire): evaluate typeMerge.
           if (res.type == kTypeValue && s.ok() && sqno == res.sequence) {
             useful_payload += entry_slice.size();
           } else if (((res.type == kTypeDeletion) ||
@@ -685,15 +689,11 @@ bool FlushJob::MemPurgeDecider() {
                      s.IsNotFound()) {
             useful_payload += entry_slice.size();
           }
-          ROCKS_LOG_INFO(
-              db_options_.info_log,
-              "Mempurge something something, res is %s, seq is %" PRIu64 ".\n",
-              res.user_key.data(), res.sequence);
         }
         estimated_useful_payload += useful_payload * 1.0 / payload;
         ROCKS_LOG_INFO(
             db_options_.info_log,
-            "Mempurge something something, garbage ratio from sampling: %f.\n",
+            "Mempurge kSampling policy: garbage ratio from sampling: %f.\n",
             (payload - useful_payload) * 1.0 / payload);
       }
     }
