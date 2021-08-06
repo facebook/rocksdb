@@ -1730,7 +1730,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     if (type == kWalFile) {
       dst = wal_dir + "/" + dst;
       if (options_.sync && !wal_dir_for_fsync) {
-        s = db_env_->NewDirectory(wal_dir, &db_dir_for_fsync);
+        s = db_env_->NewDirectory(wal_dir, &wal_dir_for_fsync);
         if (!s.ok()) {
           return s;
         }
