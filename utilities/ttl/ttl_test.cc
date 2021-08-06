@@ -27,7 +27,7 @@ enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 class SpecialTimeEnv : public EnvWrapper {
  public:
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
-    base->GetCurrentTime(&current_time_);
+    EXPECT_OK(base->GetCurrentTime(&current_time_));
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
@@ -95,7 +95,7 @@ class TtlTest : public testing::Test {
   void CloseTtlHelper(bool close_db) {
     if (db_ttl_ != nullptr) {
       if (close_db) {
-        db_ttl_->Close();
+        EXPECT_OK(db_ttl_->Close());
       }
       delete db_ttl_;
       db_ttl_ = nullptr;
@@ -137,17 +137,17 @@ class TtlTest : public testing::Test {
     for (int64_t i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
         case OP_PUT:
-          batch.Put(kv_it_->first, kv_it_->second);
+          ASSERT_OK(batch.Put(kv_it_->first, kv_it_->second));
           break;
         case OP_DELETE:
-          batch.Delete(kv_it_->first);
+          ASSERT_OK(batch.Delete(kv_it_->first));
           break;
         default:
           FAIL();
       }
     }
-    db_ttl_->Write(wopts, &batch);
-    db_ttl_->Flush(flush_opts);
+    ASSERT_OK(db_ttl_->Write(wopts, &batch));
+    ASSERT_OK(db_ttl_->Flush(flush_opts));
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
@@ -170,20 +170,32 @@ class TtlTest : public testing::Test {
                             : db_ttl_->Put(wopts, cf, "keymock", "valuemock"));
     if (flush) {
       if (cf == nullptr) {
-        db_ttl_->Flush(flush_opts);
+        ASSERT_OK(db_ttl_->Flush(flush_opts));
       } else {
-        db_ttl_->Flush(flush_opts, cf);
+        ASSERT_OK(db_ttl_->Flush(flush_opts, cf));
       }
     }
   }
 
   // Runs a manual compaction
-  void ManualCompact(ColumnFamilyHandle* cf = nullptr) {
+  Status ManualCompact(ColumnFamilyHandle* cf = nullptr) {
     if (cf == nullptr) {
-      db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      return db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     } else {
-      db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr);
+      return db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr);
     }
+  }
+
+  // Runs a DeleteRange
+  void MakeDeleteRange(std::string start, std::string end,
+                       ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
+    static WriteOptions wops;
+    WriteBatch wb;
+    ASSERT_OK(cf == nullptr
+                  ? wb.DeleteRange(db_ttl_->DefaultColumnFamily(), start, end)
+                  : wb.DeleteRange(cf, start, end));
+    ASSERT_OK(db_ttl_->Write(wops, &wb));
   }
 
   // checks the whole kvmap_ to return correct values using KeyMayExist
@@ -225,18 +237,9 @@ class TtlTest : public testing::Test {
     }
   }
 
-  // Sleeps for slp_tim then runs a manual compaction
-  // Checks span starting from st_pos from kvmap_ in the db and
-  // Gets should return true if check is true and false otherwise
-  // Also checks that value that we got is the same as inserted; and =kNewValue
-  //   if test_compaction_change is true
-  void SleepCompactCheck(int slp_tim, int64_t st_pos, int64_t span,
-                         bool check = true, bool test_compaction_change = false,
-                         ColumnFamilyHandle* cf = nullptr) {
-    ASSERT_TRUE(db_ttl_);
-
-    env_->Sleep(slp_tim);
-    ManualCompact(cf);
+  void CompactCheck(int64_t st_pos, int64_t span, bool check = true,
+                    bool test_compaction_change = false,
+                    ColumnFamilyHandle* cf = nullptr) {
     static ReadOptions ropts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
@@ -267,13 +270,27 @@ class TtlTest : public testing::Test {
       }
     }
   }
+  // Sleeps for slp_tim then runs a manual compaction
+  // Checks span starting from st_pos from kvmap_ in the db and
+  // Gets should return true if check is true and false otherwise
+  // Also checks that value that we got is the same as inserted; and =kNewValue
+  //   if test_compaction_change is true
+  void SleepCompactCheck(int slp_tim, int64_t st_pos, int64_t span,
+                         bool check = true, bool test_compaction_change = false,
+                         ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
+
+    env_->Sleep(slp_tim);
+    ASSERT_OK(ManualCompact(cf));
+    CompactCheck(st_pos, span, check, test_compaction_change, cf);
+  }
 
   // Similar as SleepCompactCheck but uses TtlIterator to read from db
   void SleepCompactCheckIter(int slp, int st_pos, int64_t span,
                              bool check = true) {
     ASSERT_TRUE(db_ttl_);
     env_->Sleep(slp);
-    ManualCompact();
+    ASSERT_OK(ManualCompact());
     static ReadOptions ropts;
     Iterator *dbiter = db_ttl_->NewIterator(ropts);
     kv_it_ = kvmap_.begin();
@@ -292,6 +309,7 @@ class TtlTest : public testing::Test {
         dbiter->Next();
       }
     }
+    ASSERT_OK(dbiter->status());
     delete dbiter;
   }
 
@@ -534,11 +552,16 @@ TEST_F(TtlTest, ReadOnlyPresentForever) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);                                 // T=0:Open the db normally
-  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=1
+  PutValues(0, kSampleSize_);                 // T=0:Insert Set1. Delete at t=1
   CloseTtl();
 
   OpenReadOnlyTtl(1);
-  SleepCompactCheck(2, 0, kSampleSize_);       // T=2:Set1 should still be there
+  ASSERT_TRUE(db_ttl_);
+
+  env_->Sleep(2);
+  Status s = ManualCompact();  // T=2:Set1 should still be there
+  ASSERT_TRUE(s.IsNotSupported());
+  CompactCheck(0, kSampleSize_);
   CloseTtl();
 }
 
@@ -670,6 +693,29 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   SetTtl(3);
   PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
   SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
+  CloseTtl();
+}
+
+// Test DeleteRange for DBWithTtl
+TEST_F(TtlTest, DeleteRangeTest) {
+  OpenTtl();
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  MakeDeleteRange("a", "b");
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  MakeDeleteRange("b", "d");
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "e", "val"));
+  MakeDeleteRange("d", "e");
+  // first iteration verifies query correctness in memtable, second verifies
+  // query correctness for a single SST file
+  for (int i = 0; i < 2; i++) {
+    if (i > 0) {
+      ASSERT_OK(db_ttl_->Flush(FlushOptions()));
+    }
+    std::string value;
+    ASSERT_TRUE(db_ttl_->Get(ReadOptions(), "a", &value).IsNotFound());
+    ASSERT_TRUE(db_ttl_->Get(ReadOptions(), "c", &value).IsNotFound());
+    ASSERT_OK(db_ttl_->Get(ReadOptions(), "e", &value));
+  }
   CloseTtl();
 }
 

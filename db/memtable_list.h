@@ -76,7 +76,7 @@ class MemTableListVersion {
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback, bool* is_blob);
+                ReadCallback* callback);
 
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one.
@@ -138,8 +138,10 @@ class MemTableListVersion {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
-      VersionSet* vset, InstrumentedMutex* mu,
-      const autovector<FileMetaData*>& file_meta,
+      VersionSet* vset, LogsWithPrepTracker* prep_tracker,
+      InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+      const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+          committed_flush_jobs_info,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
@@ -251,7 +253,7 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(const uint64_t* max_memtable_id,
+  void PickMemtablesToFlush(uint64_t max_memtable_id,
                             autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
@@ -268,10 +270,13 @@ class MemTableList {
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-      IOStatus* io_s);
+      IOStatus* io_s, bool write_edits = true);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
+  // By default, adding memtables will flag that the memtable list needs to be
+  // flushed, but in certain situations, like after a mempurge, we may want to
+  // avoid flushing the memtable list upon addition of a memtable.
   void Add(MemTable* m, autovector<MemTable*>* to_delete);
 
   // Returns an estimate of the number of bytes of data in use.
@@ -308,7 +313,18 @@ class MemTableList {
   // non-empty (regardless of the min_write_buffer_number_to_merge
   // parameter). This flush request will persist until the next time
   // PickMemtablesToFlush() is called.
-  void FlushRequested() { flush_requested_ = true; }
+  void FlushRequested() {
+    flush_requested_ = true;
+    // If there are some memtables stored in imm() that dont trigger
+    // flush (eg: mempurge output memtable), then update imm_flush_needed.
+    // Note: if race condition and imm_flush_needed is set to true
+    // when there is num_flush_not_started_==0, then there is no
+    // impact whatsoever. Imm_flush_needed is only used in an assert
+    // in IsFlushPending().
+    if (num_flush_not_started_ > 0) {
+      imm_flush_needed.store(true, std::memory_order_release);
+    }
+  }
 
   bool HasFlushRequested() { return flush_requested_; }
 
@@ -335,7 +351,7 @@ class MemTableList {
   // Returns the min log containing the prep section after memtables listsed in
   // `memtables_to_flush` are flushed and their status is persisted in manifest.
   uint64_t PrecomputeMinLogContainingPrepSection(
-      const autovector<MemTable*>& memtables_to_flush);
+      const std::unordered_set<MemTable*>* memtables_to_flush = nullptr);
 
   uint64_t GetEarliestMemTableID() const {
     auto& memlist = current_->memlist_;
@@ -374,6 +390,24 @@ class MemTableList {
   // not freed, but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
+  void AddMemPurgeOutputID(uint64_t mid) {
+    if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
+      mempurged_ids_.insert(mid);
+    }
+  }
+
+  void RemoveMemPurgeOutputID(uint64_t mid) {
+    if (mempurged_ids_.find(mid) != mempurged_ids_.end()) {
+      mempurged_ids_.erase(mid);
+    }
+  }
+
+  bool IsMemPurgeOutput(uint64_t mid) {
+    if (mempurged_ids_.find(mid) == mempurged_ids_.end()) {
+      return false;
+    }
+    return true;
+  }
 
  private:
   friend Status InstallMemtableAtomicFlushResults(
@@ -381,13 +415,22 @@ class MemTableList {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
-      VersionSet* vset, InstrumentedMutex* mu,
-      const autovector<FileMetaData*>& file_meta,
+      VersionSet* vset, LogsWithPrepTracker* prep_tracker,
+      InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+      const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+          committed_flush_jobs_info,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
   // DB mutex held
   void InstallNewVersion();
+
+  // DB mutex held
+  // Called after writing to MANIFEST
+  void RemoveMemTablesOrRestoreFlags(const Status& s, ColumnFamilyData* cfd,
+                                     size_t batch_count, LogBuffer* log_buffer,
+                                     autovector<MemTable*>* to_delete,
+                                     InstrumentedMutex* mu);
 
   const int min_write_buffer_number_to_merge_;
 
@@ -411,6 +454,10 @@ class MemTableList {
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;
+
+  // Store the IDs of the memtables installed in this
+  // list that result from a mempurge operation.
+  std::unordered_set<uint64_t> mempurged_ids_;
 };
 
 // Installs memtable atomic flush results.
@@ -424,7 +471,10 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
-    InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+    LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
+    const autovector<FileMetaData*>& file_meta,
+    const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+        committed_flush_jobs_info,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer);
 }  // namespace ROCKSDB_NAMESPACE

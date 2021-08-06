@@ -461,4 +461,52 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * @return the time-to-live.
    */
   long ttl();
+
+  /**
+   * Files older than this value will be picked up for compaction, and
+   * re-written to the same level as they were before.
+   * One main use of the feature is to make sure a file goes through compaction
+   * filters periodically. Users can also use the feature to clear up SST
+   * files using old format.
+   *
+   * A file's age is computed by looking at file_creation_time or creation_time
+   * table properties in order, if they have valid non-zero values; if not, the
+   * age is based on the file's last modified time (given by the underlying
+   * Env).
+   *
+   * Supported in Level and FIFO compaction.
+   * In FIFO compaction, this option has the same meaning as TTL and whichever
+   * stricter will be used.
+   * Pre-req: max_open_file == -1.
+   * unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
+   *
+   * Values:
+   * 0: Turn off Periodic compactions.
+   * UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
+   *     as needed. For now, RocksDB will change this value to 30 days
+   *     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
+   *     process at least once every 30 days if not compacted sooner.
+   *     In FIFO compaction, since the option has the same meaning as ttl,
+   *     when this value is left default, and ttl is left to 0, 30 days will be
+   *     used. Otherwise, min(ttl, periodic_compaction_seconds) will be used.
+   *
+   * Default: 0xfffffffffffffffe (allow RocksDB to auto-tune)
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param periodicCompactionSeconds the periodic compaction in seconds.
+   *
+   * @return the reference to the current options.
+   */
+  T setPeriodicCompactionSeconds(final long periodicCompactionSeconds);
+
+  /**
+   * Get the periodicCompactionSeconds.
+   *
+   * See {@link #setPeriodicCompactionSeconds(long)}.
+   *
+   * @return the periodic compaction in seconds.
+   */
+  long periodicCompactionSeconds();
 }

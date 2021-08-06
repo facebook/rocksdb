@@ -22,6 +22,13 @@ class NonBatchedOpsStressTest : public StressTest {
 
   void VerifyDb(ThreadState* thread) const override {
     ReadOptions options(FLAGS_verify_checksum, true);
+    std::string ts_str;
+    Slice ts;
+    if (FLAGS_user_timestamp_size > 0) {
+      ts_str = GenerateTimestampForRead();
+      ts = ts_str;
+      options.timestamp = &ts;
+    }
     auto shared = thread->shared;
     const int64_t max_key = shared->GetMaxKey();
     const int64_t keys_per_thread = max_key / shared->GetNumThreads();
@@ -477,6 +484,8 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t max_key = shared->GetMaxKey();
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
+    std::string write_ts_str;
+    Slice write_ts;
     while (!shared->AllowsOverwrite(rand_key) &&
            (FLAGS_use_merge || shared->Exists(rand_column_family, rand_key))) {
       lock.reset();
@@ -484,6 +493,11 @@ class NonBatchedOpsStressTest : public StressTest {
       rand_column_family = thread->rand.Next() % FLAGS_column_families;
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
+      if (FLAGS_user_timestamp_size > 0) {
+        write_ts_str = NowNanosStr();
+        write_ts = write_ts_str;
+        write_opts.timestamp = &write_ts;
+      }
     }
 
     std::string key_str = Key(rand_key);
@@ -538,8 +552,18 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
     if (!s.ok()) {
-      fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
@@ -559,6 +583,8 @@ class NonBatchedOpsStressTest : public StressTest {
     // OPERATION delete
     // If the chosen key does not allow overwrite and it does not exist,
     // choose another key.
+    std::string write_ts_str;
+    Slice write_ts;
     while (!shared->AllowsOverwrite(rand_key) &&
            !shared->Exists(rand_column_family, rand_key)) {
       lock.reset();
@@ -566,6 +592,11 @@ class NonBatchedOpsStressTest : public StressTest {
       rand_column_family = thread->rand.Next() % FLAGS_column_families;
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
+      if (FLAGS_user_timestamp_size > 0) {
+        write_ts_str = NowNanosStr();
+        write_ts = write_ts_str;
+        write_opts.timestamp = &write_ts;
+      }
     }
 
     std::string key_str = Key(rand_key);
@@ -594,8 +625,19 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->Delete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
@@ -616,8 +658,19 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     }
     return s;
@@ -663,8 +716,18 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
     if (!s.ok()) {
-      fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     int covered = shared->DeleteRange(rand_column_family, rand_key,
                                       rand_key + FLAGS_range_deletion_width,

@@ -24,6 +24,7 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -171,25 +172,6 @@ const Comparator* ComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
-WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
-                                          const std::string& fname) {
-  std::unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                                fname, EnvOptions());
-}
-
-RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
-  std::unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                    "[test RandomAccessFileReader]");
-}
-
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
-                                              const std::string& fname) {
-  std::unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname);
-}
-
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;
@@ -203,6 +185,38 @@ std::string KeyStr(const std::string& user_key, const SequenceNumber& seq,
     CorruptKeyType(&k);
   }
   return k.Encode().ToString();
+}
+
+std::string KeyStr(uint64_t ts, const std::string& user_key,
+                   const SequenceNumber& seq, const ValueType& t,
+                   bool corrupt) {
+  std::string user_key_with_ts(user_key);
+  std::string ts_str;
+  PutFixed64(&ts_str, ts);
+  user_key_with_ts.append(ts_str);
+  return KeyStr(user_key_with_ts, seq, t, corrupt);
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilSleeping(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!sleeping_ || !should_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilDone(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!done_with_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string RandomName(Random* rnd, const size_t len) {
@@ -309,6 +323,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
+  db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
   db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
@@ -370,12 +385,14 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
   cf_opt->enable_blob_files = rnd->Uniform(2);
+  cf_opt->enable_blob_garbage_collection = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
+  cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
@@ -458,6 +475,26 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
   return s.ok();
 }
 
+bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& dir) {
+  bool supported = false;
+  std::string tmp = TempFileName(dir, 999);
+  Random rnd(301);
+  std::string test_string = rnd.RandomString(4096);
+  Slice data(test_string);
+  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  if (s.ok()) {
+    std::unique_ptr<FSRandomAccessFile> file;
+    auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
+    if (io_s.ok()) {
+      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
+                        .IsNotSupported());
+    }
+    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+  }
+  return s.ok() && supported;
+}
+
 size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   std::stringstream ssbuf;
   std::string line;
@@ -475,46 +512,93 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
-
-void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
-  struct stat sbuf;
-  if (stat(fname.c_str(), &sbuf) != 0) {
-    // strerror is not thread-safe so should not be used in the "passing" path
-    // of unit tests (sometimes parallelized) but is OK here where test fails
-    const char* msg = strerror(errno);
-    fprintf(stderr, "%s:%s\n", fname.c_str(), msg);
-    assert(false);
-  }
-
-  if (offset < 0) {
+Status CorruptFile(Env* env, const std::string& fname, int offset,
+                   int bytes_to_corrupt, bool verify_checksum /*=true*/) {
+  uint64_t size;
+  Status s = env->GetFileSize(fname, &size);
+  if (!s.ok()) {
+    return s;
+  } else if (offset < 0) {
     // Relative to end of file; make it absolute
-    if (-offset > sbuf.st_size) {
+    if (-offset > static_cast<int>(size)) {
       offset = 0;
     } else {
-      offset = static_cast<int>(sbuf.st_size + offset);
+      offset = static_cast<int>(size + offset);
     }
   }
-  if (offset > sbuf.st_size) {
-    offset = static_cast<int>(sbuf.st_size);
+  if (offset > static_cast<int>(size)) {
+    offset = static_cast<int>(size);
   }
-  if (offset + bytes_to_corrupt > sbuf.st_size) {
-    bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
+  if (offset + bytes_to_corrupt > static_cast<int>(size)) {
+    bytes_to_corrupt = static_cast<int>(size - offset);
   }
 
   // Do it
   std::string contents;
-  Status s = ReadFileToString(Env::Default(), fname, &contents);
-  assert(s.ok());
-  for (int i = 0; i < bytes_to_corrupt; i++) {
-    contents[i + offset] ^= 0x80;
+  s = ReadFileToString(env, fname, &contents);
+  if (s.ok()) {
+    for (int i = 0; i < bytes_to_corrupt; i++) {
+      contents[i + offset] ^= 0x80;
+    }
+    s = WriteStringToFile(env, contents, fname);
   }
-  s = WriteStringToFile(Env::Default(), contents, fname);
-  assert(s.ok());
-  Options options;
-  EnvOptions env_options;
+  if (s.ok() && verify_checksum) {
 #ifndef ROCKSDB_LITE
-  assert(!VerifySstFileChecksum(options, env_options, fname).ok());
+    Options options;
+    options.env = env;
+    EnvOptions env_options;
+    Status v = VerifySstFileChecksum(options, env_options, fname);
+    assert(!v.ok());
 #endif
+  }
+  return s;
+}
+
+Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
+  uint64_t old_length;
+  Status s = env->GetFileSize(fname, &old_length);
+  if (!s.ok() || new_length == old_length) {
+    return s;
+  }
+  // Do it
+  std::string contents;
+  s = ReadFileToString(env, fname, &contents);
+  if (s.ok()) {
+    contents.resize(static_cast<size_t>(new_length), 'b');
+    s = WriteStringToFile(env, contents, fname);
+  }
+  return s;
+}
+
+// Try and delete a directory if it exists
+Status TryDeleteDir(Env* env, const std::string& dirname) {
+  bool is_dir = false;
+  Status s = env->IsDirectory(dirname, &is_dir);
+  if (s.ok() && is_dir) {
+    s = env->DeleteDir(dirname);
+  }
+  return s;
+}
+
+// Delete a directory if it exists
+void DeleteDir(Env* env, const std::string& dirname) {
+  TryDeleteDir(env, dirname).PermitUncheckedError();
+}
+
+Status CreateEnvFromSystem(const ConfigOptions& config_options, Env** result,
+                           std::shared_ptr<Env>* guard) {
+  const char* env_uri = getenv("TEST_ENV_URI");
+  const char* fs_uri = getenv("TEST_FS_URI");
+  if (env_uri || fs_uri) {
+    return Env::CreateFromUri(config_options,
+                              (env_uri != nullptr) ? env_uri : "",
+                              (fs_uri != nullptr) ? fs_uri : "", result, guard);
+  } else {
+    // Neither specified.  Use the default
+    *result = config_options.env;
+    guard->reset();
+    return Status::OK();
+  }
 }
 
 }  // namespace test

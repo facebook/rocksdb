@@ -160,6 +160,16 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
 }
 
 #ifndef ROCKSDB_LITE
+
+const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
+
+static std::unordered_map<std::string, PinningTier>
+    pinning_tier_type_string_map = {
+        {"kFallback", PinningTier::kFallback},
+        {"kNone", PinningTier::kNone},
+        {"kFlushedAndSimilar", PinningTier::kFlushedAndSimilar},
+        {"kAll", PinningTier::kAll}};
+
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
@@ -187,6 +197,29 @@ static std::unordered_map<std::string,
         {"kShortenSeparatorsAndSuccessor",
          BlockBasedTableOptions::IndexShorteningMode::
              kShortenSeparatorsAndSuccessor}};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    metadata_cache_options_type_info = {
+        {"top_level_index_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct MetadataCacheOptions, top_level_index_pinning),
+             &pinning_tier_type_string_map)},
+        {"partition_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct MetadataCacheOptions, partition_pinning),
+             &pinning_tier_type_string_map)},
+        {"unpartitioned_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct MetadataCacheOptions, unpartitioned_pinning),
+             &pinning_tier_type_string_map)}};
+
+static std::unordered_map<std::string,
+                          BlockBasedTableOptions::PrepopulateBlockCache>
+    block_base_table_prepopulate_block_cache_string_map = {
+        {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
+        {"kFlushOnly",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+
 #endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -197,9 +230,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
          */
         {"flush_block_policy_factory",
-         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
-          OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kCompareNever}},
+         OptionTypeInfo::AsCustomSharedPtr<FlushBlockPolicyFactory>(
+             offsetof(struct BlockBasedTableOptions,
+                      flush_block_policy_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareNever)},
         {"cache_index_and_filter_blocks",
          {offsetof(struct BlockBasedTableOptions,
                    cache_index_and_filter_blocks),
@@ -280,17 +314,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone,
           // Parses the Filter policy
           [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, char* addr) {
+             const std::string& value, void* addr) {
             auto* policy =
-                reinterpret_cast<std::shared_ptr<const FilterPolicy>*>(addr);
+                static_cast<std::shared_ptr<const FilterPolicy>*>(addr);
             return FilterPolicy::CreateFromString(opts, value, policy);
           },
           // Converts the FilterPolicy to its string representation
-          [](const ConfigOptions&, const std::string&, const char* addr,
+          [](const ConfigOptions&, const std::string&, const void* addr,
              std::string* value) {
             const auto* policy =
-                reinterpret_cast<const std::shared_ptr<const FilterPolicy>*>(
-                    addr);
+                static_cast<const std::shared_ptr<const FilterPolicy>*>(addr);
             if (policy->get()) {
               *value = (*policy)->Name();
             } else {
@@ -299,15 +332,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           },
           // Compares two FilterPolicy objects for equality
-          [](const ConfigOptions&, const std::string&, const char* addr1,
-             const char* addr2, std::string*) {
+          [](const ConfigOptions&, const std::string&, const void* addr1,
+             const void* addr2, std::string*) {
             const auto* policy1 =
-                reinterpret_cast<const std::shared_ptr<const FilterPolicy>*>(
-                    addr1)
+                static_cast<const std::shared_ptr<const FilterPolicy>*>(addr1)
                     ->get();
             const auto* policy2 =
-                reinterpret_cast<const std::shared_ptr<FilterPolicy>*>(addr2)
-                    ->get();
+                static_cast<const std::shared_ptr<FilterPolicy>*>(addr2)->get();
             if (policy1 == policy2) {
               return true;
             } else if (policy1 != nullptr && policy2 != nullptr) {
@@ -333,8 +364,24 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"read_amp_bytes_per_bit",
          {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
-          OptionType::kSizeT, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone,
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            // A workaround to fix a bug in 6.10, 6.11, 6.12, 6.13
+            // and 6.14. The bug will write out 8 bytes to OPTIONS file from the
+            // starting address of BlockBasedTableOptions.read_amp_bytes_per_bit
+            // which is actually a uint32. Consequently, the value of
+            // read_amp_bytes_per_bit written in the OPTIONS file is wrong.
+            // From 6.15, RocksDB will try to parse the read_amp_bytes_per_bit
+            // from OPTIONS file as a uint32. To be able to load OPTIONS file
+            // generated by affected releases before the fix, we need to
+            // manually parse read_amp_bytes_per_bit with this special hack.
+            uint64_t read_amp_bytes_per_bit = ParseUint64(value);
+            *(static_cast<uint32_t*>(addr)) =
+                static_cast<uint32_t>(read_amp_bytes_per_bit);
+            return Status::OK();
+          }}},
         {"enable_index_compression",
          {offsetof(struct BlockBasedTableOptions, enable_index_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -348,14 +395,19 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    pin_top_level_index_and_filter),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {kOptNameMetadataCacheOpts,
+         OptionTypeInfo::Struct(
+             kOptNameMetadataCacheOpts, &metadata_cache_options_type_info,
+             offsetof(struct BlockBasedTableOptions, metadata_cache_options),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"block_cache",
          {offsetof(struct BlockBasedTableOptions, block_cache),
           OptionType::kUnknown, OptionVerificationType::kNormal,
           (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
           // Parses the input vsalue as a Cache
           [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, char* addr) {
-            auto* cache = reinterpret_cast<std::shared_ptr<Cache>*>(addr);
+             const std::string& value, void* addr) {
+            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
         {"block_cache_compressed",
@@ -364,10 +416,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
           // Parses the input vsalue as a Cache
           [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, char* addr) {
-            auto* cache = reinterpret_cast<std::shared_ptr<Cache>*>(addr);
+             const std::string& value, void* addr) {
+            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"max_auto_readahead_size",
+         {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"prepopulate_block_cache",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::PrepopulateBlockCache>(
+             offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
+             &block_base_table_prepopulate_block_cache_string_map,
+             OptionTypeFlags::kMutable)},
+
 #endif  // ROCKSDB_LITE
 };
 
@@ -377,8 +439,7 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &block_based_table_type_info);
+  RegisterOptions(&table_options_, &block_based_table_type_info);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -438,28 +499,16 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
-      table_reader_options.max_file_size_for_l0_meta_pin);
+      table_reader_options.max_file_size_for_l0_meta_pin,
+      table_reader_options.cur_db_session_id,
+      table_reader_options.cur_file_num);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_builder_options.moptions,
-      table_options_, table_builder_options.internal_comparator,
-      table_builder_options.int_tbl_prop_collector_factories, column_family_id,
-      file, table_builder_options.compression_type,
-      table_builder_options.sample_for_compression,
-      table_builder_options.compression_opts,
-      table_builder_options.skip_filters,
-      table_builder_options.column_family_name, table_builder_options.level,
-      table_builder_options.creation_time,
-      table_builder_options.oldest_key_time,
-      table_builder_options.target_file_size,
-      table_builder_options.file_creation_time, table_builder_options.db_id,
-      table_builder_options.db_session_id);
-
-  return table_builder;
+  return new BlockBasedTableBuilder(table_options_, table_builder_options,
+                                    file);
 }
 
 Status BlockBasedTableFactory::ValidateOptions(
@@ -640,6 +689,13 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.max_auto_readahead_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  prepopulate_block_cache: %d\n",
+           static_cast<int>(table_options_.prepopulate_block_cache));
+  ret.append(buffer);
   return ret;
 }
 
@@ -731,8 +787,14 @@ Status GetBlockBasedTableOptionsFromString(
   if (!s.ok()) {
     return s;
   }
-  return GetBlockBasedTableOptionsFromMap(config_options, table_options,
-                                          opts_map, new_table_options);
+  s = GetBlockBasedTableOptionsFromMap(config_options, table_options, opts_map,
+                                       new_table_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetBlockBasedTableOptionsFromMap(

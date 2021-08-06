@@ -12,18 +12,22 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/system_clock.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-IOTraceWriter::IOTraceWriter(Env* env, const TraceOptions& trace_options,
+IOTraceWriter::IOTraceWriter(SystemClock* clock,
+                             const TraceOptions& trace_options,
                              std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
+    : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
+Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record,
+                                IODebugContext* dbg) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
@@ -31,32 +35,63 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
   Trace trace;
   trace.ts = record.access_timestamp;
   trace.type = record.trace_type;
+  PutFixed64(&trace.payload, record.io_op_data);
   Slice file_operation(record.file_operation);
   PutLengthPrefixedSlice(&trace.payload, file_operation);
   PutFixed64(&trace.payload, record.latency);
   Slice io_status(record.io_status);
   PutLengthPrefixedSlice(&trace.payload, io_status);
-  /* Write remaining options based on trace_type set by file operation */
-  switch (record.trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      PutFixed64(&trace.payload, record.file_size);
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      Slice file_name(record.file_name);
-      PutLengthPrefixedSlice(&trace.payload, file_name);
-      break;
+  Slice file_name(record.file_name);
+  PutLengthPrefixedSlice(&trace.payload, file_name);
+
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
+  /* Write remaining options based on io_op_data set by file operation */
+  int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        PutFixed64(&trace.payload, record.file_size);
+        break;
+      case IOTraceOp::kIOLen:
+        PutFixed64(&trace.payload, record.len);
+        break;
+      case IOTraceOp::kIOOffset:
+        PutFixed64(&trace.payload, record.offset);
+        break;
+      default:
+        assert(false);
     }
-    case TraceType::kIOLenAndOffset:
-      PutFixed64(&trace.payload, record.offset);
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen:
-      PutFixed64(&trace.payload, record.len);
-      break;
-    default:
-      assert(false);
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
   }
+
+  int64_t trace_data = 0;
+  if (dbg) {
+    trace_data = static_cast<int64_t>(dbg->trace_data);
+  }
+  PutFixed64(&trace.payload, trace_data);
+  while (trace_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
+    switch (set_pos) {
+      case IODebugContext::TraceData::kRequestID: {
+        Slice request_id(dbg->request_id);
+        PutLengthPrefixedSlice(&trace.payload, request_id);
+      } break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    trace_data &= (trace_data - 1);
+  }
+
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
   return trace_writer_->Write(encoded_trace);
@@ -64,7 +99,7 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
 
 Status IOTraceWriter::WriteHeader() {
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = TraceType::kTraceBegin;
   PutLengthPrefixedSlice(&trace.payload, kTraceMagic);
   PutFixed32(&trace.payload, kMajorVersion);
@@ -135,6 +170,10 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
   record->trace_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
 
+  if (!GetFixed64(&enc_slice, &record->io_op_data)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read trace data.");
+  }
   Slice file_operation;
   if (!GetLengthPrefixedSlice(&enc_slice, &file_operation)) {
     return Status::Incomplete(
@@ -151,41 +190,75 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
         "Incomplete access record: Failed to read IO status.");
   }
   record->io_status = io_status.ToString();
-  /* Read remaining options based on trace_type set by file operation */
-  switch (record->trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      if (!GetFixed64(&enc_slice, &record->file_size)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read file size.");
-      }
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      Slice file_name;
-      if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read file name.");
-      }
-      record->file_name = file_name.ToString();
-      break;
-    }
-    case TraceType::kIOLenAndOffset:
-      if (!GetFixed64(&enc_slice, &record->offset)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read offset.");
-      }
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen: {
-      if (!GetFixed64(&enc_slice, &record->len)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read length.");
-      }
-      break;
-    }
-    default:
-      assert(false);
+  Slice file_name;
+  if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read file name.");
   }
+  record->file_name = file_name.ToString();
+
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
+  /* Read remaining options based on io_op_data set by file operation */
+  // Assuming 63 bits will be used at max.
+  int64_t io_op_data = static_cast<int64_t>(record->io_op_data);
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        if (!GetFixed64(&enc_slice, &record->file_size)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read file size.");
+        }
+        break;
+      case IOTraceOp::kIOLen:
+        if (!GetFixed64(&enc_slice, &record->len)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read length.");
+        }
+        break;
+      case IOTraceOp::kIOOffset:
+        if (!GetFixed64(&enc_slice, &record->offset)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read offset.");
+        }
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
+  }
+
+  if (!GetFixed64(&enc_slice, &record->trace_data)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read trace op.");
+  }
+  int64_t trace_data = static_cast<int64_t>(record->trace_data);
+  while (trace_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
+    switch (set_pos) {
+      case IODebugContext::TraceData::kRequestID: {
+        Slice request_id;
+        if (!GetLengthPrefixedSlice(&enc_slice, &request_id)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to request id.");
+        }
+        record->request_id = request_id.ToString();
+      } break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    trace_data &= (trace_data - 1);
+  }
+
   return Status::OK();
 }
 
@@ -193,14 +266,16 @@ IOTracer::IOTracer() : tracing_enabled(false) { writer_.store(nullptr); }
 
 IOTracer::~IOTracer() { EndIOTrace(); }
 
-Status IOTracer::StartIOTrace(Env* env, const TraceOptions& trace_options,
+Status IOTracer::StartIOTrace(SystemClock* clock,
+                              const TraceOptions& trace_options,
                               std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
     return Status::Busy();
   }
   trace_options_ = trace_options;
-  writer_.store(new IOTraceWriter(env, trace_options, std::move(trace_writer)));
+  writer_.store(
+      new IOTraceWriter(clock, trace_options, std::move(trace_writer)));
   tracing_enabled = true;
   return writer_.load()->WriteHeader();
 }
@@ -215,14 +290,14 @@ void IOTracer::EndIOTrace() {
   tracing_enabled = false;
 }
 
-Status IOTracer::WriteIOOp(const IOTraceRecord& record) {
+void IOTracer::WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg) {
   if (!writer_.load()) {
-    return Status::OK();
+    return;
   }
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (!writer_.load()) {
-    return Status::OK();
+    return;
   }
-  return writer_.load()->WriteIOOp(record);
+  writer_.load()->WriteIOOp(record, dbg).PermitUncheckedError();
 }
 }  // namespace ROCKSDB_NAMESPACE

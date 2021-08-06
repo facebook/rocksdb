@@ -625,7 +625,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *    then WAL_size_limit_MB, they will be deleted starting with the
    *    earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    WAL files will be checked every WAL_ttl_seconds / 2 and those that
    *    are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    *    checks will be performed with ttl being first.</li>
@@ -648,7 +648,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * then WAL_size_limit_MB, they will be deleted starting with the
    * earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   * WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   * WAL files will be checked every WAL_ttl_seconds / 2 and those that
    * are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    * checks will be performed with ttl being first.</li>
@@ -1055,24 +1055,31 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    */
   boolean useAdaptiveMutex();
 
-  //TODO(AR) NOW
-//  /**
-//   * Sets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @param listeners the listeners who should be notified on various events.
-//   *
-//   * @return the instance of the current object.
-//   */
-//  T setListeners(final List<EventListener> listeners);
-//
-//  /**
-//   * Gets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @return a collection of Event listeners.
-//   */
-//  Collection<EventListener> listeners();
+  /**
+   * Sets the {@link EventListener}s whose callback functions
+   * will be called when specific RocksDB event happens.
+   *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
+   *
+   * @param listeners the listeners who should be notified on various events.
+   *
+   * @return the instance of the current object.
+   */
+  T setListeners(final List<AbstractEventListener> listeners);
+
+  /**
+   * Sets the {@link EventListener}s whose callback functions
+   * will be called when specific RocksDB event happens.
+   *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
+   *
+   * @return the instance of the current object.
+   */
+  List<AbstractEventListener> listeners();
 
   /**
    * If true, then the status of the threads involved in this DB will

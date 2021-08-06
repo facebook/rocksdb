@@ -14,8 +14,10 @@
 
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,13 +28,6 @@ class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
-
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
 
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created
@@ -118,8 +113,13 @@ enum class FlushReason : int {
   // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
   // will not be called to avoid many small immutable memtables.
   kErrorRecoveryRetryFlush = 0xc,
+  kWalFull = 0xd,
 };
 
+// TODO: In the future, BackgroundErrorReason will only be used to indicate
+// why the BG Error is happening (e.g., flush, compaction). We may introduce
+// other data structure to indicate other essential information such as
+// the file type (e.g., Manifest, SST) and special context.
 enum class BackgroundErrorReason {
   kFlush,
   kCompaction,
@@ -127,6 +127,7 @@ enum class BackgroundErrorReason {
   kMemTable,
   kManifestWrite,
   kFlushNoWAL,
+  kManifestWriteNoWAL,
 };
 
 enum class WriteStallCondition {
@@ -333,13 +334,18 @@ struct ExternalFileIngestionInfo {
 // be used as a building block for developing custom features such as
 // stats-collector or external compaction algorithm.
 //
-// Note that callback functions should not run for an extended period of
-// time before the function returns, otherwise RocksDB may be blocked.
-// For example, it is not suggested to do DB::CompactFiles() (as it may
-// run for a long while) or issue many of DB::Put() (as Put may be blocked
-// in certain cases) in the same thread in the EventListener callback.
-// However, doing DB::CompactFiles() and DB::Put() in another thread is
-// considered safe.
+// IMPORTANT
+// Because compaction is needed to resolve a "writes stopped" condition,
+// calling or waiting for any blocking DB write function (no_slowdown=false)
+// from a compaction-related listener callback can hang RocksDB. For DB
+// writes from a callback we recommend a WriteBatch and no_slowdown=true,
+// because the WriteBatch can accumulate writes for later in case DB::Write
+// returns Status::Incomplete. Similarly, calling CompactRange or similar
+// could hang by waiting for a background worker that is occupied until the
+// callback returns.
+//
+// Otherwise, callback functions should not run for an extended period of
+// time before the function returns, because this will slow RocksDB.
 //
 // [Threading] All EventListener callback will be called using the
 // actual thread that involves in that specific event.   For example, it
@@ -350,8 +356,17 @@ struct ExternalFileIngestionInfo {
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
-class EventListener {
+class EventListener : public Customizable {
  public:
+  static const char* Type() { return "EventListener"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& id,
+                                 std::shared_ptr<EventListener>* result);
+  const char* Name() const override {
+    // Since EventListeners did not have a name previously, we will assume
+    // an empty name.  Instances should override this method.
+    return "";
+  }
   // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.

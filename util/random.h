@@ -92,6 +92,9 @@ class Random {
   // Generates a random string of len bytes using human-readable characters
   std::string HumanReadableString(int len);
 
+  // Generates a random binary data
+  std::string RandomBinaryString(int len);
+
   // Returns a Random instance for use by the current thread without
   // additional locking
   static Random* GetTLSInstance();

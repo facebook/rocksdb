@@ -2,20 +2,18 @@ dist: xenial
 language: cpp
 os:
   - linux
-  - osx
 arch:
-  - amd64
   - arm64
   - ppc64le
 compiler:
   - clang
   - gcc
-osx_image: xcode9.4
 cache:
   - ccache
 
 addons:
   apt:
+    update: true
     sources:
       - ubuntu-toolchain-r-test
     packages:
@@ -26,15 +24,6 @@ addons:
       - liblzma-dev  # xv
       - libzstd-dev
       - zlib1g-dev
-  homebrew:
-    update: true
-    packages:
-      - ccache
-      - gflags
-      - lz4
-      - snappy
-      - xz
-      - zstd
 
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
@@ -58,20 +47,6 @@ env:
 
 matrix:
   exclude:
-  - os: osx
-    env: JOB_NAME=cmake-gcc8
-  - os: osx
-    env: JOB_NAME=cmake-gcc9
-  - os: osx
-    env: JOB_NAME=cmake-gcc9-c++20
-  - os: osx
-    env: JOB_NAME=cmake-mingw
-  - os: osx
-    env: JOB_NAME=make-gcc4.8
-  - os: osx
-    arch: ppc64le
-  - os: osx
-    compiler: gcc
   - os : linux
     arch: arm64
     env: JOB_NAME=cmake-mingw
@@ -86,73 +61,46 @@ matrix:
     env: JOB_NAME=make-gcc4.8
   - os: linux
     compiler: clang
-  # Exclude all but most unique cmake variants for pull requests, but build all in branches
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: arm64
+    env: TEST_GROUP=platform_dependent
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
-    arch: amd64
+    arch: arm64
+    env: TEST_GROUP=1
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=1
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=2
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=2
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=3
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=3
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=4
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=4
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os : linux
+    arch: arm64
     env: JOB_NAME=cmake
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: amd64
-    env: JOB_NAME=cmake-gcc8
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: amd64
-    env: JOB_NAME=cmake-gcc9
-  # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
-  # Temporarily disable ppc64le cmake test while snapd is broken
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: JOB_NAME=cmake
-  # NB: the cmake build is a partial java test
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: osx
-    env: TEST_GROUP=1
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: arm64
-    env: TEST_GROUP=1
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: TEST_GROUP=1
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: osx
-    env: TEST_GROUP=2
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: arm64
-    env: TEST_GROUP=2
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: TEST_GROUP=2
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: osx
-    env: TEST_GROUP=3
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: arm64
-    env: TEST_GROUP=3
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: TEST_GROUP=3
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: osx
-    env: TEST_GROUP=4
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: arm64
-    env: TEST_GROUP=4
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: TEST_GROUP=4
-  - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
-    os : osx
-    env: JOB_NAME=java_test
   - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os : linux
     arch: arm64
@@ -162,9 +110,6 @@ matrix:
     arch: ppc64le
     env: JOB_NAME=java_test
   - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : osx
-    env: JOB_NAME=lite_build
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=lite_build
@@ -172,9 +117,6 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=lite_build
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : osx
-    env: JOB_NAME=examples
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
@@ -207,9 +149,6 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc9-c++20
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : osx
-    env: JOB_NAME=status_checked
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
@@ -220,9 +159,6 @@ matrix:
     env: JOB_NAME=status_checked
 
 install:
-  - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      PATH=$PATH:/usr/local/opt/ccache/libexec;
-    fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
       sudo apt-get install -y g++-8 || exit $?;
       CC=gcc-8 && CXX=g++-8;
@@ -238,22 +174,21 @@ install:
       sudo apt-get install -y g++-4.8 || exit $?;
       CC=gcc-4.8 && CXX=g++-4.8;
     fi
-  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      sudo apt-get install snapd && sudo snap install cmake --beta --classic || exit $?;
-      export PATH=/snap/bin:$PATH;
+  - |
+    if [[ "${JOB_NAME}" == cmake* ]]; then
+      sudo apt-get remove -y cmake cmake-data
+      export CMAKE_DEB="cmake-3.14.5-Linux-$(uname -m).deb"
+      export CMAKE_DEB_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/${CMAKE_DEB}"
+      curl --silent --fail --show-error --location --output "${CMAKE_DEB}" "${CMAKE_DEB_URL}" || exit $?
+      sudo dpkg -i "${CMAKE_DEB}" || exit $?
+      which cmake && cmake --version
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
       # Ensure JDK 8
-      if [ "${TRAVIS_OS_NAME}" == osx ]; then
-        brew tap AdoptOpenJDK/openjdk || exit $?
-        brew cask install adoptopenjdk8 || exit $?
-        export JAVA_HOME=$(/usr/libexec/java_home)
-      else
-        sudo apt-get install -y openjdk-8-jdk || exit $?
-        export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
-        export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
-      fi
+      sudo apt-get install -y openjdk-8-jdk || exit $?
+      export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
+      export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
       echo "JAVA_HOME=${JAVA_HOME}"
       which java && java -version
       which javac && javac -version
@@ -269,30 +204,30 @@ script:
   - if [ `command -v ccache` ]; then ccache -C; fi
   - case $TEST_GROUP in
     platform_dependent)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j4 all_but_some_tests check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j4 all_but_some_tests check_some
       ;;
     1)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
       ;;
     2)
-      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
       ;;
     3)
       OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j4 check_some
       ;;
     4)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j4 check_some
       ;;
     esac
   - case $JOB_NAME in
     java_test)
-      OPT=-DTRAVIS V=1 make rocksdbjava jtest
+      OPT=-DTRAVIS LIB_MODE=shared V=1 make rocksdbjava jtest
       ;;
     lite_build)
-      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 all
+      OPT='-DTRAVIS -DROCKSDB_LITE' LIB_MODE=shared V=1 make -j4 all
       ;;
     examples)
-      OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
+      OPT=-DTRAVIS LIB_MODE=shared V=1 make -j4 static_lib && cd examples && make -j4
       ;;
     cmake-mingw)
       sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
@@ -308,10 +243,10 @@ script:
       mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
       ;;
     make-gcc4.8)
-      OPT=-DTRAVIS V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
+      OPT=-DTRAVIS LIB_MODE=shared V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
       ;;
     status_checked)
-      OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
       ;;
     esac
 notifications:

@@ -25,6 +25,7 @@
 
 #include "cache/lru_cache.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -74,7 +75,7 @@ namespace ROCKSDB_NAMESPACE {
 // If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
+  DBTest() : DBTestBase("db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam
@@ -247,17 +248,21 @@ TEST_F(DBTest, SkipDelay) {
       wo.sync = sync;
       wo.disableWAL = disableWAL;
       wo.no_slowdown = true;
-      dbfull()->Put(wo, "foo", "bar");
+      // Large enough to exceed allowance for one time interval
+      std::string large_value(1024, 'x');
+      // Perhaps ideally this first write would fail because of delay, but
+      // the current implementation does not guarantee that.
+      dbfull()->Put(wo, "foo", large_value).PermitUncheckedError();
       // We need the 2nd write to trigger delay. This is because delay is
       // estimated based on the last write size which is 0 for the first write.
-      ASSERT_NOK(dbfull()->Put(wo, "foo2", "bar2"));
+      ASSERT_NOK(dbfull()->Put(wo, "foo2", large_value));
       ASSERT_GE(sleep_count.load(), 0);
       ASSERT_GE(wait_count.load(), 0);
       token.reset();
 
-      token = dbfull()->TEST_write_controler().GetDelayToken(1000000000);
+      token = dbfull()->TEST_write_controler().GetDelayToken(1000000);
       wo.no_slowdown = false;
-      ASSERT_OK(dbfull()->Put(wo, "foo3", "bar3"));
+      ASSERT_OK(dbfull()->Put(wo, "foo3", large_value));
       ASSERT_GE(sleep_count.load(), 1);
       token.reset();
     }
@@ -904,6 +909,9 @@ TEST_F(DBTest, FlushSchedule) {
       static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferFull;
+  options.listeners.push_back(flush_listener);
   CreateAndReopenWithCF({"pikachu"}, options);
   std::vector<port::Thread> threads;
 
@@ -1020,10 +1028,10 @@ TEST_F(DBTest, FailMoreDbPaths) {
 }
 
 void CheckColumnFamilyMeta(
-    const ColumnFamilyMetaData& cf_meta,
+    const ColumnFamilyMetaData& cf_meta, const std::string& cf_name,
     const std::vector<std::vector<FileMetaData>>& files_by_level,
     uint64_t start_time, uint64_t end_time) {
-  ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
+  ASSERT_EQ(cf_meta.name, cf_name);
   ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
 
   uint64_t cf_size = 0;
@@ -1117,6 +1125,53 @@ void CheckLiveFilesMeta(
 }
 
 #ifndef ROCKSDB_LITE
+void AddBlobFile(const ColumnFamilyHandle* cfh, uint64_t blob_file_number,
+                 uint64_t total_blob_count, uint64_t total_blob_bytes,
+                 const std::string& checksum_method,
+                 const std::string& checksum_value,
+                 uint64_t garbage_blob_count = 0,
+                 uint64_t garbage_blob_bytes = 0) {
+  ColumnFamilyData* cfd =
+      (static_cast<const ColumnFamilyHandleImpl*>(cfh))->cfd();
+  assert(cfd);
+
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  // Add a live blob file.
+
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+      checksum_value);
+
+  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                       BlobFileMetaData::LinkedSsts(),
+                                       garbage_blob_count, garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
+}
+
+static void CheckBlobMetaData(
+    const BlobMetaData& bmd, uint64_t blob_file_number,
+    uint64_t total_blob_count, uint64_t total_blob_bytes,
+    const std::string& checksum_method, const std::string& checksum_value,
+    uint64_t garbage_blob_count = 0, uint64_t garbage_blob_bytes = 0) {
+  ASSERT_EQ(bmd.blob_file_number, blob_file_number);
+  ASSERT_EQ(bmd.blob_file_name, BlobFileName("", blob_file_number));
+  ASSERT_EQ(bmd.blob_file_size,
+            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
+
+  ASSERT_EQ(bmd.total_blob_count, total_blob_count);
+  ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
+  ASSERT_EQ(bmd.garbage_blob_count, garbage_blob_count);
+  ASSERT_EQ(bmd.garbage_blob_bytes, garbage_blob_bytes);
+  ASSERT_EQ(bmd.checksum_method, checksum_method);
+  ASSERT_EQ(bmd.checksum_value, checksum_value);
+}
+
 TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -1157,11 +1212,69 @@ TEST_F(DBTest, MetaDataTest) {
 
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
-
+  CheckColumnFamilyMeta(cf_meta, kDefaultColumnFamilyName, files_by_level,
+                        start_time, end_time);
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
   CheckLiveFilesMeta(live_file_meta, files_by_level);
+}
+
+TEST_F(DBTest, AllMetaDataTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
+
+  int64_t temp_time = 0;
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t start_time = static_cast<uint64_t>(temp_time);
+
+  Random rnd(301);
+  dbfull()->TEST_LockMutex();
+  for (int cf = 0; cf < 2; cf++) {
+    AddBlobFile(handles_[cf], blob_file_number * (cf + 1),
+                total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                checksum_method, checksum_value);
+  }
+  dbfull()->TEST_UnlockMutex();
+
+  std::vector<ColumnFamilyMetaData> all_meta;
+  db_->GetAllColumnFamilyMetaData(&all_meta);
+
+  std::vector<std::vector<FileMetaData>> default_files_by_level;
+  std::vector<std::vector<FileMetaData>> pikachu_files_by_level;
+  dbfull()->TEST_GetFilesMetaData(handles_[0], &default_files_by_level);
+  dbfull()->TEST_GetFilesMetaData(handles_[1], &pikachu_files_by_level);
+
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t end_time = static_cast<uint64_t>(temp_time);
+
+  ASSERT_EQ(all_meta.size(), 2);
+  for (int cf = 0; cf < 2; cf++) {
+    const auto& cfmd = all_meta[cf];
+    if (cf == 0) {
+      CheckColumnFamilyMeta(cfmd, "default", default_files_by_level, start_time,
+                            end_time);
+    } else {
+      CheckColumnFamilyMeta(cfmd, "pikachu", pikachu_files_by_level, start_time,
+                            end_time);
+    }
+    ASSERT_EQ(cfmd.blob_files.size(), 1U);
+    const auto& bmd = cfmd.blob_files[0];
+    ASSERT_EQ(cfmd.blob_file_count, 1U);
+    ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
+    ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+    CheckBlobMetaData(bmd, blob_file_number * (cf + 1),
+                      total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                      checksum_method, checksum_value);
+  }
 }
 
 namespace {
@@ -1305,51 +1418,6 @@ TEST_F(DBTest, DISABLED_RepeatedWritesToSameKey) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, SparseMerge) {
-  do {
-    Options options = CurrentOptions();
-    options.compression = kNoCompression;
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    FillLevels("A", "Z", 1);
-
-    // Suppose there is:
-    //    small amount of data with prefix A
-    //    large amount of data with prefix B
-    //    small amount of data with prefix C
-    // and that recent updates have made small changes to all three prefixes.
-    // Check that we do not do a compaction that merges all of B in one shot.
-    const std::string value(1000, 'x');
-    Put(1, "A", "va");
-    // Write approximately 100MB of "B" values
-    for (int i = 0; i < 100000; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
-    Put(1, "C", "vc");
-    ASSERT_OK(Flush(1));
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-
-    // Make sparse update
-    Put(1, "A", "va2");
-    Put(1, "B100", "bvalue2");
-    Put(1, "C", "vc2");
-    ASSERT_OK(Flush(1));
-
-    // Compactions should not cause us to create a situation where
-    // a file overlaps too much data at the next level.
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr);
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr);
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-  } while (ChangeCompactOptions());
-}
-
 #ifndef ROCKSDB_LITE
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);
@@ -1382,17 +1450,19 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   SizeApproximationOptions size_approx_options;
   size_approx_options.include_memtabtles = true;
   size_approx_options.include_files = true;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1402,13 +1472,15 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
@@ -1434,29 +1506,32 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
-                           &size_with_mt);
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                     &size_with_mt));
   ASSERT_GT(size_with_mt, 6000);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt);
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size_without_mt));
   ASSERT_EQ(size_without_mt, 0);
 
   Flush();
@@ -1468,15 +1543,16 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
-                           &size_with_mt);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt);
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                     &size_with_mt));
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size_without_mt));
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
 
   // Check that include_memtabtles flag works as expected
   size_approx_options.include_memtabtles = false;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, size_without_mt);
 
   // Check that files_size_error_margin works as expected, when the heuristic
@@ -1485,10 +1561,12 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   end = Key(1000 + N - 2);
   r = Range(start, end);
   size_approx_options.files_size_error_margin = -1.0;  // disabled
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   uint64_t size2;
   size_approx_options.files_size_error_margin = 0.5;  // enabled, but not used
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2));
   ASSERT_EQ(size, size2);
 }
 
@@ -1539,14 +1617,16 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
 
     // Get the precise size without any approximation heuristic
     uint64_t size;
-    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                       &size));
     ASSERT_NE(size, 0);
 
     // Get the size with an approximation heuristic
     uint64_t size2;
     const double error_margin = 0.2;
     size_approx_options.files_size_error_margin = error_margin;
-    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                       &size2));
     ASSERT_LT(size2, size * (1 + error_margin));
     ASSERT_GT(size2, size * (1 - error_margin));
   }
@@ -1562,7 +1642,7 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
       const std::string end = Key(i + 11);  // overlap by 1 key
       const Range r(start, end);
       uint64_t size;
-      db_->GetApproximateSizes(&r, 1, &size);
+      ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size));
       ASSERT_LE(size, 11 * 100);
     }
   }
@@ -1630,9 +1710,12 @@ TEST_F(DBTest, ApproximateSizes) {
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
+    uint64_t size;
+    ASSERT_OK(Size("", "xyz", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
-    ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
+    ASSERT_OK(Size("", "xyz", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
 
     // Write 8MB (80 values, each 100K)
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
@@ -1645,7 +1728,8 @@ TEST_F(DBTest, ApproximateSizes) {
     }
 
     // 0 because GetApproximateSizes() does not account for memtable space
-    ASSERT_TRUE(Between(Size("", Key(50), 1), 0, 0));
+    ASSERT_OK(Size("", Key(50), 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
 
     // Check sizes across recovery by reopening a few times
     for (int run = 0; run < 3; run++) {
@@ -1653,14 +1737,17 @@ TEST_F(DBTest, ApproximateSizes) {
 
       for (int compact_start = 0; compact_start < N; compact_start += 10) {
         for (int i = 0; i < N; i += 10) {
-          ASSERT_TRUE(Between(Size("", Key(i), 1), S1 * i, S2 * i));
-          ASSERT_TRUE(Between(Size("", Key(i) + ".suffix", 1), S1 * (i + 1),
-                              S2 * (i + 1)));
-          ASSERT_TRUE(Between(Size(Key(i), Key(i + 10), 1), S1 * 10, S2 * 10));
+          ASSERT_OK(Size("", Key(i), 1, &size));
+          ASSERT_TRUE(Between(size, S1 * i, S2 * i));
+          ASSERT_OK(Size("", Key(i) + ".suffix", 1, &size));
+          ASSERT_TRUE(Between(size, S1 * (i + 1), S2 * (i + 1)));
+          ASSERT_OK(Size(Key(i), Key(i + 10), 1, &size));
+          ASSERT_TRUE(Between(size, S1 * 10, S2 * 10));
         }
-        ASSERT_TRUE(Between(Size("", Key(50), 1), S1 * 50, S2 * 50));
-        ASSERT_TRUE(
-            Between(Size("", Key(50) + ".suffix", 1), S1 * 50, S2 * 50));
+        ASSERT_OK(Size("", Key(50), 1, &size));
+        ASSERT_TRUE(Between(size, S1 * 50, S2 * 50));
+        ASSERT_OK(Size("", Key(50) + ".suffix", 1, &size));
+        ASSERT_TRUE(Between(size, S1 * 50, S2 * 50));
 
         std::string cstart_str = Key(compact_start);
         std::string cend_str = Key(compact_start + 9);
@@ -1695,21 +1782,32 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
     ASSERT_OK(Put(1, Key(7), rnd.RandomString(10000)));
 
     // Check sizes across recovery by reopening a few times
+    uint64_t size;
     for (int run = 0; run < 3; run++) {
       ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
-      ASSERT_TRUE(Between(Size("", Key(0), 1), 0, 0));
-      ASSERT_TRUE(Between(Size("", Key(1), 1), 10000, 11000));
-      ASSERT_TRUE(Between(Size("", Key(2), 1), 20000, 21000));
-      ASSERT_TRUE(Between(Size("", Key(3), 1), 120000, 121000));
-      ASSERT_TRUE(Between(Size("", Key(4), 1), 130000, 131000));
-      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 232000));
-      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 242000));
+      ASSERT_OK(Size("", Key(0), 1, &size));
+      ASSERT_TRUE(Between(size, 0, 0));
+      ASSERT_OK(Size("", Key(1), 1, &size));
+      ASSERT_TRUE(Between(size, 10000, 11000));
+      ASSERT_OK(Size("", Key(2), 1, &size));
+      ASSERT_TRUE(Between(size, 20000, 21000));
+      ASSERT_OK(Size("", Key(3), 1, &size));
+      ASSERT_TRUE(Between(size, 120000, 121000));
+      ASSERT_OK(Size("", Key(4), 1, &size));
+      ASSERT_TRUE(Between(size, 130000, 131000));
+      ASSERT_OK(Size("", Key(5), 1, &size));
+      ASSERT_TRUE(Between(size, 230000, 232000));
+      ASSERT_OK(Size("", Key(6), 1, &size));
+      ASSERT_TRUE(Between(size, 240000, 242000));
       // Ensure some overhead is accounted for, even without including all
-      ASSERT_TRUE(Between(Size("", Key(7), 1), 540500, 545000));
-      ASSERT_TRUE(Between(Size("", Key(8), 1), 550500, 555000));
+      ASSERT_OK(Size("", Key(7), 1, &size));
+      ASSERT_TRUE(Between(size, 540500, 545000));
+      ASSERT_OK(Size("", Key(8), 1, &size));
+      ASSERT_TRUE(Between(size, 550500, 555000));
 
-      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110100, 111000));
+      ASSERT_OK(Size(Key(3), Key(5), 1, &size));
+      ASSERT_TRUE(Between(size, 110100, 111000));
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     }
@@ -1793,6 +1891,7 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
+  uint64_t size;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -1810,7 +1909,8 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
     ASSERT_GT(NumTableFilesAtLevel(0, 1), 0);
 
     ASSERT_EQ(big, Get(1, "foo", snapshot));
-    ASSERT_TRUE(Between(Size("", "pastfoo", 1), 50000, 60000));
+    ASSERT_OK(Size("", "pastfoo", 1, &size));
+    ASSERT_TRUE(Between(size, 50000, 60000));
     db_->ReleaseSnapshot(snapshot);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ tiny, " + big + " ]");
     Slice x("x");
@@ -1821,7 +1921,8 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
     dbfull()->TEST_CompactRange(1, nullptr, &x, handles_[1]);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ tiny ]");
 
-    ASSERT_TRUE(Between(Size("", "pastfoo", 1), 0, 1000));
+    ASSERT_OK(Size("", "pastfoo", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 1000));
     // ApproximateOffsetOf() is not yet implemented in plain table format,
     // which is used by Size().
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
@@ -2344,39 +2445,24 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
 }
 
 TEST_F(DBTest, GetLiveBlobFiles) {
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
-  assert(versions);
-  assert(versions->GetColumnFamilySet());
+  // Note: the following prevents an otherwise harmless data race between the
+  // test setup code (AddBlobFile) below and the periodic stat dumping thread.
+  Options options = CurrentOptions();
+  options.stats_dump_period_sec = 0;
 
-  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
-  assert(cfd);
-
-  Version* const version = cfd->current();
-  assert(version);
-
-  VersionStorageInfo* const storage_info = version->storage_info();
-  assert(storage_info);
-
-  // Add a live blob file.
   constexpr uint64_t blob_file_number = 234;
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
-
-  auto shared_meta = SharedBlobFileMetaData::Create(
-      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
-      checksum_value);
-
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
   constexpr uint64_t garbage_blob_count = 0;
   constexpr uint64_t garbage_blob_bytes = 0;
 
-  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                       BlobFileMetaData::LinkedSsts(),
-                                       garbage_blob_count, garbage_blob_bytes);
+  Reopen(options);
 
-  storage_info->AddBlobFile(std::move(meta));
-
+  AddBlobFile(db_->DefaultColumnFamily(), blob_file_number, total_blob_count,
+              total_blob_bytes, checksum_method, checksum_value,
+              garbage_blob_count, garbage_blob_bytes);
   // Make sure it appears in the results returned by GetLiveFiles.
   uint64_t manifest_size = 0;
   std::vector<std::string> files;
@@ -2384,6 +2470,19 @@ TEST_F(DBTest, GetLiveBlobFiles) {
 
   ASSERT_FALSE(files.empty());
   ASSERT_EQ(files[0], BlobFileName("", blob_file_number));
+
+  ColumnFamilyMetaData cfmd;
+
+  db_->GetColumnFamilyMetaData(&cfmd);
+  ASSERT_EQ(cfmd.blob_files.size(), 1);
+  const BlobMetaData& bmd = cfmd.blob_files[0];
+
+  CheckBlobMetaData(bmd, blob_file_number, total_blob_count, total_blob_bytes,
+                    checksum_method, checksum_value, garbage_blob_count,
+                    garbage_blob_bytes);
+  ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+  ASSERT_EQ(cfmd.blob_file_count, 1U);
+  ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
 }
 #endif
 
@@ -2391,6 +2490,7 @@ TEST_F(DBTest, PurgeInfoLogs) {
   Options options = CurrentOptions();
   options.keep_log_file_num = 5;
   options.create_if_missing = true;
+  options.env = env_;
   for (int mode = 0; mode <= 1; mode++) {
     if (mode == 1) {
       options.db_log_dir = dbname_ + "_logs";
@@ -3111,7 +3211,7 @@ class ModelDB : public DB {
   std::string name_ = "";
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 static std::string RandomKey(Random* rnd, int minimum = 0) {
   int len;
   do {
@@ -3266,7 +3366,7 @@ TEST_P(DBTestRandomized, Randomized) {
   if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
   if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index
@@ -3504,17 +3604,21 @@ TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
 }
 
 // Check that FIFO-with-TTL is not supported with max_open_files != -1.
+// Github issue #8014
 TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // TTL is now supported with max_open_files != -1.
-  options.max_open_files = 100;
-  options = CurrentOptions(options);
-  ASSERT_OK(TryReopen(options));
+  // TTL is not supported with max_open_files != -1.
+  options.max_open_files = 0;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 
+  options.max_open_files = 100;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  // TTL is supported with unlimited max_open_files
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
 }
@@ -3947,6 +4051,7 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
 TEST_F(DBTest, ConcurrentFlushWAL) {
   const size_t cnt = 100;
   Options options;
+  options.env = env_;
   WriteOptions wopt;
   ReadOptions ropt;
   for (bool two_write_queues : {false, true}) {
@@ -4615,6 +4720,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   Random rnd(301);
   Options options;
+  options.env = env_;
   options.create_if_missing = true;
   options.db_write_buffer_size = 20480;
   options.write_buffer_size = 20480;
@@ -5017,6 +5123,7 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
   options.ttl = 0;
   options.create_if_missing = true;
+  options.env = env_;
   DestroyAndReopen(options);
 
   // Initial defaults
@@ -5078,6 +5185,7 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
 TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   DestroyAndReopen(options);
 
   // Initial defaults
@@ -5303,41 +5411,45 @@ TEST_F(DBTest, DynamicMiscOptions) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {
-  Options options = CurrentOptions();
-  options.write_buffer_size = 32 * 1024;
-  options.target_file_size_base = 32 * 1024;
-  options.level0_file_num_compaction_trigger = 2;
-  options.level0_slowdown_writes_trigger = 2;
-  options.level0_stop_writes_trigger = 4;
-  options.max_bytes_for_level_base = 64 * 1024;
-  options.max_write_buffer_number = 2;
-  options.max_background_compactions = 8;
-  options.max_background_flushes = 8;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  CreateAndReopenWithCF({"mypikachu"}, options);
+  const int kNumLevels = 3;
+  const int kNumKeysPerLevel = 10000;
+  const int kNumKeysPerDb = kNumLevels * kNumKeysPerLevel;
 
-  int numkeys = 20000;
-  for (int i = 0; i < numkeys; i++) {
-    ASSERT_OK(Put(1, Key(i), "val"));
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // After the below loop there will be one file on each of L0, L1, and L2.
+  int key = 0;
+  for (int output_level = kNumLevels - 1; output_level >= 0; --output_level) {
+    for (int i = 0; i < kNumKeysPerLevel; ++i) {
+      ASSERT_OK(Put(Key(key), "val"));
+      key++;
+    }
+    ASSERT_OK(Flush());
+    for (int input_level = 0; input_level < output_level; ++input_level) {
+      // `TEST_CompactRange(input_level, ...)` compacts from `input_level` to
+      // `input_level + 1`.
+      ASSERT_OK(dbfull()->TEST_CompactRange(input_level, nullptr, nullptr));
+    }
   }
+  assert(key == kNumKeysPerDb);
+
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L0));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  ASSERT_OK(Flush(1));
-  dbfull()->TEST_WaitForCompact();
-
-  for (int i = 0; i < numkeys; i++) {
-    ASSERT_EQ(Get(1, Key(i)), "val");
+  for (int i = 0; i < kNumKeysPerDb; i++) {
+    ASSERT_EQ(Get(Key(i)), "val");
   }
 
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L0), 100);
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L1), 100);
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L2_AND_UP), 100);
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L1));
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  ASSERT_EQ(numkeys, TestGetTickerCount(options, GET_HIT_L0) +
-                         TestGetTickerCount(options, GET_HIT_L1) +
-                         TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+  ASSERT_EQ(kNumKeysPerDb, TestGetTickerCount(options, GET_HIT_L0) +
+                               TestGetTickerCount(options, GET_HIT_L1) +
+                               TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 }
 
 TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
@@ -6690,20 +6802,19 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
   Reopen(options);
   Random rnd(301);
   bool memory_limit_exceeded = false;
-  uint64_t size_all_mem_table = 0;
-  uint64_t cur_active_mem = 0;
+
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+
   for (int i = 0; i < 1000; i++) {
     std::string value = rnd.RandomString(1000);
     ASSERT_OK(Put("keykey_" + std::to_string(i), value));
 
     dbfull()->TEST_WaitForFlushMemTable();
 
-    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
-                                    DB::Properties::kSizeAllMemTables,
-                                    &size_all_mem_table));
-    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
-                                    DB::Properties::kCurSizeActiveMemTable,
-                                    &cur_active_mem));
+    const uint64_t cur_active_mem = cfd->mem()->ApproximateMemoryUsage();
+    const uint64_t size_all_mem_table =
+        cur_active_mem + cfd->imm()->ApproximateMemoryUsage();
 
     // Errors out if memory usage keeps on increasing beyond the limit.
     // Once memory limit exceeds,  memory_limit_exceeded  is set and if

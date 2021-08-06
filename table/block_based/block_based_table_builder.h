@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <limits>
 #include <string>
 #include <utility>
@@ -38,21 +39,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
-  BlockBasedTableBuilder(
-      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
-      const BlockBasedTableOptions& table_options,
-      const InternalKeyComparator& internal_comparator,
-      const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          int_tbl_prop_collector_factories,
-      uint32_t column_family_id, WritableFileWriter* file,
-      const CompressionType compression_type,
-      const uint64_t sample_for_compression,
-      const CompressionOptions& compression_opts, const bool skip_filters,
-      const std::string& column_family_name, const int level_at_creation,
-      const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
-      const uint64_t target_file_size = 0,
-      const uint64_t file_creation_time = 0, const std::string& db_id = "",
-      const std::string& db_session_id = "");
+  BlockBasedTableBuilder(const BlockBasedTableOptions& table_options,
+                         const TableBuilderOptions& table_builder_options,
+                         WritableFileWriter* file);
 
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
@@ -117,19 +106,33 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
 
-  // Call block's Finish() method
-  // and then write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
+  // Call block's Finish() method and then
+  // - in buffered mode, buffer the uncompressed block contents.
+  // - in unbuffered mode, write the compressed block contents to file.
+  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
+                  BlockType blocktype);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
-                  bool is_data_block);
+                  BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     bool is_data_block = false);
+
+                     BlockType block_type, const Slice* raw_data = nullptr);
+
+  void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
+
+  template <typename TBlocklike>
   Status InsertBlockInCache(const Slice& block_contents,
-                            const CompressionType type,
-                            const BlockHandle* handle);
+                            const BlockHandle* handle, BlockType block_type);
+
+  Status InsertBlockInCacheHelper(const Slice& block_contents,
+                                  const BlockHandle* handle,
+                                  BlockType block_type);
+
+  Status InsertBlockInCompressedCache(const Slice& block_contents,
+                                      const CompressionType type,
+                                      const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,
@@ -159,19 +162,29 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get blocks from mem-table walking thread, compress them and
   // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(CompressionContext& compression_ctx,
+  void BGWorkCompression(const CompressionContext& compression_ctx,
                          UncompressionContext* verify_ctx);
 
   // Given raw block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(
-      const Slice& raw_block_contents, bool is_data_block,
-      CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
-      std::string* compressed_output, Slice* result_block_contents,
-      CompressionType* result_compression_type, Status* out_status);
+  void CompressAndVerifyBlock(const Slice& raw_block_contents,
+                              bool is_data_block,
+                              const CompressionContext& compression_ctx,
+                              UncompressionContext* verify_ctx,
+                              std::string* compressed_output,
+                              Slice* result_block_contents,
+                              CompressionType* result_compression_type,
+                              Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
   void BGWorkWriteRawBlock();
+
+  // Initialize parallel compression context and
+  // start BGWorkCompression and BGWorkWriteRawBlock threads
+  void StartParallelCompression();
+
+  // Stop BGWorkCompression and BGWorkWriteRawBlock threads
+  void StopParallelCompression();
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

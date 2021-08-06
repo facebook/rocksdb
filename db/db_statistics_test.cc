@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBStatisticsTest : public DBTestBase {
  public:
   DBStatisticsTest()
-      : DBTestBase("/db_statistics_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_statistics_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBStatisticsTest, CompressionStatsTest) {
@@ -137,7 +137,7 @@ TEST_F(DBStatisticsTest, ResetStats) {
       ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_KEYS_WRITTEN));
       options.statistics->histogramData(DB_WRITE, &histogram_data);
       ASSERT_GT(histogram_data.max, 0.0);
-      options.statistics->Reset();
+      ASSERT_OK(options.statistics->Reset());
     }
   }
 }

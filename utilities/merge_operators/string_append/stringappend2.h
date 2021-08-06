@@ -24,6 +24,7 @@ class StringAppendTESTOperator : public MergeOperator {
  public:
   // Constructor with delimiter
   explicit StringAppendTESTOperator(char delim_char);
+  explicit StringAppendTESTOperator(const std::string& delim);
 
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override;
@@ -42,8 +43,7 @@ class StringAppendTESTOperator : public MergeOperator {
                                const std::deque<Slice>& operand_list,
                                std::string* new_value, Logger* logger) const;
 
-  char delim_;         // The delimiter is inserted between elements
-
+  std::string delim_;  // The delimiter is inserted between elements
 };
 
 }  // namespace ROCKSDB_NAMESPACE

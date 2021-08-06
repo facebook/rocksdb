@@ -71,7 +71,8 @@ class LogReaderContainer {
 // effort attempts to catch up with the primary.
 class DBImplSecondary : public DBImpl {
  public:
-  DBImplSecondary(const DBOptions& options, const std::string& dbname);
+  DBImplSecondary(const DBOptions& options, const std::string& dbname,
+                  std::string secondary_path);
   ~DBImplSecondary() override;
 
   // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
@@ -222,6 +223,14 @@ class DBImplSecondary : public DBImpl {
   // not flag the missing file as inconsistency.
   Status CheckConsistency() override;
 
+#ifndef NDEBUG
+  Status TEST_CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+                                         const CompactionServiceInput& input,
+                                         CompactionServiceResult* result) {
+    return CompactWithoutInstallation(cfh, input, result);
+  }
+#endif  // NDEBUG
+
  protected:
   // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
@@ -268,6 +277,16 @@ class DBImplSecondary : public DBImpl {
                           const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
+
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
+
+    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+
+    Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+    Status MarkCommit(const Slice&) override { return Status::OK(); }
+
+    Status MarkNoop(bool) override { return Status::OK(); }
 
     const std::unordered_set<uint32_t>& column_families() const {
       return column_family_ids_;
@@ -316,6 +335,13 @@ class DBImplSecondary : public DBImpl {
                          std::unordered_set<ColumnFamilyData*>* cfds_changed,
                          JobContext* job_context);
 
+  // Run compaction without installation, the output files will be placed in the
+  // secondary DB path. The LSM tree won't be changed, the secondary DB is still
+  // in read-only mode.
+  Status CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+                                    const CompactionServiceInput& input,
+                                    CompactionServiceResult* result);
+
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
@@ -326,6 +352,8 @@ class DBImplSecondary : public DBImpl {
 
   // Current WAL number replayed for each column family.
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
+
+  const std::string secondary_path_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -22,12 +22,13 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_SwitchWAL() {
+Status DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
   void* writer = TEST_BeginWrite();
-  SwitchWAL(&write_context);
+  auto s = SwitchWAL(&write_context);
   TEST_EndWrite(writer);
+  return s;
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
@@ -42,7 +43,7 @@ bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
   return res;
 }
 
-int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
+uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -57,7 +58,8 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
 
 void DBImpl::TEST_GetFilesMetaData(
     ColumnFamilyHandle* column_family,
-    std::vector<std::vector<FileMetaData>>* metadata) {
+    std::vector<std::vector<FileMetaData>>* metadata,
+    std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   InstrumentedMutexLock l(&mutex_);
@@ -69,6 +71,12 @@ void DBImpl::TEST_GetFilesMetaData(
     (*metadata)[level].clear();
     for (const auto& f : files) {
       (*metadata)[level].push_back(*f);
+    }
+  }
+  if (blob_metadata != nullptr) {
+    blob_metadata->clear();
+    for (const auto& blob : cfd->current()->storage_info()->GetBlobFiles()) {
+      blob_metadata->push_back(blob.second);
     }
   }
 }
@@ -170,9 +178,14 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
-         (error_handler_.GetBGError() == Status::OK())) {
+         (error_handler_.GetBGError().ok())) {
     bg_cv_.Wait();
   }
+  return error_handler_.GetBGError();
+}
+
+Status DBImpl::TEST_GetBGError() {
+  InstrumentedMutexLock l(&mutex_);
   return error_handler_.GetBGError();
 }
 

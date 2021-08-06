@@ -45,6 +45,22 @@ class StringLogger : public Logger {
  private:
   std::string string_;
 };
+static std::unordered_map<std::string, OptionTypeInfo> struct_option_info = {
+#ifndef ROCKSDB_LITE
+    {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
+                                      OptionVerificationType::kNormal,
+                                      OptionTypeFlags::kMutable)},
+#endif  // ROCKSDB_LITE
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> imm_struct_option_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
+                                          OptionVerificationType::kNormal,
+                                          OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+};
 
 class SimpleConfigurable : public TestConfigurable<Configurable> {
  public:
@@ -62,45 +78,19 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
       : TestConfigurable(name, mode, map) {
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(SimpleConfigurable::Create("Unique" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                          &unique_option_info);
+      RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
     }
     if ((mode & TestConfigMode::kSharedMode) != 0) {
       shared_.reset(SimpleConfigurable::Create("Shared" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Shared", &shared_,
-                                          &shared_option_info);
+      RegisterOptions(name_ + "Shared", &shared_, &shared_option_info);
     }
     if ((mode & TestConfigMode::kRawPtrMode) != 0) {
       pointer_ = SimpleConfigurable::Create("Pointer" + name_);
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Pointer", &pointer_,
-                                          &pointer_option_info);
+      RegisterOptions(name_ + "Pointer", &pointer_, &pointer_option_info);
     }
   }
 
 };  // End class SimpleConfigurable
-
-static std::unordered_map<std::string, OptionTypeInfo> wrapped_option_info = {
-#ifndef ROCKSDB_LITE
-    {"inner",
-     {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
-      OptionTypeFlags::kShared}},
-#endif  // ROCKSDB_LITE
-};
-class WrappedConfigurable : public SimpleConfigurable {
- public:
-  WrappedConfigurable(const std::string& name, unsigned char mode,
-                      const std::shared_ptr<Configurable>& t)
-      : SimpleConfigurable(name, mode, &simple_option_info), inner_(t) {
-    ConfigurableHelper::RegisterOptions(*this, "WrappedOptions", &inner_,
-                                        &wrapped_option_info);
-  }
-
- protected:
-  Configurable* Inner() const override { return inner_.get(); }
-
- private:
-  std::shared_ptr<Configurable> inner_;
-};
 
 using ConfigTestFactoryFunc = std::function<Configurable*()>;
 
@@ -257,19 +247,15 @@ class ValidatedConfigurable : public SimpleConfigurable {
       : SimpleConfigurable(name, TestConfigMode::kDefaultMode),
         validated(false),
         prepared(0) {
-    ConfigurableHelper::RegisterOptions(*this, "Validated", &validated,
-                                        &validated_option_info);
-    ConfigurableHelper::RegisterOptions(*this, "Prepared", &prepared,
-                                        &prepared_option_info);
+    RegisterOptions("Validated", &validated, &validated_option_info);
+    RegisterOptions("Prepared", &prepared, &prepared_option_info);
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(new ValidatedConfigurable(
           "Unique" + name_, TestConfigMode::kDefaultMode, false));
       if (dont_prepare) {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &dont_prepare_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &dont_prepare_option_info);
       } else {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &unique_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
       }
     }
   }
@@ -343,6 +329,69 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_OK(c->ConfigureFromString(config_options_, "prepared=0"));
   ASSERT_EQ(*cp, 1);
   ASSERT_EQ(*up, 0);
+}
+
+TEST_F(ConfigurableTest, MutableOptionsTest) {
+  static std::unordered_map<std::string, OptionTypeInfo> imm_option_info = {
+#ifndef ROCKSDB_LITE
+      {"imm", OptionTypeInfo::Struct("imm", &simple_option_info, 0,
+                                     OptionVerificationType::kNormal,
+                                     OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+  };
+
+  class MutableConfigurable : public SimpleConfigurable {
+   public:
+    MutableConfigurable()
+        : SimpleConfigurable("mutable", TestConfigMode::kDefaultMode |
+                                            TestConfigMode::kUniqueMode |
+                                            TestConfigMode::kSharedMode) {
+      RegisterOptions("struct", &options_, &struct_option_info);
+      RegisterOptions("imm", &options_, &imm_option_info);
+    }
+  };
+  MutableConfigurable mc;
+  ConfigOptions options = config_options_;
+
+  ASSERT_OK(mc.ConfigureOption(options, "bool", "true"));
+  ASSERT_OK(mc.ConfigureOption(options, "int", "42"));
+  auto* opts = mc.GetOptions<TestOptions>("mutable");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 42);
+  ASSERT_EQ(opts->b, true);
+  ASSERT_OK(mc.ConfigureOption(options, "struct", "{bool=false;}"));
+  ASSERT_OK(mc.ConfigureOption(options, "imm", "{int=55;}"));
+
+  options.mutable_options_only = true;
+
+  // Now only mutable options should be settable.
+  ASSERT_NOK(mc.ConfigureOption(options, "bool", "true"));
+  ASSERT_OK(mc.ConfigureOption(options, "int", "24"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+  ASSERT_NOK(mc.ConfigureFromString(options, "bool=false;int=33;"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+
+  // Setting options through an immutable struct fails
+  ASSERT_NOK(mc.ConfigureOption(options, "imm", "{int=55;}"));
+  ASSERT_NOK(mc.ConfigureOption(options, "imm.int", "55"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+
+  // Setting options through an mutable struct succeeds
+  ASSERT_OK(mc.ConfigureOption(options, "struct", "{int=44;}"));
+  ASSERT_EQ(opts->i, 44);
+  ASSERT_OK(mc.ConfigureOption(options, "struct.int", "55"));
+  ASSERT_EQ(opts->i, 55);
+
+  // Setting nested immutable configurable options fail
+  ASSERT_NOK(mc.ConfigureOption(options, "shared", "{bool=true;}"));
+  ASSERT_NOK(mc.ConfigureOption(options, "shared.bool", "true"));
+
+  // Setting nested mutable configurable options succeeds
+  ASSERT_OK(mc.ConfigureOption(options, "unique", "{bool=true}"));
+  ASSERT_OK(mc.ConfigureOption(options, "unique.bool", "true"));
 }
 
 TEST_F(ConfigurableTest, DeprecatedOptionsTest) {
@@ -476,13 +525,6 @@ TEST_F(ConfigurableTest, MatchesTest) {
 }
 
 static Configurable* SimpleStructFactory() {
-  static std::unordered_map<std::string, OptionTypeInfo> struct_option_info = {
-#ifndef ROCKSDB_LITE
-      {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
-                                        OptionVerificationType::kNormal,
-                                        OptionTypeFlags::kMutable)},
-#endif  // ROCKSDB_LITE
-  };
   return SimpleConfigurable::Create(
       "simple-struct", TestConfigMode::kDefaultMode, &struct_option_info);
 }
@@ -606,17 +648,6 @@ static std::unordered_map<std::string, ConfigTestFactoryFunc> TestFactories = {
                                          TestConfigMode::kMutableMode |
                                              TestConfigMode::kSimpleMode |
                                              TestConfigMode::kNestedMode);
-     }},
-    {"ThreeWay",
-     []() {
-       std::shared_ptr<Configurable> child;
-       child.reset(
-           SimpleConfigurable::Create("child", TestConfigMode::kDefaultMode));
-       std::shared_ptr<Configurable> parent;
-       parent.reset(new WrappedConfigurable(
-           "parent", TestConfigMode::kDefaultMode, child));
-       return new WrappedConfigurable("master", TestConfigMode::kDefaultMode,
-                                      parent);
      }},
     {"ThreeDeep",
      []() {
@@ -765,10 +796,6 @@ INSTANTIATE_TEST_CASE_P(
                                             "pointer={int=22;string=pointer};"
                                             "unique={int=33;string=unique};"
                                             "shared={int=44;string=shared}"),
-        std::pair<std::string, std::string>("ThreeWay",
-                                            "int=11;bool=true;string=outer;"
-                                            "inner={int=22;string=parent;"
-                                            "inner={int=33;string=child}};"),
         std::pair<std::string, std::string>("ThreeDeep",
                                             "int=11;bool=true;string=outer;"
                                             "unique={int=22;string=inner;"

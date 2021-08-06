@@ -46,6 +46,9 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
+  // Method to allow CheckedCast to work for this class
+  static const char* kClassName() { return kBlockBasedTableName(); }
+
   const char* Name() const override { return kBlockBasedTableName(); }
 
   using TableFactory::NewTableReader;
@@ -57,7 +60,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // Valdates the specified DB Options.
   Status ValidateOptions(const DBOptions& db_opts,

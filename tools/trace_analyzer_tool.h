@@ -32,7 +32,8 @@ enum TraceOperationType : int {
   kMerge = 5,
   kIteratorSeek = 6,
   kIteratorSeekForPrev = 7,
-  kTaTypeNum = 8
+  kMultiGet = 8,
+  kTaTypeNum = 9
 };
 
 struct TraceUnit {
@@ -193,6 +194,7 @@ class TraceAnalyzer {
                      const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
                     const uint64_t& ts, TraceType& trace_type);
+  Status HandleMultiGet(MultiGetPayload& multiget_payload, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
@@ -249,6 +251,9 @@ class TraceAnalyzer {
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);
   Status MakeStatisticQPS();
+  // Set the default trace file version as version 0.2
+  int trace_file_version_;
+  int db_version_;
 };
 
 // write bach handler to be used for WriteBache iterator
@@ -279,6 +284,37 @@ class TraceWriteHandler : public WriteBatch::Handler {
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     return ta_ptr->HandleMerge(column_family_id, key, value);
+  }
+
+  // The following hanlders are not implemented, return Status::OK() to avoid
+  // the running time assertion and other irrelevant falures.
+  virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
+                                const Slice& /*key*/,
+                                const Slice& /*value*/) override {
+    return Status::OK();
+  }
+
+  // The default implementation of LogData does nothing.
+  virtual void LogData(const Slice& /*blob*/) override {}
+
+  virtual Status MarkBeginPrepare(bool = false) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkEndPrepare(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkNoop(bool /*empty_batch*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkRollback(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkCommit(const Slice& /*xid*/) override {
+    return Status::OK();
   }
 
  private:

@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
-#include "port/likely.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -192,6 +191,20 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.block.cache.compression.dict.add.redundant"},
     {FILES_MARKED_TRASH, "rocksdb.files.marked.trash"},
     {FILES_DELETED_IMMEDIATELY, "rocksdb.files.deleted.immediately"},
+    {ERROR_HANDLER_BG_ERROR_COUNT, "rocksdb.error.handler.bg.errro.count"},
+    {ERROR_HANDLER_BG_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.io.errro.count"},
+    {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.retryable.io.errro.count"},
+    {ERROR_HANDLER_AUTORESUME_COUNT, "rocksdb.error.handler.autoresume.count"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+     "rocksdb.error.handler.autoresume.retry.total.count"},
+    {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+     "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -247,6 +260,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.num.index.and.filter.blocks.read.per.level"},
     {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+     "rocksdb.error.handler.autoresume.retry.count"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

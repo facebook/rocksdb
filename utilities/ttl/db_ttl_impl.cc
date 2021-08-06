@@ -11,25 +11,26 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
-                                    Env* env) {
+                                    SystemClock* clock) {
   if (options->compaction_filter) {
     options->compaction_filter =
-        new TtlCompactionFilter(ttl, env, options->compaction_filter);
+        new TtlCompactionFilter(ttl, clock, options->compaction_filter);
   } else {
     options->compaction_filter_factory =
         std::shared_ptr<CompactionFilterFactory>(new TtlCompactionFilterFactory(
-            ttl, env, options->compaction_filter_factory));
+            ttl, clock, options->compaction_filter_factory));
   }
 
   if (options->merge_operator) {
     options->merge_operator.reset(
-        new TtlMergeOperator(options->merge_operator, env));
+        new TtlMergeOperator(options->merge_operator, clock));
   }
 }
 
@@ -38,7 +39,7 @@ DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
-    Close();
+    Close().PermitUncheckedError();
   }
 }
 
@@ -97,12 +98,15 @@ Status DBWithTTL::Open(
         "ttls size has to be the same as number of column families");
   }
 
+  SystemClock* clock = (db_options.env == nullptr)
+                           ? SystemClock::Default().get()
+                           : db_options.env->GetSystemClock().get();
+
   std::vector<ColumnFamilyDescriptor> column_families_sanitized =
       column_families;
   for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
     DBWithTTLImpl::SanitizeOptions(
-        ttls[i], &column_families_sanitized[i].options,
-        db_options.env == nullptr ? Env::Default() : db_options.env);
+        ttls[i], &column_families_sanitized[i].options, clock);
   }
   DB* db;
 
@@ -125,7 +129,8 @@ Status DBWithTTLImpl::CreateColumnFamilyWithTtl(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle, int ttl) {
   ColumnFamilyOptions sanitized_options = options;
-  DBWithTTLImpl::SanitizeOptions(ttl, &sanitized_options, GetEnv());
+  DBWithTTLImpl::SanitizeOptions(ttl, &sanitized_options,
+                                 GetEnv()->GetSystemClock().get());
 
   return DBWithTTL::CreateColumnFamily(sanitized_options, column_family_name,
                                        handle);
@@ -140,11 +145,11 @@ Status DBWithTTLImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
 // Appends the current timestamp to the string.
 // Returns false if could not get the current_time, true if append succeeds
 Status DBWithTTLImpl::AppendTS(const Slice& val, std::string* val_with_ts,
-                               Env* env) {
+                               SystemClock* clock) {
   val_with_ts->reserve(kTSLength + val.size());
   char ts_string[kTSLength];
   int64_t curtime;
-  Status st = env->GetCurrentTime(&curtime);
+  Status st = clock->GetCurrentTime(&curtime);
   if (!st.ok()) {
     return st;
   }
@@ -170,12 +175,13 @@ Status DBWithTTLImpl::SanityCheckTimestamp(const Slice& str) {
 }
 
 // Checks if the string is stale or not according to TTl provided
-bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
+bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl,
+                            SystemClock* clock) {
   if (ttl <= 0) {  // Data is fresh if TTL is non-positive
     return false;
   }
   int64_t curtime;
-  if (!env->GetCurrentTime(&curtime).ok()) {
+  if (!clock->GetCurrentTime(&curtime).ok()) {
     return false;  // Treat the data as fresh if could not get current time
   }
   int32_t timestamp_value =
@@ -185,32 +191,33 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
 
 // Strips the TS from the end of the slice
 Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
-  Status st;
   if (pinnable_val->size() < kTSLength) {
     return Status::Corruption("Bad timestamp in key-value");
   }
   // Erasing characters which hold the TS
   pinnable_val->remove_suffix(kTSLength);
-  return st;
+  return Status::OK();
 }
 
 // Strips the TS from the end of the string
 Status DBWithTTLImpl::StripTS(std::string* str) {
-  Status st;
   if (str->length() < kTSLength) {
     return Status::Corruption("Bad timestamp in key-value");
   }
   // Erasing characters which hold the TS
   str->erase(str->length() - kTSLength, kTSLength);
-  return st;
+  return Status::OK();
 }
 
 Status DBWithTTLImpl::Put(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& val) {
   WriteBatch batch;
-  batch.Put(column_family, key, val);
-  return Write(options, &batch);
+  Status st = batch.Put(column_family, key, val);
+  if (st.ok()) {
+    st = Write(options, &batch);
+  }
+  return st;
 }
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
@@ -262,53 +269,55 @@ Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
-  return Write(options, &batch);
+  Status st = batch.Merge(column_family, key, value);
+  if (st.ok()) {
+    st = Write(options, &batch);
+  }
+  return st;
 }
 
 Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   class Handler : public WriteBatch::Handler {
    public:
-    explicit Handler(Env* env) : env_(env) {}
+    explicit Handler(SystemClock* clock) : clock_(clock) {}
     WriteBatch updates_ttl;
-    Status batch_rewrite_status;
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
       std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
+      Status st = AppendTS(value, &value_with_ts, clock_);
       if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
-                                value_with_ts);
+        return st;
       }
-      return Status::OK();
+      return WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                     value_with_ts);
     }
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
+      Status st = AppendTS(value, &value_with_ts, clock_);
       if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
-                                  value_with_ts);
+        return st;
       }
-      return Status::OK();
+      return WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                       value_with_ts);
     }
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
-      return Status::OK();
+      return WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+    }
+    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                         const Slice& end_key) override {
+      return WriteBatchInternal::DeleteRange(&updates_ttl, column_family_id,
+                                             begin_key, end_key);
     }
     void LogData(const Slice& blob) override { updates_ttl.PutLogData(blob); }
 
    private:
-    Env* env_;
+    SystemClock* clock_;
   };
-  Handler handler(GetEnv());
-  updates->Iterate(&handler);
-  if (!handler.batch_rewrite_status.ok()) {
-    return handler.batch_rewrite_status;
+  Handler handler(GetEnv()->GetSystemClock().get());
+  Status st = updates->Iterate(&handler);
+  if (!st.ok()) {
+    return st;
   } else {
     return db_->Write(opts, &(handler.updates_ttl));
   }

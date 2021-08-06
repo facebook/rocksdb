@@ -111,6 +111,8 @@ std::string TableProperties::ToString(
   }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
                  kv_delim);
+  AppendProperty(result, "# entries for filter", num_filter_entries, prop_delim,
+                 kv_delim);
   AppendProperty(result, "(estimated) table size",
                  data_size + index_size + filter_size, prop_delim, kv_delim);
 
@@ -168,6 +170,11 @@ std::string TableProperties::ToString(
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
                  kv_delim);
 
+  AppendProperty(result, "slow compression estimated data size",
+                 slow_compression_estimated_data_size, prop_delim, kv_delim);
+  AppendProperty(result, "fast compression estimated data size",
+                 fast_compression_estimated_data_size, prop_delim, kv_delim);
+
   // DB identity and DB session ID
   AppendProperty(result, "DB identity", db_id, prop_delim, kv_delim);
   AppendProperty(result, "DB session identity", db_session_id, prop_delim,
@@ -188,14 +195,44 @@ void TableProperties::Add(const TableProperties& tp) {
   raw_value_size += tp.raw_value_size;
   num_data_blocks += tp.num_data_blocks;
   num_entries += tp.num_entries;
+  num_filter_entries += tp.num_filter_entries;
   num_deletions += tp.num_deletions;
   num_merge_operands += tp.num_merge_operands;
   num_range_deletions += tp.num_range_deletions;
+  slow_compression_estimated_data_size +=
+      tp.slow_compression_estimated_data_size;
+  fast_compression_estimated_data_size +=
+      tp.fast_compression_estimated_data_size;
+}
+
+std::map<std::string, uint64_t>
+TableProperties::GetAggregatablePropertiesAsMap() const {
+  std::map<std::string, uint64_t> rv;
+  rv["data_size"] = data_size;
+  rv["index_size"] = index_size;
+  rv["index_partitions"] = index_partitions;
+  rv["top_level_index_size"] = top_level_index_size;
+  rv["filter_size"] = filter_size;
+  rv["raw_key_size"] = raw_key_size;
+  rv["raw_value_size"] = raw_value_size;
+  rv["num_data_blocks"] = num_data_blocks;
+  rv["num_entries"] = num_entries;
+  rv["num_filter_entries"] = num_filter_entries;
+  rv["num_deletions"] = num_deletions;
+  rv["num_merge_operands"] = num_merge_operands;
+  rv["num_range_deletions"] = num_range_deletions;
+  rv["slow_compression_estimated_data_size"] =
+      slow_compression_estimated_data_size;
+  rv["fast_compression_estimated_data_size"] =
+      fast_compression_estimated_data_size;
+  return rv;
 }
 
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
 const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";
+const std::string TablePropertiesNames::kDbHostId =
+    "rocksdb.creating.host.identity";
 const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =
@@ -218,6 +255,8 @@ const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
 const std::string TablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
+const std::string TablePropertiesNames::kNumFilterEntries =
+    "rocksdb.num.filter_entries";
 const std::string TablePropertiesNames::kDeletedKeys = "rocksdb.deleted.keys";
 const std::string TablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
@@ -248,6 +287,10 @@ const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
 const std::string TablePropertiesNames::kFileCreationTime =
     "rocksdb.file.creation.time";
+const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
+    "rocksdb.sample_for_compression.slow.data.size";
+const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
+    "rocksdb.sample_for_compression.fast.data.size";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

@@ -6,11 +6,9 @@
 #include "test_util/sync_point.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
 
 #include "test_util/sync_point_impl.h"
 
-int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 #ifndef NDEBUG

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * Represents the status returned by a function call in RocksDB.
  *
@@ -134,5 +136,20 @@ public class Status {
     public byte getValue() {
       return value;
     }
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
+    Status status = (Status) o;
+    return code == status.code && subCode == status.subCode && Objects.equals(state, status.state);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(code, subCode, state);
   }
 }

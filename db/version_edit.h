@@ -52,15 +52,21 @@ enum Tag : uint32_t {
 
   kInAtomicGroup = 300,
 
+  kBlobFileAddition = 400,
+  kBlobFileGarbage,
+
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
 
   // Forward compatible (aka ignorable) records
   kDbId,
-  kBlobFileAddition,
-  kBlobFileGarbage,
+  kBlobFileAddition_DEPRECATED,
+  kBlobFileGarbage_DEPRECATED,
   kWalAddition,
   kWalDeletion,
+  kFullHistoryTsLow,
+  kWalAddition2,
+  kWalDeletion2,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -68,13 +74,14 @@ enum NewFileCustomTag : uint32_t {
   kNeedCompaction = 2,
   // Since Manifest is not entirely forward-compatible, we currently encode
   // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
+  // when manifest becomes forward-compatible.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
+  kTemperature = 9,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -182,6 +189,7 @@ struct FileMetaData {
 
   bool marked_for_compaction = false;  // True if client asked us nicely to
                                        // compact this file.
+  Temperature temperature = Temperature::kUnknown;
 
   // Used only in BlobDB. The file number of the oldest blob file this SST file
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
@@ -189,7 +197,7 @@ struct FileMetaData {
 
   // The file could be the compaction output from other SST files, which could
   // in turn be outputs for compact older SST files. We track the memtable
-  // flush timestamp for the oldest SST file that eventaully contribute data
+  // flush timestamp for the oldest SST file that eventually contribute data
   // to this file. 0 means the information is not available.
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
 
@@ -425,6 +433,7 @@ class VersionEdit {
   }
 
   void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    assert(blob_file_additions_.empty());
     blob_file_additions_ = std::move(blob_file_additions);
   }
 
@@ -448,32 +457,44 @@ class VersionEdit {
   }
 
   void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    assert(blob_file_garbages_.empty());
     blob_file_garbages_ = std::move(blob_file_garbages);
   }
 
   // Add a WAL (either just created or closed).
+  // AddWal and DeleteWalsBefore cannot be called on the same VersionEdit.
   void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    assert(NumEntries() == wal_additions_.size());
     wal_additions_.emplace_back(number, std::move(metadata));
   }
 
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
-  bool HasWalAddition() const { return !wal_additions_.empty(); }
+  bool IsWalAddition() const { return !wal_additions_.empty(); }
 
   // Delete a WAL (either directly deleted or archived).
-  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+  // AddWal and DeleteWalsBefore cannot be called on the same VersionEdit.
+  void DeleteWalsBefore(WalNumber number) {
+    assert((NumEntries() == 1) == !wal_deletion_.IsEmpty());
+    wal_deletion_ = WalDeletion(number);
+  }
 
-  // Retrieve all the deleted WALs.
-  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
+  const WalDeletion& GetWalDeletion() const { return wal_deletion_; }
 
-  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
+  bool IsWalDeletion() const { return !wal_deletion_.IsEmpty(); }
+
+  bool IsWalManipulation() const {
+    size_t entries = NumEntries();
+    return (entries > 0) && ((entries == wal_additions_.size()) ||
+                             (entries == !wal_deletion_.IsEmpty()));
+  }
 
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
            blob_file_additions_.size() + blob_file_garbages_.size() +
-           wal_additions_.size() + wal_deletions_.size();
+           wal_additions_.size() + !wal_deletion_.IsEmpty();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -513,6 +534,16 @@ class VersionEdit {
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
+  bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
+  const std::string& GetFullHistoryTsLow() const {
+    assert(HasFullHistoryTsLow());
+    return full_history_ts_low_;
+  }
+  void SetFullHistoryTsLow(std::string full_history_ts_low) {
+    assert(!full_history_ts_low.empty());
+    full_history_ts_low_ = std::move(full_history_ts_low);
+  }
+
   // return true on success.
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
@@ -522,8 +553,11 @@ class VersionEdit {
 
  private:
   friend class ReactiveVersionSet;
+  friend class VersionEditHandlerBase;
+  friend class ListColumnFamiliesHandler;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  friend class DumpManifestHandler;
   friend class VersionSet;
   friend class Version;
   friend class AtomicGroupReadBuffer;
@@ -558,7 +592,7 @@ class VersionEdit {
   BlobFileGarbages blob_file_garbages_;
 
   WalAdditions wal_additions_;
-  WalDeletions wal_deletions_;
+  WalDeletion wal_deletion_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
@@ -572,6 +606,8 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+
+  std::string full_history_ts_low_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

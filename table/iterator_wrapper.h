@@ -149,6 +149,11 @@ class IteratorWrapperBase {
     return result_.value_prepared;
   }
 
+  Slice user_key() const {
+    assert(Valid());
+    return iter_->user_key();
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();
