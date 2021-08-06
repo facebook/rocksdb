@@ -685,6 +685,20 @@ bool FlushJob::MemPurgeDecider() {
           MergeContext merge_context;
           SequenceNumber max_covering_tombstone_seq = 0, sqno = 0;
 
+          // Pick the oldest existing snapshot that is more recent
+          // than the sequence number of the sampled entry.
+          SequenceNumber min_seqno_snapshot = kMaxSequenceNumber;
+          SnapshotImpl min_snapshot;
+          for (SequenceNumber seq_num : existing_snapshots_) {
+            if (seq_num > res.sequence && seq_num < min_seqno_snapshot) {
+              min_seqno_snapshot = seq_num;
+            }
+          }
+          min_snapshot.number_ = min_seqno_snapshot;
+          ro.snapshot =
+              min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
+
+          // Estimate if the sample entry is valid or not.
           bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, &sqno, ro);
           if (!gres) {
@@ -695,7 +709,13 @@ bool FlushJob::MemPurgeDecider() {
                 "unrelated to whether it has been deleted or not.");
           }
           payload += entry_slice.size();
+
           // TODO(bjlemaire): evaluate typeMerge.
+          // This is where the sampled entry is estimated to be
+          // garbage or not. Note that this is a garbage *estimation*
+          // because we do not include certain items such as
+          // CompactionFitlers triggered at flush, or if the same delete
+          // has been inserted twice or more in the memtable.
           if (res.type == kTypeValue && gres && s.ok() &&
               sqno == res.sequence) {
             useful_payload += entry_slice.size();
