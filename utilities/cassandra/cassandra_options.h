@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 class ObjectLibrary;
 namespace cassandra {
 struct CassandraOptions {
-  static const char* kName() { return "CassandraOptions"; };
+  static const char* kName() { return "CassandraOptions"; }
   CassandraOptions(int32_t _gc_grace_period_in_seconds, size_t _operands_limit,
                    bool _purge_ttl_on_expiration = false)
       : operands_limit(_operands_limit),

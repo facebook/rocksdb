@@ -23,10 +23,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"gc_grace_period_in_seconds",
          {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone}},
         {"operands_limit",
          {offsetof(struct CassandraOptions, operands_limit), OptionType::kSizeT,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
 #endif  // ROCKSDB_LITE
 };
 
