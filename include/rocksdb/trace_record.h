@@ -7,7 +7,6 @@
 
 // To do: ROCKSDB_LITE ?
 
-#include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -77,9 +76,10 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 class GetQueryTraceRecord : public QueryTraceRecord {
  public:
   GetQueryTraceRecord() : QueryTraceRecord(), cf_id(0) {}
-  GetQueryTraceRecord(uint32_t get_cf_id, const Slice& get_key, uint64_t ts)
+  GetQueryTraceRecord(uint32_t get_cf_id, const std::string& get_key,
+                      uint64_t ts)
       : QueryTraceRecord(ts), cf_id(get_cf_id), key(get_key) {}
-  GetQueryTraceRecord(uint32_t get_cf_id, Slice&& get_key, uint64_t ts)
+  GetQueryTraceRecord(uint32_t get_cf_id, std::string&& get_key, uint64_t ts)
       : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
   virtual ~GetQueryTraceRecord() override {}
 
@@ -89,7 +89,7 @@ class GetQueryTraceRecord : public QueryTraceRecord {
   uint32_t cf_id;
 
   // Key to get.
-  Slice key;
+  std::string key;
 };
 
 // Base class for all Iterator related operations.
@@ -112,13 +112,13 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   IteratorSeekQueryTraceRecord()
       : IteratorQueryTraceRecord(), seekType(kSeek), cf_id(0) {}
   IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
-                               const Slice& iter_key, uint64_t ts)
+                               const std::string& iter_key, uint64_t ts)
       : IteratorQueryTraceRecord(ts),
         seekType(type),
         cf_id(iter_cf_id),
         key(iter_key) {}
   IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
-                               Slice&& iter_key, uint64_t ts)
+                               std::string&& iter_key, uint64_t ts)
       : IteratorQueryTraceRecord(ts),
         seekType(type),
         cf_id(iter_cf_id),
@@ -136,7 +136,7 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   uint32_t cf_id;
 
   // Key to seek to.
-  Slice key;
+  std::string key;
 };
 
 // Trace record for DB::MultiGet() operation.
@@ -144,10 +144,12 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
  public:
   MultiGetQueryTraceRecord() : QueryTraceRecord() {}
   MultiGetQueryTraceRecord(const std::vector<uint32_t>& multiget_cf_ids,
-                           const std::vector<Slice>& multiget_keys, uint64_t ts)
+                           const std::vector<std::string>& multiget_keys,
+                           uint64_t ts)
       : QueryTraceRecord(ts), cf_ids(multiget_cf_ids), keys(multiget_keys) {}
   MultiGetQueryTraceRecord(std::vector<uint32_t>&& multiget_cf_ids,
-                           std::vector<Slice>&& multiget_keys, uint64_t ts)
+                           std::vector<std::string>&& multiget_keys,
+                           uint64_t ts)
       : QueryTraceRecord(ts),
         cf_ids(std::move(multiget_cf_ids)),
         keys(std::move(multiget_keys)) {}
@@ -159,7 +161,7 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
   std::vector<uint32_t> cf_ids;
 
   // Keys to get.
-  std::vector<Slice> keys;
+  std::vector<std::string> keys;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

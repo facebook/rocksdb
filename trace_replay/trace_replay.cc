@@ -184,7 +184,7 @@ Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
 
   if (record != nullptr) {
     record->reset(
-        new GetQueryTraceRecord(cf_id, std::move(get_key), trace->ts));
+        new GetQueryTraceRecord(cf_id, get_key.ToString(), trace->ts));
   }
 
   return Status::OK();
@@ -237,7 +237,7 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   if (record != nullptr) {
     record->reset(new IteratorSeekQueryTraceRecord(
         static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
-        std::move(iter_key), trace->ts));
+        iter_key.ToString(), trace->ts));
   }
 
   return Status::OK();
@@ -254,7 +254,7 @@ Status TracerHelper::DecodeMultiGetRecord(
 
   uint32_t multiget_size = 0;
   std::vector<uint32_t> cf_ids;
-  std::vector<Slice> multiget_keys;
+  std::vector<std::string> multiget_keys;
 
   Slice cfids_payload;
   Slice keys_payload;
@@ -293,7 +293,7 @@ Status TracerHelper::DecodeMultiGetRecord(
     GetFixed32(&cfids_payload, &tmp_cfid);
     GetLengthPrefixedSlice(&keys_payload, &tmp_key);
     cf_ids.push_back(tmp_cfid);
-    multiget_keys.push_back(tmp_key);
+    multiget_keys.push_back(tmp_key.ToString());
   }
 
   if (record != nullptr) {
@@ -888,9 +888,11 @@ Status ReplayerImpl::ExecuteMultiGetTrace(
     handles.push_back((*cf_map)[cf_id]);
   }
 
+  std::vector<Slice> keys(r->keys.begin(), r->keys.end());
+
   std::vector<std::string> values;
   std::vector<Status> ss =
-      db->MultiGet(ReadOptions(), handles, std::move(r->keys), &values);
+      db->MultiGet(ReadOptions(), std::move(handles), std::move(keys), &values);
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {

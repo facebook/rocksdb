@@ -513,7 +513,7 @@ Status TraceAnalyzer::StartProcessing() {
         total_gets_++;
         std::unique_ptr<GetQueryTraceRecord> r(
             reinterpret_cast<GetQueryTraceRecord*>(record.release()));
-        s = HandleGet(r->cf_id, r->key.ToString(), trace.ts, 1);
+        s = HandleGet(r->cf_id, r->key, trace.ts, 1);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the get in the trace\n");
           return s;
@@ -529,7 +529,7 @@ Status TraceAnalyzer::StartProcessing() {
         }
         std::unique_ptr<IteratorSeekQueryTraceRecord> r(
             reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
-        s = HandleIter(r->cf_id, r->key.ToString(), trace.ts, trace.type);
+        s = HandleIter(r->cf_id, r->key, trace.ts, trace.type);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the iterator in the trace\n");
           return s;
@@ -1804,7 +1804,7 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
 // Handle MultiGet queries in the trace
 Status TraceAnalyzer::HandleMultiGet(
     const std::vector<uint32_t>& column_family_ids,
-    const std::vector<Slice>& keys, const uint64_t& ts) {
+    const std::vector<std::string>& keys, const uint64_t& ts) {
   Status s;
   size_t value_size = 0;
   if (column_family_ids.size() != keys.size()) {
@@ -1817,8 +1817,7 @@ Status TraceAnalyzer::HandleMultiGet(
     for (size_t i = 0; i < vector_size; i++) {
       assert(i < column_family_ids.size() && i < keys.size());
       s = WriteTraceSequence(TraceOperationType::kMultiGet,
-                             column_family_ids[i], keys[i].ToString(),
-                             value_size, ts);
+                             column_family_ids[i], keys[i], value_size, ts);
     }
     if (!s.ok()) {
       return Status::Corruption("Failed to write the trace sequence to file");
@@ -1840,7 +1839,7 @@ Status TraceAnalyzer::HandleMultiGet(
   for (size_t i = 0; i < vector_size; i++) {
     assert(i < column_family_ids.size() && i < keys.size());
     s = KeyStatsInsertion(TraceOperationType::kMultiGet, column_family_ids[i],
-                          keys[i].ToString(), value_size, ts);
+                          keys[i], value_size, ts);
   }
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
