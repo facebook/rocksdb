@@ -41,7 +41,9 @@
  * xxhash.c instantiates functions defined in xxhash.h
  */
 
+#ifndef XXH_STATIC_LINKING_ONLY
 #define XXH_STATIC_LINKING_ONLY   /* access advanced declarations */
+#endif // !defined(XXH_STATIC_LINKING_ONLY)
 #define XXH_IMPLEMENTATION   /* access definitions */
 
 #include "xxhash.h"

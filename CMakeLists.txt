@@ -827,7 +827,6 @@ set(SOURCES
         util/crc32c.cc
         util/dynamic_bloom.cc
         util/hash.cc
-        util/hash2.cc
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc

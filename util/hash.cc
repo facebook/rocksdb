@@ -12,6 +12,7 @@
 #include "port/lang.h"
 #include "util/coding.h"
 #include "util/xxhash.h"
+#include "util/xxph3.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -57,6 +58,29 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
       break;
   }
   return h;
+}
+
+// We are standardizing on a preview release of XXH3, because that's
+// the best available at time of standardizing.
+//
+// In testing (mostly Intel Skylake), this hash function is much more
+// thorough than Hash32 and is almost universally faster. Hash() only
+// seems faster when passing runtime-sized keys of the same small size
+// (less than about 24 bytes) thousands of times in a row; this seems
+// to allow the branch predictor to work some magic. XXH3's speed is
+// much less dependent on branch prediction.
+//
+// Hashing with a prefix extractor is potentially a common case of
+// hashing objects of small, predictable size. We could consider
+// bundling hash functions specialized for particular lengths with
+// the prefix extractors.
+uint64_t Hash64(const char* data, size_t n, uint64_t seed) {
+  return XXPH3_64bits_withSeed(data, n, seed);
+}
+
+uint64_t Hash64(const char* data, size_t n) {
+  // Same as seed = 0
+  return XXPH3_64bits(data, n);
 }
 
 uint64_t GetSlicePartsNPHash64(const SliceParts& data, uint64_t seed) {

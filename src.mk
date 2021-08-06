@@ -211,7 +211,6 @@ LIB_SOURCES =                                                   \
   util/crc32c_arm64.cc                                          \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
-  util/hash2.cc                                                  \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \

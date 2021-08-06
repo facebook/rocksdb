@@ -234,7 +234,7 @@ std::string Hash64TestDescriptor(const char *repeat, size_t limit) {
   return rv;
 }
 
-// XXH3p changes its algorithm for various sizes up through 250 bytes, so
+// XXPH3 changes its algorithm for various sizes up through 250 bytes, so
 // we need to check the stability of larger sizes also.
 TEST(HashTest, Hash64LargeValueSchema) {
   // Each of these derives a "descriptor" from the hash values for all
