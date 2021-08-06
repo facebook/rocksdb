@@ -670,7 +670,15 @@ bool FlushJob::MemPurgeDecider() {
         for (const char* ss : sentries) {
           ParsedInternalKey res;
           Slice entry_slice = GetLengthPrefixedSlice(ss);
-          ParseInternalKey(entry_slice, &res, true /*dont rememebr*/);
+          Status parse_s =
+              ParseInternalKey(entry_slice, &res, true /*log_err_key*/);
+          if (!parse_s.ok()) {
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "Memtable Decider: ParseInternalKey did not parse "
+                           "entry_slice %s"
+                           "successfully.",
+                           entry_slice.data());
+          }
           LookupKey lkey(res.user_key, kMaxSequenceNumber);
           std::string vget;
           Status s;
@@ -679,14 +687,21 @@ bool FlushJob::MemPurgeDecider() {
 
           bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, &sqno, ro);
-          (void)gres;
+          if (!gres) {
+            ROCKS_LOG_WARN(
+                db_options_.info_log,
+                "Memtable Get returned false when Get(sampled entry). "
+                "Yet each sample entry should exist somewhere in the memtable, "
+                "unrelated to whether it has been deleted or not.");
+          }
           payload += entry_slice.size();
           // TODO(bjlemaire): evaluate typeMerge.
-          if (res.type == kTypeValue && s.ok() && sqno == res.sequence) {
+          if (res.type == kTypeValue && gres && s.ok() &&
+              sqno == res.sequence) {
             useful_payload += entry_slice.size();
           } else if (((res.type == kTypeDeletion) ||
                       (res.type == kTypeSingleDeletion)) &&
-                     s.IsNotFound()) {
+                     s.IsNotFound() && gres) {
             useful_payload += entry_slice.size();
           }
         }
