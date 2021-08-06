@@ -6211,6 +6211,19 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  std::cout << prop << std::endl;
+  std::cout << "====" << std::endl;
+
+  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kAggregatedTableProperties, &prop));
+  std::cout << prop << std::endl;
+  std::cout << "====" << std::endl;
+
+  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kSstFilesSizePerTemperature, &prop));
+  std::cout << prop << std::endl;
+
 }
 #endif  // ROCKSDB_LITE
 

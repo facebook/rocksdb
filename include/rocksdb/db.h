@@ -962,6 +962,10 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    // "rocksdb.sst-files-size-per-temperature" - returns multi-line string of
+    //      sst files size per temperature
+    static const std::string kSstFilesSizePerTemperature;
   };
 #endif /* ROCKSDB_LITE */
 
