@@ -28,30 +28,8 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreateSortOperator();
 
   // Will return a different merge operator depending on the string.
-  // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
   static std::shared_ptr<MergeOperator> CreateFromStringId(
-      const std::string& name) {
-    if (name == "put") {
-      return CreatePutOperator();
-    } else if (name == "put_v1") {
-      return CreateDeprecatedPutOperator();
-    } else if ( name == "uint64add") {
-      return CreateUInt64AddOperator();
-    } else if (name == "stringappend") {
-      return CreateStringAppendOperator();
-    } else if (name == "stringappendtest") {
-      return CreateStringAppendTESTOperator();
-    } else if (name == "max") {
-      return CreateMaxOperator();
-    } else if (name == "bytesxor") {
-      return CreateBytesXOROperator();
-    } else if (name == "sortlist") {
-      return CreateSortOperator();
-    } else {
-      // Empty or unknown, just return nullptr
-      return nullptr;
-    }
-  }
+      const std::string& name);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

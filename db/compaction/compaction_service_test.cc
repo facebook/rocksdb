@@ -337,8 +337,9 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
   options.env = env_;
-  auto delete_comp_filter = PartialDeleteCompactionFilter();
-  options.compaction_filter = &delete_comp_filter;
+  std::unique_ptr<CompactionFilter> delete_comp_filter(
+      new PartialDeleteCompactionFilter());
+  options.compaction_filter = delete_comp_filter.get();
   options.compaction_service =
       std::make_shared<MyTestCompactionService>(dbname_, options);
 
