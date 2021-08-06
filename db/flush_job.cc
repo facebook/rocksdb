@@ -690,7 +690,15 @@ bool FlushJob::MemPurgeDecider() {
             useful_payload += entry_slice.size();
           }
         }
-        estimated_useful_payload += useful_payload * 1.0 / payload;
+        if (payload > 0) {
+          estimated_useful_payload += useful_payload * 1.0 / payload;
+        } else {
+          ROCKS_LOG_WARN(
+              db_options_.info_log,
+              "Mempurge kSampling policy: null payload measured, and collected "
+              "sample size is %zu\n.",
+              sentries.size());
+        }
         ROCKS_LOG_INFO(
             db_options_.info_log,
             "Mempurge kSampling policy: garbage ratio from sampling: %f.\n",
