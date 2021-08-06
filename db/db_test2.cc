@@ -5895,6 +5895,21 @@ TEST_F(DBTest2, BottommostTemperature) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+
+  // non-bottommost file still has unknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+
+  // reopen and check the information is persisted
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
@@ -5943,6 +5958,15 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm,
             metadata.levels[kBottommostLevel].files[0].temperature);
+
+  // non-bottommost file still has unknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
 }
 #endif  // ROCKSDB_LITE
 
