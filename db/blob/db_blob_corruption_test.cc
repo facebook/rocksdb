@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBlobCorruptionTest : public DBTestBase {
  protected:
   DBBlobCorruptionTest()
-      : DBTestBase("/db_blob_corruption_test", /* env_do_fsync */ false) {}
+      : DBTestBase("db_blob_corruption_test", /* env_do_fsync */ false) {}
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt

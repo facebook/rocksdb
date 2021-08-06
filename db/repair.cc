@@ -94,7 +94,7 @@ class Repairer {
            const ColumnFamilyOptions& unknown_cf_opts, bool create_unknown_cfs)
       : dbname_(dbname),
         env_(db_options.env),
-        env_options_(),
+        file_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
@@ -112,14 +112,15 @@ class Repairer {
         table_cache_(
             // TODO: db_session_id for TableCache should be initialized after
             // db_session_id_ is set.
-            new TableCache(default_iopts_, env_options_, raw_table_cache_.get(),
+            new TableCache(default_iopts_, &file_options_,
+                           raw_table_cache_.get(),
                            /*block_cache_tracer=*/nullptr,
                            /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         // TODO: db_session_id for VersionSet should be initialized after
         // db_session_id_ is set and use it for initialization.
-        vset_(dbname_, &immutable_db_options_, env_options_,
+        vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_session_id*/ ""),
@@ -249,7 +250,7 @@ class Repairer {
   std::string const dbname_;
   std::string db_session_id_;
   Env* const env_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
@@ -285,21 +286,15 @@ class Repairer {
     }
 
     // search wal_dir if user uses a customize wal_dir
-    bool same = false;
-    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
-    if (status.IsNotSupported()) {
-      same = db_options_.wal_dir == dbname_;
-      status = Status::OK();
-    } else if (!status.ok()) {
-      return status;
-    }
-
+    bool same = immutable_db_options_.IsWalDirSameAsDBPath(dbname_);
     if (!same) {
-      to_search_paths.push_back(db_options_.wal_dir);
+      to_search_paths.push_back(immutable_db_options_.wal_dir);
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
-      status = env_->GetChildren(to_search_paths[path_id], &filenames);
+      ROCKS_LOG_INFO(db_options_.info_log, "Searching path %s\n",
+                     to_search_paths[path_id].c_str());
+      Status status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -336,10 +331,11 @@ class Repairer {
   }
 
   void ConvertLogFilesToTables() {
+    const auto& wal_dir = immutable_db_options_.GetWalDir();
     for (size_t i = 0; i < logs_.size(); i++) {
       // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
-      std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
-      Status status = ConvertLogToTable(logs_[i]);
+      std::string logname = LogFileName(wal_dir, logs_[i]);
+      Status status = ConvertLogToTable(wal_dir, logs_[i]);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Log #%" PRIu64 ": ignoring conversion error: %s",
@@ -349,7 +345,7 @@ class Repairer {
     }
   }
 
-  Status ConvertLogToTable(uint64_t log) {
+  Status ConvertLogToTable(const std::string& wal_dir, uint64_t log) {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
       std::shared_ptr<Logger> info_log;
@@ -362,11 +358,11 @@ class Repairer {
     };
 
     // Open the log file
-    std::string logname = LogFileName(db_options_.wal_dir, log);
+    std::string logname = LogFileName(wal_dir, log);
     const auto& fs = env_->GetFileSystem();
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(
-        fs, logname, fs->OptimizeForLogRead(env_options_), &lfile_reader,
+        fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
         nullptr);
     if (!status.ok()) {
       return status;
@@ -387,7 +383,7 @@ class Repairer {
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {
       cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                             kMaxSequenceNumber, cfd->GetLogNumber());
+                             kMaxSequenceNumber);
     }
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
@@ -458,7 +454,7 @@ class Repairer {
           meta.fd.GetNumber());
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
-          env_options_, table_cache_.get(), iter.get(),
+          file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
@@ -510,8 +506,8 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(env_options_, icmp_, t->meta.fd,
-                                                &props);
+      status = table_cache_->GetTableProperties(file_options_, icmp_,
+                                                t->meta.fd, &props);
     }
     if (status.ok()) {
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
@@ -551,7 +547,7 @@ class Repairer {
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
-          ropts, env_options_, cfd->internal_comparator(), t->meta,
+          ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
@@ -585,6 +581,30 @@ class Repairer {
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
+    }
+    if (status.ok()) {
+      // XXX/FIXME: This is just basic, naive handling of range tombstones,
+      // like call to UpdateBoundariesForRange in builder.cc where we assume
+      // an SST file is a full sorted run. This probably needs the extra logic
+      // from compaction_job.cc around call to UpdateBoundariesForRange (to
+      // handle range tombstones extendingg beyond range of other entries).
+      ReadOptions ropts;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
+      status = table_cache_->GetRangeTombstoneIterator(
+          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+
+      if (r_iter) {
+        r_iter->SeekToFirst();
+
+        while (r_iter->Valid()) {
+          auto tombstone = r_iter->Tombstone();
+          auto kv = tombstone.Serialize();
+          t->meta.UpdateBoundariesForRange(
+              kv.first, tombstone.SerializeEndKey(), tombstone.seq_,
+              cfd->internal_comparator());
+          r_iter->Next();
+        }
+      }
     }
     return status;
   }

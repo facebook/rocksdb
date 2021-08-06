@@ -106,8 +106,7 @@ class MemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id,
-                    uint64_t current_logfile_number = 0);
+                    SequenceNumber earliest_seq, uint32_t column_family_id);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -388,16 +387,6 @@ class MemTable {
   // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
-  // Set the earliest log file number that (possibly)
-  // contains entries from this memtable.
-  void SetEarliestLogFileNumber(uint64_t logno) {
-    mem_min_logfile_number_ = logno;
-  }
-
-  // Return the earliest log file number that (possibly)
-  // contains entries from this memtable.
-  uint64_t GetEarliestLogFileNumber() { return mem_min_logfile_number_; }
-
   // if this memtable contains data from a committed
   // two phase transaction we must take note of the
   // log which contains that data so we can know
@@ -482,6 +471,9 @@ class MemTable {
   }
 #endif  // !ROCKSDB_LITE
 
+  // Returns a heuristic flush decision
+  bool ShouldFlushNow();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -528,10 +520,6 @@ class MemTable {
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
 
-  // The earliest log containing entries inserted into
-  // this memtable.
-  uint64_t mem_min_logfile_number_;
-
   // the earliest log containing a prepared section
   // which has been inserted into this memtable.
   std::atomic<uint64_t> min_prep_log_referenced_;
@@ -572,9 +560,6 @@ class MemTable {
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 #endif  // !ROCKSDB_LITE
-
-  // Returns a heuristic flush decision
-  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

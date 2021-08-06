@@ -262,10 +262,10 @@ class OptionTypeInfo {
   // @param map The string to enum mapping for this enum
   template <typename T>
   static OptionTypeInfo Enum(
-      int offset, const std::unordered_map<std::string, T>* const map) {
+      int offset, const std::unordered_map<std::string, T>* const map,
+      OptionTypeFlags flags = OptionTypeFlags::kNone) {
     return OptionTypeInfo(
-        offset, OptionType::kEnum, OptionVerificationType::kNormal,
-        OptionTypeFlags::kNone,
+        offset, OptionType::kEnum, OptionVerificationType::kNormal, flags,
         // Uses the map argument to convert the input string into
         // its corresponding enum value.  If value is found in the map,
         // addr is updated to the corresponding map entry.

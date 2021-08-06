@@ -41,14 +41,16 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
                                            const std::string& prefix) const {
   std::string result;
   std::string parent;
-  if (!config_options.IsShallow()) {
+  std::string id = GetId();
+  if (!config_options.IsShallow() && !id.empty()) {
     parent = Configurable::SerializeOptions(config_options, "");
   }
   if (parent.empty()) {
-    result = GetId();
+    result = id;
   } else {
-    result.append(prefix + ConfigurableHelper::kIdPropName + "=" + GetId() +
-                  config_options.delimiter);
+    result.append(prefix);
+    result.append(ConfigurableHelper::kIdPropName).append("=");
+    result.append(id).append(config_options.delimiter);
     result.append(parent);
   }
   return result;
