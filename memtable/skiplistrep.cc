@@ -107,7 +107,9 @@ public:
     // O(sample_size*log(N))).
     if (sample_size >= (num_entries / 4)) {
       Random rnd(1234);
-      int n = (sample_size > num_entries) ? 1 : num_entries / sample_size;
+      int n = (sample_size > num_entries)
+                  ? 1
+                  : static_cast<int>(num_entries / sample_size);
       for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
         if (rnd.OneIn(n)) {
           entries->insert(iter.key());
