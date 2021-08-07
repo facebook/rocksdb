@@ -37,12 +37,12 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number, const Slice& key,
                    const Slice& blob, CompressionType compression_type,
                    uint64_t* blob_offset, uint64_t* blob_size) {
-  assert(!immutable_options.blob_path.empty());
+  assert(!immutable_options.GetBlobPath().empty());
   assert(blob_offset);
   assert(blob_size);
 
   const std::string blob_file_path =
-      BlobFileName(immutable_options.blob_path, blob_file_number);
+      BlobFileName(immutable_options.GetBlobPath(), blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
@@ -269,7 +269,7 @@ TEST_F(BlobFileReaderTest, Malformed) {
     constexpr ExpirationRange expiration_range;
 
     const std::string blob_file_path =
-        BlobFileName(immutable_options.blob_path, blob_file_number);
+        BlobFileName(immutable_options.GetBlobPath(), blob_file_number);
 
     std::unique_ptr<FSWritableFile> file;
     ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,

@@ -359,8 +359,15 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
-  if (result.blob_path.empty() && !result.cf_paths.empty()) {
-    result.blob_path = result.cf_paths.front().path;
+  if (!result.blob_path.empty() && !result.cf_paths.empty()) {
+    // If there is a blob_path already set, check to see if the blob_path is the
+    // same as the result.cf_paths[0].path.
+    // If the blob_path matches result.cf_paths[0].path, then clear
+    // the blob_path value, which will make blob_path == cf_paths[0].path.
+    if (NormalizePath(result.cf_paths[0].path + "/") ==
+        NormalizePath(result.blob_path + "/")) {
+      result.blob_path.clear();
+    }
   }
 
   if (result.max_compaction_bytes == 0) {

@@ -5020,7 +5020,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         const auto& meta = pair.second;
         assert(meta);
         const std::string blob_file_name =
-            BlobFileName(cfd->ioptions()->blob_path, blob_file_number);
+            BlobFileName(cfd->ioptions()->GetBlobPath(), blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);

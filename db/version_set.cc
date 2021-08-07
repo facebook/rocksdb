@@ -1512,7 +1512,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
     const auto meta = iter.second.get();
     cf_meta->blob_files.emplace_back(
         meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
-        ioptions->blob_path, meta->GetBlobFileSize(), meta->GetTotalBlobCount(),
+        ioptions->GetBlobPath(), meta->GetBlobFileSize(), meta->GetTotalBlobCount(),
         meta->GetTotalBlobBytes(), meta->GetGarbageBlobCount(),
         meta->GetGarbageBlobBytes(), meta->GetChecksumMethod(),
         meta->GetChecksumValue());

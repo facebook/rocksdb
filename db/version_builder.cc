@@ -450,7 +450,7 @@ class VersionBuilder::Rep {
         assert(shared_meta);
 
         vs->AddObsoleteBlobFile(shared_meta->GetBlobFileNumber(),
-                                ioptions->blob_path);
+                                ioptions->GetBlobPath());
       }
 
       delete shared_meta;

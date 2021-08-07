@@ -836,6 +836,15 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_path(cf_options.blob_path) {}
 
+const std::string& ImmutableCFOptions::GetBlobPath() const {
+  if (blob_path.empty()) {
+    assert(!cf_paths.empty());
+    return cf_paths[0].path;
+  } else {
+    return blob_path;
+  }
+}
+
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 
 ImmutableOptions::ImmutableOptions(const Options& options)

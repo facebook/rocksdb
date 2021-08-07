@@ -31,10 +31,10 @@ namespace {
 void WriteBlobFile(uint32_t column_family_id,
                    const ImmutableOptions& immutable_options,
                    uint64_t blob_file_number) {
-  assert(!immutable_options.blob_path.empty());
+  assert(!immutable_options.GetBlobPath().empty());
 
   const std::string blob_file_path =
-      BlobFileName(immutable_options.blob_path, blob_file_number);
+      BlobFileName(immutable_options.GetBlobPath(), blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
