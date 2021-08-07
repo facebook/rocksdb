@@ -1340,10 +1340,18 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
   explicit FSSequentialFileWrapper(std::unique_ptr<FSSequentialFile>&& t)
-      : target_(std::move(t)) {}
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
 
-  FSSequentialFile* target() const { return target_.get(); }
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
+  explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
+
+  FSSequentialFile* target() const { return target_; }
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override {
@@ -1364,15 +1372,24 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   }
 
  private:
-  std::unique_ptr<FSSequentialFile> target_;
+  std::unique_ptr<FSSequentialFile> guard_;
+  FSSequentialFile* target_;
 };
 
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
   explicit FSRandomAccessFileWrapper(std::unique_ptr<FSRandomAccessFile>&& t)
-      : target_(std::move(t)) {}
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
 
-  FSRandomAccessFile* target() const { return target_.get(); }
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
+  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
+
+  FSRandomAccessFile* target() const { return target_; }
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -1400,15 +1417,24 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
 
  private:
-  std::unique_ptr<FSRandomAccessFile> target_;
+  std::unique_ptr<FSRandomAccessFile> guard_;
+  FSRandomAccessFile* target_;
 };
 
 class FSWritableFileWrapper : public FSWritableFile {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
   explicit FSWritableFileWrapper(std::unique_ptr<FSWritableFile>&& t)
-      : target_(std::move(t)) {}
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
 
-  FSWritableFile* target() const { return target_.get(); }
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
+  explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
+
+  FSWritableFile* target() const { return target_; }
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
@@ -1500,15 +1526,24 @@ class FSWritableFileWrapper : public FSWritableFile {
   }
 
  private:
-  std::unique_ptr<FSWritableFile> target_;
+  std::unique_ptr<FSWritableFile> guard_;
+  FSWritableFile* target_;
 };
 
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
   explicit FSRandomRWFileWrapper(std::unique_ptr<FSRandomRWFile>&& t)
-      : target_(std::move(t)) {}
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
 
-  FSRandomRWFile* target() const { return target_.get(); }
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
+  explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
+
+  FSRandomRWFile* target() const { return target_; }
 
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
@@ -1537,13 +1572,22 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   }
 
  private:
-  std::unique_ptr<FSRandomRWFile> target_;
+  std::unique_ptr<FSRandomRWFile> guard_;
+  FSRandomRWFile* target_;
 };
 
 class FSDirectoryWrapper : public FSDirectory {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
   explicit FSDirectoryWrapper(std::unique_ptr<FSDirectory>&& t)
-      : target_(std::move(t)) {}
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
+
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
+  explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);
@@ -1553,7 +1597,8 @@ class FSDirectoryWrapper : public FSDirectory {
   }
 
  private:
-  std::unique_ptr<FSDirectory> target_;
+  std::unique_ptr<FSDirectory> guard_;
+  FSDirectory* target_;
 };
 
 // A utility routine: write "data" to the named file.
