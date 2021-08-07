@@ -202,10 +202,12 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
        }
     }
 
-    if (IsLastExcessiveThread(thread_id)) {
+    if (!exit_all_threads_ && IsLastExcessiveThread(thread_id)) {
       // Current thread is the last generated one and is excessive.
       // We always terminate excessive thread in the reverse order of
-      // generation time.
+      // generation time. But not when `exit_all_threads_ == true`,
+      // otherwise `JoinThreads()` could try to `join()` a `detach()`ed
+      // thread.
       auto& terminating_thread = bgthreads_.back();
       terminating_thread.detach();
       bgthreads_.pop_back();
