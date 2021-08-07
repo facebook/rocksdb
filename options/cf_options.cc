@@ -688,6 +688,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ImmutableCFOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"blob_path",
+         {offset_of(&ImmutableCFOptions::blob_path), 
+          OptionType::kString, OptionVerificationType::kNormal, 
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
