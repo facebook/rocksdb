@@ -503,7 +503,7 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
   }
 }
 
-// This test cache all types of blocks during flush.
+// This test cache data, index and filter blocks during flush.
 TEST_F(DBBlockCacheTest, WarmCacheWithBlocksDuringFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -519,7 +519,7 @@ TEST_F(DBBlockCacheTest, WarmCacheWithBlocksDuringFlush) {
   DestroyAndReopen(options);
 
   std::string value(kValueSize, 'a');
-  for (size_t i = 1; i < 2; i++) {
+  for (size_t i = 1; i <= kNumBlocks; i++) {
     ASSERT_OK(Put(ToString(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
@@ -537,6 +537,56 @@ TEST_F(DBBlockCacheTest, WarmCacheWithBlocksDuringFlush) {
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(i * 2,
               options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+  }
+}
+
+TEST_F(DBBlockCacheTest, DynamicallyWarmCacheDuringFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 25, 0, false);
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.prepopulate_block_cache =
+      BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+
+  for (size_t i = 1; i <= 5; i++) {
+    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(0,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+    ASSERT_EQ(
+        0, options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_EQ(1,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+  }
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"block_based_table_factory", "{prepopulate_block_cache=kDisable;}"}}));
+
+  for (size_t i = 6; i <= kNumBlocks; i++) {
+    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(0,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(1,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+    ASSERT_EQ(
+        1, options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_EQ(0,
+              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
   }
 }
 #endif

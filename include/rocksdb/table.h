@@ -472,6 +472,10 @@ struct BlockBasedTableOptions {
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
