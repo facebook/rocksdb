@@ -685,7 +685,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
   }
 
   if (thread_pool) {
-    thread_pool->JoinAllThreads();
+    thread_pool->WaitForJobsAndJoinAllThreads();
     delete thread_pool;
   }
 
