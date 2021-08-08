@@ -50,7 +50,7 @@ class Replayer {
   // Status::Incomplete() if Prepare() was not called or no more available
   // trace;
   // Status::NotSupported() if the read trace type is not supported.
-  virtual Status NextTraceRecord(std::unique_ptr<TraceRecord>* record) = 0;
+  virtual Status Next(std::unique_ptr<TraceRecord>* record) = 0;
 
   // Execute one TraceRecord.
   // Return Status::OK() if the execution was successful. Get/MultiGet traces
@@ -60,6 +60,7 @@ class Replayer {
   // trace;
   // Status::NotSupported() if the operation is not supported;
   // Otherwise, return the corresponding error status.
+  virtual Status Execute(const std::unique_ptr<TraceRecord>& record) = 0;
   virtual Status Execute(std::unique_ptr<TraceRecord>&& record) = 0;
 
   // Replay all the traces from the provided trace stream, taking the delay

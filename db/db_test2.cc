@@ -4391,13 +4391,13 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   // Manual replay for 2 times. The 2nd checks if the replay can restart.
   std::unique_ptr<TraceRecord> record;
   for (int i = 0; i < 2; i++) {
-    // NextTraceRecord should fail if unprepared.
-    ASSERT_TRUE(replayer->NextTraceRecord(nullptr).IsIncomplete());
+    // Next should fail if unprepared.
+    ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
     ASSERT_OK(replayer->Prepare());
     Status s = Status::OK();
     // Looping until trace end.
     while (s.ok()) {
-      s = replayer->NextTraceRecord(&record);
+      s = replayer->Next(&record);
       // Skip unsupported operations.
       if (s.IsNotSupported()) {
         continue;
@@ -4409,7 +4409,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     // Status::Incomplete() will be returned when manually reading the trace
     // end, or Prepare() was not called.
     ASSERT_TRUE(s.IsIncomplete());
-    ASSERT_TRUE(replayer->NextTraceRecord(nullptr).IsIncomplete());
+    ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
   }
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));

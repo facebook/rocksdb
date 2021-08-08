@@ -104,6 +104,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "utilities/trace/replayer_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -5,11 +5,19 @@
 
 #pragma once
 
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
+
 // To do: ROCKSDB_LITE ?
 
-#include "rocksdb/write_batch.h"
-
 namespace ROCKSDB_NAMESPACE {
+
+class ColumnFamilyHandle;
+class DB;
 
 // Supported trace record types.
 enum TraceType : char {
@@ -38,11 +46,22 @@ enum TraceType : char {
 // Base class for all types of trace records.
 class TraceRecord {
  public:
-  TraceRecord() : timestamp(0) {}
-  explicit TraceRecord(uint64_t ts) : timestamp(ts) {}
-  virtual ~TraceRecord() {}
+  TraceRecord();
+  explicit TraceRecord(uint64_t ts);
+  virtual ~TraceRecord();
 
   virtual TraceType GetType() const = 0;
+
+  // Execute the trace record on the specified DB and handles.
+  virtual Status Execute(DB* /*db*/,
+                         const std::vector<ColumnFamilyHandle*>& /*handles*/) {
+    return Status::NotSupported();
+  }
+  virtual Status Execute(
+      DB* /*db*/,
+      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& /*cf_map*/) {
+    return Status::NotSupported();
+  }
 
   // Timestamp (in microseconds) of this trace.
   uint64_t timestamp;
@@ -51,22 +70,26 @@ class TraceRecord {
 // Base class for all query types of trace records.
 class QueryTraceRecord : public TraceRecord {
  public:
-  explicit QueryTraceRecord() : TraceRecord() {}
-  explicit QueryTraceRecord(uint64_t ts) : TraceRecord(ts) {}
-  virtual ~QueryTraceRecord() override {}
+  QueryTraceRecord();
+  explicit QueryTraceRecord(uint64_t ts);
+  virtual ~QueryTraceRecord() override;
 };
 
 // Trace record for DB::Write() operation.
 class WriteQueryTraceRecord : public QueryTraceRecord {
  public:
-  WriteQueryTraceRecord() : QueryTraceRecord() {}
-  WriteQueryTraceRecord(const std::string& batch_rep, uint64_t ts)
-      : QueryTraceRecord(ts), rep(batch_rep) {}
-  WriteQueryTraceRecord(std::string&& batch_rep, uint64_t ts)
-      : QueryTraceRecord(ts), rep(std::move(batch_rep)) {}
-  virtual ~WriteQueryTraceRecord() override {}
+  WriteQueryTraceRecord();
+  WriteQueryTraceRecord(const std::string& rep, uint64_t ts);
+  WriteQueryTraceRecord(std::string&& rep, uint64_t ts);
+  virtual ~WriteQueryTraceRecord() override;
 
   TraceType GetType() const override { return kTraceWrite; };
+
+  virtual Status Execute(
+      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
+  virtual Status Execute(
+      DB* db,
+      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
 
   // Serialized string object to construct a WriteBatch.
   std::string rep;
@@ -75,15 +98,18 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 // Trace record for DB::Get() operation
 class GetQueryTraceRecord : public QueryTraceRecord {
  public:
-  GetQueryTraceRecord() : QueryTraceRecord(), cf_id(0) {}
-  GetQueryTraceRecord(uint32_t get_cf_id, const std::string& get_key,
-                      uint64_t ts)
-      : QueryTraceRecord(ts), cf_id(get_cf_id), key(get_key) {}
-  GetQueryTraceRecord(uint32_t get_cf_id, std::string&& get_key, uint64_t ts)
-      : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
-  virtual ~GetQueryTraceRecord() override {}
+  GetQueryTraceRecord();
+  GetQueryTraceRecord(uint32_t cf_id, const std::string& key, uint64_t ts);
+  GetQueryTraceRecord(uint32_t cf_id, std::string&& key, uint64_t ts);
+  virtual ~GetQueryTraceRecord() override;
 
   TraceType GetType() const override { return kTraceGet; };
+
+  virtual Status Execute(
+      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
+  virtual Status Execute(
+      DB* db,
+      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
 
   // Column family ID.
   uint32_t cf_id;
@@ -95,9 +121,9 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 // Base class for all Iterator related operations.
 class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
-  IteratorQueryTraceRecord() : QueryTraceRecord() {}
-  explicit IteratorQueryTraceRecord(uint64_t ts) : QueryTraceRecord(ts) {}
-  virtual ~IteratorQueryTraceRecord() override {}
+  IteratorQueryTraceRecord();
+  explicit IteratorQueryTraceRecord(uint64_t ts);
+  virtual ~IteratorQueryTraceRecord() override;
 };
 
 // Trace record for Iterator::Seek() and Iterator::SeekForPrev() operation.
@@ -109,26 +135,21 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
     kSeekForPrev = kTraceIteratorSeekForPrev
   };
 
-  IteratorSeekQueryTraceRecord()
-      : IteratorQueryTraceRecord(), seekType(kSeek), cf_id(0) {}
-  IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
-                               const std::string& iter_key, uint64_t ts)
-      : IteratorQueryTraceRecord(ts),
-        seekType(type),
-        cf_id(iter_cf_id),
-        key(iter_key) {}
-  IteratorSeekQueryTraceRecord(SeekType type, uint32_t iter_cf_id,
-                               std::string&& iter_key, uint64_t ts)
-      : IteratorQueryTraceRecord(ts),
-        seekType(type),
-        cf_id(iter_cf_id),
-        key(std::move(iter_key)) {}
+  IteratorSeekQueryTraceRecord();
+  IteratorSeekQueryTraceRecord(SeekType type, uint32_t cf_id,
+                               const std::string& key, uint64_t ts);
+  IteratorSeekQueryTraceRecord(SeekType type, uint32_t cf_id, std::string&& key,
+                               uint64_t ts);
 
-  virtual ~IteratorSeekQueryTraceRecord() override {}
+  virtual ~IteratorSeekQueryTraceRecord() override;
 
-  TraceType GetType() const override {
-    return static_cast<TraceType>(seekType);
-  }
+  TraceType GetType() const override;
+
+  virtual Status Execute(
+      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
+  virtual Status Execute(
+      DB* db,
+      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
 
   SeekType seekType;
 
@@ -142,20 +163,20 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 // Trace record for DB::MultiGet() operation.
 class MultiGetQueryTraceRecord : public QueryTraceRecord {
  public:
-  MultiGetQueryTraceRecord() : QueryTraceRecord() {}
-  MultiGetQueryTraceRecord(const std::vector<uint32_t>& multiget_cf_ids,
-                           const std::vector<std::string>& multiget_keys,
-                           uint64_t ts)
-      : QueryTraceRecord(ts), cf_ids(multiget_cf_ids), keys(multiget_keys) {}
-  MultiGetQueryTraceRecord(std::vector<uint32_t>&& multiget_cf_ids,
-                           std::vector<std::string>&& multiget_keys,
-                           uint64_t ts)
-      : QueryTraceRecord(ts),
-        cf_ids(std::move(multiget_cf_ids)),
-        keys(std::move(multiget_keys)) {}
-  virtual ~MultiGetQueryTraceRecord() override {}
+  MultiGetQueryTraceRecord();
+  MultiGetQueryTraceRecord(const std::vector<uint32_t>& cf_ids,
+                           const std::vector<std::string>& keys, uint64_t ts);
+  MultiGetQueryTraceRecord(std::vector<uint32_t>&& cf_ids,
+                           std::vector<std::string>&& keys, uint64_t ts);
+  virtual ~MultiGetQueryTraceRecord() override;
 
   TraceType GetType() const override { return kTraceMultiGet; };
+
+  virtual Status Execute(
+      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
+  virtual Status Execute(
+      DB* db,
+      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
 
   // Column familiy IDs.
   std::vector<uint32_t> cf_ids;
