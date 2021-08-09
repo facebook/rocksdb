@@ -125,7 +125,7 @@ public:
         }
       }
     } else {
-      // Option 2: pick m random elements
+      // Option 2: pick m random elements with no duplicates.
       // If Option 2 is picked, then target_sample_size<sqrt(N)
       // Using a set spares the need to check for duplicates.
       for (uint64_t i = 0; i < target_sample_size; i++) {
