@@ -835,6 +835,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
 #endif  // !ROCKSDB_LITE
 
 namespace {
+#ifndef ROCKSDB_LITE
 static void CheckCacheSettings(const std::shared_ptr<Cache>& cache,
                                size_t capacity, int shard_bits, bool strict,
                                double ratio) {
@@ -848,6 +849,7 @@ static void CheckCacheSettings(const std::shared_ptr<Cache>& cache,
   ASSERT_NE(lru, nullptr);
   ASSERT_EQ(lru->GetHighPriPoolRatio(), ratio);
 }
+#endif  // !ROCKSDB_LITE
 }  // namespace
 
 #ifndef ROCKSDB_LITE  // GetBlockBasedTableOptionsFromString is not supported
