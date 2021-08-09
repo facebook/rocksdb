@@ -13,9 +13,146 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
+    {{"user_operator",
+      OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+          0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
+
+TtlMergeOperator::TtlMergeOperator(
+    const std::shared_ptr<MergeOperator>& merge_op, SystemClock* clock)
+    : user_merge_op_(merge_op), clock_(clock) {
+  RegisterOptions("TtlMergeOptions", &user_merge_op_, &ttl_merge_op_type_info);
+}
+
+bool TtlMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
+                                   MergeOperationOutput* merge_out) const {
+  const uint32_t ts_len = DBWithTTLImpl::kTSLength;
+  if (merge_in.existing_value && merge_in.existing_value->size() < ts_len) {
+    ROCKS_LOG_ERROR(merge_in.logger,
+                    "Error: Could not remove timestamp from existing value.");
+    return false;
+  }
+
+  // Extract time-stamp from each operand to be passed to user_merge_op_
+  std::vector<Slice> operands_without_ts;
+  for (const auto& operand : merge_in.operand_list) {
+    if (operand.size() < ts_len) {
+      ROCKS_LOG_ERROR(merge_in.logger,
+                      "Error: Could not remove timestamp from operand value.");
+      return false;
+    }
+    operands_without_ts.push_back(operand);
+    operands_without_ts.back().remove_suffix(ts_len);
+  }
+
+  // Apply the user merge operator (store result in *new_value)
+  bool good = true;
+  MergeOperationOutput user_merge_out(merge_out->new_value,
+                                      merge_out->existing_operand);
+  if (merge_in.existing_value) {
+    Slice existing_value_without_ts(merge_in.existing_value->data(),
+                                    merge_in.existing_value->size() - ts_len);
+    good = user_merge_op_->FullMergeV2(
+        MergeOperationInput(merge_in.key, &existing_value_without_ts,
+                            operands_without_ts, merge_in.logger),
+        &user_merge_out);
+  } else {
+    good = user_merge_op_->FullMergeV2(
+        MergeOperationInput(merge_in.key, nullptr, operands_without_ts,
+                            merge_in.logger),
+        &user_merge_out);
+  }
+
+  // Return false if the user merge operator returned false
+  if (!good) {
+    return false;
+  }
+
+  if (merge_out->existing_operand.data()) {
+    merge_out->new_value.assign(merge_out->existing_operand.data(),
+                                merge_out->existing_operand.size());
+    merge_out->existing_operand = Slice(nullptr, 0);
+  }
+
+  // Augment the *new_value with the ttl time-stamp
+  int64_t curtime;
+  if (!clock_->GetCurrentTime(&curtime).ok()) {
+    ROCKS_LOG_ERROR(
+        merge_in.logger,
+        "Error: Could not get current time to be attached internally "
+        "to the new value.");
+    return false;
+  } else {
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)curtime);
+    merge_out->new_value.append(ts_string, ts_len);
+    return true;
+  }
+}
+
+bool TtlMergeOperator::PartialMergeMulti(const Slice& key,
+                                         const std::deque<Slice>& operand_list,
+                                         std::string* new_value,
+                                         Logger* logger) const {
+  const uint32_t ts_len = DBWithTTLImpl::kTSLength;
+  std::deque<Slice> operands_without_ts;
+
+  for (const auto& operand : operand_list) {
+    if (operand.size() < ts_len) {
+      ROCKS_LOG_ERROR(logger, "Error: Could not remove timestamp from value.");
+      return false;
+    }
+
+    operands_without_ts.push_back(
+        Slice(operand.data(), operand.size() - ts_len));
+  }
+
+  // Apply the user partial-merge operator (store result in *new_value)
+  assert(new_value);
+  if (!user_merge_op_->PartialMergeMulti(key, operands_without_ts, new_value,
+                                         logger)) {
+    return false;
+  }
+
+  // Augment the *new_value with the ttl time-stamp
+  int64_t curtime;
+  if (!clock_->GetCurrentTime(&curtime).ok()) {
+    ROCKS_LOG_ERROR(
+        logger,
+        "Error: Could not get current time to be attached internally "
+        "to the new value.");
+    return false;
+  } else {
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)curtime);
+    new_value->append(ts_string, ts_len);
+    return true;
+  }
+}
+
+Status TtlMergeOperator::PrepareOptions(const ConfigOptions& config_options) {
+  if (clock_ == nullptr) {
+    clock_ = config_options.env->GetSystemClock().get();
+  }
+  return MergeOperator::PrepareOptions(config_options);
+}
+
+Status TtlMergeOperator::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  if (user_merge_op_ == nullptr) {
+    return Status::InvalidArgument(
+        "UserMergeOperator required by TtlMergeOperator");
+  } else if (clock_ == nullptr) {
+    return Status::InvalidArgument("SystemClock required by TtlMergeOperator");
+  } else {
+    return MergeOperator::ValidateOptions(db_opts, cf_opts);
+  }
+}
 
 void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                                     SystemClock* clock) {
@@ -34,6 +171,139 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
   }
 }
 
+static std::unordered_map<std::string, OptionTypeInfo> ttl_type_info = {
+    {"ttl", {0, OptionType::kInt32T}},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> ttl_cff_type_info = {
+    {"user_filter_factory",
+     OptionTypeInfo::AsCustomSharedPtr<CompactionFilterFactory>(
+         0, OptionVerificationType::kByNameAllowFromNull,
+         OptionTypeFlags::kNone)}};
+static std::unordered_map<std::string, OptionTypeInfo> user_cf_type_info = {
+    {"user_filter",
+     OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)}};
+
+TtlCompactionFilter::TtlCompactionFilter(
+    int32_t ttl, SystemClock* clock, const CompactionFilter* _user_comp_filter,
+    std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory)
+    : LayeredCompactionFilterBase(_user_comp_filter,
+                                  std::move(_user_comp_filter_from_factory)),
+      ttl_(ttl),
+      clock_(clock) {
+  RegisterOptions("TTL", &ttl_, &ttl_type_info);
+  RegisterOptions("UserFilter", &user_comp_filter_, &user_cf_type_info);
+}
+
+bool TtlCompactionFilter::Filter(int level, const Slice& key,
+                                 const Slice& old_val, std::string* new_val,
+                                 bool* value_changed) const {
+  if (DBWithTTLImpl::IsStale(old_val, ttl_, clock_)) {
+    return true;
+  }
+  if (user_comp_filter() == nullptr) {
+    return false;
+  }
+  assert(old_val.size() >= DBWithTTLImpl::kTSLength);
+  Slice old_val_without_ts(old_val.data(),
+                           old_val.size() - DBWithTTLImpl::kTSLength);
+  if (user_comp_filter()->Filter(level, key, old_val_without_ts, new_val,
+                                 value_changed)) {
+    return true;
+  }
+  if (*value_changed) {
+    new_val->append(old_val.data() + old_val.size() - DBWithTTLImpl::kTSLength,
+                    DBWithTTLImpl::kTSLength);
+  }
+  return false;
+}
+
+Status TtlCompactionFilter::PrepareOptions(
+    const ConfigOptions& config_options) {
+  if (clock_ == nullptr) {
+    clock_ = config_options.env->GetSystemClock().get();
+  }
+  return LayeredCompactionFilterBase::PrepareOptions(config_options);
+}
+
+Status TtlCompactionFilter::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  if (clock_ == nullptr) {
+    return Status::InvalidArgument(
+        "SystemClock required by TtlCompactionFilter");
+  } else {
+    return LayeredCompactionFilterBase::ValidateOptions(db_opts, cf_opts);
+  }
+}
+
+TtlCompactionFilterFactory::TtlCompactionFilterFactory(
+    int32_t ttl, SystemClock* clock,
+    std::shared_ptr<CompactionFilterFactory> comp_filter_factory)
+    : ttl_(ttl), clock_(clock), user_comp_filter_factory_(comp_filter_factory) {
+  RegisterOptions("UserOptions", &user_comp_filter_factory_,
+                  &ttl_cff_type_info);
+  RegisterOptions("TTL", &ttl_, &ttl_type_info);
+}
+
+std::unique_ptr<CompactionFilter>
+TtlCompactionFilterFactory::CreateCompactionFilter(
+    const CompactionFilter::Context& context) {
+  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
+      nullptr;
+  if (user_comp_filter_factory_) {
+    user_comp_filter_from_factory =
+        user_comp_filter_factory_->CreateCompactionFilter(context);
+  }
+
+  return std::unique_ptr<TtlCompactionFilter>(new TtlCompactionFilter(
+      ttl_, clock_, nullptr, std::move(user_comp_filter_from_factory)));
+}
+
+Status TtlCompactionFilterFactory::PrepareOptions(
+    const ConfigOptions& config_options) {
+  if (clock_ == nullptr) {
+    clock_ = config_options.env->GetSystemClock().get();
+  }
+  return CompactionFilterFactory::PrepareOptions(config_options);
+}
+
+Status TtlCompactionFilterFactory::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  if (clock_ == nullptr) {
+    return Status::InvalidArgument(
+        "SystemClock required by TtlCompactionFilterFactory");
+  } else {
+    return CompactionFilterFactory::ValidateOptions(db_opts, cf_opts);
+  }
+}
+
+int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+  library.Register<MergeOperator>(
+      TtlMergeOperator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TtlMergeOperator(nullptr, nullptr));
+        return guard->get();
+      });
+  library.Register<CompactionFilterFactory>(
+      TtlCompactionFilterFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<CompactionFilterFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TtlCompactionFilterFactory(0, nullptr, nullptr));
+        return guard->get();
+      });
+  library.Register<CompactionFilter>(
+      TtlCompactionFilter::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new TtlCompactionFilter(0, nullptr, nullptr);
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
 DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
 
@@ -68,9 +338,15 @@ Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
   return s;
 }
 
+void DBWithTTLImpl::RegisterTtlClasses() {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    ObjectRegistry::Default()->AddLibrary("TTL", RegisterTtlObjects, "");
+  });
+}
+
 Status DBWithTTL::Open(const Options& options, const std::string& dbname,
                        DBWithTTL** dbptr, int32_t ttl, bool read_only) {
-
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -93,6 +369,7 @@ Status DBWithTTL::Open(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBWithTTL** dbptr,
     const std::vector<int32_t>& ttls, bool read_only) {
+  DBWithTTLImpl::RegisterTtlClasses();
   if (ttls.size() != column_families.size()) {
     return Status::InvalidArgument(
         "ttls size has to be the same as number of column families");
@@ -128,6 +405,7 @@ Status DBWithTTL::Open(
 Status DBWithTTLImpl::CreateColumnFamilyWithTtl(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle, int ttl) {
+  RegisterTtlClasses();
   ColumnFamilyOptions sanitized_options = options;
   DBWithTTLImpl::SanitizeOptions(ttl, &sanitized_options,
                                  GetEnv()->GetSystemClock().get());

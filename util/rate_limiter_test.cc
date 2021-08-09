@@ -64,8 +64,11 @@ TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
-          request_size(_target_rate / 10),
+        : limiter(NewGenericRateLimiter(_target_rate /* rate_bytes_per_sec */,
+                                        100 * 1000 /* refill_period_us */,
+                                        10 /* fairness */)),
+          request_size(_target_rate /
+                       10 /* refill period here is 1/10 second */),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
     int32_t request_size;
@@ -175,7 +178,7 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::Refill"}});
+            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
@@ -209,11 +212,12 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
       true /* auto_tuned */));
 
   // Use callback to advance time because we need to advance (1) after Request()
-  // has determined the bytes are not available; and (2) before Refill()
-  // computes the next refill time (ensuring refill time in the future allows
-  // the next request to drain the rate limiter).
+  // has determined the bytes are not available; and (2) before
+  // RefillBytesAndGrantRequests() computes the next refill time (ensuring
+  // refill time in the future allows the next request to drain the rate
+  // limiter).
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Refill", [&](void* /*arg*/) {
+      "GenericRateLimiter::RefillBytesAndGrantRequests", [&](void* /*arg*/) {
         special_env.SleepForMicroseconds(static_cast<int>(
             std::chrono::microseconds(kTimePerRefill).count()));
       });

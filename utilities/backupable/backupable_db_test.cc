@@ -642,9 +642,22 @@ class BackupEngineTest : public testing::Test {
     CreateLoggerFromOptions(dbname_, logger_options, &logger_)
         .PermitUncheckedError();
 
+    // The sync option is not easily testable in unit tests, but should be
+    // smoke tested across all the other backup tests. However, it is
+    // certainly not worth doubling the runtime of backup tests for it.
+    // Thus, we can enable sync for one of our alternate testing
+    // configurations.
+    constexpr bool kUseSync =
+#ifdef ROCKSDB_MODIFY_NPHASH
+        true;
+#else
+        false;
+#endif  // ROCKSDB_MODIFY_NPHASH
+
     // set up backup db options
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), true, logger_.get(), true));
+        backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
+        logger_.get(), kUseSync));
 
     // most tests will use multi-threaded backups
     backupable_options_->max_background_operations = 7;
@@ -3122,82 +3135,108 @@ TEST_F(BackupEngineTest, Concurrency) {
 
   Options db_opts = options_;
   db_opts.wal_dir = "";
+  db_opts.create_if_missing = false;
   BackupableDBOptions be_opts = *backupable_options_;
   be_opts.destroy_old_data = false;
 
   std::mt19937 rng{std::random_device()()};
 
   std::array<std::thread, 4> read_threads;
+  std::array<std::thread, 4> restore_verify_threads;
   for (uint32_t i = 0; i < read_threads.size(); ++i) {
     uint32_t sleep_micros = rng() % 100000;
-    read_threads[i] = std::thread([this, i, sleep_micros, &db_opts, &be_opts] {
-      test_db_env_->SleepForMicroseconds(sleep_micros);
+    read_threads[i] = std::thread(
+        [this, i, sleep_micros, &db_opts, &be_opts, &restore_verify_threads] {
+          test_db_env_->SleepForMicroseconds(sleep_micros);
 
-      // Whether to also re-open the BackupEngine, potentially seeing
-      // additional backups
-      bool reopen = i == 3;
-      // Whether we are going to restore "latest"
-      bool latest = i > 1;
+          // Whether to also re-open the BackupEngine, potentially seeing
+          // additional backups
+          bool reopen = i == 3;
+          // Whether we are going to restore "latest"
+          bool latest = i > 1;
 
-      BackupEngine* my_be;
-      if (reopen) {
-        ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
-      } else {
-        my_be = backup_engine_.get();
-      }
+          BackupEngine* my_be;
+          if (reopen) {
+            ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
+          } else {
+            my_be = backup_engine_.get();
+          }
 
-      // Verify metadata (we don't receive updates from concurrently
-      // creating a new backup)
-      std::vector<BackupInfo> infos;
-      my_be->GetBackupInfo(&infos);
-      const uint32_t count = static_cast<uint32_t>(infos.size());
-      infos.clear();
-      if (reopen) {
-        ASSERT_GE(count, 2U);
-        ASSERT_LE(count, 4U);
-        fprintf(stderr, "Reopen saw %u backups\n", count);
-      } else {
-        ASSERT_EQ(count, 2U);
-      }
-      std::vector<BackupID> ids;
-      my_be->GetCorruptedBackups(&ids);
-      ASSERT_EQ(ids.size(), 0U);
+          // Verify metadata (we don't receive updates from concurrently
+          // creating a new backup)
+          std::vector<BackupInfo> infos;
+          my_be->GetBackupInfo(&infos);
+          const uint32_t count = static_cast<uint32_t>(infos.size());
+          infos.clear();
+          if (reopen) {
+            ASSERT_GE(count, 2U);
+            ASSERT_LE(count, 4U);
+            fprintf(stderr, "Reopen saw %u backups\n", count);
+          } else {
+            ASSERT_EQ(count, 2U);
+          }
+          std::vector<BackupID> ids;
+          my_be->GetCorruptedBackups(&ids);
+          ASSERT_EQ(ids.size(), 0U);
 
-      // Restore one of the backups, or "latest"
-      std::string restore_db_dir = dbname_ + "/restore" + ToString(i);
-      BackupID to_restore;
-      if (latest) {
-        to_restore = count;
-        ASSERT_OK(
-            my_be->RestoreDBFromLatestBackup(restore_db_dir, restore_db_dir));
-      } else {
-        to_restore = i + 1;
-        ASSERT_OK(my_be->VerifyBackup(to_restore, true));
-        ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
-                                             restore_db_dir));
-      }
+          // (Eventually, see below) Restore one of the backups, or "latest"
+          std::string restore_db_dir = dbname_ + "/restore" + ToString(i);
+          DestroyDir(test_db_env_.get(), restore_db_dir).PermitUncheckedError();
+          BackupID to_restore;
+          if (latest) {
+            to_restore = count;
+          } else {
+            to_restore = i + 1;
+          }
 
-      // Open restored DB to verify its contents
-      DB* restored;
-      ASSERT_OK(DB::Open(db_opts, restore_db_dir, &restored));
-      int factor = std::min(static_cast<int>(to_restore), max_factor);
-      AssertExists(restored, 0, factor * keys_iteration);
-      AssertEmpty(restored, factor * keys_iteration,
-                  (factor + 1) * keys_iteration);
-      delete restored;
+          // Open restored DB to verify its contents, but test atomic restore
+          // by doing it async and ensuring we either get OK or InvalidArgument
+          restore_verify_threads[i] =
+              std::thread([this, &db_opts, restore_db_dir, to_restore] {
+                DB* restored;
+                Status s;
+                for (;;) {
+                  s = DB::Open(db_opts, restore_db_dir, &restored);
+                  if (s.IsInvalidArgument()) {
+                    // Restore hasn't finished
+                    test_db_env_->SleepForMicroseconds(1000);
+                    continue;
+                  } else {
+                    // We should only get InvalidArgument if restore is
+                    // incomplete, or OK if complete
+                    ASSERT_OK(s);
+                    break;
+                  }
+                }
+                int factor = std::min(static_cast<int>(to_restore), max_factor);
+                AssertExists(restored, 0, factor * keys_iteration);
+                AssertEmpty(restored, factor * keys_iteration,
+                            (factor + 1) * keys_iteration);
+                delete restored;
+              });
 
-      // Re-verify metadata (we don't receive updates from concurrently
-      // creating a new backup)
-      my_be->GetBackupInfo(&infos);
-      ASSERT_EQ(infos.size(), count);
-      my_be->GetCorruptedBackups(&ids);
-      ASSERT_EQ(ids.size(), 0);
-      // fprintf(stderr, "Finished read thread\n");
+          // (Ok now) Restore one of the backups, or "latest"
+          if (latest) {
+            ASSERT_OK(my_be->RestoreDBFromLatestBackup(restore_db_dir,
+                                                       restore_db_dir));
+          } else {
+            ASSERT_OK(my_be->VerifyBackup(to_restore, true));
+            ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
+                                                 restore_db_dir));
+          }
 
-      if (reopen) {
-        delete my_be;
-      }
-    });
+          // Re-verify metadata (we don't receive updates from concurrently
+          // creating a new backup)
+          my_be->GetBackupInfo(&infos);
+          ASSERT_EQ(infos.size(), count);
+          my_be->GetCorruptedBackups(&ids);
+          ASSERT_EQ(ids.size(), 0);
+          // fprintf(stderr, "Finished read thread\n");
+
+          if (reopen) {
+            delete my_be;
+          }
+        });
   }
 
   BackupEngine* alt_be;
@@ -3229,6 +3268,11 @@ TEST_F(BackupEngineTest, Concurrency) {
   }
 
   delete alt_be;
+
+  for (auto& t : restore_verify_threads) {
+    t.join();
+  }
+
   CloseDBAndBackupEngine();
 }
 

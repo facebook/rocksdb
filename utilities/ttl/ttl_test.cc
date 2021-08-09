@@ -7,10 +7,16 @@
 
 #include <map>
 #include <memory>
+
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
+#include "utilities/merge_operators/bytesxor.h"
+#include "utilities/ttl/db_ttl_impl.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -719,6 +725,171 @@ TEST_F(TtlTest, DeleteRangeTest) {
   CloseTtl();
 }
 
+class DummyFilter : public CompactionFilter {
+ public:
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
+    return false;
+  }
+
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "DummyFilter"; }
+};
+
+class DummyFilterFactory : public CompactionFilterFactory {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "DummyFilterFactory"; }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context&) override {
+    std::unique_ptr<CompactionFilter> f(new DummyFilter());
+    return f;
+  }
+};
+
+static int RegisterTestObjects(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  library.Register<CompactionFilter>(
+      "DummyFilter", [](const std::string& /*uri*/,
+                        std::unique_ptr<CompactionFilter>* /*guard*/,
+                        std::string* /* errmsg */) {
+        static DummyFilter dummy;
+        return &dummy;
+      });
+  library.Register<CompactionFilterFactory>(
+      "DummyFilterFactory", [](const std::string& /*uri*/,
+                               std::unique_ptr<CompactionFilterFactory>* guard,
+                               std::string* /* errmsg */) {
+        guard->reset(new DummyFilterFactory());
+        return guard->get();
+      });
+  return 2;
+}
+
+class TtlOptionsTest : public testing::Test {
+ public:
+  TtlOptionsTest() {
+    config_options_.registry->AddLibrary("RegisterTtlObjects",
+                                         RegisterTtlObjects, "");
+    config_options_.registry->AddLibrary("RegisterTtlTestObjects",
+                                         RegisterTestObjects, "");
+  }
+  ConfigOptions config_options_;
+};
+
+TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
+  const CompactionFilter* filter = nullptr;
+
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options_, TtlCompactionFilter::kClassName(), &filter));
+  ASSERT_NE(filter, nullptr);
+  ASSERT_STREQ(filter->Name(), TtlCompactionFilter::kClassName());
+  auto ttl = filter->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 0);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  delete filter;
+  filter = nullptr;
+
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options_, "id=TtlCompactionFilter; ttl=123", &filter));
+  ASSERT_NE(filter, nullptr);
+  ttl = filter->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 123);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  delete filter;
+  filter = nullptr;
+
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options_,
+      "id=TtlCompactionFilter; ttl=456; user_filter=DummyFilter;", &filter));
+  ASSERT_NE(filter, nullptr);
+  auto inner = filter->CheckedCast<DummyFilter>();
+  ASSERT_NE(inner, nullptr);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  std::string mismatch;
+  std::string opts_str = filter->ToString(config_options_);
+  const CompactionFilter* copy = nullptr;
+  ASSERT_OK(
+      CompactionFilter::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(filter->AreEquivalent(config_options_, copy, &mismatch));
+  delete filter;
+  delete copy;
+}
+
+TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
+  std::shared_ptr<CompactionFilterFactory> cff;
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      config_options_, TtlCompactionFilterFactory::kClassName(), &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  ASSERT_STREQ(cff->Name(), TtlCompactionFilterFactory::kClassName());
+  auto ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 0);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      config_options_, "id=TtlCompactionFilterFactory; ttl=123", &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  ASSERT_STREQ(cff->Name(), TtlCompactionFilterFactory::kClassName());
+  ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 123);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      config_options_,
+      "id=TtlCompactionFilterFactory; ttl=456; "
+      "user_filter_factory=DummyFilterFactory;",
+      &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  auto filter = cff->CreateCompactionFilter(CompactionFilter::Context());
+  ASSERT_NE(filter.get(), nullptr);
+  auto ttlf = filter->CheckedCast<TtlCompactionFilter>();
+  ASSERT_EQ(filter.get(), ttlf);
+  auto user = filter->CheckedCast<DummyFilter>();
+  ASSERT_NE(user, nullptr);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  std::string opts_str = cff->ToString(config_options_);
+  std::string mismatch;
+  std::shared_ptr<CompactionFilterFactory> copy;
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(config_options_, opts_str,
+                                                      &copy));
+  ASSERT_TRUE(cff->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
+
+TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
+  std::shared_ptr<MergeOperator> mo;
+
+  config_options_.invoke_prepare_options = false;
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, TtlMergeOperator::kClassName(), &mo));
+  ASSERT_NE(mo.get(), nullptr);
+  ASSERT_STREQ(mo->Name(), TtlMergeOperator::kClassName());
+  ASSERT_NOK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  config_options_.invoke_prepare_options = true;
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, "id=TtlMergeOperator; user_operator=bytesxor", &mo));
+  ASSERT_NE(mo.get(), nullptr);
+  ASSERT_STREQ(mo->Name(), TtlMergeOperator::kClassName());
+  ASSERT_OK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  auto ttl_mo = mo->CheckedCast<TtlMergeOperator>();
+  ASSERT_EQ(mo.get(), ttl_mo);
+  auto user = ttl_mo->CheckedCast<BytesXOROperator>();
+  ASSERT_NE(user, nullptr);
+
+  std::string mismatch;
+  std::string opts_str = mo->ToString(config_options_);
+  std::shared_ptr<MergeOperator> copy;
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(mo->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb

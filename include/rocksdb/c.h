@@ -2039,6 +2039,12 @@ rocksdb_transactiondb_create_snapshot(rocksdb_transactiondb_t* txn_db);
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_release_snapshot(
     rocksdb_transactiondb_t* txn_db, const rocksdb_snapshot_t* snapshot);
 
+extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value(
+    rocksdb_transactiondb_t* db, const char* propname);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_transactiondb_property_int(
+    rocksdb_transactiondb_t* db, const char* propname, uint64_t* out_val);
+
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
     const rocksdb_writeoptions_t* write_options,
@@ -2196,8 +2202,17 @@ rocksdb_optimistictransaction_begin(
     const rocksdb_optimistictransaction_options_t* otxn_options,
     rocksdb_transaction_t* old_txn);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_write(
+    rocksdb_optimistictransactiondb_t* otxn_db,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db);
+
+extern ROCKSDB_LIBRARY_API rocksdb_checkpoint_t*
+rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr);
 
 /* Transaction Options */
 
@@ -2256,6 +2271,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransaction_options_destroy(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_optimistictransaction_options_set_set_snapshot(
     rocksdb_optimistictransaction_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_optimistictransactiondb_property_value(
+    rocksdb_optimistictransactiondb_t* db, const char* propname);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_optimistictransactiondb_property_int(
+    rocksdb_optimistictransactiondb_t* db, const char* propname,
+    uint64_t* out_val);
 
 // referring to convention (3), this should be used by client
 // to free memory that was malloc()ed

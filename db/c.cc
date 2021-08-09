@@ -4875,6 +4875,27 @@ void rocksdb_optimistictransaction_options_set_set_snapshot(
   opt->rep.set_snapshot = v;
 }
 
+char* rocksdb_optimistictransactiondb_property_value(
+    rocksdb_optimistictransactiondb_t* db, const char* propname) {
+  std::string tmp;
+  if (db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_optimistictransactiondb_property_int(
+    rocksdb_optimistictransactiondb_t* db, const char* propname,
+    uint64_t* out_val) {
+  if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
 rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
     rocksdb_transactiondb_t* txn_db,
     const rocksdb_options_t* column_family_options,
@@ -4943,6 +4964,27 @@ void rocksdb_transactiondb_release_snapshot(
     rocksdb_transactiondb_t* txn_db, const rocksdb_snapshot_t* snapshot) {
   txn_db->rep->ReleaseSnapshot(snapshot->rep);
   delete snapshot;
+}
+
+char* rocksdb_transactiondb_property_value(rocksdb_transactiondb_t* db,
+                                           const char* propname) {
+  std::string tmp;
+  if (db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_transactiondb_property_int(rocksdb_transactiondb_t* db,
+                                       const char* propname,
+                                       uint64_t* out_val) {
+  if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
 }
 
 rocksdb_transaction_t* rocksdb_transaction_begin(
@@ -5347,10 +5389,29 @@ rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
   return old_txn;
 }
 
+// Write batch into OptimisticTransactionDB
+void rocksdb_optimistictransactiondb_write(
+    rocksdb_optimistictransactiondb_t* otxn_db,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
+    char** errptr) {
+  SaveError(errptr, otxn_db->rep->Write(options->rep, &batch->rep));
+}
+
 void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db) {
   delete otxn_db->rep;
   delete otxn_db;
+}
+
+rocksdb_checkpoint_t* rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr) {
+  Checkpoint* checkpoint;
+  if (SaveError(errptr, Checkpoint::Create(otxn_db->rep, &checkpoint))) {
+    return nullptr;
+  }
+  rocksdb_checkpoint_t* result = new rocksdb_checkpoint_t;
+  result->rep = checkpoint;
+  return result;
 }
 
 void rocksdb_free(void* ptr) { free(ptr); }

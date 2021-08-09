@@ -2,18 +2,36 @@
 ## Unreleased
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
+* Restoring backups with BackupEngine is now a logically atomic operation, so that if a restore operation is interrupted, DB::Open on it will fail. Using BackupEngineOptions::sync (default) ensures atomicity even in case of power loss or OS crash.
+* Fixed a race related to the destruction of `ColumnFamilyData` objects. The earlier logic unlocked the DB mutex before destroying the thread-local `SuperVersion` pointers, which could result in a process crash if another thread managed to get a reference to the `ColumnFamilyData` object.
+* Removed a call to `RenameFile()` on a non-existent info log file ("LOG") when opening a new DB. Such a call was guaranteed to fail though did not impact applications since we swallowed the error. Now we also stopped swallowing errors in renaming "LOG" file.
+* Fixed an issue where `OnFlushCompleted` was not called for atomic flush.
+* Fixed a bug affecting the batched `MultiGet` API when used with keys spanning multiple column families and `sorted_input == false`.
+
+### New Features
+* Made the EventListener extend the Customizable class.
+* EventListeners that have a non-empty Name() and that are registered with the ObjectRegistry can now be serialized to/from the OPTIONS file.
+* Insert warm blocks (data blocks, uncompressed dict blocks, index and filter blocks) in Block cache during flush under option BlockBasedTableOptions.prepopulate_block_cache. Previously it was enabled for only data blocks.
+* BlockBasedTableOptions.prepopulate_block_cache can be dynamically configured using DB::SetOptions.
+
+### Performance Improvements
+* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
+
+### Behavior Changes
+* `StringAppendOperator` additionally accepts a string as the delimiter.
+* BackupEngineOptions::sync (default true) now applies to restoring backups in addition to creating backups. This could slow down restores, but ensures they are fully persisted before returning OK. (Consider increasing max_background_operations to improve performance.)
 
 ## 6.23.0 (2021-07-16)
 ### Behavior Changes
 * Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
-
 ### Bug Fixes
 * Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
 * `GetLiveFilesMetaData()` now populates the `temperature`, `oldest_ancester_time`, and `file_creation_time` fields of its `LiveFileMetaData` results when the information is available. Previously these fields always contained zero indicating unknown.
 * Fix mismatches of OnCompaction{Begin,Completed} in case of DisableManualCompaction().
 * Fix continuous logging of an existing background error on every user write
-* Fix a bug that `Get()` return Status::OK() and an empty value for non-existent key when `read_options.read_tier = kBlockCacheTier`. 
+* Fix a bug that `Get()` return Status::OK() and an empty value for non-existent key when `read_options.read_tier = kBlockCacheTier`.
 * Fix a bug that stat in `get_context` didn't accumulate to statistics when query is failed.
+* Fixed handling of DBOptions::wal_dir with LoadLatestOptions() or ldb --try_load_options on a copied or moved DB. Previously, when the WAL directory is same as DB directory (default), a copied or moved DB would reference the old path of the DB as the WAL directory, potentially corrupting both copies. Under this change, the wal_dir from DB::GetOptions() or LoadLatestOptions() may now be empty, indicating that the current DB directory is used for WALs. This is also a subtle API change.
 
 ### New Features
 * ldb has a new feature, `list_live_files_metadata`, that shows the live SST files, as well as their LSM storage level and the column family they belong to.
@@ -25,9 +43,6 @@
 ### Public API change
 * Added APIs to the Customizable class to allow developers to create their own Customizable classes.  Created the utilities/customizable_util.h file to contain helper methods for developing new Customizable classes.
 * Change signature of SecondaryCache::Name().  Make SecondaryCache customizable and add SecondaryCache::CreateFromString method.
-
-### Performance Improvements
-* Try to avoid updating DBOptions if `SetDBOptions()` does not change any option value.
 
 ## 6.22.0 (2021-06-18)
 ### Behavior Changes

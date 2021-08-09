@@ -35,22 +35,34 @@ const std::string kDbName = test::PerThreadDBPath("stringappend_test");
 
 namespace {
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator
-std::shared_ptr<DB> OpenNormalDb(char delim_char) {
+std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
   DB* db;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator.reset(new StringAppendOperator(delim_char));
+  MergeOperator* mergeOperator;
+  if (delim.size() == 1) {
+    mergeOperator = new StringAppendOperator(delim[0]);
+  } else {
+    mergeOperator = new StringAppendOperator(delim);
+  }
+  options.merge_operator.reset(mergeOperator);
   EXPECT_OK(DB::Open(options, kDbName, &db));
   return std::shared_ptr<DB>(db);
 }
 
 #ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
 // Open a TtlDB with a non-associative StringAppendTESTOperator
-std::shared_ptr<DB> OpenTtlDb(char delim_char) {
+std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
   DBWithTTL* db;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator.reset(new StringAppendTESTOperator(delim_char));
+  MergeOperator* mergeOperator;
+  if (delim.size() == 1) {
+    mergeOperator = new StringAppendTESTOperator(delim[0]);
+  } else {
+    mergeOperator = new StringAppendTESTOperator(delim);
+  }
+  options.merge_operator.reset(mergeOperator);
   EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
@@ -137,7 +149,7 @@ class StringAppendOperatorTest : public testing::Test,
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
   }
 
-  typedef std::shared_ptr<DB> (* OpenFuncPtr)(char);
+  typedef std::shared_ptr<DB> (*OpenFuncPtr)(const std::string&);
 
   // Allows user to open databases with different configurations.
   // e.g.: Can open a DB or a TtlDB, etc.
@@ -153,7 +165,7 @@ StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb = nullptr
 // THE TEST CASES BEGIN HERE
 
 TEST_P(StringAppendOperatorTest, IteratorTest) {
-  auto db_ = OpenDb(',');
+  auto db_ = OpenDb(",");
   StringLists slists(db_);
 
   slists.Append("k1", "v1");
@@ -246,7 +258,7 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
 }
 
 TEST_P(StringAppendOperatorTest, SimpleTest) {
-  auto db = OpenDb(',');
+  auto db = OpenDb(",");
   StringLists slists(db);
 
   slists.Append("k1", "v1");
@@ -259,7 +271,7 @@ TEST_P(StringAppendOperatorTest, SimpleTest) {
 }
 
 TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
-  auto db = OpenDb('|');
+  auto db = OpenDb("|");
   StringLists slists(db);
 
   slists.Append("k1", "v1");
@@ -271,8 +283,49 @@ TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
   ASSERT_EQ(res, "v1|v2|v3");
 }
 
+TEST_P(StringAppendOperatorTest, EmptyDelimiterTest) {
+  auto db = OpenDb("");
+  StringLists slists(db);
+
+  slists.Append("k1", "v1");
+  slists.Append("k1", "v2");
+  slists.Append("k1", "v3");
+
+  std::string res;
+  ASSERT_TRUE(slists.Get("k1", &res));
+  ASSERT_EQ(res, "v1v2v3");
+}
+
+TEST_P(StringAppendOperatorTest, MultiCharDelimiterTest) {
+  auto db = OpenDb("<>");
+  StringLists slists(db);
+
+  slists.Append("k1", "v1");
+  slists.Append("k1", "v2");
+  slists.Append("k1", "v3");
+
+  std::string res;
+  ASSERT_TRUE(slists.Get("k1", &res));
+  ASSERT_EQ(res, "v1<>v2<>v3");
+}
+
+TEST_P(StringAppendOperatorTest, DelimiterIsDefensivelyCopiedTest) {
+  std::string delimiter = "<>";
+  auto db = OpenDb(delimiter);
+  StringLists slists(db);
+
+  slists.Append("k1", "v1");
+  slists.Append("k1", "v2");
+  delimiter.clear();
+  slists.Append("k1", "v3");
+
+  std::string res;
+  ASSERT_TRUE(slists.Get("k1", &res));
+  ASSERT_EQ(res, "v1<>v2<>v3");
+}
+
 TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
-  auto db = OpenDb('!');
+  auto db = OpenDb("!");
   StringLists slists(db);
 
   slists.Append("random_key", "single_val");
@@ -283,7 +336,7 @@ TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
 }
 
 TEST_P(StringAppendOperatorTest, VariousKeys) {
-  auto db = OpenDb('\n');
+  auto db = OpenDb("\n");
   StringLists slists(db);
 
   slists.Append("c", "asdasd");
@@ -309,7 +362,7 @@ TEST_P(StringAppendOperatorTest, VariousKeys) {
 
 // Generate semi random keys/words from a small distribution.
 TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
-  auto db = OpenDb(' ');
+  auto db = OpenDb(" ");
   StringLists slists(db);
 
   // Generate a list of random keys and values
@@ -359,7 +412,7 @@ TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
 }
 
 TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
-  auto db = OpenDb(' ');
+  auto db = OpenDb(" ");
   StringLists slists(db);
 
   // Generate a list of random keys and values
@@ -411,7 +464,7 @@ TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
 TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
   // Perform the following operations in limited scope
   {
-    auto db = OpenDb('\n');
+    auto db = OpenDb("\n");
     StringLists slists(db);
 
     slists.Append("c", "asdasd");
@@ -434,7 +487,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
 
   // Reopen the database (the previous changes should persist / be remembered)
   {
-    auto db = OpenDb('\n');
+    auto db = OpenDb("\n");
     StringLists slists(db);
 
     slists.Append("c", "bbnagnagsx");
@@ -460,7 +513,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
 
   // Reopen the database (the previous changes should persist / be remembered)
   {
-    auto db = OpenDb('\n');
+    auto db = OpenDb("\n");
     StringLists slists(db);
 
     // All changes should be on disk. This will test VersionSet Get()
@@ -478,7 +531,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
 TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
   // Perform the following operations in limited scope
   {
-    auto db = OpenDb('\n');
+    auto db = OpenDb("\n");
     StringLists slists(db);
     std::string a, b, c;
 
@@ -517,7 +570,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
   // Reopen the database (the previous changes should persist / be remembered)
   {
-    auto db = OpenDb('\n');
+    auto db = OpenDb("\n");
     StringLists slists(db);
     std::string a, b, c;
 
@@ -565,7 +618,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 }
 
 TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
-  auto db = OpenDb('\0');
+  auto db = OpenDb(std::string(1, '\0'));
   StringLists slists(db);
 
   slists.Append("k1", "v1");
