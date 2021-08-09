@@ -2290,20 +2290,18 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
       multiget_cf_data;
   size_t cf_start = 0;
   ColumnFamilyHandle* cf = sorted_keys[0]->column_family;
+
   for (size_t i = 0; i < num_keys; ++i) {
     KeyContext* key_ctx = sorted_keys[i];
     if (key_ctx->column_family != cf) {
-      multiget_cf_data.emplace_back(
-          MultiGetColumnFamilyData(cf, cf_start, i - cf_start, nullptr));
+      multiget_cf_data.emplace_back(cf, cf_start, i - cf_start, nullptr);
       cf_start = i;
       cf = key_ctx->column_family;
     }
   }
-  {
-    // multiget_cf_data.emplace_back(
-    // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
-    multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
-  }
+
+  multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
+
   std::function<MultiGetColumnFamilyData*(
       autovector<MultiGetColumnFamilyData,
                  MultiGetContext::MAX_BATCH_SIZE>::iterator&)>
@@ -2363,7 +2361,7 @@ struct CompareKeyContext {
         static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
     uint32_t cfd_id1 = cfh->cfd()->GetID();
     const Comparator* comparator = cfh->cfd()->user_comparator();
-    cfh = static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+    cfh = static_cast<ColumnFamilyHandleImpl*>(rhs->column_family);
     uint32_t cfd_id2 = cfh->cfd()->GetID();
 
     if (cfd_id1 < cfd_id2) {
@@ -2387,39 +2385,24 @@ struct CompareKeyContext {
 void DBImpl::PrepareMultiGetKeys(
     size_t num_keys, bool sorted_input,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-#ifndef NDEBUG
   if (sorted_input) {
-    for (size_t index = 0; index < sorted_keys->size(); ++index) {
-      if (index > 0) {
-        KeyContext* lhs = (*sorted_keys)[index - 1];
-        KeyContext* rhs = (*sorted_keys)[index];
-        ColumnFamilyHandleImpl* cfh =
-            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
-        uint32_t cfd_id1 = cfh->cfd()->GetID();
-        const Comparator* comparator = cfh->cfd()->user_comparator();
-        cfh =
-            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
-        uint32_t cfd_id2 = cfh->cfd()->GetID();
+#ifndef NDEBUG
+    CompareKeyContext key_context_less;
 
-        assert(cfd_id1 <= cfd_id2);
-        if (cfd_id1 < cfd_id2) {
-          continue;
-        }
+    for (size_t index = 1; index < sorted_keys->size(); ++index) {
+      const KeyContext* const lhs = (*sorted_keys)[index - 1];
+      const KeyContext* const rhs = (*sorted_keys)[index];
 
-        // Both keys are from the same column family
-        int cmp = comparator->CompareWithoutTimestamp(
-            *(lhs->key), /*a_has_ts=*/false, *(rhs->key), /*b_has_ts=*/false);
-        assert(cmp <= 0);
-      }
-      index++;
+      // lhs should be <= rhs, or in other words, rhs should NOT be < lhs
+      assert(!key_context_less(rhs, lhs));
     }
-  }
 #endif
-  if (!sorted_input) {
-    CompareKeyContext sort_comparator;
-    std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
-              sort_comparator);
+
+    return;
   }
+
+  std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
+            CompareKeyContext());
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,

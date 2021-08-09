@@ -512,7 +512,6 @@ def blackbox_crash_main(args, unknown_args):
 
         for line in errs.split('\n'):
             if line != '' and  not line.startswith('WARNING'):
-                run_had_errors = True
                 print('stderr has error message:')
                 print('***' + line + '***')
 

@@ -30,6 +30,9 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -395,13 +398,6 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
                                              "merge_operator=" + kMoName + ";",
@@ -2281,14 +2277,6 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
-
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
@@ -3096,8 +3084,8 @@ void VerifyCFPointerTypedOptions(
 
   // change the name of merge operator back-and-forth
   {
-    auto* merge_operator = dynamic_cast<test::ChanglingMergeOperator*>(
-        base_cf_opt->merge_operator.get());
+    auto* merge_operator = base_cf_opt->merge_operator
+                               ->CheckedCast<test::ChanglingMergeOperator>();
     if (merge_operator != nullptr) {
       name_buffer = merge_operator->Name();
       // change the name  and expect non-ok status
@@ -3114,8 +3102,8 @@ void VerifyCFPointerTypedOptions(
   // change the name of the compaction filter factory back-and-forth
   {
     auto* compaction_filter_factory =
-        dynamic_cast<test::ChanglingCompactionFilterFactory*>(
-            base_cf_opt->compaction_filter_factory.get());
+        base_cf_opt->compaction_filter_factory
+            ->CheckedCast<test::ChanglingCompactionFilterFactory>();
     if (compaction_filter_factory != nullptr) {
       name_buffer = compaction_filter_factory->Name();
       // change the name and expect non-ok status
@@ -4185,6 +4173,90 @@ TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
   ASSERT_EQ(opts.env, db_opts.env);
 
   delete mem_env;
+}
+TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
+  ConfigOptions config_options;
+  std::shared_ptr<MergeOperator> merge_op;
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "put", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("put"));
+  ASSERT_STREQ(merge_op->Name(), "PutOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "put_v1", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("PutOperator"));
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "uint64add", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("uint64add"));
+  ASSERT_STREQ(merge_op->Name(), "UInt64AddOperator");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "max", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("max"));
+  ASSERT_STREQ(merge_op->Name(), "MaxOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "bytesxor", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("bytesxor"));
+  ASSERT_STREQ(merge_op->Name(), BytesXOROperator::kClassName());
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "sortlist", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("sortlist"));
+  ASSERT_STREQ(merge_op->Name(), SortList::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappend",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  auto delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappendtest",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappend; delimiter=||", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "||");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappendtest; delimiter=&&", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
+
+  std::shared_ptr<MergeOperator> copy;
+  std::string mismatch;
+  std::string opts_str = merge_op->ToString(config_options);
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, opts_str, &copy));
+  ASSERT_TRUE(merge_op->AreEquivalent(config_options, copy.get(), &mismatch));
+  ASSERT_NE(copy, nullptr);
+  delimiter = copy->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
