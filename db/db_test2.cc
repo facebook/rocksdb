@@ -4488,7 +4488,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
       {"a", "foo", "whatever"}, fake_ts++));
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
   // Empty MultiGet
-  record.reset(new MultiGetQueryTraceRecord({}, {}, fake_ts++));
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>(), std::vector<std::string>(), fake_ts++));
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
   // MultiGet size mismatch
   record.reset(new MultiGetQueryTraceRecord(

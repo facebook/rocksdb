@@ -197,8 +197,9 @@ Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
-    record->reset(
-        new GetQueryTraceRecord(cf_id, get_key.ToString(), trace->ts));
+    PinnableSlice ps;
+    ps.PinSlice(get_key, nullptr, nullptr, nullptr);
+    record->reset(new GetQueryTraceRecord(cf_id, std::move(ps), trace->ts));
   }
 
   return Status::OK();
@@ -249,9 +250,11 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
+    PinnableSlice ps;
+    ps.PinSlice(iter_key, nullptr, nullptr, nullptr);
     record->reset(new IteratorSeekQueryTraceRecord(
         static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
-        iter_key.ToString(), trace->ts));
+        std::move(ps), trace->ts));
   }
 
   return Status::OK();
@@ -268,7 +271,7 @@ Status TracerHelper::DecodeMultiGetRecord(
 
   uint32_t multiget_size = 0;
   std::vector<uint32_t> cf_ids;
-  std::vector<std::string> multiget_keys;
+  std::vector<PinnableSlice> multiget_keys;
 
   Slice cfids_payload;
   Slice keys_payload;
@@ -307,7 +310,10 @@ Status TracerHelper::DecodeMultiGetRecord(
     GetFixed32(&cfids_payload, &tmp_cfid);
     GetLengthPrefixedSlice(&keys_payload, &tmp_key);
     cf_ids.push_back(tmp_cfid);
-    multiget_keys.push_back(tmp_key.ToString());
+    Slice s(tmp_key);
+    PinnableSlice ps;
+    ps.PinSlice(s, nullptr, nullptr, nullptr);
+    multiget_keys.push_back(ps);
   }
 
   if (record != nullptr) {

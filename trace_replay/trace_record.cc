@@ -54,13 +54,22 @@ Status WriteQueryTraceRecord::Execute(
 GetQueryTraceRecord::GetQueryTraceRecord() : QueryTraceRecord(), cf_id(0) {}
 
 GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
+                                         PinnableSlice&& get_key, uint64_t ts)
+    : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
+
+GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
                                          const std::string& get_key,
                                          uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id), key(get_key) {}
+    : QueryTraceRecord(ts), cf_id(get_cf_id) {
+  Slice s(get_key);
+  key.PinSelf(s);
+}
 
 GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
                                          std::string&& get_key, uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
+    : QueryTraceRecord(ts), cf_id(get_cf_id), key(&get_key) {
+  key.PinSelf();
+}
 
 GetQueryTraceRecord::~GetQueryTraceRecord() {}
 
@@ -96,19 +105,28 @@ IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord()
     : IteratorQueryTraceRecord(), seekType(kSeek), cf_id(0) {}
 
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t iter_cf_id, const std::string& iter_key,
-    uint64_t ts)
+    SeekType type, uint32_t iter_cf_id, PinnableSlice&& iter_key, uint64_t ts)
     : IteratorQueryTraceRecord(ts),
       seekType(type),
       cf_id(iter_cf_id),
-      key(iter_key) {}
+      key(std::move(iter_key)) {}
+
+IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
+    SeekType type, uint32_t iter_cf_id, const std::string& iter_key,
+    uint64_t ts)
+    : IteratorQueryTraceRecord(ts), seekType(type), cf_id(iter_cf_id) {
+  Slice s(iter_key);
+  key.PinSelf(s);
+}
 
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
     SeekType type, uint32_t iter_cf_id, std::string&& iter_key, uint64_t ts)
     : IteratorQueryTraceRecord(ts),
       seekType(type),
       cf_id(iter_cf_id),
-      key(std::move(iter_key)) {}
+      key(&iter_key) {
+  key.PinSelf();
+}
 
 IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() {}
 
@@ -140,15 +158,43 @@ MultiGetQueryTraceRecord::MultiGetQueryTraceRecord() : QueryTraceRecord() {}
 
 MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
     const std::vector<uint32_t>& multiget_cf_ids,
+    std::vector<PinnableSlice>&& multiget_keys, uint64_t ts)
+    : QueryTraceRecord(ts),
+      cf_ids(multiget_cf_ids),
+      keys(std::move(multiget_keys)) {}
+
+MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
+    std::vector<uint32_t>&& multiget_cf_ids,
+    std::vector<PinnableSlice>&& multiget_keys, uint64_t ts)
+    : QueryTraceRecord(ts),
+      cf_ids(std::move(multiget_cf_ids)),
+      keys(std::move(multiget_keys)) {}
+
+MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
+    const std::vector<uint32_t>& multiget_cf_ids,
     const std::vector<std::string>& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts), cf_ids(multiget_cf_ids), keys(multiget_keys) {}
+    : QueryTraceRecord(ts), cf_ids(multiget_cf_ids) {
+  keys.reserve(multiget_keys.size());
+  for (const std::string& key : multiget_keys) {
+    Slice s(key);
+    PinnableSlice ps;
+    ps.PinSelf(s);
+    keys.push_back(std::move(ps));
+  }
+}
 
 MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
     std::vector<uint32_t>&& multiget_cf_ids,
     std::vector<std::string>&& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts),
-      cf_ids(std::move(multiget_cf_ids)),
-      keys(std::move(multiget_keys)) {}
+    : QueryTraceRecord(ts), cf_ids(std::move(multiget_cf_ids)) {
+  keys.reserve(multiget_keys.size());
+  for (std::string& key : multiget_keys) {
+    Slice s(key);
+    PinnableSlice ps;
+    ps.PinSelf(s);
+    keys.push_back(std::move(ps));
+  }
+}
 
 MultiGetQueryTraceRecord::~MultiGetQueryTraceRecord() {}
 

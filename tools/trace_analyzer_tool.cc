@@ -831,7 +831,7 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
 // Process the statistics of QPS
 Status TraceAnalyzer::MakeStatisticQPS() {
-  if(begin_time_ == 0) {
+  if (begin_time_ == 0) {
     begin_time_ = trace_create_time_;
   }
   uint32_t duration =
@@ -1554,7 +1554,7 @@ Status TraceAnalyzer::CloseOutputFiles() {
 
 // Handle the Get request in the trace
 Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
-                                const std::string& key, const uint64_t& ts,
+                                const PinnableSlice& key, const uint64_t& ts,
                                 const uint32_t& get_ret) {
   Status s;
   size_t value_size = 0;
@@ -1581,8 +1581,8 @@ Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
   if (get_ret == 1) {
     value_size = 10;
   }
-  s = KeyStatsInsertion(TraceOperationType::kGet, column_family_id, key,
-                        value_size, ts);
+  s = KeyStatsInsertion(TraceOperationType::kGet, column_family_id,
+                        key.ToString(), value_size, ts);
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
@@ -1759,7 +1759,7 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
 
 // Handle the Iterator request in the trace
 Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
-                                 const std::string& key, const uint64_t& ts,
+                                 const PinnableSlice& key, const uint64_t& ts,
                                  TraceType& trace_type) {
   Status s;
   size_t value_size = 0;
@@ -1794,7 +1794,7 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
   if (!ta_[type].enabled) {
     return Status::OK();
   }
-  s = KeyStatsInsertion(type, column_family_id, key, value_size, ts);
+  s = KeyStatsInsertion(type, column_family_id, key.ToString(), value_size, ts);
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
@@ -1804,7 +1804,7 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
 // Handle MultiGet queries in the trace
 Status TraceAnalyzer::HandleMultiGet(
     const std::vector<uint32_t>& column_family_ids,
-    const std::vector<std::string>& keys, const uint64_t& ts) {
+    const std::vector<PinnableSlice>& keys, const uint64_t& ts) {
   Status s;
   size_t value_size = 0;
   if (column_family_ids.size() != keys.size()) {
@@ -1839,7 +1839,7 @@ Status TraceAnalyzer::HandleMultiGet(
   for (size_t i = 0; i < vector_size; i++) {
     assert(i < column_family_ids.size() && i < keys.size());
     s = KeyStatsInsertion(TraceOperationType::kMultiGet, column_family_ids[i],
-                          keys[i], value_size, ts);
+                          keys[i].ToString(), value_size, ts);
   }
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
@@ -2013,10 +2013,11 @@ void TraceAnalyzer::PrintStatistics() {
 // Write the trace sequence to file
 Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
                                          const uint32_t& cf_id,
-                                         const std::string& key,
+                                         const Slice& key,
                                          const size_t value_size,
                                          const uint64_t ts) {
-  std::string hex_key = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(key);
+  std::string hex_key =
+      ROCKSDB_NAMESPACE::LDBCommand::StringToHex(key.ToString());
   int ret;
   ret = snprintf(buffer_, sizeof(buffer_), "%u %u %zu %" PRIu64 "\n", type,
                  cf_id, value_size, ts);
