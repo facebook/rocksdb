@@ -5953,6 +5953,22 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
+
+TEST_F(DBTest2, RenameDirectory) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  Close();
+  auto old_dbname = dbname_;
+  auto new_dbname = dbname_ + "_2";
+  EXPECT_OK(env_->RenameFile(dbname_, new_dbname));
+  options.create_if_missing = false;
+  dbname_ = new_dbname;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ("value0", Get("foo"));
+  Destroy(options);
+  dbname_ = old_dbname;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

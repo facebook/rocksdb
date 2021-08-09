@@ -539,8 +539,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
 }
 
 // New memtables are inserted at the front of the list.
-void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
-                       bool trigger_flush) {
+void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
@@ -551,8 +550,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
   current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
-
-  if (num_flush_not_started_ > 0 && trigger_flush) {
+  if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
   UpdateCachedValuesFromMemTableListVersion();
@@ -726,6 +724,8 @@ Status InstallMemtableAtomicFlushResults(
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
     const autovector<FileMetaData*>& file_metas,
+    const autovector<std::list<std::unique_ptr<FlushJobInfo>>*>&
+        committed_flush_jobs_info,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -755,6 +755,17 @@ Status InstallMemtableAtomicFlushResults(
       (*mems_list[k])[i]->SetFlushCompleted(true);
       (*mems_list[k])[i]->SetFileNumber(file_metas[k]->fd.GetNumber());
     }
+#ifndef ROCKSDB_LITE
+    if (committed_flush_jobs_info[k]) {
+      assert(!mems_list[k]->empty());
+      assert((*mems_list[k])[0]);
+      std::unique_ptr<FlushJobInfo> flush_job_info =
+          (*mems_list[k])[0]->ReleaseFlushJobInfo();
+      committed_flush_jobs_info[k]->push_back(std::move(flush_job_info));
+    }
+#else   //! ROCKSDB_LITE
+    (void)committed_flush_jobs_info;
+#endif  // ROCKSDB_LITE
   }
 
   Status s;

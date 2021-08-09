@@ -29,6 +29,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
+#include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -1276,6 +1277,58 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
     ASSERT_STREQ(result->Name(),
                  test::SimpleSuffixReverseComparator::kClassName());
   }
+}
+
+TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
+  std::shared_ptr<MergeOperator> result;
+
+  ASSERT_NOK(
+      MergeOperator::CreateFromString(config_options_, "Changling", &result));
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        MergeOperator::CreateFromString(config_options_, "Changling", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingMergeOperator");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
+  std::shared_ptr<CompactionFilterFactory> result;
+
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                       "Changling", &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                        "Changling", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilterFactory");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
+  const CompactionFilter* result = nullptr;
+
+  ASSERT_NOK(CompactionFilter::CreateFromString(config_options_, "Changling",
+                                                &result));
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options_, RemoveEmptyValueCompactionFilter::kClassName(),
+      &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), RemoveEmptyValueCompactionFilter::kClassName());
+  delete result;
+  result = nullptr;
+  if (RegisterTests("Test")) {
+    ASSERT_OK(CompactionFilter::CreateFromString(config_options_, "Changling",
+                                                 &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilter");
+    delete result;
+  }
+#endif  // ROCKSDB_LITE
 }
 
 #ifndef ROCKSDB_LITE
