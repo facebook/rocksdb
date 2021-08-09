@@ -1116,6 +1116,7 @@ Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 std::string SystemClockWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto parent = SystemClock::SerializeOptions(config_options, "");
@@ -1135,6 +1136,7 @@ std::string SystemClockWrapper::SerializeOptions(
     return result;
   }
 }
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,

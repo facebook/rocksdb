@@ -101,8 +101,10 @@ class SystemClockWrapper : public SystemClock {
   }
 
   Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
+#endif  // ROCKSDB_LITE
   const Customizable* Inner() const override { return target_.get(); }
 
  protected:

@@ -2393,7 +2393,6 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   ASSERT_OK(s);
 }
 
-#ifndef ROCKSDB_LITE
 class CreateEnvTest : public testing::Test {
  public:
   CreateEnvTest() {
@@ -2403,6 +2402,7 @@ class CreateEnvTest : public testing::Test {
   ConfigOptions config_options_;
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, LoadCTRProvider) {
   config_options_.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
@@ -2469,13 +2469,15 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
                                           SystemClock::kDefaultName(), &clock));
   ASSERT_NE(clock, nullptr);
   ASSERT_EQ(clock, SystemClock::Default());
+#ifndef ROCKSDB_LITE
   std::string opts_str = clock->ToString(config_options_);
   std::string mismatch;
   ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(clock->AreEquivalent(config_options_, copy.get(), &mismatch));
+#endif  // ROCKSDB_LITE
 }
 
-#ifdef ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
   std::shared_ptr<SystemClock> mock, copy;
 
@@ -2512,7 +2514,6 @@ TEST_F(CreateEnvTest, CreateMockSystemClock) {
   ASSERT_OK(SystemClock::CreateFromString(
       config_options_, FakeSleepSystemClock::kClassName(), &mock));
 }
-
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
