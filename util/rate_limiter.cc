@@ -62,7 +62,7 @@ GenericRateLimiter::GenericRateLimiter(
       next_refill_us_(NowMicrosMonotonic()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
-      waiting_(false),
+      wait_until_refill_pending_(false),
       auto_tuned_(auto_tuned),
       num_drains_(0),
       prev_num_drains_(0),
@@ -152,7 +152,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   //
   // We restrict the flexibility a bit to reduce unnecessary wakeups:
   //
-  // - `waiting_` flag ensures only one thread performs (1). This prevents the
+  // - `wait_until_refill_pending_` flag ensures only one thread performs (1). This prevents the
   //   thundering herd problem at the next refill time. The remaining threads
   //   wait on their condition variable with an unbounded duration -- thus we
   //   must remember to notify them to ensure forward progress.
@@ -184,7 +184,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   do {
     int64_t time_until_refill_us = next_refill_us_ - NowMicrosMonotonic();
     if (time_until_refill_us > 0) {
-      if (waiting_) {
+      if (wait_until_refill_pending_) {
         // Somebody is performing (1). Trust we'll be woken up when our request
         // is granted or we are needed for future duties.
         r.cv.Wait();
@@ -193,10 +193,10 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         // above.
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
-        waiting_ = true;
+        wait_until_refill_pending_ = true;
         r.cv.TimedWait(clock_->NowMicros() + time_until_refill_us);
         TEST_SYNC_POINT("GenericRateLimiter::Request:PostTimedWait");
-        waiting_ = false;
+        wait_until_refill_pending_ = false;
       }
     } else {
       // Whichever thread reaches here first performs duty (2) as described
