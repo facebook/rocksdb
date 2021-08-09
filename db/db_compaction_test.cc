@@ -6789,6 +6789,7 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   env_->MockSleepForSeconds(800);
   ASSERT_OK(Put(Key(2), "value2"));
   ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_OK(Put(Key(0), "value1"));
   env_->MockSleepForSeconds(800);
