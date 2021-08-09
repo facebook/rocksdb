@@ -403,7 +403,7 @@ class SpecialEnv : public EnvWrapper {
       Status Sync() override {
         ++env_->sync_counter_;
         if (env_->corrupt_in_sync_) {
-          Append(std::string(33000, ' '));
+          Append(std::string(33000, ' ')).PermitUncheckedError();
           return Status::IOError("Ingested Sync Failure");
         }
         if (env_->skip_fsync_) {
