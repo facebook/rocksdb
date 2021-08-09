@@ -144,43 +144,6 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   //
   // (1) Waiting for the next refill time.
   // (2) Refilling the bytes and granting requests.
-  //
-  // To simplify the implementation, the duties can be performed by any thread.
-  // (1) could in theory be performed by all threads, whereas (2) can only be
-  // performed by one thread per refill interval while holding the mutex. (2)
-  // may even be performed by a thread not involved in (1).
-  //
-  // We restrict the flexibility a bit to reduce unnecessary wakeups:
-  //
-  // - `wait_until_refill_pending_` flag ensures only one thread performs (1). This prevents the
-  //   thundering herd problem at the next refill time. The remaining threads
-  //   wait on their condition variable with an unbounded duration -- thus we
-  //   must remember to notify them to ensure forward progress.
-  // - (1) is typically done by a thread at the front of a queue. This is
-  //   trivial when the queues are initially empty as the first choice that
-  //   arrives must be the only entry in its queue. When queues are initially
-  //   non-empty, we achieve this by having (2) notify a thread at the front
-  //   of a queue (preferring higher priority) to perform the next duty.
-  // - We do not require any additional wakeup for (2). Typically it will just
-  //   be done by the thread that finished (1).
-  //
-  // Combined, the second and third bullet points above suggest the refill/
-  // granting will typically be done by a request at the front of its queue.
-  // This is important because one wakeup is saved when a granted request
-  // happens to be in an already running thread.
-  //
-  // Note this nice property is not guaranteed in a few cases, however.
-  //
-  // - No request may be granted.
-  // - Requests from a different queue may be granted.
-  // - (2) may be run by a non-front request thread causing it to not be granted
-  //   even if some requests in that same queue are granted. It can happen for a
-  //   couple (unlikely) reasons.
-  //    - A new request may sneak in and grab the lock at the refill time,
-  //      before the thread finishing (1) can wake up and grab it.
-  //    - A new request may sneak in and grab the lock and execute (1) before
-  //      (2)'s chosen candidate can wake up and grab the lock. Then that non-
-  //      front request thread performing (1) can carry over to perform (2).
   do {
     int64_t time_until_refill_us = next_refill_us_ - NowMicrosMonotonic();
     if (time_until_refill_us > 0) {
