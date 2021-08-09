@@ -103,6 +103,7 @@ class SystemClockWrapper : public SystemClock {
   Status PrepareOptions(const ConfigOptions& options) override;
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
+  const Customizable* Inner() const override { return target_.get(); }
 
  protected:
   std::shared_ptr<SystemClock> target_;

@@ -20,7 +20,8 @@ class MockSystemClock : public SystemClockWrapper {
   explicit MockSystemClock(const std::shared_ptr<SystemClock>& base)
       : SystemClockWrapper(base) {}
 
-  const char* Name() const override { return "MockSystemClock"; }
+  static const char* kClassName() { return "MockSystemClock"; }
+  const char* Name() const override { return kClassName(); }
   virtual Status GetCurrentTime(int64_t* time_sec) override {
     assert(time_sec != nullptr);
     *time_sec = static_cast<int64_t>(current_time_us_ / kMicrosInSecond);

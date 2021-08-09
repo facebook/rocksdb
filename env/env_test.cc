@@ -37,6 +37,7 @@
 
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
+#include "env/mock_env.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -44,6 +45,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -2391,32 +2394,36 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
 }
 
 #ifndef ROCKSDB_LITE
-class EncryptionProviderTest : public testing::Test {
+class CreateEnvTest : public testing::Test {
  public:
+  CreateEnvTest() {
+    config_options_.ignore_unknown_options = false;
+    config_options_.ignore_unsupported_options = false;
+  }
+  ConfigOptions config_options_;
 };
 
-TEST_F(EncryptionProviderTest, LoadCTRProvider) {
-  ConfigOptions config_options;
-  config_options.invoke_prepare_options = false;
+TEST_F(CreateEnvTest, LoadCTRProvider) {
+  config_options_.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
   std::shared_ptr<EncryptionProvider> provider;
   // Test a provider with no cipher
   ASSERT_OK(
-      EncryptionProvider::CreateFromString(config_options, CTR, &provider));
+      EncryptionProvider::CreateFromString(config_options_, CTR, &provider));
   ASSERT_NE(provider, nullptr);
   ASSERT_EQ(provider->Name(), CTR);
-  ASSERT_NOK(provider->PrepareOptions(config_options));
+  ASSERT_NOK(provider->PrepareOptions(config_options_));
   ASSERT_NOK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
   auto cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
   ASSERT_NE(cipher, nullptr);
   ASSERT_EQ(cipher->get(), nullptr);
   provider.reset();
 
-  ASSERT_OK(EncryptionProvider::CreateFromString(config_options,
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options_,
                                                  CTR + "://test", &provider));
   ASSERT_NE(provider, nullptr);
   ASSERT_EQ(provider->Name(), CTR);
-  ASSERT_OK(provider->PrepareOptions(config_options));
+  ASSERT_OK(provider->PrepareOptions(config_options_));
   ASSERT_OK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
   cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
   ASSERT_NE(cipher, nullptr);
@@ -2424,11 +2431,11 @@ TEST_F(EncryptionProviderTest, LoadCTRProvider) {
   ASSERT_STREQ(cipher->get()->Name(), "ROT13");
   provider.reset();
 
-  ASSERT_OK(EncryptionProvider::CreateFromString(config_options, "1://test",
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "1://test",
                                                  &provider));
   ASSERT_NE(provider, nullptr);
   ASSERT_EQ(provider->Name(), CTR);
-  ASSERT_OK(provider->PrepareOptions(config_options));
+  ASSERT_OK(provider->PrepareOptions(config_options_));
   ASSERT_OK(provider->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
   cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
   ASSERT_NE(cipher, nullptr);
@@ -2437,7 +2444,7 @@ TEST_F(EncryptionProviderTest, LoadCTRProvider) {
   provider.reset();
 
   ASSERT_OK(EncryptionProvider::CreateFromString(
-      config_options, "id=" + CTR + "; cipher=ROT13", &provider));
+      config_options_, "id=" + CTR + "; cipher=ROT13", &provider));
   ASSERT_NE(provider, nullptr);
   ASSERT_EQ(provider->Name(), CTR);
   cipher = provider->GetOptions<std::shared_ptr<BlockCipher>>("Cipher");
@@ -2447,13 +2454,63 @@ TEST_F(EncryptionProviderTest, LoadCTRProvider) {
   provider.reset();
 }
 
-TEST_F(EncryptionProviderTest, LoadROT13Cipher) {
-  ConfigOptions config_options;
+TEST_F(CreateEnvTest, LoadROT13Cipher) {
   std::shared_ptr<BlockCipher> cipher;
   // Test a provider with no cipher
-  ASSERT_OK(BlockCipher::CreateFromString(config_options, "ROT13", &cipher));
+  ASSERT_OK(BlockCipher::CreateFromString(config_options_, "ROT13", &cipher));
   ASSERT_NE(cipher, nullptr);
   ASSERT_STREQ(cipher->Name(), "ROT13");
+}
+#endif  // ROCKSDB_LITE
+
+TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
+  std::shared_ptr<SystemClock> clock, copy;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_,
+                                          SystemClock::kDefaultName(), &clock));
+  ASSERT_NE(clock, nullptr);
+  ASSERT_EQ(clock, SystemClock::Default());
+  std::string opts_str = clock->ToString(config_options_);
+  std::string mismatch;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(clock->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
+
+#ifdef ROCKSDB_LITE
+TEST_F(CreateEnvTest, CreateMockSystemClock) {
+  std::shared_ptr<SystemClock> mock, copy;
+
+  config_options_.registry->AddLibrary("test")->Register<SystemClock>(
+      MockSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSystemClock(nullptr));
+        return guard->get();
+      });
+
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, FakeSleepSystemClock::kClassName(), &mock));
+  ASSERT_NE(mock, nullptr);
+  ASSERT_STREQ(mock->Name(), FakeSleepSystemClock::kClassName());
+  ASSERT_EQ(mock->Inner(), SystemClock::Default().get());
+  std::string opts_str = mock->ToString(config_options_);
+  std::string mismatch;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  std::string id = std::string("id=") + FakeSleepSystemClock::kClassName() +
+                   ";target=" + MockSystemClock::kClassName();
+
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, id, &mock));
+  ASSERT_NE(mock, nullptr);
+  ASSERT_STREQ(mock->Name(), FakeSleepSystemClock::kClassName());
+  ASSERT_NE(mock->Inner(), nullptr);
+  ASSERT_STREQ(mock->Inner()->Name(), MockSystemClock::kClassName());
+  ASSERT_EQ(mock->Inner()->Inner(), SystemClock::Default().get());
+  opts_str = mock->ToString(config_options_);
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, FakeSleepSystemClock::kClassName(), &mock));
 }
 
 #endif  // ROCKSDB_LITE
