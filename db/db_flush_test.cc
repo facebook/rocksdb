@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <limits>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -694,8 +695,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kSampling;
+  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -842,8 +842,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kSampling;
+  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1046,8 +1045,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kSampling;
+  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1122,8 +1120,7 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kSampling;
+  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;
@@ -1239,7 +1236,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     const uint32_t EXPECTED_SST_COUNT = 0;
 
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
-    if (options.experimental_mempurge_policy == MemPurgePolicy::kAlways) {
+    if (options.experimental_mempurge_threshold ==
+        std::numeric_limits<double>::max()) {
       EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
     }
 

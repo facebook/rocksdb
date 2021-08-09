@@ -369,12 +369,6 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
-enum class MemPurgePolicy : char {
-  kAlternate = 0x00,
-  kAlways = 0x01,
-  kSampling = 0x02,
-};
-
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
@@ -788,14 +782,13 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
-  // If true, allows for memtable purge instead of flush to storage.
+  // If >0.0, memtable(s) will be mempurged instead of flushed to storage
+  // every time the total expected 'useful payload' (payload - garbage)
+  // is smaller than threshold * memtable_size.
+  // We recommend to use a threshold of 1.0 for efficient mempurges.
+  // Default: 0.0 (never trigger mempurge).
   // (experimental).
-  bool experimental_allow_mempurge = false;
-  // If experimental_allow_mempurge is true, will dictate MemPurge
-  // policy.
-  // Default: kAlternate
-  // (experimental).
-  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::kAlternate;
+  double experimental_mempurge_threshold = 0.0;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
