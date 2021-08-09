@@ -191,10 +191,11 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       } else {
         // Whichever thread reaches here first performs duty (1) as described
         // above.
+        int64_t wait_until = clock_->NowMicros() + time_until_refill_us;
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
-        r.cv.TimedWait(clock_->NowMicros() + time_until_refill_us);
+        r.cv.TimedWait(wait_until);
         TEST_SYNC_POINT("GenericRateLimiter::Request:PostTimedWait");
         wait_until_refill_pending_ = false;
       }
