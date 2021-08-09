@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -16,14 +15,11 @@ namespace ROCKSDB_NAMESPACE {
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class MemoryAllocator : public Customizable {
+class MemoryAllocator {
  public:
   virtual ~MemoryAllocator() = default;
 
   static const char* Type() { return "MemoryAllocator"; }
-  static Status CreateFromString(const ConfigOptions& options,
-                                 const std::string& value,
-                                 std::shared_ptr<MemoryAllocator>* result);
 
   // Name of the cache allocator, printed in the log
   virtual const char* Name() const = 0;

@@ -650,6 +650,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"high_pri_pool_ratio",
          {offset_of(&LRUCacheOptions::high_pri_pool_ratio), OptionType::kDouble,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"secondary_cache",
+         OptionTypeInfo::AsCustomSharedPtr<SecondaryCache>(
+             offset_of(&LRUCacheOptions::secondary_cache),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever)},
 #endif  // ROCKSDB_LITE
 };
 

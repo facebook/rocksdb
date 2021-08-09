@@ -207,9 +207,4 @@ Status NewJemallocNodumpAllocator(
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 }
 
-Status MemoryAllocator::CreateFromString(
-    const ConfigOptions& options, const std::string& value,
-    std::shared_ptr<MemoryAllocator>* result) {
-  return LoadSharedObject<MemoryAllocator>(options, value, nullptr, result);
-}
 }  // namespace ROCKSDB_NAMESPACE
