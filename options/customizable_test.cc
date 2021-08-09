@@ -1221,41 +1221,42 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
     ASSERT_STREQ(inner->get()->Name(), TestStatistics::kClassName());
   }
 #endif
+}
 
-  TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
-    std::shared_ptr<MergeOperator> result;
+TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
+  std::shared_ptr<MergeOperator> result;
 
-    ASSERT_NOK(
+  ASSERT_NOK(
+      MergeOperator::CreateFromString(config_options_, "Changling", &result));
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
         MergeOperator::CreateFromString(config_options_, "Changling", &result));
-    ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
     ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "PutOperator");
-    if (RegisterTests("Test")) {
-      ASSERT_OK(MergeOperator::CreateFromString(config_options_, "Changling",
+    ASSERT_STREQ(result->Name(), "ChanglingMergeOperator");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
+  std::shared_ptr<CompactionFilterFactory> result;
+
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                       "Changling", &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                        "Changling", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilterFactory");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
+  const CompactionFilter* result = nullptr;
+
+  ASSERT_NOK(CompactionFilter::CreateFromString(config_options_, "Changling",
                                                 &result));
-      ASSERT_NE(result, nullptr);
-      ASSERT_STREQ(result->Name(), "ChanglingMergeOperator");
-    }
-  }
-
-  TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
-    std::shared_ptr<CompactionFilterFactory> result;
-
-    ASSERT_NOK(CompactionFilterFactory::CreateFromString(config_options_,
-                                                         "Changling", &result));
-    if (RegisterTests("Test")) {
-      ASSERT_OK(CompactionFilterFactory::CreateFromString(
-          config_options_, "Changling", &result));
-      ASSERT_NE(result, nullptr);
-      ASSERT_STREQ(result->Name(), "ChanglingCompactionFilterFactory");
-    }
-  }
-
-  TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
-    const CompactionFilter* result = nullptr;
-
-    ASSERT_NOK(CompactionFilter::CreateFromString(config_options_, "Changling",
-                                                  &result));
 #ifndef ROCKSDB_LITE
   ASSERT_OK(CompactionFilter::CreateFromString(
       config_options_, RemoveEmptyValueCompactionFilter::kClassName(),
@@ -1272,7 +1273,7 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
     delete result;
   }
 #endif  // ROCKSDB_LITE
-  }
+}
 
 #ifndef ROCKSDB_LITE
 TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
