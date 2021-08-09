@@ -978,6 +978,20 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
+  library.Register<EventListener>(
+      OnFileDeletionListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new OnFileDeletionListener());
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      FlushCounterListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushCounterListener());
+        return guard->get();
+      });
   // Load any locally defined objects here
   library.Register<EncryptionProvider>(
       "Mock(://test)?",
