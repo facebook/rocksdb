@@ -1846,6 +1846,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
+    if (mutable_cf_options.memtable_self_tuning_bloom) {
+      const uint64_t pastentries = cfd->mem()->BFUniqueEntryEstimate();
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Estimate Unique BF entries %" PRIu64
+                     ". Memtable "
+                     "says %" PRIu64 " entries (can include duplicates).",
+                     pastentries, memtable_info.num_entries);
+    }
     new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
     context->superversion_context.NewSuperVersion();
   }

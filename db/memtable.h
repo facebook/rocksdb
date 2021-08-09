@@ -502,6 +502,10 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  uint64_t BFUniqueEntryEstimate() const {
+    return bloom_filter_->UniqueEntryEstimate();
+  }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 

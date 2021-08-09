@@ -1502,6 +1502,69 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
+TEST_F(DBBloomFilterTest, MemtableSelfTuningBloomFilter) {
+  const int kMemtableSize = 64 << 20;             // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kPrefixLen = 4;
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(
+      ROCKSDB_NAMESPACE::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  options.memtable_whole_key_filtering = false;
+  options.memtable_self_tuning_bloom = true;
+  Reopen(options);
+  std::string key1("AAAABBBB");
+  std::string key2("AAAACCCC");  // not in DB
+  std::string key3("AAAADDDD");
+  std::string key4("AAAAEEEE");
+  std::string value1("Value1");
+  std::string value2("Value2");
+  std::string value3("Value3");
+  std::string value4("Value4");
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Put(key3, value3));
+  ASSERT_OK(Put(key4, value4));
+  ASSERT_OK(Put(key1, value2));
+  ASSERT_OK(Put(key3, value4));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(key3, value1));
+  ASSERT_OK(Put(key2, value4));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(key4, value2));
+  ASSERT_OK(Put(key1, value3));
+  // ASSERT_OK(Put(key1, value1, WriteOptions()));
+
+  // // check memtable bloom stats
+  // ASSERT_EQ("NOT_FOUND", Get(key2));
+  // ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
+  // // same prefix, bloom filter false positive
+  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // // enable whole key bloom filter
+  // options.memtable_whole_key_filtering = true;
+  // Reopen(options);
+  // // check memtable bloom stats
+  // ASSERT_OK(Put(key3, value3, WriteOptions()));
+  // ASSERT_EQ("NOT_FOUND", Get(key2));
+  // // whole key bloom filter kicks in and determines it's a miss
+  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // // verify whole key filtering does not depend on prefix_extractor
+  // options.prefix_extractor.reset();
+  // Reopen(options);
+  // // check memtable bloom stats
+  // ASSERT_OK(Put(key4, value4, WriteOptions()));
+  // ASSERT_EQ("NOT_FOUND", Get(key2));
+  // // whole key bloom filter kicks in and determines it's a miss
+  // ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
+  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+}
+
 TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
   constexpr size_t kPrefixSize = 8;
   const std::string kKey = "key";

@@ -615,6 +615,10 @@ class ColumnFamilyData {
   bool db_paths_registered_;
 
   std::string full_history_ts_low_;
+
+  // For self-tuning bloom filters
+  uint32_t curr_memtable_prefix_bloom_bits;
+  uint32_t curr_memtable_num_prefix_bloom_probes;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -110,6 +110,7 @@ struct MutableCFOptions {
         memtable_prefix_bloom_size_ratio(
             options.memtable_prefix_bloom_size_ratio),
         memtable_whole_key_filtering(options.memtable_whole_key_filtering),
+        memtable_self_tuning_bloom(options.memtable_self_tuning_bloom),
         memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
@@ -166,6 +167,7 @@ struct MutableCFOptions {
         arena_block_size(0),
         memtable_prefix_bloom_size_ratio(0),
         memtable_whole_key_filtering(false),
+        memtable_self_tuning_bloom(false),
         memtable_huge_page_size(0),
         max_successive_merges(0),
         inplace_update_num_locks(0),
@@ -226,6 +228,7 @@ struct MutableCFOptions {
   size_t arena_block_size;
   double memtable_prefix_bloom_size_ratio;
   bool memtable_whole_key_filtering;
+  bool memtable_self_tuning_bloom;
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
   size_t inplace_update_num_locks;

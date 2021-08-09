@@ -210,6 +210,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->memtable_prefix_bloom_size_ratio =
       moptions.memtable_prefix_bloom_size_ratio;
   cf_opts->memtable_whole_key_filtering = moptions.memtable_whole_key_filtering;
+  cf_opts->memtable_self_tuning_bloom = moptions.memtable_self_tuning_bloom;
   cf_opts->memtable_huge_page_size = moptions.memtable_huge_page_size;
   cf_opts->max_successive_merges = moptions.max_successive_merges;
   cf_opts->inplace_update_num_locks = moptions.inplace_update_num_locks;

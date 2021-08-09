@@ -53,6 +53,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
       memtable_whole_key_filtering(options.memtable_whole_key_filtering),
+      memtable_self_tuning_bloom(options.memtable_self_tuning_bloom),
       memtable_huge_page_size(options.memtable_huge_page_size),
       memtable_insert_with_hint_prefix_extractor(
           options.memtable_insert_with_hint_prefix_extractor),
@@ -365,7 +366,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "              Options.memtable_whole_key_filtering: %d",
                      memtable_whole_key_filtering);
-
+    ROCKS_LOG_HEADER(log,
+                     "              Options.memtable_self_tuning_bloom: %d",
+                     memtable_self_tuning_bloom);
     ROCKS_LOG_HEADER(log, "  Options.memtable_huge_page_size: %" ROCKSDB_PRIszt,
                      memtable_huge_page_size);
     ROCKS_LOG_HEADER(log,
