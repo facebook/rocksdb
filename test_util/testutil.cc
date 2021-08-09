@@ -614,20 +614,6 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
       });
-  library.Register<EventListener>(
-      OnFileDeletionListener::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new OnFileDeletionListener());
-        return guard->get();
-      });
-  library.Register<EventListener>(
-      FlushCounterListener::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new FlushCounterListener());
-        return guard->get();
-      });
   library.Register<MergeOperator>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
