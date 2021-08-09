@@ -5,7 +5,6 @@
 
 #include "rocksdb/customizable.h"
 
-#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
@@ -89,8 +88,8 @@ Status Customizable::GetOptionsMap(
     *id = "";
     props->clear();
   } else if (customizable != nullptr) {
-    status = ConfigurableHelper::GetOptionsMap(value, customizable->GetId(), id,
-                                               props);
+    status =
+        Configurable::GetOptionsMap(value, customizable->GetId(), id, props);
 #ifdef ROCKSDB_LITE
     (void)config_options;
 #else
@@ -109,7 +108,7 @@ Status Customizable::GetOptionsMap(
     }
 #endif  // ROCKSDB_LITE
   } else {
-    status = ConfigurableHelper::GetOptionsMap(value, "", id, props);
+    status = Configurable::GetOptionsMap(value, "", id, props);
   }
   return status;
 }
