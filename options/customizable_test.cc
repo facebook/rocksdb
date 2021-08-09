@@ -1126,6 +1126,20 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
+  library.Register<EventListener>(
+      OnFileDeletionListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new OnFileDeletionListener());
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      FlushCounterListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushCounterListener());
+        return guard->get();
+      });
   library.Register<TableFactory>(
       mock::MockTableFactory::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
