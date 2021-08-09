@@ -112,7 +112,8 @@ public:
     // 2-Pick m random elements without repetition.
     // We pick Option 2 when m<sqrt(N) and
     // Option 1 when m > sqrt(N).
-    if (target_sample_size > static_cast<uint64_t>(sqrt(num_entries))) {
+    if (target_sample_size >
+        static_cast<uint64_t>(std::sqrt(1.0 * num_entries))) {
       // Option 1: iterate through each element, and store it in sample
       // subset if Bernoulli dist returns true.
       Random* rnd = Random::GetTLSInstance();
