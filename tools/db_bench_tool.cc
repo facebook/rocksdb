@@ -1217,6 +1217,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
+DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
+             "Set refill period on "
+             "rate limiter.");
+
 DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
             "background I/O");
@@ -4443,7 +4447,7 @@ class Benchmark {
         exit(1);
       }
       options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
+          FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
           FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                     : RateLimiter::Mode::kWritesOnly,
