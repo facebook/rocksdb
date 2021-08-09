@@ -138,6 +138,7 @@ public:
         // At worst, for the final pick , when m=sqrt(N) there is
         // a probability of p= 1/sqrt(N) chances to find a duplicate.
         for (uint64_t j = 0; j < 5; j++) {
+          iter.RandomSeek();
           if (entries->find(iter.key()) == entries->end()) {
             entries->insert(iter.key());
             break;
