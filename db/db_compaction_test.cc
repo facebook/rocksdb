@@ -6749,6 +6749,69 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   Destroy(options);
 }
 
+TEST_F(DBCompactionTest, FIFOWarm) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.num_levels = 1;
+  options.max_open_files = -1;
+  options.level0_file_num_compaction_trigger = 2;
+  options.create_if_missing = true;
+  CompactionOptionsFIFO fifo_options;
+  fifo_options.age_for_warm = 1000;
+  fifo_options.max_table_files_size = 100000000;
+  options.compaction_options_fifo = fifo_options;
+  env_->SetMockSleep();
+  Reopen(options);
+
+  int total_warm = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+        Temperature temperature = *(static_cast<Temperature*>(arg));
+        if (temperature == Temperature::kWarm) {
+          total_warm++;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(4, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[2].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[3].temperature);
+  ASSERT_EQ(2, total_warm);
+
+  Destroy(options);
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE

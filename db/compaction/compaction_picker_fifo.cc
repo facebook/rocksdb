@@ -111,7 +111,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
-      mutable_cf_options.compression_opts,
+      mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
@@ -154,7 +154,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             {comp_inputs}, 0, 16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
-            mutable_cf_options.compression_opts, 0 /* max_subcompactions */, {},
+            mutable_cf_options.compression_opts, Temperature::kUnknown,
+            0 /* max_subcompactions */, {},
             /* is manual */ false, vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
@@ -203,10 +204,116 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
-      mutable_cf_options.compression_opts,
+      mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
+  return c;
+}
+
+Compaction* FIFOCompactionPicker::PickCompactionToWarm(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer) {
+  if (mutable_cf_options.compaction_options_fifo.age_for_warm == 0) {
+    return nullptr;
+  }
+
+  const int kLevel0 = 0;
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
+
+  int64_t _current_time;
+  auto status = ioptions_.clock->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[%s] FIFO compaction: Couldn't get current time: %s. "
+                     "Not doing compactions based on warm threshold. ",
+                     cf_name.c_str(), status.ToString().c_str());
+    return nullptr;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  if (!level0_compactions_in_progress_.empty()) {
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] FIFO compaction: Already executing compaction. Parallel "
+        "compactions are not supported",
+        cf_name.c_str());
+    return nullptr;
+  }
+
+  std::vector<CompactionInputFiles> inputs;
+  inputs.emplace_back();
+  inputs[0].level = 0;
+
+  // avoid underflow
+  if (current_time > mutable_cf_options.compaction_options_fifo.age_for_warm) {
+    uint64_t create_time_threshold =
+        current_time - mutable_cf_options.compaction_options_fifo.age_for_warm;
+    uint64_t compaction_size = 0;
+    // We will ideally identify a file qualifying for warm tier by knowing
+    // the timestamp for the youngest entry in the file. However, right now
+    // we don't have the information. We infer it by looking at timestamp
+    // of the next file's (which is just younger) oldest entry's timestamp.
+    FileMetaData* prev_file = nullptr;
+    for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
+      FileMetaData* f = *ritr;
+      assert(f);
+      if (f->being_compacted) {
+        // Right now this probably won't happen as we never try to schedule
+        // two compactions in parallel, so here we just simply don't schedule
+        // anything.
+        return nullptr;
+      }
+      uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
+      if (oldest_ancester_time == kUnknownOldestAncesterTime) {
+        // Older files might not have enough information. It is possible to
+        // handle these files by looking at newer files, but maintaining the
+        // logic isn't worth it.
+        break;
+      }
+      if (oldest_ancester_time > create_time_threshold) {
+        // The previous file (which has slightly older data) doesn't qualify
+        // for warm tier.
+        break;
+      }
+      if (prev_file != nullptr) {
+        compaction_size += prev_file->fd.GetFileSize();
+        if (compaction_size > mutable_cf_options.max_compaction_bytes) {
+          break;
+        }
+        inputs[0].files.push_back(prev_file);
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] FIFO compaction: picking file %" PRIu64
+                         " with next file's oldest time %" PRIu64 " for warm",
+                         cf_name.c_str(), prev_file->fd.GetNumber(),
+                         oldest_ancester_time);
+      }
+      if (f->temperature == Temperature::kUnknown ||
+          f->temperature == Temperature::kHot) {
+        prev_file = f;
+      } else if (!inputs[0].files.empty()) {
+        // A warm file newer than files picked.
+        break;
+      } else {
+        assert(prev_file == nullptr);
+      }
+    }
+  }
+
+  if (inputs[0].files.empty()) {
+    return nullptr;
+  }
+
+  Compaction* c = new Compaction(
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(inputs), 0, 0 /* output file size limit */,
+      0 /* max compaction bytes, not applicable */, 0 /* output path ID */,
+      mutable_cf_options.compression, mutable_cf_options.compression_opts,
+      Temperature::kWarm,
+      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      vstorage->CompactionScore(0),
+      /* is deletion compaction */ false, CompactionReason::kChangeTemperature);
   return c;
 }
 
@@ -224,6 +331,10 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   if (c == nullptr) {
     c = PickSizeCompaction(cf_name, mutable_cf_options, mutable_db_options,
                            vstorage, log_buffer);
+  }
+  if (c == nullptr) {
+    c = PickCompactionToWarm(cf_name, mutable_cf_options, mutable_db_options,
+                             vstorage, log_buffer);
   }
   RegisterCompaction(c);
   return c;
