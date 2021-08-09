@@ -364,15 +364,11 @@ class HashSkipListRepFactory : public MemTableRepFactory {
       const MemTableRep::KeyComparator& compare, Allocator* allocator,
       const SliceTransform* transform, Logger* logger) override;
 
-  virtual const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "HashSkipListRepFactory"; }
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name == "prefix_hash") {
-      return true;
-    } else {
-      return MemTableRepFactory::IsInstanceOf(name);
-    }
-  }
+  static const char* kNickName() { return "prefix_hash"; }
+
+  virtual const char* Name() const override { return kClassName(); }
+  virtual const char* NickName() const override { return kNickName(); }
 
  private:
   HashSkipListRepOptions options_;

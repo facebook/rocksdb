@@ -41,6 +41,9 @@ Status DBImplSecondary::Recover(
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
                     &manifest_reader_status_);
   if (!s.ok()) {
+    if (manifest_reader_status_) {
+      manifest_reader_status_->PermitUncheckedError();
+    }
     return s;
   }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -97,10 +100,10 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   assert(logs != nullptr);
   std::vector<std::string> filenames;
   Status s;
-  s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+  s = env_->GetChildren(immutable_db_options_.GetWalDir(), &filenames);
   if (s.IsNotFound()) {
     return Status::InvalidArgument("Failed to open wal_dir",
-                                   immutable_db_options_.wal_dir);
+                                   immutable_db_options_.GetWalDir());
   } else if (!s.ok()) {
     return s;
   }
@@ -140,7 +143,8 @@ Status DBImplSecondary::MaybeInitLogReader(
     // initialize log reader from log_number
     // TODO: min_log_number_to_keep_2pc check needed?
     // Open the log file
-    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    std::string fname =
+        LogFileName(immutable_db_options_.GetWalDir(), log_number);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
                    static_cast<int>(immutable_db_options_.wal_recovery_mode));
@@ -253,8 +257,8 @@ Status DBImplSecondary::RecoverLogFiles(
                                          curr_log_num != log_number)) {
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
-            MemTable* new_mem = cfd->ConstructNewMemtable(
-                mutable_cf_options, seq_of_batch, log_number);
+            MemTable* new_mem =
+                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
@@ -627,7 +631,7 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_, impl->io_tracer_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
-  impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+  impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);

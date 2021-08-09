@@ -33,7 +33,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
 };
 
 class DBCompactionTestWithParam
@@ -41,7 +41,7 @@ class DBCompactionTestWithParam
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
   DBCompactionTestWithParam()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -59,7 +59,7 @@ class DBCompactionTestWithBottommostParam
       public testing::WithParamInterface<BottommostLevelCompaction> {
  public:
   DBCompactionTestWithBottommostParam()
-      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     bottommost_level_compaction_ = GetParam();
   }
 
@@ -2335,7 +2335,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   option_vector.emplace_back(DBOptions(options), cf_opt1);
   CreateColumnFamilies({"one"},option_vector[1]);
 
-  // Configura CF2 specific paths.
+  // Configure CF2 specific paths.
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 500 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_2", 4 * 1024 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 1024 * 1024 * 1024);
@@ -2390,13 +2390,16 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   // Check that default column family uses db_paths.
   // And Column family "one" uses cf_paths.
 
-  // First three 110KB files are not going to second path.
-  // After that, (100K, 200K)
+  // The compaction in level0 outputs the sst files in level1.
+  // The first path cannot hold level1's data(400KB+400KB > 500KB),
+  // so every compaction move a sst file to second path. Please
+  // refer to LevelCompactionBuilder::GetPathId.
   for (int num = 0; num < 3; num++) {
     generate_file();
   }
+  check_sstfilecount(0, 1);
+  check_sstfilecount(1, 2);
 
-  // Another 110KB triggers a compaction to 400K file to fill up first path
   generate_file();
   check_sstfilecount(1, 3);
 
@@ -5009,7 +5012,7 @@ class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
   CompactionPriTest()
-      : DBTestBase("/compaction_pri_test", /*env_do_fsync=*/true) {
+      : DBTestBase("compaction_pri_test", /*env_do_fsync=*/true) {
     compaction_pri_ = GetParam();
   }
 

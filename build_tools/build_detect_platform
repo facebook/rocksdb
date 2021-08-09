@@ -189,9 +189,6 @@ EOF
                 COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
             fi
         fi
-        if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-          USE_FOLLY_DISTRIBUTED_MUTEX=1
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)

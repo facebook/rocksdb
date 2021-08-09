@@ -302,14 +302,6 @@ VectorRepFactory::VectorRepFactory(size_t count) : count_(count) {
   RegisterOptions("VectorRepFactoryOptions", &count_, &vector_rep_table_info);
 }
 
-bool VectorRepFactory::IsInstanceOf(const std::string& name) const {
-  if (name == "vector") {
-    return true;
-  } else {
-    return MemTableRepFactory::IsInstanceOf(name);
-  }
-}
-
 MemTableRep* VectorRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform*, Logger* /*logger*/) {

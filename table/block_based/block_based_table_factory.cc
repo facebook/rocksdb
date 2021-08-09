@@ -427,7 +427,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"prepopulate_block_cache",
          OptionTypeInfo::Enum<BlockBasedTableOptions::PrepopulateBlockCache>(
              offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
-             &block_base_table_prepopulate_block_cache_string_map)},
+             &block_base_table_prepopulate_block_cache_string_map,
+             OptionTypeFlags::kMutable)},
 
 #endif  // ROCKSDB_LITE
 };

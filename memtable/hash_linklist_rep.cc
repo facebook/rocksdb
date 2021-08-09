@@ -874,14 +874,9 @@ class HashLinkListRepFactory : public MemTableRepFactory {
       const SliceTransform* transform, Logger* logger) override;
 
   static const char* kClassName() { return "HashLinkListRepFactory"; }
+  static const char* kNickName() { return "hash_linkedlist"; }
   virtual const char* Name() const override { return kClassName(); }
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name == "hash_linkedlist") {
-      return true;
-    } else {
-      return MemTableRepFactory::IsInstanceOf(name);
-    }
-  }
+  virtual const char* NickName() const override { return kNickName(); }
 
  private:
   HashLinkListRepOptions options_;

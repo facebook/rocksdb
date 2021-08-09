@@ -322,9 +322,10 @@ class SkipListFactory : public MemTableRepFactory {
 
   // Methods for Configurable/Customizable class overrides
   static const char* kClassName() { return "SkipListFactory"; }
+  static const char* kNickName() { return "skip_list"; }
   virtual const char* Name() const override { return kClassName(); }
+  virtual const char* NickName() const override { return kNickName(); }
   std::string GetId() const override;
-  bool IsInstanceOf(const std::string& name) const override;
 
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
@@ -357,8 +358,9 @@ class VectorRepFactory : public MemTableRepFactory {
 
   // Methods for Configurable/Customizable class overrides
   static const char* kClassName() { return "VectorRepFactory"; }
+  static const char* kNickName() { return "vector"; }
   const char* Name() const override { return kClassName(); }
-  bool IsInstanceOf(const std::string& name) const override;
+  const char* NickName() const override { return kNickName(); }
 
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;

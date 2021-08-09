@@ -208,8 +208,6 @@ struct SuperVersion {
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
 
-  InstrumentedMutex* db_mutex;
-
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -281,8 +279,7 @@ class ColumnFamilyData {
   // UnrefAndTryDelete() decreases the reference count and do free if needed,
   // return true if this is freed else false, UnrefAndTryDelete() can only
   // be called while holding a DB mutex, or during single-threaded recovery.
-  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
-  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
+  bool UnrefAndTryDelete();
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
@@ -371,10 +368,9 @@ class ColumnFamilyData {
 
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
-                                 SequenceNumber earliest_seq,
-                                 uint64_t log_number = 0);
+                                 SequenceNumber earliest_seq);
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq, uint64_t log_number = 0);
+                         SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
@@ -454,7 +450,6 @@ class ColumnFamilyData {
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   void InstallSuperVersion(SuperVersionContext* sv_context,
-                           InstrumentedMutex* db_mutex,
                            const MutableCFOptions& mutable_cf_options);
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex);
@@ -531,7 +526,7 @@ class ColumnFamilyData {
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const FileOptions& file_options,
+                   const FileOptions* file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
                    const std::shared_ptr<IOTracer>& io_tracer,
@@ -722,6 +717,8 @@ class ColumnFamilySet {
   std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
 
   uint32_t max_column_family_;
+  const FileOptions file_options_;
+
   ColumnFamilyData* dummy_cfd_;
   // We don't hold the refcount here, since default column family always exists
   // We are also not responsible for cleaning up default_cfd_cache_. This is
@@ -731,7 +728,6 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;

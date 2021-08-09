@@ -293,13 +293,6 @@ std::string SkipListFactory::GetId() const {
   }
   return id;
 }
-bool SkipListFactory::IsInstanceOf(const std::string& name) const {
-  if (name == "skip_list") {
-    return true;
-  } else {
-    return MemTableRepFactory::IsInstanceOf(name);
-  }
-}
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,

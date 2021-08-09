@@ -66,12 +66,12 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 const int kLoadConcurency = 128;
 
 TableCache::TableCache(const ImmutableOptions& ioptions,
-                       const FileOptions& file_options, Cache* const cache,
+                       const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        const std::string& db_session_id)
     : ioptions_(ioptions),
-      file_options_(file_options),
+      file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
@@ -297,6 +297,7 @@ Status TableCache::GetRangeTombstoneIterator(
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter) {
+  assert(out_iter);
   const FileDescriptor& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
@@ -308,8 +309,15 @@ Status TableCache::GetRangeTombstoneIterator(
     }
   }
   if (s.ok()) {
+    // Note: NewRangeTombstoneIterator could return nullptr
     out_iter->reset(t->NewRangeTombstoneIterator(options));
-    assert(out_iter);
+  }
+  if (handle) {
+    if (*out_iter) {
+      (*out_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
+    } else {
+      ReleaseHandle(handle);
+    }
   }
   return s;
 }

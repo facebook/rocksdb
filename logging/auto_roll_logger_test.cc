@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include "db/db_test_util.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -686,6 +687,50 @@ TEST_F(AutoRollLoggerTest, FileCreateFailure) {
   ASSERT_NOK(CreateLoggerFromOptions("", options, &logger));
   ASSERT_TRUE(!logger);
 }
+
+TEST_F(AutoRollLoggerTest, RenameOnlyWhenExists) {
+  InitTestDb();
+  SpecialEnv env(Env::Default());
+  Options options;
+  options.env = &env;
+
+  // Originally no LOG exists. Should not see a rename.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_EQ(0, env.rename_count_);
+  }
+
+  // Now a LOG exists. Create a new one should see a rename.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_EQ(1, env.rename_count_);
+  }
+}
+
+TEST_F(AutoRollLoggerTest, RenameError) {
+  InitTestDb();
+  SpecialEnv env(Env::Default());
+  env.rename_error_ = true;
+  Options options;
+  options.env = &env;
+
+  // Originally no LOG exists. Should not be impacted by rename error.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_TRUE(logger != nullptr);
+  }
+
+  // Now a LOG exists. Rename error should cause failure.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_NOK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_TRUE(logger == nullptr);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

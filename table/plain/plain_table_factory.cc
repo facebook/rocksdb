@@ -168,7 +168,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
   };
 
   library.Register<MemTableRepFactory>(
-      AsRegex(VectorRepFactory::kClassName(), "vector"),
+      AsRegex(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -181,7 +181,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MemTableRepFactory>(
-      AsRegex(SkipListFactory::kClassName(), "skip_list"),
+      AsRegex(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
