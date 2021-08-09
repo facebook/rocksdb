@@ -110,9 +110,9 @@ public:
     // from the table containing N elements:
     // 1-Iterate through N, and sample a Bernoulli distribution of p=m/N.
     // 2-Pick m random elements without repetition.
-    // We pick Option 2 when m<N/10 and
-    // Option 1 when m > N/10.
-    if (target_sample_size > num_entries / 10) {
+    // We pick Option 2 when m<sqrt(N) and
+    // Option 1 when m > sqrt(N).
+    if (target_sample_size > static_cast<uint64_t>(sqrt(num_entries))) {
       // Option 1: iterate through each element, and store it in sample
       // subset if Bernoulli dist returns true.
       Random* rnd = Random::GetTLSInstance();
@@ -126,13 +126,17 @@ public:
       }
     } else {
       // Option 2: pick m random elements
-      // If Option 2 is picked, then target_sample_size<N/10
+      // If Option 2 is picked, then target_sample_size<sqrt(N)
       // Using a set spares the need to check for duplicates.
       for (uint64_t i = 0; i < target_sample_size; i++) {
         // We give it 5 attempts to find a non-duplicate
-        // At worst, for the final pick , when m=N/10 there is 10%
-        // chances to find a duplicate. So chances to fail finding
-        // a non-duplicate after 5 attempts is 0.001%.
+        // With 5 attempts, the chances of returning `entries` set
+        // of size target_sample_size is:
+        // PROD_{i=1}^{target_sample_size-1} [1-(i/N)^5]
+        // which is monotonically increasing with N in the worse case
+        // of target_sample_size=sqrt(N), and is always >99.9% for N>4.
+        // At worst, for the final pick , when m=sqrt(N) there is
+        // a probability of p= 1/sqrt(N) chances to find a duplicate.
         for (uint64_t j = 0; j < 5; j++) {
           if (entries->find(iter.key()) == entries->end()) {
             entries->insert(iter.key());
