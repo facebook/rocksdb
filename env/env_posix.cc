@@ -127,7 +127,10 @@ class PosixDynamicLibrary : public DynamicLibrary {
 
 class PosixClock : public SystemClock {
  public:
-  const char* Name() const override { return "PosixClock"; }
+  static const char* kClassName() { return "PosixClock"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
   uint64_t NowMicros() override {
     struct timeval tv;
     gettimeofday(&tv, nullptr);

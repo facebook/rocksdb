@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "db/db_test_util.h"
-#include "env/mock_env.h"
 #include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
@@ -691,7 +690,7 @@ std::string GenerateLine(int n) {
 TEST(LineFileReaderTest, LineFileReaderTest) {
   const int nlines = 1000;
 
-  std::unique_ptr<MockEnv> mem_env(new MockEnv(Env::Default()));
+  std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
   std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
   // Create an input file
   {

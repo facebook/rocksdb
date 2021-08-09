@@ -25,8 +25,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class MemFile {
  public:
-  explicit MemFile(Env* env, const std::string& fn, bool _is_lock_file = false)
-      : env_(env),
+  explicit MemFile(SystemClock* clock, const std::string& fn,
+                   bool _is_lock_file = false)
+      : clock_(clock),
         fn_(fn),
         refs_(0),
         is_lock_file_(_is_lock_file),
@@ -166,7 +167,7 @@ class MemFile {
  private:
   uint64_t Now() {
     int64_t unix_time = 0;
-    auto s = env_->GetCurrentTime(&unix_time);
+    auto s = clock_->GetCurrentTime(&unix_time);
     assert(s.ok());
     return static_cast<uint64_t>(unix_time);
   }
@@ -174,7 +175,7 @@ class MemFile {
   // Private since only Unref() should be used to delete it.
   ~MemFile() { assert(refs_ == 0); }
 
-  Env* env_;
+  SystemClock* clock_;
   const std::string fn_;
   mutable port::Mutex mutex_;
   int refs_;
@@ -403,20 +404,20 @@ class TestMemLogger : public Logger {
   std::atomic_size_t log_size_;
   static const uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
-  Env* env_;
+  SystemClock* clock_;
   IOOptions options_;
   IODebugContext* dbg_;
   std::atomic<bool> flush_pending_;
 
  public:
-  TestMemLogger(std::unique_ptr<FSWritableFile> f, Env* env,
+  TestMemLogger(std::unique_ptr<FSWritableFile> f, SystemClock* clock,
                 const IOOptions& options, IODebugContext* dbg,
                 const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
         file_(std::move(f)),
         log_size_(0),
         last_flush_micros_(0),
-        env_(env),
+        clock_(clock),
         options_(options),
         dbg_(dbg),
         flush_pending_(false) {}
@@ -426,7 +427,7 @@ class TestMemLogger : public Logger {
     if (flush_pending_) {
       flush_pending_ = false;
     }
-    last_flush_micros_ = env_->NowMicros();
+    last_flush_micros_ = clock_->NowMicros();
   }
 
   using Logger::Logv;
@@ -506,8 +507,11 @@ class TestMemLogger : public Logger {
 
 class MockFileSystem : public FileSystem {
  public:
-  explicit MockFileSystem(Env* env, bool supports_direct_io = true)
-      : env_(env), supports_direct_io_(supports_direct_io) {}
+  explicit MockFileSystem(const std::shared_ptr<SystemClock>& clock,
+                          bool supports_direct_io = true)
+      : system_clock_(clock), supports_direct_io_(supports_direct_io) {
+    clock_ = system_clock_.get();
+  }
 
   ~MockFileSystem() override {
     for (auto i = file_map_.begin(); i != file_map_.end(); ++i) {
@@ -620,12 +624,13 @@ class MockFileSystem : public FileSystem {
   // Map from filenames to MemFile objects, representing a simple file system.
   port::Mutex mutex_;
   std::map<std::string, MemFile*> file_map_;  // Protected by mutex_.
-  Env* env_;
+  std::shared_ptr<SystemClock> system_clock_;
+  SystemClock* clock_;
   bool supports_direct_io_;
 };
 
 }  // Anonymous namespace
-// Partial implementation of the Env interface.
+// Partial implementation of the FileSystem interface.
 IOStatus MockFileSystem::NewSequentialFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSSequentialFile>* result, IODebugContext* /*dbg*/) {
@@ -705,7 +710,7 @@ IOStatus MockFileSystem::NewWritableFile(
   if (file_map_.find(fn) != file_map_.end()) {
     DeleteFileInternal(fn);
   }
-  MemFile* file = new MemFile(env_, fn, false);
+  MemFile* file = new MemFile(clock_, fn, false);
   file->Ref();
   file_map_[fn] = file;
   if (file_opts.use_direct_writes && !supports_direct_io_) {
@@ -723,7 +728,7 @@ IOStatus MockFileSystem::ReopenWritableFile(
   MutexLock lock(&mutex_);
   MemFile* file = nullptr;
   if (file_map_.find(fn) == file_map_.end()) {
-    file = new MemFile(env_, fn, false);
+    file = new MemFile(clock_, fn, false);
     // Only take a reference when we create the file objectt
     file->Ref();
     file_map_[fn] = file;
@@ -842,7 +847,7 @@ IOStatus MockFileSystem::CreateDir(const std::string& dirname,
   auto dn = NormalizeMockPath(dirname);
   MutexLock lock(&mutex_);
   if (file_map_.find(dn) == file_map_.end()) {
-    MemFile* file = new MemFile(env_, dn, false);
+    MemFile* file = new MemFile(clock_, dn, false);
     file->Ref();
     file_map_[dn] = file;
   } else {
@@ -965,14 +970,14 @@ IOStatus MockFileSystem::NewLogger(const std::string& fname,
   auto iter = file_map_.find(fn);
   MemFile* file = nullptr;
   if (iter == file_map_.end()) {
-    file = new MemFile(env_, fn, false);
+    file = new MemFile(clock_, fn, false);
     file->Ref();
     file_map_[fn] = file;
   } else {
     file = iter->second;
   }
   std::unique_ptr<FSWritableFile> f(new MockWritableFile(file, FileOptions()));
-  result->reset(new TestMemLogger(std::move(f), env_, io_opts, dbg));
+  result->reset(new TestMemLogger(std::move(f), clock_, io_opts, dbg));
   return IOStatus::OK();
 }
 
@@ -990,7 +995,7 @@ IOStatus MockFileSystem::LockFile(const std::string& fname,
         return IOStatus::IOError(fn, "lock is already held.");
       }
     } else {
-      auto* file = new MemFile(env_, fn, true);
+      auto* file = new MemFile(clock_, fn, true);
       file->Ref();
       file->Lock();
       file_map_[fn] = file;
@@ -1034,57 +1039,25 @@ Status MockFileSystem::CorruptBuffer(const std::string& fname) {
   iter->second->CorruptBuffer();
   return Status::OK();
 }
-namespace {
-class MockSystemClock : public SystemClockWrapper {
- public:
-  explicit MockSystemClock(const std::shared_ptr<SystemClock>& c)
-      : SystemClockWrapper(c), fake_sleep_micros_(0) {}
 
-  void FakeSleepForMicroseconds(int64_t micros) {
-    fake_sleep_micros_.fetch_add(micros);
-  }
+MockEnv::MockEnv(Env* env, const std::shared_ptr<FileSystem>& fs,
+                 const std::shared_ptr<SystemClock>& clock)
+    : CompositeEnvWrapper(env, fs, clock) {}
 
-  const char* Name() const override { return "MockSystemClock"; }
-
-  Status GetCurrentTime(int64_t* unix_time) override {
-    auto s = SystemClockWrapper::GetCurrentTime(unix_time);
-    if (s.ok()) {
-      auto fake_time = fake_sleep_micros_.load() / (1000 * 1000);
-      *unix_time += fake_time;
-    }
-    return s;
-  }
-
-  uint64_t NowMicros() override {
-    return SystemClockWrapper::NowMicros() + fake_sleep_micros_.load();
-  }
-
-  uint64_t NowNanos() override {
-    return SystemClockWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
-  }
-
- private:
-  std::atomic<int64_t> fake_sleep_micros_;
-};
-}  // namespace
-MockEnv::MockEnv(Env* base_env)
-    : CompositeEnvWrapper(
-          base_env, std::make_shared<MockFileSystem>(this),
-          std::make_shared<MockSystemClock>(base_env->GetSystemClock())) {}
+MockEnv* MockEnv::Create(Env* env) {
+  auto clock = std::make_shared<FakeSleepSystemClock>(env->GetSystemClock());
+  auto fs = std::make_shared<MockFileSystem>(clock);
+  return new MockEnv(env, fs, clock);
+}
 
 Status MockEnv::CorruptBuffer(const std::string& fname) {
   auto mock = static_cast_with_check<MockFileSystem>(GetFileSystem().get());
   return mock->CorruptBuffer(fname);
 }
 
-void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
-  auto mock = static_cast_with_check<MockSystemClock>(GetSystemClock().get());
-  mock->FakeSleepForMicroseconds(micros);
-}
-
 #ifndef ROCKSDB_LITE
 // This is to maintain the behavior before swithcing from InMemoryEnv to MockEnv
-Env* NewMemEnv(Env* base_env) { return new MockEnv(base_env); }
+Env* NewMemEnv(Env* base_env) { return MockEnv::Create(base_env); }
 
 #else  // ROCKSDB_LITE
 

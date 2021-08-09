@@ -96,7 +96,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();

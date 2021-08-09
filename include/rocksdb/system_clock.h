@@ -7,11 +7,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <rocksdb/rocksdb_namespace.h>
-#include <rocksdb/status.h>
 #include <stdint.h>
 
 #include <memory>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -23,14 +25,18 @@ struct ConfigOptions;
 
 // A SystemClock is an interface used by the rocksdb implementation to access
 // operating system time-related functionality.
-class SystemClock {
+class SystemClock : public Customizable {
  public:
   virtual ~SystemClock() {}
 
   static const char* Type() { return "SystemClock"; }
-
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<SystemClock>* result);
   // The name of this system clock
   virtual const char* Name() const = 0;
+
+  static const char* kDefaultName() { return "DefaultClock"; }
 
   // Return a default SystemClock suitable for the current operating
   // system.
@@ -72,8 +78,7 @@ class SystemClock {
 // of the SystemClock interface to the target/wrapped class.
 class SystemClockWrapper : public SystemClock {
  public:
-  explicit SystemClockWrapper(const std::shared_ptr<SystemClock>& t)
-      : target_(t) {}
+  explicit SystemClockWrapper(const std::shared_ptr<SystemClock>& t);
 
   uint64_t NowMicros() override { return target_->NowMicros(); }
 
@@ -94,6 +99,10 @@ class SystemClockWrapper : public SystemClock {
   std::string TimeToString(uint64_t time) override {
     return target_->TimeToString(time);
   }
+
+  Status PrepareOptions(const ConfigOptions& options) override;
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
 
  protected:
   std::shared_ptr<SystemClock> target_;

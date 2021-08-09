@@ -50,7 +50,7 @@ class MockSystemClock : public SystemClockWrapper {
   // It's also similar to `set_current_time()`, which takes an absolute time in
   // seconds, vs. this one takes the sleep in microseconds.
   // Note: Not thread safe.
-  void MockSleepForMicroseconds(int micros) {
+  void SleepForMicroseconds(int micros) override {
     assert(micros >= 0);
     assert(current_time_us_ + static_cast<uint64_t>(micros) >=
            current_time_us_);
@@ -59,9 +59,8 @@ class MockSystemClock : public SystemClockWrapper {
 
   void MockSleepForSeconds(int seconds) {
     assert(seconds >= 0);
-    uint64_t micros = static_cast<uint64_t>(seconds) * kMicrosInSecond;
-    assert(current_time_us_ + micros >= current_time_us_);
-    current_time_us_.fetch_add(micros);
+    int micros = seconds * kMicrosInSecond;
+    SleepForMicroseconds(micros);
   }
 
   // TODO: this is a workaround for the different behavior on different platform

@@ -12,14 +12,18 @@
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
+#include "env/mock_env.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
+#include "options/configurable_helper.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1085,5 +1089,84 @@ const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
 
 const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
   return system_clock_;
+}
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target",
+     OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
+#endif  // ROCKSDB_LITE
+};
+
+}  // namespace
+SystemClockWrapper::SystemClockWrapper(const std::shared_ptr<SystemClock>& t)
+    : target_(t) {
+  RegisterOptions("", &target_, &sc_wrapper_type_info);
+}
+
+Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
+  if (target_ == nullptr) {
+    target_ = SystemClock::Default();
+  }
+  Status s = SystemClock::PrepareOptions(options);
+  if (s.ok() && !target_->IsPrepared()) {
+    s = target_->PrepareOptions(options);
+  }
+  return s;
+}
+
+std::string SystemClockWrapper::SerializeOptions(
+    const ConfigOptions& config_options, const std::string& header) const {
+  auto parent = SystemClock::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_ == nullptr ||
+      target_->IsInstanceOf(SystemClock::kDefaultName())) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, ConfigurableHelper::kIdPropName)) {
+      result.append(ConfigurableHelper::kIdPropName).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_->ToString(config_options));
+    return result;
+  }
+}
+
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
+                                       const std::string& /*arg*/) {
+  library.Register<SystemClock>(
+      FakeSleepSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FakeSleepSystemClock(nullptr));
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
+
+Status SystemClock::CreateFromString(const ConfigOptions& config_options,
+                                     const std::string& value,
+                                     std::shared_ptr<SystemClock>* result) {
+  auto clock = SystemClock::Default();
+  if (clock->IsInstanceOf(value)) {
+    *result = clock;
+    return Status::OK();
+  } else {
+#ifndef ROCKSDB_LITE
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
+    });
+#endif  // ROCKSDB_LITE
+    return LoadSharedObject<SystemClock>(config_options, value, nullptr,
+                                         result);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
