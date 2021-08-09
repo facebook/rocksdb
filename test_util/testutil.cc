@@ -634,7 +634,7 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         guard->reset(new test::ChanglingCompactionFilterFactory(uri));
         return guard->get();
       });
-  
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // ROCKSDB_LITE

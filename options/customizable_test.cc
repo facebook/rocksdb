@@ -950,7 +950,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_OK(mc.GetOptionString(options, &opt_str));
   ASSERT_OK(mc2.ConfigureFromString(options, opt_str));
   ASSERT_TRUE(mc.AreEquivalent(options, &mc2, &mismatch));
-  
+
   options.mutable_options_only = false;
   ASSERT_OK(mc.ConfigureOption(options, "immutable", "{id=A; int=10}"));
   auto* mm = mc.GetOptions<std::shared_ptr<TestCustomizable>>("mutable");
@@ -1009,8 +1009,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_EQ(mismatch, "immutable");
 }
 #endif  // !ROCKSDB_LITE
-  
-namespace { 
+
+namespace {
 class TestSecondaryCache : public SecondaryCache {
  public:
   static const char* kClassName() { return "Test"; }
@@ -1075,7 +1075,7 @@ class MockCipher : public BlockCipher {
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
 
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   TestFlushBlockPolicyFactory() {}

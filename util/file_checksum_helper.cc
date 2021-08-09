@@ -142,7 +142,7 @@ Status FileChecksumGenFactory::CreateFromString(
     return Status::OK();
   } else {
     Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
-                                                    result);
+                                                        result);
     return s;
   }
 }

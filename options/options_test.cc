@@ -1883,7 +1883,7 @@ TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
   ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
   printf("MJR DBOpts[%s]\n", opts_str.c_str());
   ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
-  
+
   ASSERT_NE(factory, nullptr);
   ASSERT_OK(FileChecksumGenFactory::CreateFromString(
       cfg_opts, factory->Name(), &db_opts.file_checksum_gen_factory));
