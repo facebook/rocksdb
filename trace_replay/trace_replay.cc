@@ -198,7 +198,7 @@ Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
 
   if (record != nullptr) {
     PinnableSlice ps;
-    ps.PinSlice(get_key, nullptr, nullptr, nullptr);
+    ps.PinSelf(get_key);
     record->reset(new GetQueryTraceRecord(cf_id, std::move(ps), trace->ts));
   }
 
@@ -251,7 +251,7 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
 
   if (record != nullptr) {
     PinnableSlice ps;
-    ps.PinSlice(iter_key, nullptr, nullptr, nullptr);
+    ps.PinSelf(iter_key);
     record->reset(new IteratorSeekQueryTraceRecord(
         static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
         std::move(ps), trace->ts));
@@ -312,8 +312,8 @@ Status TracerHelper::DecodeMultiGetRecord(
     cf_ids.push_back(tmp_cfid);
     Slice s(tmp_key);
     PinnableSlice ps;
-    ps.PinSlice(s, nullptr, nullptr, nullptr);
-    multiget_keys.push_back(ps);
+    ps.PinSelf(s);
+    multiget_keys.push_back(std::move(ps));
   }
 
   if (record != nullptr) {

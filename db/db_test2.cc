@@ -4472,20 +4472,24 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   // MultiGet related
   // Get existing keys.
   record.reset(new MultiGetQueryTraceRecord(
-      {handles[0]->GetID(), handles[1]->GetID()}, {"a", "foo"}, fake_ts++));
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a", "foo"}), fake_ts++));
   ASSERT_OK(replayer->Execute(std::move(record)));
   // Get all non-existing keys, should still return Status::OK().
   record.reset(new MultiGetQueryTraceRecord(
-      {handles[0]->GetID(), handles[1]->GetID()}, {"no1", "no2"}, fake_ts++));
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"no1", "no2"}), fake_ts++));
   // Get mixed of existing and non-existing keys, should still return
   // Status::OK().
   record.reset(new MultiGetQueryTraceRecord(
-      {handles[0]->GetID(), handles[1]->GetID()}, {"a", "no2"}, fake_ts++));
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a", "no2"}), fake_ts++));
   ASSERT_OK(replayer->Execute(std::move(record)));
   // Get from an invalid (non-existing) cf_id.
   record.reset(new MultiGetQueryTraceRecord(
-      {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id},
-      {"a", "foo", "whatever"}, fake_ts++));
+      std::vector<uint32_t>(
+          {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id}),
+      std::vector<std::string>({"a", "foo", "whatever"}), fake_ts++));
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
   // Empty MultiGet
   record.reset(new MultiGetQueryTraceRecord(
@@ -4493,7 +4497,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
   // MultiGet size mismatch
   record.reset(new MultiGetQueryTraceRecord(
-      {handles[0]->GetID(), handles[1]->GetID()}, {"a"}, fake_ts++));
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a"}), fake_ts++));
   ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
 
   replayer.reset();
