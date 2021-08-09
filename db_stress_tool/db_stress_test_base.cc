@@ -1366,7 +1366,6 @@ Status StressTest::TestBackupRestore(
   BackupableDBOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
-  assert(backup_opts.info_log);
   if (thread->rand.OneIn(10)) {
     backup_opts.share_table_files = false;
   } else {

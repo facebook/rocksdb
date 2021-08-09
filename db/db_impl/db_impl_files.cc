@@ -524,12 +524,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kOptionsFile:
         keep = (number >= optsfile_num2);
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1",
-            reinterpret_cast<void*>(&number));
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2",
-            reinterpret_cast<void*>(&keep));
         break;
       case kCurrentFile:
       case kDBLockFile:

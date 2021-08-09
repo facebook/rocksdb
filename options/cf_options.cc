@@ -15,6 +15,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
@@ -656,30 +657,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
           }}},
         {"compaction_filter",
-         {offset_of(&ImmutableCFOptions::compaction_filter),
-          OptionType::kCompactionFilter, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
+             offset_of(&ImmutableCFOptions::compaction_filter),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"compaction_filter_factory",
-         {offset_of(&ImmutableCFOptions::compaction_filter_factory),
-          OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomSharedPtr<CompactionFilterFactory>(
+             offset_of(&ImmutableCFOptions::compaction_filter_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"merge_operator",
-         {offset_of(&ImmutableCFOptions::merge_operator),
-          OptionType::kMergeOperator,
-          OptionVerificationType::kByNameAllowFromNull,
-          OptionTypeFlags::kCompareLoose,
-          // Parses the input value as a MergeOperator, updating the value
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto mop = static_cast<std::shared_ptr<MergeOperator>*>(addr);
-            Status status =
-                opts.registry->NewSharedObject<MergeOperator>(value, mop);
-            // Only support static comparator for now.
-            if (status.ok()) {
-              return status;
-            }
-            return Status::OK();
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+             offset_of(&ImmutableCFOptions::merge_operator),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kCompareLoose | OptionTypeFlags::kAllowNull)},
         {"compaction_style",
          {offset_of(&ImmutableCFOptions::compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal,

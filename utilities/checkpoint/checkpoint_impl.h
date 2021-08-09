@@ -20,9 +20,7 @@ class CheckpointImpl : public Checkpoint {
 
   Status CreateCheckpoint(const std::string& checkpoint_dir,
                           uint64_t log_size_for_flush,
-                          uint64_t* sequence_number_ptr,
-                          const std::string& db_log_dir,
-                          const std::string& wal_dir) override;
+                          uint64_t* sequence_number_ptr) override;
 
   Status ExportColumnFamily(ColumnFamilyHandle* handle,
                             const std::string& export_dir,
@@ -58,11 +56,6 @@ class CheckpointImpl : public Checkpoint {
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname)>
           copy_file_cb);
-
-  Status CopyOptionsFile(const std::string& src_file,
-                         const std::string& target_file,
-                         const std::string& db_log_dir,
-                         const std::string& wal_dir);
 
  private:
   DB* db_;

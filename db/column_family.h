@@ -208,8 +208,6 @@ struct SuperVersion {
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
 
-  InstrumentedMutex* db_mutex;
-
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -281,8 +279,7 @@ class ColumnFamilyData {
   // UnrefAndTryDelete() decreases the reference count and do free if needed,
   // return true if this is freed else false, UnrefAndTryDelete() can only
   // be called while holding a DB mutex, or during single-threaded recovery.
-  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
-  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
+  bool UnrefAndTryDelete();
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
@@ -453,7 +450,6 @@ class ColumnFamilyData {
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   void InstallSuperVersion(SuperVersionContext* sv_context,
-                           InstrumentedMutex* db_mutex,
                            const MutableCFOptions& mutable_cf_options);
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex);
