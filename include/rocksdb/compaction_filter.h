@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
 
@@ -24,7 +25,7 @@ class SliceTransform;
 // CompactionFilter allows an application to modify/delete a key-value during
 // table file creation.
 
-class CompactionFilter {
+class CompactionFilter : public Customizable {
  public:
   enum ValueType {
     kValue,
@@ -59,6 +60,10 @@ class CompactionFilter {
   };
 
   virtual ~CompactionFilter() {}
+  static const char* Type() { return "CompactionFilter"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& name,
+                                 const CompactionFilter** result);
 
   // The table file creation process invokes this method before adding a kv to
   // the table file. A return value of false indicates that the kv should be
@@ -193,7 +198,7 @@ class CompactionFilter {
 
   // Returns a name that identifies this `CompactionFilter`.
   // The name will be printed to LOG file on start up for diagnosis.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Internal (BlobDB) use only. Do not override in application code.
   virtual bool IsStackedBlobDbInternalCompactionFilter() const { return false; }
@@ -214,9 +219,13 @@ class CompactionFilter {
 // `CompactionFilter` according to `ShouldFilterTableFileCreation()`. This
 // allows the application to know about the different ongoing threads of work
 // and makes it unnecessary for `CompactionFilter` to provide thread-safety.
-class CompactionFilterFactory {
+class CompactionFilterFactory : public Customizable {
  public:
   virtual ~CompactionFilterFactory() {}
+  static const char* Type() { return "CompactionFilterFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& name,
+      std::shared_ptr<CompactionFilterFactory>* result);
 
   // Returns whether a thread creating table files for the specified `reason`
   // should invoke `CreateCompactionFilter()` and pass KVs through the returned

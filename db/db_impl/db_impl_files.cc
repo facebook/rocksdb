@@ -38,20 +38,26 @@ uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
 }
 
 Status DBImpl::DisableFileDeletions() {
-  InstrumentedMutexLock l(&mutex_);
-  return DisableFileDeletionsWithLock();
+  Status s;
+  int my_disable_delete_obsolete_files;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    s = DisableFileDeletionsWithLock();
+    my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+  }
+  if (my_disable_delete_obsolete_files == 1) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
+  } else {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "File Deletions Disabled, but already disabled. Counter: %d",
+                   my_disable_delete_obsolete_files);
+  }
+  return s;
 }
 
 Status DBImpl::DisableFileDeletionsWithLock() {
   mutex_.AssertHeld();
   ++disable_delete_obsolete_files_;
-  if (disable_delete_obsolete_files_ == 1) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
-  } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "File Deletions Disabled, but already disabled. Counter: %d",
-                   disable_delete_obsolete_files_);
-  }
   return Status::OK();
 }
 
@@ -215,7 +221,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-    if (immutable_db_options_.wal_dir != dbname_) {
+
+    if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
       s.PermitUncheckedError();  // TODO: What should we do on error?
@@ -395,10 +402,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                  blob_file.GetPath());
   }
 
+  auto wal_dir = immutable_db_options_.GetWalDir();
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(file_num),
-                                   immutable_db_options_.wal_dir);
+      candidate_files.emplace_back(LogFileName(file_num), wal_dir);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
@@ -517,12 +524,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kOptionsFile:
         keep = (number >= optsfile_num2);
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1",
-            reinterpret_cast<void*>(&number));
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2",
-            reinterpret_cast<void*>(&keep));
         break;
       case kCurrentFile:
       case kDBLockFile:
@@ -547,8 +548,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       fname = BlobFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else {
-      dir_to_sync =
-          (type == kWalFile) ? immutable_db_options_.wal_dir : dbname_;
+      dir_to_sync = (type == kWalFile) ? wal_dir : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')

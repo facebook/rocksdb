@@ -772,6 +772,15 @@ class ChanglingMergeOperator : public MergeOperator {
                                  Logger* /*logger*/) const override {
     return false;
   }
+  static const char* kClassName() { return "ChanglingMergeOperator"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
+
   virtual const char* Name() const override { return name_.c_str(); }
 
  protected:
@@ -794,6 +803,15 @@ class ChanglingCompactionFilter : public CompactionFilter {
               const Slice& /*existing_value*/, std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     return false;
+  }
+
+  static const char* kClassName() { return "ChanglingCompactionFilter"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilter::IsInstanceOf(id);
+    }
   }
 
   const char* Name() const override { return name_.c_str(); }
@@ -821,6 +839,14 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
   // Returns a name that identifies this compaction filter factory.
   const char* Name() const override { return name_.c_str(); }
+  static const char* kClassName() { return "ChanglingCompactionFilterFactory"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilterFactory::IsInstanceOf(id);
+    }
+  }
 
  protected:
   std::string name_;

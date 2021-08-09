@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 
+#include "port/lang.h"
 #if !defined(OS_WIN)
 
 #include <dirent.h>
@@ -511,6 +512,7 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
+  // ~PosixEnv must be called on exit
   static PosixEnv default_env;
   return &default_env;
 }

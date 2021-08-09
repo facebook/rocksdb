@@ -22,7 +22,7 @@ static std::string NEW_VALUE = "NewValue";
 class DBTestCompactionFilter : public DBTestBase {
  public:
   DBTestCompactionFilter()
-      : DBTestBase("/db_compaction_filter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
@@ -46,7 +46,7 @@ class DBTestCompactionFilterWithCompactParam
   }
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     CompactionFilterWithOption, DBTestCompactionFilterWithCompactParam,
     ::testing::Values(DBTestBase::OptionConfig::kDefault,
@@ -55,11 +55,11 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kLevelSubcompactions,
                       DBTestBase::OptionConfig::kUniversalSubcompactions));
 #else
-// Run fewer cases in valgrind
+// Run fewer cases in non-full valgrind to save time.
 INSTANTIATE_TEST_CASE_P(CompactionFilterWithOption,
                         DBTestCompactionFilterWithCompactParam,
                         ::testing::Values(DBTestBase::OptionConfig::kDefault));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class KeepFilter : public CompactionFilter {
  public:

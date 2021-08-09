@@ -268,6 +268,10 @@ class Replayer {
   // (SeekForPrev) based on the trace records.
   static void BGWorkIterSeekForPrev(void* arg);
 
+  // The background function for MultiThreadReplay to execute MultiGet based on
+  // the trace records
+  static void BGWorkMultiGet(void* arg);
+
   DBImpl* db_;
   Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;

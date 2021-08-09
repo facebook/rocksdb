@@ -230,9 +230,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
          */
         {"flush_block_policy_factory",
-         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
-          OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kCompareNever}},
+         OptionTypeInfo::AsCustomSharedPtr<FlushBlockPolicyFactory>(
+             offsetof(struct BlockBasedTableOptions,
+                      flush_block_policy_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareNever)},
         {"cache_index_and_filter_blocks",
          {offsetof(struct BlockBasedTableOptions,
                    cache_index_and_filter_blocks),
@@ -426,7 +427,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"prepopulate_block_cache",
          OptionTypeInfo::Enum<BlockBasedTableOptions::PrepopulateBlockCache>(
              offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
-             &block_base_table_prepopulate_block_cache_string_map)},
+             &block_base_table_prepopulate_block_cache_string_map,
+             OptionTypeFlags::kMutable)},
 
 #endif  // ROCKSDB_LITE
 };

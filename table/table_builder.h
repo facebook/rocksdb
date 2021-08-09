@@ -104,7 +104,7 @@ struct TableBuilderOptions {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
       const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactoryRange& _int_tbl_prop_collector_factories,
+      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, uint32_t _column_family_id,
       const std::string& _column_family_name, int _level,
@@ -133,33 +133,10 @@ struct TableBuilderOptions {
         reason(_reason),
         cur_file_num(_cur_file_num) {}
 
-  TableBuilderOptions(
-      const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
-      const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
-      CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, uint32_t _column_family_id,
-      const std::string& _column_family_name, int _level,
-      bool _is_bottommost = false,
-      TableFileCreationReason _reason = TableFileCreationReason::kMisc,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
-      const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
-      const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
-      : TableBuilderOptions(_ioptions, _moptions, _internal_comparator,
-                            IntTblPropCollectorFactoryRange(
-                                _int_tbl_prop_collector_factories->begin(),
-                                _int_tbl_prop_collector_factories->end()),
-                            _compression_type, _compression_opts,
-                            _column_family_id, _column_family_name, _level,
-                            _is_bottommost, _reason, _creation_time,
-                            _oldest_key_time, _file_creation_time, _db_id,
-                            _db_session_id, _target_file_size, _cur_file_num) {}
-
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
-  const IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories;
+  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
   const uint32_t column_family_id;
