@@ -27,6 +27,17 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+
+ protected:
+  uint64_t GetSstSizeHelper(Temperature temperature) {
+    std::string prop;
+    bool s = dbfull()->GetProperty(
+        DB::Properties::kLiveSstFilesSizeAtTemperature +
+            std::to_string(static_cast<uint8_t>(temperature)),
+        &prop);
+    assert(s);
+    return static_cast<uint64_t>(std::atoi(prop.c_str()));
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -6127,6 +6138,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   options.level0_file_num_compaction_trigger = 2;
   Reopen(options);
 
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
@@ -6139,6 +6157,10 @@ TEST_F(DBTest2, BottommostTemperature) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6147,6 +6169,10 @@ TEST_F(DBTest2, BottommostTemperature) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // reopen and check the information is persisted
   Reopen(options);
@@ -6154,6 +6180,21 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
   ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
@@ -6167,6 +6208,13 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
 
   DestroyAndReopen(options);
 
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("bar", "bar"));
@@ -6179,6 +6227,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
@@ -6187,6 +6239,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   // Update bottommost temperature
   options.bottommost_temperature = Temperature::kWarm;
@@ -6195,6 +6251,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   // Should not impact existing ones
   ASSERT_EQ(Temperature::kUnknown,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   // new generated file should have the new settings
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -6202,6 +6262,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6211,19 +6275,21 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
   std::string prop;
-  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
-  std::cout << prop << std::endl;
-  std::cout << "====" << std::endl;
-
-  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kAggregatedTableProperties, &prop));
-  std::cout << prop << std::endl;
-  std::cout << "====" << std::endl;
-
-  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature + "8", &prop));
-  std::cout << prop << std::endl;
-
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 #endif  // ROCKSDB_LITE
 
