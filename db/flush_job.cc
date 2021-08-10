@@ -576,9 +576,7 @@ Status FlushJob::MemPurge() {
           cfd_->imm()->RemoveMemPurgeOutputID(mt->GetID());
         }
         new_mem->SetID(new_mem_id);
-        new_mem_capacity = (new_mem->ApproximateMemoryUsage()) * 1.0 /
-                           mutable_cf_options_.write_buffer_size;
-        cfd_->imm()->AddMemPurgeOutputID(new_mem_id, new_mem_capacity);
+        cfd_->imm()->AddMemPurgeOutputID(new_mem_id);
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
@@ -639,7 +637,7 @@ bool FlushJob::MemPurgeDecider() {
   double estimated_useful_payload = 0.0;
   // Cochran formula for determining sample size.
   // 95% confidence interval, 7% precision.
-  // double n0 = (1.96*1.96)*0.25/(0.07*0.07)
+  //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
   double n0 = 196.0;
   ReadOptions ro;
   ro.total_order_seek = true;
@@ -649,8 +647,9 @@ bool FlushJob::MemPurgeDecider() {
     // If the memtable is the output of a previous mempurge,
     // its approximate useful payload ratio is already calculated.
     if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
-      estimated_useful_payload +=
-          cfd_->imm()->MemPurgeOutputUsefulPayload(mt->GetID());
+      // We make the assumption that this memtable is already
+      // free of garbage (garbage underestimation).
+      estimated_useful_payload += mt->ApproximateMemoryUsage();
     } else {
       // Else sample from the table.
       uint64_t nentries = mt->num_entries();
@@ -722,7 +721,10 @@ bool FlushJob::MemPurgeDecider() {
         }
       }
       if (payload > 0) {
-        estimated_useful_payload += useful_payload * 1.0 / payload;
+        // We used the estimated useful payload ratio
+        // to evaluate how much of the total memtable is useful bytes.
+        estimated_useful_payload +=
+            (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
         ROCKS_LOG_INFO(
             db_options_.info_log,
             "Mempurge sampling - found garbage ratio from sampling: %f.\n",
@@ -736,7 +738,11 @@ bool FlushJob::MemPurgeDecider() {
       }
     }
   }
-  return estimated_useful_payload < threshold;
+  // We convert the total number of useful paylaod bytes
+  // into the proportion of memtable necessary to store all these bytes.
+  // We compare this proportion with the threshold value.
+  return (estimated_useful_payload / mutable_cf_options_.write_buffer_size) <
+         threshold;
 }
 
 Status FlushJob::WriteLevel0Table() {

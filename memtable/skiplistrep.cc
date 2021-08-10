@@ -110,37 +110,24 @@ public:
     SkipListRep::Iterator iter(&skip_list_);
     // There are two methods to create the subset of samples (size m)
     // from the table containing N elements:
-    // 1-Create vector {0,...,N}, create a random permutation of it,
-    //   select the first m indices of it: those are the indices of
-    //   the memtable entries that will form the `entries` sample set.
+    // 1-Iterate linearly through the N memtable entries. For each entry i,
+    //   add it to the sample set with a probability
+    //   (target_sample_size - entries.size() ) / (N-i).
+    //
     // 2-Pick m random elements without repetition.
     // We pick Option 2 when m<sqrt(N) and
     // Option 1 when m > sqrt(N).
     if (target_sample_size >
         static_cast<uint64_t>(std::sqrt(1.0 * num_entries))) {
-      std::vector<size_t> indices;
-      for (size_t i = 0; i < num_entries; i++) {
-        indices.push_back(i);
-      }
-      uint64_t m =
-          (target_sample_size > num_entries) ? num_entries : target_sample_size;
-
-      std::shuffle(
-          std::begin(indices), std::end(indices),
-          std::default_random_engine(Random::GetTLSInstance()->Next() /* seed */
-                                     ));
-      assert(m <= indices.size());
-      std::sort(std::begin(indices), std::begin(indices) + m);
-      // Option 1: take the first m indices from the randomly permuted
-      // indices array {0,...,num_entries-1}, and store them in
-      // the sample subset.
+      Random* rnd = Random::GetTLSInstance();
       iter.SeekToFirst();
-      for (uint64_t counter = 0, index = 0; iter.Valid() && (index < m);
-           iter.Next(), counter++) {
-        // First check 'index<indices.size()' is required for internal test.
-        if ((index < indices.size()) && (counter == indices[index])) {
+      uint64_t counter = 0, num_samples_left = target_sample_size;
+      for (; iter.Valid() && (num_samples_left > 0); iter.Next(), counter++) {
+        // Add entry to sample set with probability
+        // num_samples_left/(num_entries - counter).
+        if (rnd->Next() % (num_entries - counter) < num_samples_left) {
           entries->insert(iter.key());
-          index++;
+          num_samples_left--;
         }
       }
     } else {
