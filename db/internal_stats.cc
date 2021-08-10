@@ -262,6 +262,7 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string live_sst_files_size_at_temperature = "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
 static const std::string aggregated_table_properties =
@@ -278,7 +279,6 @@ static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 static const std::string options_statistics = "options-statistics";
-static const std::string sst_files_size_per_temperature = "sst-files-size-per-temperature";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -370,8 +370,8 @@ const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
-const std::string DB::Properties::kSstFilesSizePerTemperature =
-    rocksdb_prefix + sst_files_size_per_temperature;
+const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
+    rocksdb_prefix + live_sst_files_size_at_temperature;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -485,6 +485,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
+          {DB::Properties::kLiveSstFilesSizeAtTemperature,
+           {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr, nullptr, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -515,8 +517,6 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kOptionsStatistics,
          {true, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
-        {DB::Properties::kSstFilesSizePerTemperature,
-         {false, &InternalStats::HandleSstFilesSizePerTemperature, nullptr, nullptr, nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -687,37 +687,24 @@ bool InternalStats::HandleBlockCacheEntryStatsMap(
   return true;
 }
 
-bool InternalStats::HandleSstFilesSizePerTemperature(std::string* value, Slice /*suffix*/) {
-  std::map<enum Temperature, uint64_t> size_per_temperature;
+bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value, Slice suffix) {
+  uint64_t temperature;
+  bool ok = ConsumeDecimalNumber(&suffix, &temperature) && suffix.empty();
+  if (!ok) {
+    return false;
+  }
+
+  uint64_t size = 0;
   const auto* vstorage = cfd_->current()->storage_info();
   for (int level = 0; level < vstorage->num_levels(); level++) {
     for (const auto& file_meta : vstorage->LevelFiles(level)) {
-      size_per_temperature[file_meta->temperature] += file_meta->fd.GetFileSize();
+      if (static_cast<uint8_t>(file_meta->temperature) == temperature) {
+        size += file_meta->fd.GetFileSize();
+      }
     }
   }
-  *value = "";
-  for (auto const& size : size_per_temperature) {
-    switch(size.first) {
-      case Temperature::kUnknown:
-        *value += "Unknown";
-        break;
-      case Temperature::kHot:
-        *value += "Hot";
-        break;
-      case Temperature::kWarm:
-        *value += "Warm";
-        break;
-      case Temperature::kCold:
-        *value += "Cold";
-        break;
-      default:
-        assert(0);
-        return false;
-    }
-    *value += ": ";
-    *value += std::to_string(size.second);
-    *value +="; ";
-  }
+
+  *value =  std::to_string(size);
   return true;
 }
 

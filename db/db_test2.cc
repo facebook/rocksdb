@@ -6221,7 +6221,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   std::cout << prop << std::endl;
   std::cout << "====" << std::endl;
 
-  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kSstFilesSizePerTemperature, &prop));
+  ASSERT_TRUE(dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature + "8", &prop));
   std::cout << prop << std::endl;
 
 }

@@ -914,6 +914,10 @@ class DB {
     //      files belong to the latest LSM tree.
     static const std::string kLiveSstFilesSize;
 
+    // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
+    //      of SST files at all certain file temperature
+    static const std::string kLiveSstFilesSizeAtTemperature;
+
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
     static const std::string kBaseLevel;
@@ -962,10 +966,6 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
-
-    // "rocksdb.sst-files-size-per-temperature" - returns multi-line string of
-    //      sst files size per temperature
-    static const std::string kSstFilesSizePerTemperature;
   };
 #endif /* ROCKSDB_LITE */
 
