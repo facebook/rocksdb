@@ -28,7 +28,7 @@ using BFP = BloomFilterPolicy;
 class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest()
-      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_test", /*env_do_fsync=*/true) {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -42,7 +42,7 @@ class DBBloomFilterTestWithParam : public DBTestBase,
 
  public:
   DBBloomFilterTestWithParam()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -527,7 +527,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
@@ -551,7 +551,7 @@ INSTANTIATE_TEST_CASE_P(
                         test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -1094,7 +1094,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
 
  public:
   DBBloomFilterTestVaryPrefixAndFormatVer()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
 

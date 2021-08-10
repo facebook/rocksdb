@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBMemTableTest : public DBTestBase {
  public:
-  DBMemTableTest() : DBTestBase("/db_memtable_test", /*env_do_fsync=*/true) {}
+  DBMemTableTest() : DBTestBase("db_memtable_test", /*env_do_fsync=*/true) {}
 };
 
 class MockMemTableRep : public MemTableRep {

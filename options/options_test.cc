@@ -30,6 +30,9 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -140,6 +143,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
+      {"experimental_allow_mempurge", "false"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -297,6 +301,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
+  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
@@ -392,13 +397,6 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
                                              "merge_operator=" + kMoName + ";",
@@ -1860,6 +1858,74 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
             leveldb_opt.block_restart_interval);
   ASSERT_EQ(table_opt->filter_policy.get(), leveldb_opt.filter_policy);
 }
+#ifndef ROCKSDB_LITE
+class TestEventListener : public EventListener {
+ private:
+  std::string id_;
+
+ public:
+  explicit TestEventListener(const std::string& id) : id_("Test" + id) {}
+  const char* Name() const override { return id_.c_str(); }
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    test_listener_option_info = {
+        {"s",
+         {0, OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+
+};
+
+class TestConfigEventListener : public TestEventListener {
+ private:
+  std::string s_;
+
+ public:
+  explicit TestConfigEventListener(const std::string& id)
+      : TestEventListener("Config" + id) {
+    s_ = id;
+    RegisterOptions("Test", &s_, &test_listener_option_info);
+  }
+};
+
+static int RegisterTestEventListener(ObjectLibrary& library,
+                                     const std::string& arg) {
+  library.Register<EventListener>(
+      "Test" + arg,
+      [](const std::string& name, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestEventListener(name.substr(4)));
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      "TestConfig" + arg,
+      [](const std::string& name, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestConfigEventListener(name.substr(10)));
+        return guard->get();
+      });
+  return 1;
+}
+TEST_F(OptionsTest, OptionsListenerTest) {
+  DBOptions orig, copy;
+  orig.listeners.push_back(std::make_shared<TestEventListener>("1"));
+  orig.listeners.push_back(std::make_shared<TestEventListener>("2"));
+  orig.listeners.push_back(std::make_shared<TestEventListener>(""));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>("1"));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>("2"));
+  orig.listeners.push_back(std::make_shared<TestConfigEventListener>(""));
+  ConfigOptions config_opts(orig);
+  config_opts.registry->AddLibrary("listener", RegisterTestEventListener, "1");
+  std::string opts_str;
+  ASSERT_OK(GetStringFromDBOptions(config_opts, orig, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(config_opts, orig, opts_str, &copy));
+  ASSERT_OK(GetStringFromDBOptions(config_opts, copy, &opts_str));
+  ASSERT_EQ(
+      copy.listeners.size(),
+      2);  // The Test{Config}1 Listeners could be loaded but not the others
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_opts, orig, copy));
+}
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 const static std::string kCustomEnvName = "Custom";
@@ -1979,6 +2045,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
+      {"experimental_allow_mempurge", "false"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -2130,6 +2197,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
+  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
@@ -2206,14 +2274,6 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
-
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
@@ -3081,8 +3141,8 @@ void VerifyCFPointerTypedOptions(
 
   // change the name of merge operator back-and-forth
   {
-    auto* merge_operator = dynamic_cast<test::ChanglingMergeOperator*>(
-        base_cf_opt->merge_operator.get());
+    auto* merge_operator = base_cf_opt->merge_operator
+                               ->CheckedCast<test::ChanglingMergeOperator>();
     if (merge_operator != nullptr) {
       name_buffer = merge_operator->Name();
       // change the name  and expect non-ok status
@@ -3099,8 +3159,8 @@ void VerifyCFPointerTypedOptions(
   // change the name of the compaction filter factory back-and-forth
   {
     auto* compaction_filter_factory =
-        dynamic_cast<test::ChanglingCompactionFilterFactory*>(
-            base_cf_opt->compaction_filter_factory.get());
+        base_cf_opt->compaction_filter_factory
+            ->CheckedCast<test::ChanglingCompactionFilterFactory>();
     if (compaction_filter_factory != nullptr) {
       name_buffer = compaction_filter_factory->Name();
       // change the name and expect non-ok status
@@ -4170,6 +4230,90 @@ TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
   ASSERT_EQ(opts.env, db_opts.env);
 
   delete mem_env;
+}
+TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
+  ConfigOptions config_options;
+  std::shared_ptr<MergeOperator> merge_op;
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "put", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("put"));
+  ASSERT_STREQ(merge_op->Name(), "PutOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "put_v1", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("PutOperator"));
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "uint64add", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("uint64add"));
+  ASSERT_STREQ(merge_op->Name(), "UInt64AddOperator");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "max", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("max"));
+  ASSERT_STREQ(merge_op->Name(), "MaxOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "bytesxor", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("bytesxor"));
+  ASSERT_STREQ(merge_op->Name(), BytesXOROperator::kClassName());
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "sortlist", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("sortlist"));
+  ASSERT_STREQ(merge_op->Name(), SortList::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappend",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  auto delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappendtest",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappend; delimiter=||", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "||");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappendtest; delimiter=&&", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
+
+  std::shared_ptr<MergeOperator> copy;
+  std::string mismatch;
+  std::string opts_str = merge_op->ToString(config_options);
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, opts_str, &copy));
+  ASSERT_TRUE(merge_op->AreEquivalent(config_options, copy.get(), &mismatch));
+  ASSERT_NE(copy, nullptr);
+  delimiter = copy->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

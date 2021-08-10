@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::EventListener.
+// ROCKSDB_NAMESPACE::EventListener.
 
 #include "rocksjni/event_listener_jnicallback.h"
 

@@ -36,7 +36,10 @@ class UInt64AddOperator : public AssociativeMergeOperator {
     return true;  // Return true always since corruption will be treated as 0
   }
 
-  const char* Name() const override { return "UInt64AddOperator"; }
+  static const char* kClassName() { return "UInt64AddOperator"; }
+  static const char* kNickName() { return "uint64add"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   // Takes the string and decodes it into a uint64_t

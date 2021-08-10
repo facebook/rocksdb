@@ -14,17 +14,23 @@
 #include <cstring>
 #include <unordered_map>
 
-#include "options/configurable_helper.h"
+#include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/env_encryption.h"
+#include "rocksdb/flush_block_policy.h"
+#include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/string_util.h"
+#include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -56,7 +62,6 @@ class TestCustomizable : public Customizable {
   // Method to allow CheckedCast to work for this class
   static const char* kClassName() {
     return "TestCustomizable";
-    ;
   }
 
   const char* Name() const override { return name_.c_str(); }
@@ -230,15 +235,18 @@ static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
     {"bool",
      {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-    {"unique", OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
-                   offsetof(struct SimpleOptions, cu),
-                   OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"shared", OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-                   offsetof(struct SimpleOptions, cs),
-                   OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"pointer", OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
-                    offsetof(struct SimpleOptions, cp),
-                    OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+    {"unique",
+     OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cu), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
+    {"shared",
+     OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cs), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
+    {"pointer",
+     OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
+         offsetof(struct SimpleOptions, cp), OptionVerificationType::kNormal,
+         OptionTypeFlags::kAllowNull)},
 #endif  // ROCKSDB_LITE
 };
 
@@ -553,11 +561,6 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_FALSE(simple->cp->IsPrepared());
 
   ASSERT_OK(base->PrepareOptions(config_options_));
-  ASSERT_FALSE(base->IsPrepared());
-  ASSERT_FALSE(simple->cu->IsPrepared());
-  ASSERT_FALSE(simple->cs->IsPrepared());
-  ASSERT_FALSE(simple->cp->IsPrepared());
-  ASSERT_OK(base->PrepareOptions(prepared));
   ASSERT_TRUE(base->IsPrepared());
   ASSERT_TRUE(simple->cu->IsPrepared());
   ASSERT_TRUE(simple->cs->IsPrepared());
@@ -784,6 +787,23 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_EQ(pointer, nullptr);
 }
 
+TEST_F(CustomizableTest, URLFactoryTest) {
+  std::unique_ptr<TestCustomizable> unique;
+  ConfigOptions ignore = config_options_;
+  ignore.ignore_unsupported_options = false;
+  ignore.ignore_unsupported_options = false;
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1;x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A=1;x=y");
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A;x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A;x=y");
+  unique.reset();
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1?x=y", &unique));
+  ASSERT_NE(unique, nullptr);
+  ASSERT_EQ(unique->GetId(), "A=1?x=y");
+}
+
 TEST_F(CustomizableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> mutable_option_info = {
       {"mutable",
@@ -871,18 +891,32 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+class TestSecondaryCache : public SecondaryCache {
+ public:
+  static const char* kClassName() { return "Test"; }
+  const char* Name() const override { return kClassName(); }
+  Status Insert(const Slice& /*key*/, void* /*value*/,
+                const Cache::CacheItemHelper* /*helper*/) override {
+    return Status::NotSupported();
+  }
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
+      const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
+      bool /*wait*/) override {
+    return nullptr;
+  }
+  void Erase(const Slice& /*key*/) override {}
+
+  // Wait for a collection of handles to become ready
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
+
+  std::string GetPrintableOptions() const override { return ""; }
+};
+
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 static int RegisterTestObjects(ObjectLibrary& library,
                                const std::string& /*arg*/) {
   size_t num_types;
-  library.Register<TableFactory>(
-      "MockTable",
-      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new mock::MockTableFactory());
-        return guard->get();
-      });
   library.Register<const Comparator>(
       test::SimpleSuffixReverseComparator::kClassName(),
       [](const std::string& /*uri*/,
@@ -890,6 +924,26 @@ static int RegisterTestObjects(ObjectLibrary& library,
          std::string* /* errmsg */) {
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
+      });
+  library.Register<MergeOperator>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingMergeOperator(uri));
+        return guard->get();
+      });
+  library.Register<CompactionFilter>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new test::ChanglingCompactionFilter(uri);
+      });
+  library.Register<CompactionFilterFactory>(
+      "Changling", [](const std::string& uri,
+                      std::unique_ptr<CompactionFilterFactory>* guard,
+                      std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingCompactionFilterFactory(uri));
+        return guard->get();
       });
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
@@ -907,9 +961,86 @@ class MockSliceTransform : public SliceTransform {
   bool InRange(const Slice& /*key*/) const override { return false; }
 };
 
+class MockEncryptionProvider : public EncryptionProvider {
+ public:
+  explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
+  const char* Name() const override { return "Mock"; }
+  size_t GetPrefixLength() const override { return 0; }
+  Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,
+                         size_t /*prefixLength*/) const override {
+    return Status::NotSupported();
+  }
+
+  Status AddCipher(const std::string& /*descriptor*/, const char* /*cipher*/,
+                   size_t /*len*/, bool /*for_write*/) override {
+    return Status::NotSupported();
+  }
+
+  Status CreateCipherStream(
+      const std::string& /*fname*/, const EnvOptions& /*options*/,
+      Slice& /*prefix*/,
+      std::unique_ptr<BlockAccessCipherStream>* /*result*/) override {
+    return Status::NotSupported();
+  }
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
+    if (EndsWith(id_, "://test")) {
+      return EncryptionProvider::ValidateOptions(db_opts, cf_opts);
+    } else {
+      return Status::InvalidArgument("MockProvider not initialized");
+    }
+  }
+
+ private:
+  std::string id_;
+};
+
+class MockCipher : public BlockCipher {
+ public:
+  const char* Name() const override { return "Mock"; }
+  size_t BlockSize() override { return 0; }
+  Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
+  Status Decrypt(char* data) override { return Encrypt(data); }
+};
+
+class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  TestFlushBlockPolicyFactory() {}
+
+  static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
+    return nullptr;
+  }
+};
+
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      OnFileDeletionListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new OnFileDeletionListener());
+        return guard->get();
+      });
+  library.Register<EventListener>(
+      FlushCounterListener::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushCounterListener());
+        return guard->get();
+      });
   // Load any locally defined objects here
   library.Register<const SliceTransform>(
       MockSliceTransform::kClassName(),
@@ -919,13 +1050,45 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockSliceTransform());
         return guard->get();
       });
+  library.Register<EncryptionProvider>(
+      "Mock(://test)?",
+      [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockEncryptionProvider(uri));
+        return guard->get();
+      });
+  library.Register<BlockCipher>("Mock", [](const std::string& /*uri*/,
+                                           std::unique_ptr<BlockCipher>* guard,
+                                           std::string* /* errmsg */) {
+    guard->reset(new MockCipher());
+    return guard->get();
+  });
+  library.Register<FlushBlockPolicyFactory>(
+      TestFlushBlockPolicyFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FlushBlockPolicyFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestFlushBlockPolicyFactory());
+        return guard->get();
+      });
+
+  library.Register<SecondaryCache>(
+      TestSecondaryCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestSecondaryCache());
+        return guard->get();
+      });
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
 
 class LoadCustomizableTest : public testing::Test {
  public:
-  LoadCustomizableTest() { config_options_.ignore_unsupported_options = false; }
+  LoadCustomizableTest() {
+    config_options_.ignore_unsupported_options = false;
+    config_options_.invoke_prepare_options = false;
+  }
   bool RegisterTests(const std::string& arg) {
 #ifndef ROCKSDB_LITE
     config_options_.registry->AddLibrary("custom-tests", RegisterTestObjects,
@@ -946,6 +1109,7 @@ class LoadCustomizableTest : public testing::Test {
 };
 
 TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  ColumnFamilyOptions cf_opts;
   std::shared_ptr<TableFactory> factory;
   ASSERT_NOK(
       TableFactory::CreateFromString(config_options_, "MockTable", &factory));
@@ -953,12 +1117,39 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
       config_options_, TableFactory::kBlockBasedTableName(), &factory));
   ASSERT_NE(factory, nullptr);
   ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
-
+#ifndef ROCKSDB_LITE
+  std::string opts_str = "table_factory=";
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options_, ColumnFamilyOptions(),
+      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts));
+  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+  ASSERT_STREQ(cf_opts.table_factory->Name(),
+               TableFactory::kBlockBasedTableName());
+#endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
     ASSERT_OK(
         TableFactory::CreateFromString(config_options_, "MockTable", &factory));
     ASSERT_NE(factory, nullptr);
     ASSERT_STREQ(factory->Name(), "MockTable");
+#ifndef ROCKSDB_LITE
+    ASSERT_OK(
+        GetColumnFamilyOptionsFromString(config_options_, ColumnFamilyOptions(),
+                                         opts_str + "MockTable", &cf_opts));
+    ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+    ASSERT_STREQ(cf_opts.table_factory->Name(), "MockTable");
+#endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadSecondaryCacheTest) {
+  std::shared_ptr<SecondaryCache> result;
+  ASSERT_NOK(SecondaryCache::CreateFromString(
+      config_options_, TestSecondaryCache::kClassName(), &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SecondaryCache::CreateFromString(
+        config_options_, TestSecondaryCache::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), TestSecondaryCache::kClassName());
   }
 }
 
@@ -1017,6 +1208,167 @@ TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
     ASSERT_STREQ(result->Name(), "Mock");
   }
 }
+
+TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
+  std::shared_ptr<MergeOperator> result;
+
+  ASSERT_NOK(
+      MergeOperator::CreateFromString(config_options_, "Changling", &result));
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        MergeOperator::CreateFromString(config_options_, "Changling", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingMergeOperator");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
+  std::shared_ptr<CompactionFilterFactory> result;
+
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                       "Changling", &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(CompactionFilterFactory::CreateFromString(config_options_,
+                                                        "Changling", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilterFactory");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
+  const CompactionFilter* result = nullptr;
+
+  ASSERT_NOK(CompactionFilter::CreateFromString(config_options_, "Changling",
+                                                &result));
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options_, RemoveEmptyValueCompactionFilter::kClassName(),
+      &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), RemoveEmptyValueCompactionFilter::kClassName());
+  delete result;
+  result = nullptr;
+  if (RegisterTests("Test")) {
+    ASSERT_OK(CompactionFilter::CreateFromString(config_options_, "Changling",
+                                                 &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilter");
+    delete result;
+  }
+#endif  // ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
+  std::shared_ptr<EventListener> result;
+
+  ASSERT_NOK(EventListener::CreateFromString(
+      config_options_, OnFileDeletionListener::kClassName(), &result));
+  ASSERT_NOK(EventListener::CreateFromString(
+      config_options_, FlushCounterListener::kClassName(), &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(EventListener::CreateFromString(
+        config_options_, OnFileDeletionListener::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), OnFileDeletionListener::kClassName());
+    ASSERT_OK(EventListener::CreateFromString(
+        config_options_, FlushCounterListener::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), FlushCounterListener::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
+  std::shared_ptr<EncryptionProvider> result;
+  ASSERT_NOK(
+      EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(
+      EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "CTR");
+  ASSERT_NOK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
+                                                 &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "CTR");
+  ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+    ASSERT_OK(EncryptionProvider::CreateFromString(config_options_,
+                                                   "Mock://test", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+    ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
+  std::shared_ptr<BlockCipher> result;
+  ASSERT_NOK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(BlockCipher::CreateFromString(config_options_, "ROT13", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "ROT13");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+  }
+}
+#endif  // !ROCKSDB_LITE
+
+TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
+  std::shared_ptr<TableFactory> table;
+  std::shared_ptr<FlushBlockPolicyFactory> result;
+  ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(
+      config_options_, "TestFlushBlockPolicyFactory", &result));
+
+  ASSERT_OK(
+      FlushBlockPolicyFactory::CreateFromString(config_options_, "", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), FlushBlockBySizePolicyFactory::kClassName());
+
+  ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
+      config_options_, FlushBlockEveryKeyPolicyFactory::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), FlushBlockEveryKeyPolicyFactory::kClassName());
+
+  ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
+      config_options_, FlushBlockBySizePolicyFactory::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), FlushBlockBySizePolicyFactory::kClassName());
+#ifndef ROCKSDB_LITE
+  std::string table_opts = "id=BlockBasedTable; flush_block_policy_factory=";
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_,
+      table_opts + FlushBlockEveryKeyPolicyFactory::kClassName(), &table));
+  auto bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
+  ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
+               FlushBlockEveryKeyPolicyFactory::kClassName());
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
+        config_options_, "TestFlushBlockPolicyFactory", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "TestFlushBlockPolicyFactory");
+    ASSERT_OK(TableFactory::CreateFromString(
+        config_options_, table_opts + "TestFlushBlockPolicyFactory", &table));
+    bbto = table->GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(bbto, nullptr);
+    ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
+    ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
+                 "TestFlushBlockPolicyFactory");
+  }
+#endif  // ROCKSDB_LITE
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -41,18 +41,12 @@ class FixedPrefixTransform : public SliceTransform {
   }
 
   static const char* kClassName() { return "rocksdb.FixedPrefix"; }
+  static const char* kNickName() { return "fixed"; }
   const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 
   std::string GetId() const override {
     return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(prefix_len_);
-  }
-
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name == "fixed") {
-      return true;
-    } else {
-      return SliceTransform::IsInstanceOf(name);
-    }
   }
 
   Slice Transform(const Slice& src) const override {
@@ -88,17 +82,11 @@ class CappedPrefixTransform : public SliceTransform {
   }
 
   static const char* kClassName() { return "rocksdb.CappedPrefix"; }
+  static const char* kNickName() { return "capped"; }
   const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
   std::string GetId() const override {
     return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(cap_len_);
-  }
-
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name == "capped") {
-      return true;
-    } else {
-      return SliceTransform::IsInstanceOf(name);
-    }
   }
 
   Slice Transform(const Slice& src) const override {
@@ -164,7 +152,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      "fixed:[0-9]+",
+      std::string(FixedPrefixTransform::kNickName()) + ":[0-9]+",
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -190,7 +178,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      "capped:[0-9]+",
+      std::string(CappedPrefixTransform::kNickName()) + ":[0-9]+",
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -234,30 +222,35 @@ Status SliceTransform::CreateFromString(
 #ifndef ROCKSDB_LITE
   status = config_options.registry->NewSharedObject(id, result);
 #else
+  auto Matches = [](const std::string& id, size_t size, const char* pattern,
+                    char sep) {
+    auto plen = strlen(pattern);
+    return (size > plen + 2 && id[plen] == ':' && StartsWith(id, pattern));
+  };
+
   auto size = id.size();
   if (id == NoopTransform::kClassName()) {
     result->reset(NewNoopTransform());
-  } else if (size > strlen("fixed:") && StartsWith(id, "fixed:")) {
-    auto len = ParseSizeT(id.substr(strlen("fixed:")));
+  } else if (Matches(id, size, FixedPrefixTransform::kNickName(), ':')) {
+    auto fixed = strlen(FixedPrefixTransform::kNickName());
+    auto len = ParseSizeT(id.substr(fixed + 1));
     result->reset(NewFixedPrefixTransform(len));
-  } else if (size > strlen("capped:") && StartsWith(id, "capped:")) {
-    auto len = ParseSizeT(id.substr(strlen("capped:")));
+  } else if (Matches(id, size, CappedPrefixTransform::kNickName(), ':')) {
+    auto capped = strlen(CappedPrefixTransform::kNickName());
+    auto len = ParseSizeT(id.substr(capped + 1));
     result->reset(NewCappedPrefixTransform(len));
-  } else {
-    auto fixed = strlen(FixedPrefixTransform::kClassName());
+  } else if (Matches(id, size, CappedPrefixTransform::kClassName(), '.')) {
     auto capped = strlen(CappedPrefixTransform::kClassName());
-    if (size > capped + 2 && id[capped] == '.' &&
-        StartsWith(id, CappedPrefixTransform::kClassName())) {
-      auto len = ParseSizeT(id.substr(capped + 1));
-      result->reset(NewCappedPrefixTransform(len));
-    } else if (size > fixed + 2 && id[fixed] == '.' &&
-               StartsWith(id, FixedPrefixTransform::kClassName())) {
-      auto len = ParseSizeT(id.substr(fixed + 1));
-      result->reset(NewFixedPrefixTransform(len));
-    } else {
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-    }
+    auto len = ParseSizeT(id.substr(capped + 1));
+    result->reset(NewCappedPrefixTransform(len));
+  } else if (Matches(id, size, FixedPrefixTransform::kClassName(), '.')) {
+    auto fixed = strlen(FixedPrefixTransform::kClassName());
+    auto len = ParseSizeT(id.substr(fixed + 1));
+    result->reset(NewFixedPrefixTransform(len));
+  } else {
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
   }
+}
 #endif  // ROCKSDB_LITE
   if (!status.ok()) {
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
@@ -270,7 +263,7 @@ Status SliceTransform::CreateFromString(
     status = transform->ConfigureFromMap(config_options, opt_map);
   }
   return status;
-}
+}  // namespace ROCKSDB_NAMESPACE
 
 std::string SliceTransform::AsString() const {
 #ifndef ROCKSDB_LITE
@@ -279,7 +272,7 @@ std::string SliceTransform::AsString() const {
   return ToString(config_options);
 #else
   return GetId();
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 }
 
 // 2 small internal utility functions, for efficient hex conversions

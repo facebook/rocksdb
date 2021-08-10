@@ -43,7 +43,7 @@ bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
   return res;
 }
 
-int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
+uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {

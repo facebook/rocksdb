@@ -447,7 +447,7 @@ class VersionStorageInfo {
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t MaxNextLevelOverlappingBytes();
+  uint64_t MaxNextLevelOverlappingBytes();
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false) const;
@@ -1014,6 +1014,7 @@ class VersionSet {
                                        FileSystem* fs,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
+  void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families

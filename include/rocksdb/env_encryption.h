@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -58,7 +59,7 @@ class BlockAccessCipherStream {
 };
 
 // BlockCipher
-class BlockCipher {
+class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
 
@@ -80,12 +81,12 @@ class BlockCipher {
                                  const std::string& value,
                                  std::shared_ptr<BlockCipher>* result);
 
+  static const char* Type() { return "BlockCipher"; }
   // Short-cut method to create a ROT13 BlockCipher.
   // This cipher is only suitable for test purposes and should not be used in
   // production!!!
   static std::shared_ptr<BlockCipher> NewROT13Cipher(size_t block_size);
 
-  virtual const char* Name() const = 0;
   // BlockSize returns the size of each block supported by this cipher stream.
   virtual size_t BlockSize() = 0;
 
@@ -101,7 +102,7 @@ class BlockCipher {
 // The encryption provider is used to create a cipher stream for a specific
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
-class EncryptionProvider {
+class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};
 
@@ -109,14 +110,14 @@ class EncryptionProvider {
   // The value describes the type of provider (and potentially optional
   // configuration parameters) used to create this provider.
   // For example, if the value is "CTR", a CTREncryptionProvider will be
-  // created. If the value is preceded by "test://" (e.g test://CTR"), the
-  // TEST_Initialize method will be invoked prior to returning the provider.
+  // created. If the value is ends with "://test" (e.g CTR://test"), the
+  // provider will be initialized in "TEST" mode prior to being returned.
   //
   // @param config_options  Options to control how this provider is created
   //                        and initialized.
   // @param value  The value might be:
   //   - CTR         Create a CTR provider
-  //   - test://CTR Create a CTR provider and initialize it for tests.
+  //   - CTR://test Create a CTR provider and initialize it for tests.
   // @param result The new provider object
   // @return OK if the provider was successfully created
   // @return NotFound if an invalid name was specified in the value
@@ -125,12 +126,11 @@ class EncryptionProvider {
                                  const std::string& value,
                                  std::shared_ptr<EncryptionProvider>* result);
 
+  static const char* Type() { return "EncryptionProvider"; }
+
   // Short-cut method to create a CTR-provider
   static std::shared_ptr<EncryptionProvider> NewCTRProvider(
       const std::shared_ptr<BlockCipher>& cipher);
-
-  // Returns the name of this EncryptionProvider
-  virtual const char* Name() const = 0;
 
   // GetPrefixLength returns the length of the prefix that is added to every
   // file and used for storing encryption options. For optimal performance, the
@@ -165,11 +165,6 @@ class EncryptionProvider {
   // or not a file is encrypted by this provider.  The maker will also be part
   // of any encryption prefix for this provider.
   virtual std::string GetMarker() const { return ""; }
-
- protected:
-  // Optional method to initialize an EncryptionProvider in the TEST
-  // environment.
-  virtual Status TEST_Initialize() { return Status::OK(); }
 };
 
 class EncryptedSequentialFile : public FSSequentialFile {

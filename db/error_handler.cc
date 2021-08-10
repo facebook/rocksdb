@@ -327,7 +327,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   // Allow some error specific overrides
-  if (new_bg_err == Status::NoSpace()) {
+  if (new_bg_err.subcode() == IOStatus::SubCode::kNoSpace ||
+      new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
   }
 
@@ -349,7 +350,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
     recovery_in_prog_ = true;
 
     // Kick-off error specific recovery
-    if (bg_error_ == Status::NoSpace()) {
+    if (new_bg_err.subcode() == IOStatus::SubCode::kNoSpace ||
+        new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
       RecoverFromNoSpace();
     }
   }
@@ -392,6 +394,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (BackgroundErrorReason::kManifestWrite == reason ||
       BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
+    ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
 
