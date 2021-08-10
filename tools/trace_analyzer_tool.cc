@@ -493,12 +493,12 @@ Status TraceAnalyzer::StartProcessing() {
         // will be two reords if it is in a transaction. Here, we only
         // process the reord that is committed. If write is non-transaction,
         // HasBeginPrepare()==false, so we process it normally.
-        WriteBatch batch(std::move(r->rep));
-        if (batch.HasBeginPrepare() && !batch.HasCommit()) {
+        if (r->writeBatch()->HasBeginPrepare() &&
+            !r->writeBatch()->HasCommit()) {
           continue;
         }
         TraceWriteHandler write_handler(this);
-        s = batch.Iterate(&write_handler);
+        s = r->writeBatch()->Iterate(&write_handler);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the write batch in the trace\n");
           return s;
@@ -513,7 +513,7 @@ Status TraceAnalyzer::StartProcessing() {
         total_gets_++;
         std::unique_ptr<GetQueryTraceRecord> r(
             reinterpret_cast<GetQueryTraceRecord*>(record.release()));
-        s = HandleGet(r->cf_id, r->key, trace.ts, 1);
+        s = HandleGet(r->columnFamilyID(), r->key(), r->timestamp(), 1);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the get in the trace\n");
           return s;
@@ -529,7 +529,8 @@ Status TraceAnalyzer::StartProcessing() {
         }
         std::unique_ptr<IteratorSeekQueryTraceRecord> r(
             reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
-        s = HandleIter(r->cf_id, r->key, trace.ts, trace.type);
+        s = HandleIter(r->columnFamilyID(), r->key(), r->timestamp(),
+                       r->type());
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the iterator in the trace\n");
           return s;
@@ -544,7 +545,7 @@ Status TraceAnalyzer::StartProcessing() {
         }
         std::unique_ptr<MultiGetQueryTraceRecord> r(
             reinterpret_cast<MultiGetQueryTraceRecord*>(record.release()));
-        s = HandleMultiGet(r->cf_ids, r->keys, trace.ts);
+        s = HandleMultiGet(r->columnFamilyIDs(), r->keys(), r->timestamp());
         break;
       }
       default: {
@@ -1553,9 +1554,8 @@ Status TraceAnalyzer::CloseOutputFiles() {
 }
 
 // Handle the Get request in the trace
-Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
-                                const PinnableSlice& key, const uint64_t& ts,
-                                const uint32_t& get_ret) {
+Status TraceAnalyzer::HandleGet(uint32_t column_family_id, const Slice& key,
+                                const uint64_t& ts, const uint32_t& get_ret) {
   Status s;
   size_t value_size = 0;
   if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
@@ -1758,9 +1758,8 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
 }
 
 // Handle the Iterator request in the trace
-Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
-                                 const PinnableSlice& key, const uint64_t& ts,
-                                 TraceType& trace_type) {
+Status TraceAnalyzer::HandleIter(uint32_t column_family_id, const Slice& key,
+                                 const uint64_t& ts, TraceType trace_type) {
   Status s;
   size_t value_size = 0;
   int type = -1;
@@ -1804,7 +1803,7 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
 // Handle MultiGet queries in the trace
 Status TraceAnalyzer::HandleMultiGet(
     const std::vector<uint32_t>& column_family_ids,
-    const std::vector<PinnableSlice>& keys, const uint64_t& ts) {
+    const std::vector<Slice>& keys, const uint64_t& ts) {
   Status s;
   size_t value_size = 0;
   if (column_family_ids.size() != keys.size()) {

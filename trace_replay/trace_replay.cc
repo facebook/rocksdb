@@ -250,11 +250,11 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   }
 
   if (record != nullptr) {
-    PinnableSlice ps;
-    ps.PinSelf(iter_key);
+    PinnableSlice ps_key;
+    ps_key.PinSelf(iter_key);
     record->reset(new IteratorSeekQueryTraceRecord(
         static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
-        std::move(ps), trace->ts));
+        std::move(ps_key), trace->ts));
   }
 
   return Status::OK();
@@ -328,8 +328,8 @@ Status TracerHelper::ExecuteWriteRecord(WriteQueryTraceRecord* record, DB* db) {
   assert(record != nullptr);
   assert(db != nullptr);
 
-  WriteBatch write_batch(record->rep);
-  return db->Write(WriteOptions(), &write_batch);
+  return db->Write(WriteOptions(),
+                   const_cast<WriteBatch*>(record->writeBatch()));
 }
 
 Status TracerHelper::ExecuteGetRecord(GetQueryTraceRecord* record, DB* db,
@@ -339,7 +339,7 @@ Status TracerHelper::ExecuteGetRecord(GetQueryTraceRecord* record, DB* db,
   assert(handle != nullptr);
 
   std::string value;
-  Status s = db->Get(ReadOptions(), handle, record->key, &value);
+  Status s = db->Get(ReadOptions(), handle, record->key(), &value);
 
   // Treat not found as ok and return other errors.
   return s.IsNotFound() ? Status::OK() : s;
@@ -353,13 +353,13 @@ Status TracerHelper::ExecuteIterSeekRecord(IteratorSeekQueryTraceRecord* record,
 
   Iterator* single_iter = db->NewIterator(ReadOptions(), handle);
 
-  switch (record->seekType) {
+  switch (record->seekType()) {
     case IteratorSeekQueryTraceRecord::kSeekForPrev: {
-      single_iter->SeekForPrev(record->key);
+      single_iter->SeekForPrev(record->key());
       break;
     }
     default: {
-      single_iter->Seek(record->key);
+      single_iter->Seek(record->key());
       break;
     }
   }
@@ -374,18 +374,17 @@ Status TracerHelper::ExecuteMultiGetRecord(
   assert(record != nullptr);
   assert(db != nullptr);
 
-  if (record->cf_ids.empty() || record->keys.empty()) {
+  std::vector<Slice> keys = record->keys();
+
+  if (record->columnFamilyIDs().empty() || keys.empty()) {
     return Status::InvalidArgument("Empty MultiGet cf_ids or keys.");
   }
-  if (record->cf_ids.size() != record->keys.size()) {
+  if (record->columnFamilyIDs().size() != keys.size()) {
     return Status::InvalidArgument("MultiGet cf_ids and keys size mismatch.");
   }
 
-  std::vector<Slice> keys(record->keys.begin(), record->keys.end());
-
   std::vector<std::string> values;
-  std::vector<Status> ss =
-      db->MultiGet(ReadOptions(), handles, std::move(keys), &values);
+  std::vector<Status> ss = db->MultiGet(ReadOptions(), handles, keys, &values);
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {

@@ -8,34 +8,40 @@
 #include <utility>
 
 #include "rocksdb/db.h"
+#include "rocksdb/status.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // TraceRecord
-TraceRecord::TraceRecord() : timestamp(0) {}
-
-TraceRecord::TraceRecord(uint64_t ts) : timestamp(ts) {}
+TraceRecord::TraceRecord(uint64_t timestamp) : timestamp_(timestamp) {}
 
 TraceRecord::~TraceRecord() {}
 
-// QueryTraceRecord
-QueryTraceRecord::QueryTraceRecord() : TraceRecord() {}
+uint64_t TraceRecord::timestamp() const { return timestamp_; }
 
-QueryTraceRecord::QueryTraceRecord(uint64_t ts) : TraceRecord(ts) {}
+// QueryTraceRecord
+QueryTraceRecord::QueryTraceRecord(uint64_t timestamp)
+    : TraceRecord(timestamp) {}
 
 QueryTraceRecord::~QueryTraceRecord() {}
 
 // WriteQueryTraceRecord
-WriteQueryTraceRecord::WriteQueryTraceRecord() : QueryTraceRecord() {}
+WriteQueryTraceRecord::WriteQueryTraceRecord(const WriteBatch& batch,
+                                             uint64_t timestamp)
+    : QueryTraceRecord(timestamp), batch_(batch) {}
 
-WriteQueryTraceRecord::WriteQueryTraceRecord(const std::string& batch_rep,
-                                             uint64_t ts)
-    : QueryTraceRecord(ts), rep(batch_rep) {}
+WriteQueryTraceRecord::WriteQueryTraceRecord(WriteBatch&& batch,
+                                             uint64_t timestamp)
+    : QueryTraceRecord(timestamp), batch_(std::move(batch)) {}
 
-WriteQueryTraceRecord::WriteQueryTraceRecord(std::string&& batch_rep,
-                                             uint64_t ts)
-    : QueryTraceRecord(ts), rep(std::move(batch_rep)) {}
+WriteQueryTraceRecord::WriteQueryTraceRecord(const std::string& rep,
+                                             uint64_t timestamp)
+    : QueryTraceRecord(timestamp), batch_(rep) {}
+
+WriteQueryTraceRecord::WriteQueryTraceRecord(std::string&& rep,
+                                             uint64_t timestamp)
+    : QueryTraceRecord(timestamp), batch_(std::move(rep)) {}
 
 WriteQueryTraceRecord::~WriteQueryTraceRecord() {}
 
@@ -50,24 +56,21 @@ Status WriteQueryTraceRecord::Execute(
   return TracerHelper::ExecuteWriteRecord(this, db);
 }
 
+const WriteBatch* WriteQueryTraceRecord::writeBatch() const { return &batch_; }
+
 // GetQueryTraceRecord
-GetQueryTraceRecord::GetQueryTraceRecord() : QueryTraceRecord(), cf_id(0) {}
+GetQueryTraceRecord::GetQueryTraceRecord(uint32_t column_family_id,
+                                         PinnableSlice&& key,
+                                         uint64_t timestamp)
+    : QueryTraceRecord(timestamp),
+      cf_id_(column_family_id),
+      key_(std::move(key)) {}
 
-GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
-                                         PinnableSlice&& get_key, uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id), key(std::move(get_key)) {}
-
-GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
-                                         const std::string& get_key,
-                                         uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id) {
-  key.PinSelf(get_key);
-}
-
-GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
-                                         std::string&& get_key, uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id) {
-  key.PinSelf(std::move(get_key));
+GetQueryTraceRecord::GetQueryTraceRecord(uint32_t column_family_id,
+                                         const std::string& key,
+                                         uint64_t timestamp)
+    : QueryTraceRecord(timestamp), cf_id_(column_family_id) {
+  key_.PinSelf(key);
 }
 
 GetQueryTraceRecord::~GetQueryTraceRecord() {}
@@ -75,7 +78,7 @@ GetQueryTraceRecord::~GetQueryTraceRecord() {}
 Status GetQueryTraceRecord::Execute(
     DB* db, const std::vector<ColumnFamilyHandle*>& handles) {
   for (ColumnFamilyHandle* handle : handles) {
-    if (handle->GetID() == cf_id) {
+    if (handle->GetID() == cf_id_) {
       return TracerHelper::ExecuteGetRecord(this, db, handle);
     }
   }
@@ -84,55 +87,51 @@ Status GetQueryTraceRecord::Execute(
 
 Status GetQueryTraceRecord::Execute(
     DB* db, const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) {
-  auto it = cf_map.find(cf_id);
+  auto it = cf_map.find(cf_id_);
   if (it == cf_map.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
   return TracerHelper::ExecuteGetRecord(this, db, it->second);
 }
 
-// IteratorQueryTraceRecord
-IteratorQueryTraceRecord::IteratorQueryTraceRecord() : QueryTraceRecord() {}
+uint32_t GetQueryTraceRecord::columnFamilyID() const { return cf_id_; }
 
-IteratorQueryTraceRecord::IteratorQueryTraceRecord(uint64_t ts)
-    : QueryTraceRecord(ts) {}
+Slice GetQueryTraceRecord::key() const { return Slice(key_); }
+
+// IteratorQueryTraceRecord
+IteratorQueryTraceRecord::IteratorQueryTraceRecord(uint64_t timestamp)
+    : QueryTraceRecord(timestamp) {}
 
 IteratorQueryTraceRecord::~IteratorQueryTraceRecord() {}
 
 // IteratorSeekQueryTraceRecord
-IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord()
-    : IteratorQueryTraceRecord(), seekType(kSeek), cf_id(0) {}
+IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
+    SeekType type, uint32_t column_family_id, PinnableSlice&& key,
+    uint64_t timestamp)
+    : IteratorQueryTraceRecord(timestamp),
+      type_(type),
+      cf_id_(column_family_id),
+      key_(std::move(key)) {}
 
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t iter_cf_id, PinnableSlice&& iter_key, uint64_t ts)
-    : IteratorQueryTraceRecord(ts),
-      seekType(type),
-      cf_id(iter_cf_id),
-      key(std::move(iter_key)) {}
-
-IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t iter_cf_id, const std::string& iter_key,
-    uint64_t ts)
-    : IteratorQueryTraceRecord(ts), seekType(type), cf_id(iter_cf_id) {
-  key.PinSelf(iter_key);
-}
-
-IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t iter_cf_id, std::string&& iter_key, uint64_t ts)
-    : IteratorQueryTraceRecord(ts), seekType(type), cf_id(iter_cf_id) {
-  key.PinSelf(std::move(iter_key));
+    SeekType type, uint32_t column_family_id, const std::string& key,
+    uint64_t timestamp)
+    : IteratorQueryTraceRecord(timestamp),
+      type_(type),
+      cf_id_(column_family_id) {
+  key_.PinSelf(key);
 }
 
 IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() {}
 
-TraceType IteratorSeekQueryTraceRecord::GetType() const {
-  return static_cast<TraceType>(seekType);
+TraceType IteratorSeekQueryTraceRecord::type() const {
+  return static_cast<TraceType>(type_);
 }
 
 Status IteratorSeekQueryTraceRecord::Execute(
     DB* db, const std::vector<ColumnFamilyHandle*>& handles) {
   for (ColumnFamilyHandle* handle : handles) {
-    if (handle->GetID() == cf_id) {
+    if (handle->GetID() == cf_id_) {
       return TracerHelper::ExecuteIterSeekRecord(this, db, handle);
     }
   }
@@ -141,51 +140,39 @@ Status IteratorSeekQueryTraceRecord::Execute(
 
 Status IteratorSeekQueryTraceRecord::Execute(
     DB* db, const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) {
-  auto it = cf_map.find(cf_id);
+  auto it = cf_map.find(cf_id_);
   if (it == cf_map.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
   return TracerHelper::ExecuteIterSeekRecord(this, db, it->second);
 }
 
-// MultiGetQueryTraceRecord
-MultiGetQueryTraceRecord::MultiGetQueryTraceRecord() : QueryTraceRecord() {}
-
-MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
-    const std::vector<uint32_t>& multiget_cf_ids,
-    std::vector<PinnableSlice>&& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts),
-      cf_ids(multiget_cf_ids),
-      keys(std::move(multiget_keys)) {}
-
-MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
-    std::vector<uint32_t>&& multiget_cf_ids,
-    std::vector<PinnableSlice>&& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts),
-      cf_ids(std::move(multiget_cf_ids)),
-      keys(std::move(multiget_keys)) {}
-
-MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
-    const std::vector<uint32_t>& multiget_cf_ids,
-    const std::vector<std::string>& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts), cf_ids(multiget_cf_ids) {
-  keys.reserve(multiget_keys.size());
-  for (const std::string& key : multiget_keys) {
-    PinnableSlice ps;
-    ps.PinSelf(key);
-    keys.push_back(std::move(ps));
-  }
+IteratorSeekQueryTraceRecord::SeekType IteratorSeekQueryTraceRecord::seekType()
+    const {
+  return type_;
 }
 
+uint32_t IteratorSeekQueryTraceRecord::columnFamilyID() const { return cf_id_; }
+
+Slice IteratorSeekQueryTraceRecord::key() const { return Slice(key_); }
+
+// MultiGetQueryTraceRecord
 MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
-    std::vector<uint32_t>&& multiget_cf_ids,
-    std::vector<std::string>&& multiget_keys, uint64_t ts)
-    : QueryTraceRecord(ts), cf_ids(std::move(multiget_cf_ids)) {
-  keys.reserve(multiget_keys.size());
-  for (std::string& key : multiget_keys) {
+    std::vector<uint32_t> column_family_ids, std::vector<PinnableSlice>&& keys,
+    uint64_t timestamp)
+    : QueryTraceRecord(timestamp),
+      cf_ids_(column_family_ids),
+      keys_(std::move(keys)) {}
+
+MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
+    std::vector<uint32_t> column_family_ids,
+    const std::vector<std::string>& keys, uint64_t timestamp)
+    : QueryTraceRecord(timestamp), cf_ids_(column_family_ids) {
+  keys_.reserve(keys.size());
+  for (const std::string& key : keys) {
     PinnableSlice ps;
     ps.PinSelf(key);
-    keys.push_back(std::move(ps));
+    keys_.push_back(std::move(ps));
   }
 }
 
@@ -203,8 +190,8 @@ Status MultiGetQueryTraceRecord::Execute(
 Status MultiGetQueryTraceRecord::Execute(
     DB* db, const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) {
   std::vector<ColumnFamilyHandle*> handles;
-  handles.reserve(cf_ids.size());
-  for (uint32_t cf_id : cf_ids) {
+  handles.reserve(cf_ids_.size());
+  for (uint32_t cf_id : cf_ids_) {
     auto it = cf_map.find(cf_id);
     if (it == cf_map.end()) {
       return Status::Corruption("Invalid Column Family ID.");
@@ -212,6 +199,14 @@ Status MultiGetQueryTraceRecord::Execute(
     handles.push_back(it->second);
   }
   return TracerHelper::ExecuteMultiGetRecord(this, db, handles);
+}
+
+std::vector<uint32_t> MultiGetQueryTraceRecord::columnFamilyIDs() const {
+  return cf_ids_;
+}
+
+std::vector<Slice> MultiGetQueryTraceRecord::keys() const {
+  return std::vector<Slice>(keys_.begin(), keys_.end());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

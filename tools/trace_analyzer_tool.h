@@ -183,7 +183,7 @@ class TraceAnalyzer {
   Status WriteTraceUnit(TraceUnit& unit);
 
   // The trace  processing functions for different type
-  Status HandleGet(uint32_t column_family_id, const PinnableSlice& key,
+  Status HandleGet(uint32_t column_family_id, const Slice& key,
                    const uint64_t& ts, const uint32_t& get_ret);
   Status HandlePut(uint32_t column_family_id, const Slice& key,
                    const Slice& value);
@@ -193,11 +193,10 @@ class TraceAnalyzer {
                            const Slice& end_key);
   Status HandleMerge(uint32_t column_family_id, const Slice& key,
                      const Slice& value);
-  Status HandleIter(uint32_t column_family_id, const PinnableSlice& key,
-                    const uint64_t& ts, TraceType& trace_type);
+  Status HandleIter(uint32_t column_family_id, const Slice& key,
+                    const uint64_t& ts, TraceType trace_type);
   Status HandleMultiGet(const std::vector<uint32_t>& column_family_ids,
-                        const std::vector<PinnableSlice>& keys,
-                        const uint64_t& ts);
+                        const std::vector<Slice>& keys, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
