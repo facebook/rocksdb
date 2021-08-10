@@ -8050,7 +8050,6 @@ class Benchmark {
   }
 
 #endif  // ROCKSDB_LITE
-
 };
 
 int db_bench_tool(int argc, char** argv) {
