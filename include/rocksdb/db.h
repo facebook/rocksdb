@@ -55,11 +55,11 @@ class CompactionJobInfo;
 class Env;
 class EventListener;
 class FileSystem;
-#ifdef ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 class Replayer;
 #endif
 class StatsHistoryIterator;
-#ifdef ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 class TraceReader;
 class TraceWriter;
 #endif

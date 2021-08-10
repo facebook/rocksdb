@@ -61,14 +61,13 @@ GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
                                          const std::string& get_key,
                                          uint64_t ts)
     : QueryTraceRecord(ts), cf_id(get_cf_id) {
-  Slice s(get_key);
-  key.PinSelf(s);
+  key.PinSelf(get_key);
 }
 
 GetQueryTraceRecord::GetQueryTraceRecord(uint32_t get_cf_id,
                                          std::string&& get_key, uint64_t ts)
-    : QueryTraceRecord(ts), cf_id(get_cf_id), key(&get_key) {
-  key.PinSelf();
+    : QueryTraceRecord(ts), cf_id(get_cf_id) {
+  key.PinSelf(std::move(get_key));
 }
 
 GetQueryTraceRecord::~GetQueryTraceRecord() {}
@@ -115,17 +114,13 @@ IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
     SeekType type, uint32_t iter_cf_id, const std::string& iter_key,
     uint64_t ts)
     : IteratorQueryTraceRecord(ts), seekType(type), cf_id(iter_cf_id) {
-  Slice s(iter_key);
-  key.PinSelf(s);
+  key.PinSelf(iter_key);
 }
 
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
     SeekType type, uint32_t iter_cf_id, std::string&& iter_key, uint64_t ts)
-    : IteratorQueryTraceRecord(ts),
-      seekType(type),
-      cf_id(iter_cf_id),
-      key(&iter_key) {
-  key.PinSelf();
+    : IteratorQueryTraceRecord(ts), seekType(type), cf_id(iter_cf_id) {
+  key.PinSelf(std::move(iter_key));
 }
 
 IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() {}
@@ -176,9 +171,8 @@ MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
     : QueryTraceRecord(ts), cf_ids(multiget_cf_ids) {
   keys.reserve(multiget_keys.size());
   for (const std::string& key : multiget_keys) {
-    Slice s(key);
     PinnableSlice ps;
-    ps.PinSelf(s);
+    ps.PinSelf(key);
     keys.push_back(std::move(ps));
   }
 }
@@ -189,9 +183,8 @@ MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
     : QueryTraceRecord(ts), cf_ids(std::move(multiget_cf_ids)) {
   keys.reserve(multiget_keys.size());
   for (std::string& key : multiget_keys) {
-    Slice s(key);
     PinnableSlice ps;
-    ps.PinSelf(s);
+    ps.PinSelf(key);
     keys.push_back(std::move(ps));
   }
 }
