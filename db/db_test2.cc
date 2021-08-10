@@ -29,6 +29,7 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
 
  protected:
+#ifndef ROCKSDB_LITE
   uint64_t GetSstSizeHelper(Temperature temperature) {
     std::string prop;
     bool s = dbfull()->GetProperty(
@@ -38,6 +39,7 @@ class DBTest2 : public DBTestBase {
     assert(s);
     return static_cast<uint64_t>(std::atoi(prop.c_str()));
   }
+#endif  // ROCKSDB_LITE
 };
 
 #ifndef ROCKSDB_LITE
