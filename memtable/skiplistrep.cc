@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include <random>
+
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/inlineskiplist.h"
@@ -108,21 +110,36 @@ public:
     SkipListRep::Iterator iter(&skip_list_);
     // There are two methods to create the subset of samples (size m)
     // from the table containing N elements:
-    // 1-Iterate through N, and sample a Bernoulli distribution of p=m/N.
+    // 1-Create vector {0,...,N}, create a random permutation of it,
+    //   select the first m indices of it: those are the indices of
+    //   the memtable entries that will form the `entries` sample set.
     // 2-Pick m random elements without repetition.
     // We pick Option 2 when m<sqrt(N) and
     // Option 1 when m > sqrt(N).
     if (target_sample_size >
         static_cast<uint64_t>(std::sqrt(1.0 * num_entries))) {
-      // Option 1: iterate through each element, and store it in sample
-      // subset if Bernoulli dist returns true.
-      Random* rnd = Random::GetTLSInstance();
-      int n = (target_sample_size > num_entries)
-                  ? 1
-                  : static_cast<int>(num_entries / target_sample_size);
-      for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
-        if (rnd->OneIn(n)) {
+      std::vector<size_t> indices;
+      for (size_t i = 0; i < num_entries; i++) {
+        indices.push_back(i);
+      }
+      uint64_t m =
+          (target_sample_size > num_entries) ? num_entries : target_sample_size;
+
+      std::shuffle(
+          std::begin(indices), std::end(indices),
+          std::default_random_engine(Random::GetTLSInstance()->Next() /* seed */
+                                     ));
+      std::sort(std::begin(indices), std::begin(indices) + m);
+
+      // Option 1: take the first m indices from the randomly permuted
+      // indices array {0,...,num_entries-1}, and store them in
+      // the sample subset.
+      iter.SeekToFirst();
+      for (uint64_t counter = 0, index = 0; iter.Valid() && (index < m);
+           iter.Next(), counter++) {
+        if (counter == indices[index]) {
           entries->insert(iter.key());
+          index++;
         }
       }
     } else {
@@ -140,8 +157,11 @@ public:
         // a probability of p= 1/sqrt(N) chances to find a duplicate.
         for (uint64_t j = 0; j < 5; j++) {
           iter.RandomSeek();
-          if (entries->find(iter.key()) == entries->end()) {
-            entries->insert(iter.key());
+          // unordered_set::insert returns pair<iterator, bool>.
+          // The second element is true if an insert successfully happened.
+          // If element is already in the set, this bool will be false, and
+          // true otherwise.
+          if ((entries->insert(iter.key())).second) {
             break;
           }
         }

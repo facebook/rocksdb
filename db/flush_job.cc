@@ -623,8 +623,8 @@ Status FlushJob::MemPurge() {
 
 bool FlushJob::MemPurgeDecider() {
   double threshold = db_options_.experimental_mempurge_threshold;
-  // Never trigger mempurge when threshold<=0.
-  if (threshold <= 0.0) {
+  // Never trigger mempurge if threshold is not a strictly positive value.
+  if (!(threshold > 0.0)) {
     return false;
   }
   if (threshold > (1.0 * mems_.size())) {
@@ -725,7 +725,7 @@ bool FlushJob::MemPurgeDecider() {
         estimated_useful_payload += useful_payload * 1.0 / payload;
         ROCKS_LOG_INFO(
             db_options_.info_log,
-            "Mempurge kSampling policy: garbage ratio from sampling: %f.\n",
+            "Mempurge sampling - found garbage ratio from sampling: %f.\n",
             (payload - useful_payload) * 1.0 / payload);
       } else {
         ROCKS_LOG_WARN(

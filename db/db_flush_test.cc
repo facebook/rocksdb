@@ -695,7 +695,8 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold =
+      1.0;  // std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -842,7 +843,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold =
+      1.0;  // std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1045,7 +1047,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold =
+      1.0;  // std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1120,7 +1123,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold =
+      1.0;  // std::numeric_limits<double>::max();
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;

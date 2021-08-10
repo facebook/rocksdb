@@ -782,12 +782,22 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
+  // Ratio 'useful payload bytes'/'total payload bytes' below which
+  // a mempurge is triggered.
   // If >0.0, memtable(s) will be mempurged instead of flushed to storage
-  // every time the total expected 'useful payload' (payload - garbage)
-  // is smaller than threshold * memtable_size.
+  // every time the total estimated 'useful payload' [in bytes] (the 'useful
+  // payload' is the difference between the input payload bytes on one hand,
+  // and the garbage bytes being filtered out at mempurge/flush time on
+  // the other hand) is smaller than 'threshold * memtable_size [in bytes]'.
   // We recommend to use a threshold of 1.0 for efficient mempurges.
   // Default: 0.0 (never trigger mempurge).
-  // (experimental).
+  // The 'useful payload' is estimated by sampling the memtables being
+  // mempurged/flushed. Therefore a high mempurge threshold ( > 1.0 )
+  // can be used when the sampling consistently overevaluates the 'useful
+  // payload' High values (>1.0) will almost always redirect a flush to a
+  // mempurge. A mempurge is aborted and rerouted to a flush operation when the
+  // `useful payload` is too large to be contained on a single immutable
+  // memtable. (experimental).
   double experimental_mempurge_threshold = 0.0;
 
   // Amount of data to build up in memtables across all column
