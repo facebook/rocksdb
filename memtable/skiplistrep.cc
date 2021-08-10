@@ -129,15 +129,16 @@ public:
           std::begin(indices), std::end(indices),
           std::default_random_engine(Random::GetTLSInstance()->Next() /* seed */
                                      ));
+      assert(m <= indices.size());
       std::sort(std::begin(indices), std::begin(indices) + m);
-
       // Option 1: take the first m indices from the randomly permuted
       // indices array {0,...,num_entries-1}, and store them in
       // the sample subset.
       iter.SeekToFirst();
       for (uint64_t counter = 0, index = 0; iter.Valid() && (index < m);
            iter.Next(), counter++) {
-        if (counter == indices[index]) {
+        // First check 'index<indices.size()' is required for internal test.
+        if ((index < indices.size()) && (counter == indices[index])) {
           entries->insert(iter.key());
           index++;
         }
