@@ -222,10 +222,11 @@ Status SliceTransform::CreateFromString(
 #ifndef ROCKSDB_LITE
   status = config_options.registry->NewSharedObject(id, result);
 #else
-  auto Matches = [](const std::string& id, size_t size, const char* pattern,
+  auto Matches = [](const std::string& input, size_t size, const char* pattern,
                     char sep) {
     auto plen = strlen(pattern);
-    return (size > plen + 2 && id[plen] == sep && StartsWith(id, pattern));
+    return (size > plen + 2 && input[plen] == sep &&
+            StartsWith(input, pattern));
   };
 
   auto size = id.size();
