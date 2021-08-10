@@ -225,7 +225,7 @@ Status SliceTransform::CreateFromString(
   auto Matches = [](const std::string& id, size_t size, const char* pattern,
                     char sep) {
     auto plen = strlen(pattern);
-    return (size > plen + 2 && id[plen] == ':' && StartsWith(id, pattern));
+    return (size > plen + 2 && id[plen] == sep && StartsWith(id, pattern));
   };
 
   auto size = id.size();
@@ -250,7 +250,6 @@ Status SliceTransform::CreateFromString(
   } else {
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
   }
-}
 #endif  // ROCKSDB_LITE
   if (!status.ok()) {
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
