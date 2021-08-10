@@ -181,17 +181,17 @@ IteratorQueryTraceRecord::~IteratorQueryTraceRecord() {}
 
 // IteratorSeekQueryTraceRecord
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t column_family_id, PinnableSlice&& iter_key,
+    SeekType seek_type, uint32_t column_family_id, PinnableSlice&& iter_key,
     uint64_t ts)
     : IteratorQueryTraceRecord(ts),
-      type_(type),
+      type_(seek_type),
       cf_id_(column_family_id),
       key_(std::move(iter_key)) {}
 
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
-    SeekType type, uint32_t column_family_id, const std::string& iter_key,
+    SeekType seek_type, uint32_t column_family_id, const std::string& iter_key,
     uint64_t ts)
-    : IteratorQueryTraceRecord(ts), type_(type), cf_id_(column_family_id) {
+    : IteratorQueryTraceRecord(ts), type_(seek_type), cf_id_(column_family_id) {
   key_.PinSelf(iter_key);
 }
 
