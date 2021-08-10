@@ -755,7 +755,6 @@ TEST_F(DBTest2, WalFilterTest) {
     options.wal_filter = &test_wal_filter;
     Status status =
       TryReopenWithColumnFamilies({ "default", "pikachu" }, options);
-    printf("MJR: TryReopen w/Filter=%s\n", status.ToString().c_str());
     if (wal_processing_option ==
       WalFilter::WalProcessingOption::kCorruptedRecord) {
       assert(!status.ok());

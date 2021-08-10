@@ -1881,7 +1881,6 @@ TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
   cfg_opts.ignore_unsupported_options = false;
 
   ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
-  printf("MJR DBOpts[%s]\n", opts_str.c_str());
   ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
 
   ASSERT_NE(factory, nullptr);
