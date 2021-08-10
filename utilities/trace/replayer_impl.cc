@@ -17,8 +17,6 @@
 #include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/trace_reader_writer.h"
-#include "rocksdb/trace_record.h"
-#include "rocksdb/write_batch.h"
 #include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -28,15 +26,12 @@ ReplayerImpl::ReplayerImpl(DB* db,
                            std::unique_ptr<TraceReader>&& reader)
     : Replayer(),
       db_(db),
-      env_(Env::Default()),
       trace_reader_(std::move(reader)),
       prepared_(false),
       trace_end_(false),
-      header_ts_(0) {
+      header_ts_(0),
+      exec_handler_(db, handles) {
   assert(db_ != nullptr);
-  for (ColumnFamilyHandle* handle : handles) {
-    cf_map_[handle->GetID()] = handle;
-  }
 }
 
 ReplayerImpl::~ReplayerImpl() { trace_reader_.reset(); }
@@ -81,11 +76,11 @@ Status ReplayerImpl::Next(std::unique_ptr<TraceRecord>* record) {
 }
 
 Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record) {
-  return record->Execute(db_, cf_map_);
+  return record->Accept(&exec_handler_);
 }
 
 Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record) {
-  Status s = record->Execute(db_, cf_map_);
+  Status s = record->Accept(&exec_handler_);
   record.reset();
   return s;
 }
@@ -139,13 +134,13 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
               1.0 * (trace.ts - header_ts_) / options.fast_forward))));
 
-      s = record->Execute(db_, cf_map_);
+      s = record->Accept(&exec_handler_);
       record.reset();
     }
   } else {
     // Multi-threaded replay.
     ThreadPoolImpl thread_pool;
-    thread_pool.SetHostEnv(env_);
+    thread_pool.SetHostEnv(db_->GetEnv());
     thread_pool.SetBackgroundThreads(static_cast<int>(options.num_threads));
 
     std::mutex mtx;
@@ -193,9 +188,8 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           trace_type == kTraceIteratorSeekForPrev ||
           trace_type == kTraceMultiGet) {
         std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
-        ra->db = db_;
         ra->trace_entry = std::move(trace);
-        ra->cf_map = &cf_map_;
+        ra->handler = &exec_handler_;
         ra->trace_file_version = trace_file_version_;
         ra->error_cb = error_cb;
         thread_pool.Schedule(&ReplayerImpl::BackgroundWork, ra.release(),
@@ -297,7 +291,7 @@ void ReplayerImpl::BackgroundWork(void* arg) {
   Status s =
       DecodeTraceRecord(&(ra->trace_entry), ra->trace_file_version, &record);
   if (s.ok()) {
-    s = record->Execute(ra->db, *(ra->cf_map));
+    s = record->Accept(ra->handler);
     record.reset();
   }
   if (!s.ok()) {

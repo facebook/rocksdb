@@ -45,6 +45,11 @@ enum TraceType : char {
   kTraceMax,
 };
 
+class WriteQueryTraceRecord;
+class GetQueryTraceRecord;
+class IteratorSeekQueryTraceRecord;
+class MultiGetQueryTraceRecord;
+
 // Base class for all types of trace records.
 class TraceRecord {
  public:
@@ -54,14 +59,39 @@ class TraceRecord {
 
   virtual TraceType type() const = 0;
 
-  // Execute the trace record on the specified DB and handles.
-  virtual Status Execute(DB* db,
-                         const std::vector<ColumnFamilyHandle*>& handles) = 0;
-  virtual Status Execute(
-      DB* db,
-      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) = 0;
-
   virtual uint64_t timestamp() const;
+
+  class Handler {
+   public:
+    virtual ~Handler() {}
+
+    virtual Status Handle(const WriteQueryTraceRecord& record) = 0;
+    virtual Status Handle(const GetQueryTraceRecord& record) = 0;
+    virtual Status Handle(const IteratorSeekQueryTraceRecord& record) = 0;
+    virtual Status Handle(const MultiGetQueryTraceRecord& record) = 0;
+  };
+
+  class ExecutionHandler : public Handler {
+   public:
+    ExecutionHandler(DB* db, const std::vector<ColumnFamilyHandle*>& handles);
+
+    ExecutionHandler(
+        DB* db,
+        const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map);
+
+    virtual ~ExecutionHandler() override;
+
+    virtual Status Handle(const WriteQueryTraceRecord& record) override;
+    virtual Status Handle(const GetQueryTraceRecord& record) override;
+    virtual Status Handle(const IteratorSeekQueryTraceRecord& record) override;
+    virtual Status Handle(const MultiGetQueryTraceRecord& record) override;
+
+   private:
+    DB* db_;
+    std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
+  };
+
+  virtual Status Accept(Handler* handler) = 0;
 
  private:
   // Timestamp (in microseconds) of this trace.
@@ -91,16 +121,12 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   TraceType type() const override { return kTraceWrite; };
 
-  virtual Status Execute(
-      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
-  virtual Status Execute(
-      DB* db,
-      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
+  virtual WriteBatch* writeBatch() const;
 
-  virtual const WriteBatch* writeBatch() const;
+  virtual Status Accept(Handler* handler) override;
 
  private:
-  WriteBatch batch_;
+  WriteBatch* batch_;
 };
 
 // Trace record for DB::Get() operation
@@ -116,15 +142,11 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 
   TraceType type() const override { return kTraceGet; };
 
-  virtual Status Execute(
-      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
-  virtual Status Execute(
-      DB* db,
-      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
-
   virtual uint32_t columnFamilyID() const;
 
   virtual Slice key() const;
+
+  virtual Status Accept(Handler* handler) override;
 
  private:
   // Column family ID.
@@ -160,17 +182,13 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 
   TraceType type() const override;
 
-  virtual Status Execute(
-      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
-  virtual Status Execute(
-      DB* db,
-      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
-
   virtual SeekType seekType() const;
 
   virtual uint32_t columnFamilyID() const;
 
   virtual Slice key() const;
+
+  virtual Status Accept(Handler* handler) override;
 
  private:
   SeekType type_;
@@ -195,15 +213,11 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
 
   TraceType type() const override { return kTraceMultiGet; };
 
-  virtual Status Execute(
-      DB* db, const std::vector<ColumnFamilyHandle*>& handles) override;
-  virtual Status Execute(
-      DB* db,
-      const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map) override;
-
   virtual std::vector<uint32_t> columnFamilyIDs() const;
 
   virtual std::vector<Slice> keys() const;
+
+  virtual Status Accept(Handler* handler) override;
 
  private:
   // Column familiy IDs.

@@ -121,15 +121,6 @@ class TracerHelper {
   // Decode the multiget payload and store in MultiGetPayload
   static Status DecodeMultiGetRecord(Trace* trace, int trace_file_version,
                                      std::unique_ptr<TraceRecord>* record);
-
-  static Status ExecuteWriteRecord(WriteQueryTraceRecord* record, DB* db);
-  static Status ExecuteGetRecord(GetQueryTraceRecord* record, DB* db,
-                                 ColumnFamilyHandle* handle);
-  static Status ExecuteIterSeekRecord(IteratorSeekQueryTraceRecord* record,
-                                      DB* db, ColumnFamilyHandle* handle);
-  static Status ExecuteMultiGetRecord(
-      MultiGetQueryTraceRecord* record, DB* db,
-      const std::vector<ColumnFamilyHandle*>& handles);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.

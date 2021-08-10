@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
 #include "trace_replay/trace_replay.h"
 
@@ -20,7 +21,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 class DB;
-class Env;
 class TraceReader;
 class TraceRecord;
 class Status;
@@ -62,9 +62,7 @@ class ReplayerImpl : public Replayer {
   static void BackgroundWork(void* arg);
 
   DB* db_;
-  Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   // When reading the trace header, the trace file version can be parsed.
   // Replayer will use different decode method to get the trace content based
   // on different trace file version.
@@ -73,14 +71,15 @@ class ReplayerImpl : public Replayer {
   std::atomic<bool> prepared_;
   std::atomic<bool> trace_end_;
   uint64_t header_ts_;
+  TraceRecord::ExecutionHandler exec_handler_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.
 struct ReplayerWorkerArg {
-  DB* db;
   Trace trace_entry;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
   int trace_file_version;
+  // Handler to execute TraceRecord.
+  TraceRecord::ExecutionHandler* handler;
   // Callback function to report the error status.
   std::function<void(Status)> error_cb;
 };
