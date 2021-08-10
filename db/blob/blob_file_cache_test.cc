@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
@@ -83,7 +84,7 @@ void WriteBlobFile(uint32_t column_family_id,
 
 class BlobFileCacheTest : public testing::Test {
  protected:
-  BlobFileCacheTest() { mock_env_.reset(NewMemEnv(Env::Default())); }
+  BlobFileCacheTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
 
   std::unique_ptr<Env> mock_env_;
 };

@@ -15,6 +15,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_sequential_reader.h"
+#include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
@@ -39,7 +40,7 @@ class TestFileNumberGenerator {
 class BlobFileBuilderTest : public testing::Test {
  protected:
   BlobFileBuilderTest() {
-    mock_env_.reset(NewMemEnv(Env::Default()));
+    mock_env_.reset(MockEnv::Create(Env::Default()));
     fs_ = mock_env_->GetFileSystem().get();
     clock_ = mock_env_->GetSystemClock().get();
   }
@@ -580,7 +581,7 @@ class BlobFileBuilderIOErrorTest
       public testing::WithParamInterface<std::string> {
  protected:
   BlobFileBuilderIOErrorTest() : sync_point_(GetParam()) {
-    mock_env_.reset(NewMemEnv(Env::Default()));
+    mock_env_.reset(MockEnv::Create(Env::Default()));
     fs_ = mock_env_->GetFileSystem().get();
   }
 
