@@ -221,6 +221,12 @@ inline uint64_t DynamicBloom::UniqueEntryEstimate() const {
   }
   uint64_t data_bit_len = kLen * sizeof(uint64_t);
 
+  // From Samidass & Baldi (2007): # of items in a Bloom Filter
+  // can be approximated with:
+  // n_approx = -(m/k)ln [ 1- (X/m)], where:
+  // m: length (size) of the filter (bits)
+  // k: number of has functions (probes)
+  // X: number of bits set to one
   return static_cast<uint64_t>(
       std::ceil(-((1.0 * data_bit_len) / (2 * kNumDoubleProbes)) *
                 std::log(1.0 - (one_bits * 1.0 / data_bit_len))));
