@@ -39,26 +39,30 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct Options;
-struct DBOptions;
 struct ColumnFamilyOptions;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
-struct TableProperties;
+struct DBOptions;
 struct ExternalSstFileInfo;
+struct FlushOptions;
+struct Options;
+struct ReadOptions;
+struct TableProperties;
+struct WriteOptions;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
 class Env;
 class EventListener;
 class FileSystem;
+#ifdef ROCKSDB_LITE
 class Replayer;
+#endif
 class StatsHistoryIterator;
+#ifdef ROCKSDB_LITE
 class TraceReader;
 class TraceWriter;
+#endif
 class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
@@ -1630,6 +1634,7 @@ class DB {
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
 #ifndef ROCKSDB_LITE
+
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
@@ -1680,7 +1685,6 @@ class DB {
   virtual Status EndBlockCacheTrace() {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
-#endif  // ROCKSDB_LITE
 
   // Create a default trace replayer.
   virtual Status NewDefaultReplayer(
@@ -1689,6 +1693,8 @@ class DB {
       std::unique_ptr<Replayer>* /*replayer*/) {
     return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
+
+#endif  // ROCKSDB_LITE
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
