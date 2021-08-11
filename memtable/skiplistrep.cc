@@ -97,8 +97,8 @@ public:
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
-  void UniqueRandomSample(const uint64_t& num_entries,
-                          const uint64_t& target_sample_size,
+  void UniqueRandomSample(const uint64_t num_entries,
+                          const uint64_t target_sample_size,
                           std::unordered_set<const char*>* entries) override {
     entries->clear();
     // Avoid divide-by-0.

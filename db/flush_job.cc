@@ -643,100 +643,130 @@ bool FlushJob::MemPurgeDecider() {
   ro.total_order_seek = true;
 
   // Iterate over each memtable of the set.
-  for (MemTable* mt : mems_) {
+  for (auto mem_iter = std::begin(mems_); mem_iter != std::end(mems_);
+       mem_iter++) {
+    MemTable* mt = *mem_iter;
     // If the memtable is the output of a previous mempurge,
     // its approximate useful payload ratio is already calculated.
-    if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
-      // We make the assumption that this memtable is already
-      // free of garbage (garbage underestimation).
-      estimated_useful_payload += mt->ApproximateMemoryUsage();
-    } else {
-      // Else sample from the table.
-      uint64_t nentries = mt->num_entries();
-      // Corrected Cochran formula for small populations
-      // (converges to n0 for large populations).
-      uint64_t target_sample_size =
-          static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
-      std::unordered_set<const char*> sentries = {};
-      // Populate sample entries set.
-      mt->UniqueRandomSample(target_sample_size, &sentries);
+    // if (cfd_->imm()->IsMemPurgeOutput(mt->GetID())) {
+    //   // We make the assumption that this memtable is already
+    //   // free of garbage (garbage underestimation).
+    //   estimated_useful_payload += mt->ApproximateMemoryUsage();
+    // } else {
 
-      // Estimate the garbage ratio by comparing if
-      // each sample corresponds to a valid entry.
-      for (const char* ss : sentries) {
-        ParsedInternalKey res;
-        Slice entry_slice = GetLengthPrefixedSlice(ss);
-        Status parse_s =
-            ParseInternalKey(entry_slice, &res, true /*log_err_key*/);
-        if (!parse_s.ok()) {
-          ROCKS_LOG_WARN(db_options_.info_log,
-                         "Memtable Decider: ParseInternalKey did not parse "
-                         "entry_slice %s"
-                         "successfully.",
-                         entry_slice.data());
-        }
-        LookupKey lkey(res.user_key, kMaxSequenceNumber);
-        std::string vget;
-        Status s;
-        MergeContext merge_context;
-        SequenceNumber max_covering_tombstone_seq = 0, sqno = 0;
+    // Else sample from the table.
+    uint64_t nentries = mt->num_entries();
+    // Corrected Cochran formula for small populations
+    // (converges to n0 for large populations).
+    uint64_t target_sample_size =
+        static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
+    std::unordered_set<const char*> sentries = {};
+    // Populate sample entries set.
+    mt->UniqueRandomSample(target_sample_size, &sentries);
 
-        // Pick the oldest existing snapshot that is more recent
-        // than the sequence number of the sampled entry.
-        SequenceNumber min_seqno_snapshot = kMaxSequenceNumber;
-        SnapshotImpl min_snapshot;
-        for (SequenceNumber seq_num : existing_snapshots_) {
-          if (seq_num > res.sequence && seq_num < min_seqno_snapshot) {
-            min_seqno_snapshot = seq_num;
-          }
-        }
-        min_snapshot.number_ = min_seqno_snapshot;
-        ro.snapshot =
-            min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
+    // Estimate the garbage ratio by comparing if
+    // each sample corresponds to a valid entry.
+    for (const char* ss : sentries) {
+      ParsedInternalKey res;
+      Slice entry_slice = GetLengthPrefixedSlice(ss);
+      Status parse_s =
+          ParseInternalKey(entry_slice, &res, true /*log_err_key*/);
+      if (!parse_s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Memtable Decider: ParseInternalKey did not parse "
+                       "entry_slice %s"
+                       "successfully.",
+                       entry_slice.data());
+      }
+      payload += entry_slice.size();
 
-        // Estimate if the sample entry is valid or not.
-        bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
-                            &max_covering_tombstone_seq, &sqno, ro);
-        if (!gres) {
-          ROCKS_LOG_WARN(
-              db_options_.info_log,
-              "Memtable Get returned false when Get(sampled entry). "
-              "Yet each sample entry should exist somewhere in the memtable, "
-              "unrelated to whether it has been deleted or not.");
-        }
-        payload += entry_slice.size();
+      LookupKey lkey(res.user_key, kMaxSequenceNumber);
+      std::string vget;
+      Status s;
+      MergeContext merge_context;
+      SequenceNumber max_covering_tombstone_seq = 0, sqno = 0;
 
-        // TODO(bjlemaire): evaluate typeMerge.
-        // This is where the sampled entry is estimated to be
-        // garbage or not. Note that this is a garbage *estimation*
-        // because we do not include certain items such as
-        // CompactionFitlers triggered at flush, or if the same delete
-        // has been inserted twice or more in the memtable.
-        if (res.type == kTypeValue && gres && s.ok() && sqno == res.sequence) {
-          useful_payload += entry_slice.size();
-        } else if (((res.type == kTypeDeletion) ||
-                    (res.type == kTypeSingleDeletion)) &&
-                   s.IsNotFound() && gres) {
-          useful_payload += entry_slice.size();
+      // Pick the oldest existing snapshot that is more recent
+      // than the sequence number of the sampled entry.
+      SequenceNumber min_seqno_snapshot = kMaxSequenceNumber;
+      SnapshotImpl min_snapshot;
+      for (SequenceNumber seq_num : existing_snapshots_) {
+        if (seq_num > res.sequence && seq_num < min_seqno_snapshot) {
+          min_seqno_snapshot = seq_num;
         }
       }
-      if (payload > 0) {
-        // We used the estimated useful payload ratio
-        // to evaluate how much of the total memtable is useful bytes.
-        estimated_useful_payload +=
-            (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
-        ROCKS_LOG_INFO(
-            db_options_.info_log,
-            "Mempurge sampling - found garbage ratio from sampling: %f.\n",
-            (payload - useful_payload) * 1.0 / payload);
-      } else {
+      min_snapshot.number_ = min_seqno_snapshot;
+      ro.snapshot =
+          min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
+
+      // Estimate if the sample entry is valid or not.
+      bool gres = mt->Get(lkey, &vget, nullptr, &s, &merge_context,
+                          &max_covering_tombstone_seq, &sqno, ro);
+      if (!gres) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
-            "Mempurge kSampling policy: null payload measured, and collected "
-            "sample size is %zu\n.",
-            sentries.size());
+            "Memtable Get returned false when Get(sampled entry). "
+            "Yet each sample entry should exist somewhere in the memtable, "
+            "unrelated to whether it has been deleted or not.");
+      }
+
+      // TODO(bjlemaire): evaluate typeMerge.
+      // This is where the sampled entry is estimated to be
+      // garbage or not. Note that this is a garbage *estimation*
+      // because we do not include certain items such as
+      // CompactionFitlers triggered at flush, or if the same delete
+      // has been inserted twice or more in the memtable.
+
+      // Evaluate if the entry can be useful payload
+      // Situation #1: entry is a KV entry, was found in the memtable mt
+      //               and the sequence numbers match.
+      bool can_be_useful_payload =
+          (res.type == kTypeValue) && gres && s.ok() && (sqno == res.sequence);
+      // Situation #2: entry is a delete entry, was found in the memtable mt
+      //               (because gres==true) and no valid KV entry is found.
+      //               (note: overestimation of useful payload in cases where
+      //                there are duplicate delete entries - rare scenario
+      //                though).
+      can_be_useful_payload |=
+          ((res.type == kTypeDeletion) || (res.type == kTypeSingleDeletion)) &&
+          s.IsNotFound() && gres;
+
+      // If there is a chance that the entry is useful payload
+      // Verify that the entry does not appear in the following memtables
+      // (memtables with greater memtable ID/larger sequence numbers).
+      if (can_be_useful_payload) {
+        bool not_in_next_mems = true;
+        for (auto next_mem_iter = mem_iter + 1;
+             next_mem_iter != std::end(mems_); next_mem_iter++) {
+          if ((*next_mem_iter)
+                  ->Get(lkey, &vget, nullptr, &s, &merge_context,
+                        &max_covering_tombstone_seq, &sqno, ro)) {
+            not_in_next_mems = false;
+            break;
+          }
+        }
+        if (not_in_next_mems) {
+          useful_payload += entry_slice.size();
+        }
       }
     }
+    if (payload > 0) {
+      // We used the estimated useful payload ratio
+      // to evaluate how much of the total memtable is useful bytes.
+      estimated_useful_payload +=
+          (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "Mempurge sampling - found garbage ratio from sampling: %f.\n",
+          (payload - useful_payload) * 1.0 / payload);
+    } else {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Mempurge sampling: null payload measured, and collected "
+                     "sample size is %zu\n.",
+                     sentries.size());
+    }
+
+    // }
   }
   // We convert the total number of useful paylaod bytes
   // into the proportion of memtable necessary to store all these bytes.
