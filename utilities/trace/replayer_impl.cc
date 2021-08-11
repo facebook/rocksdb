@@ -144,13 +144,15 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
     std::mutex mtx;
     // Background decoding and execution status.
     Status bg_s = Status::OK();
+    uint64_t last_err_ts = static_cast<uint64_t>(-1);
     // Callback function used in background work to update bg_s at the first
-    // execution error.
-    auto error_cb = [&mtx, &bg_s](Status err) {
+    // execution error (with the smallest Trace timestamp).
+    auto error_cb = [&mtx, &bg_s, &last_err_ts](Status err, uint64_t err_ts) {
       std::lock_guard<std::mutex> gd(mtx);
       // Only record the first error.
-      if (bg_s.ok() && !err.ok()) {
+      if (!err.ok() && !err.IsNotSupported() && err_ts < last_err_ts) {
         bg_s = err;
+        last_err_ts = err_ts;
       }
     };
 
@@ -293,7 +295,7 @@ void ReplayerImpl::BackgroundWork(void* arg) {
     record.reset();
   }
   if (!s.ok() && ra->error_cb) {
-    ra->error_cb(s);
+    ra->error_cb(s, ra->trace_entry.ts);
   }
 }
 

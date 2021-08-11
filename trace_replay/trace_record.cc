@@ -42,7 +42,7 @@ TraceRecord::ExecutionHandler::~ExecutionHandler() {}
 
 Status TraceRecord::ExecutionHandler::Handle(
     const WriteQueryTraceRecord& record) {
-  return db_->Write(WriteOptions(), record.writeBatch());
+  return db_->Write(WriteOptions(), record.writeBatch().get());
 }
 
 Status TraceRecord::ExecutionHandler::Handle(
@@ -139,9 +139,15 @@ WriteQueryTraceRecord::WriteQueryTraceRecord(const std::string& rep,
 WriteQueryTraceRecord::WriteQueryTraceRecord(std::string&& rep, uint64_t ts)
     : QueryTraceRecord(ts), batch_(new WriteBatch(std::move(rep))) {}
 
-WriteQueryTraceRecord::~WriteQueryTraceRecord() { delete batch_; }
+WriteQueryTraceRecord::WriteQueryTraceRecord(std::shared_ptr<WriteBatch> batch,
+                                             uint64_t ts)
+    : QueryTraceRecord(ts), batch_(batch) {}
 
-WriteBatch* WriteQueryTraceRecord::writeBatch() const { return batch_; }
+WriteQueryTraceRecord::~WriteQueryTraceRecord() { batch_.reset(); }
+
+std::shared_ptr<WriteBatch> WriteQueryTraceRecord::writeBatch() const {
+  return batch_;
+}
 
 Status WriteQueryTraceRecord::Accept(Handler* handler) {
   assert(handler != nullptr);

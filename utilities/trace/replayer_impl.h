@@ -81,8 +81,9 @@ struct ReplayerWorkerArg {
   int trace_file_version;
   // Handler to execute TraceRecord.
   TraceRecord::ExecutionHandler* handler;
-  // Callback function to report the error status.
-  std::function<void(Status)> error_cb;
+  // Callback function to report the error status and the timestamp of the
+  // TraceRecord.
+  std::function<void(Status, uint64_t)> error_cb;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

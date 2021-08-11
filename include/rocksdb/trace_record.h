@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -117,16 +118,18 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   WriteQueryTraceRecord(std::string&& rep, uint64_t timestamp);
 
+  WriteQueryTraceRecord(std::shared_ptr<WriteBatch> batch, uint64_t timestamp);
+
   virtual ~WriteQueryTraceRecord() override;
 
   TraceType type() const override { return kTraceWrite; };
 
-  virtual WriteBatch* writeBatch() const;
+  virtual std::shared_ptr<WriteBatch> writeBatch() const;
 
   virtual Status Accept(Handler* handler) override;
 
  private:
-  WriteBatch* batch_;
+  std::shared_ptr<WriteBatch> batch_;
 };
 
 // Trace record for DB::Get() operation
