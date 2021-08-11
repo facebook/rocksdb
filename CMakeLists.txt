@@ -818,6 +818,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
         util/coding.cc
