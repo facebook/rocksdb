@@ -493,12 +493,12 @@ Status TraceAnalyzer::StartProcessing() {
         // will be two reords if it is in a transaction. Here, we only
         // process the reord that is committed. If write is non-transaction,
         // HasBeginPrepare()==false, so we process it normally.
-        if (r->writeBatch()->HasBeginPrepare() &&
-            !r->writeBatch()->HasCommit()) {
+        WriteBatch batch(r->GetWriteBatchRep().ToString());
+        if (batch.HasBeginPrepare() && !batch.HasCommit()) {
           continue;
         }
         TraceWriteHandler write_handler(this);
-        s = r->writeBatch()->Iterate(&write_handler);
+        s = batch.Iterate(&write_handler);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the write batch in the trace\n");
           return s;
@@ -513,7 +513,8 @@ Status TraceAnalyzer::StartProcessing() {
         total_gets_++;
         std::unique_ptr<GetQueryTraceRecord> r(
             reinterpret_cast<GetQueryTraceRecord*>(record.release()));
-        s = HandleGet(r->columnFamilyID(), r->key(), r->timestamp(), 1);
+        s = HandleGet(r->GetColumnFamilyID(), r->GetKey(), r->GetTimestamp(),
+                      1);
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the get in the trace\n");
           return s;
@@ -529,8 +530,8 @@ Status TraceAnalyzer::StartProcessing() {
         }
         std::unique_ptr<IteratorSeekQueryTraceRecord> r(
             reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
-        s = HandleIter(r->columnFamilyID(), r->key(), r->timestamp(),
-                       r->type());
+        s = HandleIter(r->GetColumnFamilyID(), r->GetKey(), r->GetTimestamp(),
+                       r->GetTraceType());
         if (!s.ok()) {
           fprintf(stderr, "Cannot process the iterator in the trace\n");
           return s;
@@ -545,7 +546,8 @@ Status TraceAnalyzer::StartProcessing() {
         }
         std::unique_ptr<MultiGetQueryTraceRecord> r(
             reinterpret_cast<MultiGetQueryTraceRecord*>(record.release()));
-        s = HandleMultiGet(r->columnFamilyIDs(), r->keys(), r->timestamp());
+        s = HandleMultiGet(r->GetColumnFamilyIDs(), r->GetKeys(),
+                           r->GetTimestamp());
         break;
       }
       default: {

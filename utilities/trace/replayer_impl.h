@@ -72,7 +72,7 @@ class ReplayerImpl : public Replayer {
   std::atomic<bool> prepared_;
   std::atomic<bool> trace_end_;
   uint64_t header_ts_;
-  TraceRecord::ExecutionHandler exec_handler_;
+  std::unique_ptr<TraceRecord::Handler> exec_handler_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.
@@ -80,7 +80,7 @@ struct ReplayerWorkerArg {
   Trace trace_entry;
   int trace_file_version;
   // Handler to execute TraceRecord.
-  TraceRecord::ExecutionHandler* handler;
+  TraceRecord::Handler* handler;
   // Callback function to report the error status and the timestamp of the
   // TraceRecord.
   std::function<void(Status, uint64_t)> error_cb;

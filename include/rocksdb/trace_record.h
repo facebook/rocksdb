@@ -5,16 +5,11 @@
 
 #pragma once
 
-#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/write_batch.h"
-
-// To do: ROCKSDB_LITE ?
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,9 +53,9 @@ class TraceRecord {
   explicit TraceRecord(uint64_t timestamp);
   virtual ~TraceRecord();
 
-  virtual TraceType type() const = 0;
+  virtual TraceType GetTraceType() const = 0;
 
-  virtual uint64_t timestamp() const;
+  virtual uint64_t GetTimestamp() const;
 
   class Handler {
    public:
@@ -72,27 +67,11 @@ class TraceRecord {
     virtual Status Handle(const MultiGetQueryTraceRecord& record) = 0;
   };
 
-  class ExecutionHandler : public Handler {
-   public:
-    ExecutionHandler(DB* db, const std::vector<ColumnFamilyHandle*>& handles);
-
-    ExecutionHandler(
-        DB* db,
-        const std::unordered_map<uint32_t, ColumnFamilyHandle*>& cf_map);
-
-    virtual ~ExecutionHandler() override;
-
-    virtual Status Handle(const WriteQueryTraceRecord& record) override;
-    virtual Status Handle(const GetQueryTraceRecord& record) override;
-    virtual Status Handle(const IteratorSeekQueryTraceRecord& record) override;
-    virtual Status Handle(const MultiGetQueryTraceRecord& record) override;
-
-   private:
-    DB* db_;
-    std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
-  };
-
   virtual Status Accept(Handler* handler) = 0;
+
+  // Create a handler for the exeution of TraceRecord.
+  static Handler* NewExecutionHandler(
+      DB* db, const std::vector<ColumnFamilyHandle*>& handles);
 
  private:
   // Timestamp (in microseconds) of this trace.
@@ -110,26 +89,20 @@ class QueryTraceRecord : public TraceRecord {
 // Trace record for DB::Write() operation.
 class WriteQueryTraceRecord : public QueryTraceRecord {
  public:
-  WriteQueryTraceRecord(const WriteBatch& batch, uint64_t timestamp);
+  WriteQueryTraceRecord(PinnableSlice&& write_batch_rep, uint64_t timestamp);
 
-  WriteQueryTraceRecord(WriteBatch&& batch, uint64_t timestamp);
-
-  WriteQueryTraceRecord(const std::string& rep, uint64_t timestamp);
-
-  WriteQueryTraceRecord(std::string&& rep, uint64_t timestamp);
-
-  WriteQueryTraceRecord(std::shared_ptr<WriteBatch> batch, uint64_t timestamp);
+  WriteQueryTraceRecord(const std::string& write_batch_rep, uint64_t timestamp);
 
   virtual ~WriteQueryTraceRecord() override;
 
-  TraceType type() const override { return kTraceWrite; };
+  TraceType GetTraceType() const override { return kTraceWrite; };
 
-  virtual std::shared_ptr<WriteBatch> writeBatch() const;
+  virtual Slice GetWriteBatchRep() const;
 
   virtual Status Accept(Handler* handler) override;
 
  private:
-  std::shared_ptr<WriteBatch> batch_;
+  PinnableSlice rep_;
 };
 
 // Trace record for DB::Get() operation
@@ -143,11 +116,11 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~GetQueryTraceRecord() override;
 
-  TraceType type() const override { return kTraceGet; };
+  TraceType GetTraceType() const override { return kTraceGet; };
 
-  virtual uint32_t columnFamilyID() const;
+  virtual uint32_t GetColumnFamilyID() const;
 
-  virtual Slice key() const;
+  virtual Slice GetKey() const;
 
   virtual Status Accept(Handler* handler) override;
 
@@ -183,13 +156,13 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 
   virtual ~IteratorSeekQueryTraceRecord() override;
 
-  TraceType type() const override;
+  TraceType GetTraceType() const override;
 
-  virtual SeekType seekType() const;
+  virtual SeekType GetSeekType() const;
 
-  virtual uint32_t columnFamilyID() const;
+  virtual uint32_t GetColumnFamilyID() const;
 
-  virtual Slice key() const;
+  virtual Slice GetKey() const;
 
   virtual Status Accept(Handler* handler) override;
 
@@ -214,11 +187,11 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~MultiGetQueryTraceRecord() override;
 
-  TraceType type() const override { return kTraceMultiGet; };
+  TraceType GetTraceType() const override { return kTraceMultiGet; };
 
-  virtual std::vector<uint32_t> columnFamilyIDs() const;
+  virtual std::vector<uint32_t> GetColumnFamilyIDs() const;
 
-  virtual std::vector<Slice> keys() const;
+  virtual std::vector<Slice> GetKeys() const;
 
   virtual Status Accept(Handler* handler) override;
 

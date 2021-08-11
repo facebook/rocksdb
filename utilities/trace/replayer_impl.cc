@@ -30,9 +30,12 @@ ReplayerImpl::ReplayerImpl(DB* db,
       prepared_(false),
       trace_end_(false),
       header_ts_(0),
-      exec_handler_(db, handles) {}
+      exec_handler_(TraceRecord::NewExecutionHandler(db, handles)) {}
 
-ReplayerImpl::~ReplayerImpl() { trace_reader_.reset(); }
+ReplayerImpl::~ReplayerImpl() {
+  exec_handler_.reset();
+  trace_reader_.reset();
+}
 
 Status ReplayerImpl::Prepare() {
   Trace header;
@@ -74,11 +77,11 @@ Status ReplayerImpl::Next(std::unique_ptr<TraceRecord>* record) {
 }
 
 Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record) {
-  return record->Accept(&exec_handler_);
+  return record->Accept(exec_handler_.get());
 }
 
 Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record) {
-  Status s = record->Accept(&exec_handler_);
+  Status s = record->Accept(exec_handler_.get());
   record.reset();
   return s;
 }
@@ -132,7 +135,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
               1.0 * (trace.ts - header_ts_) / options.fast_forward))));
 
-      s = record->Accept(&exec_handler_);
+      s = record->Accept(exec_handler_.get());
       record.reset();
     }
   } else {
@@ -189,7 +192,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           trace_type == kTraceMultiGet) {
         std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
         ra->trace_entry = std::move(trace);
-        ra->handler = &exec_handler_;
+        ra->handler = exec_handler_.get();
         ra->trace_file_version = trace_file_version_;
         ra->error_cb = error_cb;
         thread_pool.Schedule(&ReplayerImpl::BackgroundWork, ra.release(),
