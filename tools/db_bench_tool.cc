@@ -1173,12 +1173,6 @@ DEFINE_bool(
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
-DEFINE_bool(experimental_allow_mempurge, false,
-            "Allow memtable garbage collection.");
-
-DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Specify memtable garbage collection policy.");
-
 DEFINE_double(experimental_mempurge_threshold, 0.0,
               "Maximum useful payload ratio estimate that triggers a mempurge "
               "(memtable garbage collection).");
