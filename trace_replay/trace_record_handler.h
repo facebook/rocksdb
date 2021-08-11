@@ -10,14 +10,16 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_record.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// Handler to execute TraceRecord.
 class TraceExecutionHandler : public TraceRecord::Handler {
  public:
-  TraceExecutionHandler(DB* db, const std::vector<ColumnFamilyHandle*>& handles);
+  TraceExecutionHandler(DB* db,
+                        const std::vector<ColumnFamilyHandle*>& handles);
   virtual ~TraceExecutionHandler() override;
 
   virtual Status Handle(const WriteQueryTraceRecord& record) override;
@@ -31,5 +33,7 @@ class TraceExecutionHandler : public TraceRecord::Handler {
   WriteOptions write_opts_;
   ReadOptions read_opts_;
 };
+
+// To do: Handler for trace_analyzer.
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -135,8 +135,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
               1.0 * (trace.ts - header_ts_) / options.fast_forward))));
 
-      s = record->Accept(exec_handler_.get());
-      record.reset();
+      s = Execute(std::move(record));
     }
   } else {
     // Multi-threaded replay.

@@ -131,9 +131,9 @@ Status TracerHelper::DecodeWriteRecord(Trace* trace, int trace_file_version,
   assert(trace != nullptr);
   assert(trace->type == kTraceWrite);
 
-  std::string rep;
+  PinnableSlice rep;
   if (trace_file_version < 2) {
-    rep = trace->payload;
+    rep.PinSelf(trace->payload);
   } else {
     Slice buf(trace->payload);
     GetFixed64(&buf, &trace->payload_map);
@@ -153,7 +153,7 @@ Status TracerHelper::DecodeWriteRecord(Trace* trace, int trace_file_version,
       // unset the rightmost bit.
       payload_map &= (payload_map - 1);
     }
-    rep = write_batch_data.ToString();
+    rep.PinSelf(write_batch_data);
   }
 
   if (record != nullptr) {
