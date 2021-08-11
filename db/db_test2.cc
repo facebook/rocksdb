@@ -32,10 +32,10 @@ class DBTest2 : public DBTestBase {
 #ifndef ROCKSDB_LITE
   uint64_t GetSstSizeHelper(Temperature temperature) {
     std::string prop;
-    bool s = dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature +
-            std::to_string(static_cast<uint8_t>(temperature)),
-        &prop);
+    bool s =
+        dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
+                                  ToString(static_cast<uint8_t>(temperature)),
+                              &prop);
     assert(s);
     return static_cast<uint64_t>(std::atoi(prop.c_str()));
   }
