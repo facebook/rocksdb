@@ -8,9 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/hash.h"
+
 #include <string.h>
+
 #include "port/lang.h"
 #include "util/coding.h"
+#include "util/hash128.h"
+#include "util/math128.h"
 #include "util/xxhash.h"
 #include "util/xxph3.h"
 
@@ -96,6 +100,17 @@ uint64_t GetSlicePartsNPHash64(const SliceParts& data, uint64_t seed) {
   }
   assert(concat_data.size() == concat_len);
   return NPHash64(concat_data.data(), concat_len, seed);
+}
+
+Unsigned128 Hash128(const char* data, size_t n, uint64_t seed) {
+  auto h = XXH3_128bits_withSeed(data, n, seed);
+  return (Unsigned128{h.high64} << 64) | (h.low64);
+}
+
+Unsigned128 Hash128(const char* data, size_t n) {
+  // Same as seed = 0
+  auto h = XXH3_128bits(data, n);
+  return (Unsigned128{h.high64} << 64) | (h.low64);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
