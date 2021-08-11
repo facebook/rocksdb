@@ -2410,7 +2410,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     // future changes. Therefore, we add the following if
     // statement - note that calling it twice (or more)
     // doesn't break anything.
-    if (immutable_db_options_.experimental_allow_mempurge) {
+    if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
       // If imm() contains silent memtables,
       // requesting a flush will mark the imm_needed as true.
       cfd->imm()->FlushRequested();
@@ -2556,7 +2556,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 
     for (const auto& iter : flush_req) {
       ColumnFamilyData* cfd = iter.first;
-      if (immutable_db_options_.experimental_allow_mempurge) {
+      if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
         // If imm() contains silent memtables,
         // requesting a flush will mark the imm_needed as true.
         cfd->imm()->FlushRequested();

@@ -117,9 +117,9 @@ class FlushJob {
   // of development. At the moment it is only compatible with the Get, Put,
   // Delete operations as well as Iterators and CompactionFilters.
   // For this early version, "MemPurge" is called by setting the
-  // options.experimental_allow_mempurge flag as "true". When this is
+  // options.experimental_mempurge_threshold value as >0.0. When this is
   // the case, ALL automatic flush operations (kWRiteBufferManagerFull) will
-  // first go through the MemPurge process. herefore, we strongly
+  // first go through the MemPurge process. Therefore, we strongly
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
   Status MemPurge();
@@ -192,7 +192,7 @@ class FlushJob {
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
-  // Used when experimental_allow_mempurge set to true.
+  // Used when experimental_mempurge_threshold > 0.0.
   bool contains_mempurge_outcome_;
 };
 
