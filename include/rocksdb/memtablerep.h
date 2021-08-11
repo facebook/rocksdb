@@ -38,8 +38,10 @@
 #include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
+
 #include <memory>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -194,6 +196,17 @@ class MemTableRep {
     return 0;
   }
 
+  // Returns a vector of unique random memtable entries of approximate
+  // size 'target_sample_size' (this size is not strictly enforced).
+  virtual void UniqueRandomSample(const uint64_t& num_entries,
+                                  const uint64_t& target_sample_size,
+                                  std::unordered_set<const char*>* entries) {
+    (void)num_entries;
+    (void)target_sample_size;
+    (void)entries;
+    assert(false);
+  }
+
   // Report an approximation of how much memory has been used other than memory
   // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
@@ -229,6 +242,8 @@ class MemTableRep {
     // retreat to the first entry with a key <= target
     virtual void SeekForPrev(const Slice& internal_key,
                              const char* memtable_key) = 0;
+
+    virtual void RandomSeek() {}
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.

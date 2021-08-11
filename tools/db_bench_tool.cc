@@ -1039,19 +1039,6 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
 }
 
-static enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
-    const char* mpolicy) {
-  assert(mpolicy);
-  if (!strcasecmp(mpolicy, "kAlways")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
-  } else if (!strcasecmp(mpolicy, "kAlternate")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
-  }
-
-  fprintf(stdout, "Cannot parse mempurge policy '%s'\n", mpolicy);
-  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
-}
-
 static std::string ColumnFamilyName(size_t i) {
   if (i == 0) {
     return ROCKSDB_NAMESPACE::kDefaultColumnFamilyName;
@@ -1186,11 +1173,9 @@ DEFINE_bool(
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
-DEFINE_bool(experimental_allow_mempurge, false,
-            "Allow memtable garbage collection.");
-
-DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Specify memtable garbage collection policy.");
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum useful payload ratio estimate that triggers a mempurge "
+              "(memtable garbage collection).");
 
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
@@ -4275,9 +4260,8 @@ class Benchmark {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
-    options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
-    options.experimental_mempurge_policy =
-        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
+    options.experimental_mempurge_threshold =
+        FLAGS_experimental_mempurge_threshold;
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =

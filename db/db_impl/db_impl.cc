@@ -558,7 +558,7 @@ Status DBImpl::CloseHelper() {
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
   // memtables added to imm() dont trigger flushes).
-  if (immutable_db_options_.experimental_allow_mempurge) {
+  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
     Status flush_ret;
     mutex_.Unlock();
     for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
