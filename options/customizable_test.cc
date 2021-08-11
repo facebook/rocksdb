@@ -1010,6 +1010,7 @@ class MockCipher : public BlockCipher {
   Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
+#endif  // ROCKSDB_LITE
 
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
@@ -1025,6 +1026,15 @@ class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
+class DummyFileSystem : public FileSystemWrapper {
+ public:
+  DummyFileSystem(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  static const char* kClassName() { return "DummyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+};
+
+#ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
@@ -1058,6 +1068,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new TestSecondaryCache());
         return guard->get();
       });
+
+  library.Register<FileSystem>(
+      DummyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new DummyFileSystem(nullptr));
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1117,6 +1136,24 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_NE(cf_opts.table_factory.get(), nullptr);
     ASSERT_STREQ(cf_opts.table_factory->Name(), "MockTable");
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadFileSystemTest) {
+  ColumnFamilyOptions cf_opts;
+  std::shared_ptr<FileSystem> result;
+  ASSERT_NOK(FileSystem::CreateFromString(
+      config_options_, DummyFileSystem::kClassName(), &result));
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         FileSystem::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(FileSystem::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileSystem::CreateFromString(
+        config_options_, DummyFileSystem::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), DummyFileSystem::kClassName());
+    ASSERT_FALSE(result->IsInstanceOf(FileSystem::kDefaultName()));
   }
 }
 
