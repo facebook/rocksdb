@@ -21,6 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 class DB;
+class Env;
 class TraceReader;
 class TraceRecord;
 class Status;
@@ -61,7 +62,7 @@ class ReplayerImpl : public Replayer {
   // Generic function to execute a Trace in a thread pool.
   static void BackgroundWork(void* arg);
 
-  DB* db_;
+  Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
   // When reading the trace header, the trace file version can be parsed.
   // Replayer will use different decode method to get the trace content based

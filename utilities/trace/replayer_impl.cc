@@ -25,14 +25,12 @@ ReplayerImpl::ReplayerImpl(DB* db,
                            const std::vector<ColumnFamilyHandle*>& handles,
                            std::unique_ptr<TraceReader>&& reader)
     : Replayer(),
-      db_(db),
+      env_(db->GetEnv()),
       trace_reader_(std::move(reader)),
       prepared_(false),
       trace_end_(false),
       header_ts_(0),
-      exec_handler_(db, handles) {
-  assert(db_ != nullptr);
-}
+      exec_handler_(db, handles) {}
 
 ReplayerImpl::~ReplayerImpl() { trace_reader_.reset(); }
 
@@ -140,7 +138,7 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
   } else {
     // Multi-threaded replay.
     ThreadPoolImpl thread_pool;
-    thread_pool.SetHostEnv(db_->GetEnv());
+    thread_pool.SetHostEnv(env_);
     thread_pool.SetBackgroundThreads(static_cast<int>(options.num_threads));
 
     std::mutex mtx;
@@ -294,10 +292,8 @@ void ReplayerImpl::BackgroundWork(void* arg) {
     s = record->Accept(ra->handler);
     record.reset();
   }
-  if (!s.ok()) {
-    if (ra->error_cb) {
-      ra->error_cb(s);
-    }
+  if (!s.ok() && ra->error_cb) {
+    ra->error_cb(s);
   }
 }
 
