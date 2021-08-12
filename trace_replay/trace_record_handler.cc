@@ -6,6 +6,7 @@
 #include "trace_replay/trace_record_handler.h"
 
 #include "rocksdb/iterator.h"
+#include "rocksdb/trace_record_result.h"
 #include "rocksdb/write_batch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -16,7 +17,8 @@ TraceExecutionHandler::TraceExecutionHandler(
     : TraceRecord::Handler(),
       db_(db),
       write_opts_(WriteOptions()),
-      read_opts_(ReadOptions()) {
+      read_opts_(ReadOptions()),
+      clock_(SystemClock::Default()) {
   assert(db != nullptr);
   assert(!handles.empty());
   cf_map_.reserve(handles.size());
@@ -28,33 +30,72 @@ TraceExecutionHandler::TraceExecutionHandler(
 
 TraceExecutionHandler::~TraceExecutionHandler() { cf_map_.clear(); }
 
-Status TraceExecutionHandler::Handle(const WriteQueryTraceRecord& record) {
+Status TraceExecutionHandler::Handle(
+    const WriteQueryTraceRecord& record,
+    std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset(nullptr);
+  }
+  uint64_t start = clock_->NowNanos();
+
   WriteBatch batch(record.GetWriteBatchRep().ToString());
-  return db_->Write(write_opts_, &batch);
+  Status s = db_->Write(write_opts_, &batch);
+
+  uint64_t latency = clock_->NowNanos() - start;
+
+  if (s.ok() && result != nullptr) {
+    result->reset(
+        new StatusOnlyTraceExecutionResult(s, latency, record.GetTraceType()));
+  }
+
+  return s;
 }
 
-Status TraceExecutionHandler::Handle(const GetQueryTraceRecord& record) {
+Status TraceExecutionHandler::Handle(
+    const GetQueryTraceRecord& record,
+    std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset(nullptr);
+  }
   auto it = cf_map_.find(record.GetColumnFamilyID());
   if (it == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
+
+  uint64_t start = clock_->NowNanos();
 
   std::string value;
   Status s = db_->Get(read_opts_, it->second, record.GetKey(), &value);
 
-  // Treat not found as ok and return other errors.
-  return s.IsNotFound() ? Status::OK() : s;
+  uint64_t latency = clock_->NowNanos() - start;
+
+  // Treat not found as ok, return other errors.
+  if (!s.ok() && !s.IsNotFound()) {
+    return s;
+  }
+
+  if (result != nullptr) {
+    // Report the actual opetation status in TraceExecutionResult
+    result->reset(new SingleValueTraceExecutionResult(
+        s, std::move(value), latency, record.GetTraceType()));
+  }
+  return Status::OK();
 }
 
 Status TraceExecutionHandler::Handle(
-    const IteratorSeekQueryTraceRecord& record) {
+    const IteratorSeekQueryTraceRecord& record,
+    std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset(nullptr);
+  }
   auto it = cf_map_.find(record.GetColumnFamilyID());
   if (it == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
+  uint64_t start = clock_->NowNanos();
 
+  Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
   switch (record.GetSeekType()) {
     case IteratorSeekQueryTraceRecord::kSeekForPrev: {
       single_iter->SeekForPrev(record.GetKey());
@@ -67,10 +108,23 @@ Status TraceExecutionHandler::Handle(
   }
   Status s = single_iter->status();
   delete single_iter;
+
+  uint64_t latency = clock_->NowNanos() - start;
+
+  if (s.ok() && result != nullptr) {
+    result->reset(
+        new StatusOnlyTraceExecutionResult(s, latency, record.GetTraceType()));
+  }
+
   return s;
 }
 
-Status TraceExecutionHandler::Handle(const MultiGetQueryTraceRecord& record) {
+Status TraceExecutionHandler::Handle(
+    const MultiGetQueryTraceRecord& record,
+    std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset(nullptr);
+  }
   std::vector<ColumnFamilyHandle*> handles;
   handles.reserve(record.GetColumnFamilyIDs().size());
   for (uint32_t cf_id : record.GetColumnFamilyIDs()) {
@@ -90,8 +144,12 @@ Status TraceExecutionHandler::Handle(const MultiGetQueryTraceRecord& record) {
     return Status::InvalidArgument("MultiGet cf_ids and keys size mismatch.");
   }
 
+  uint64_t start = clock_->NowNanos();
+
   std::vector<std::string> values;
   std::vector<Status> ss = db_->MultiGet(read_opts_, handles, keys, &values);
+
+  uint64_t latency = clock_->NowNanos() - start;
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {
@@ -99,6 +157,13 @@ Status TraceExecutionHandler::Handle(const MultiGetQueryTraceRecord& record) {
       return s;
     }
   }
+
+  if (result != nullptr) {
+    // Report the actual opetation status in TraceExecutionResult
+    result->reset(new MultiValuesTraceExecutionResult(
+        std::move(ss), std::move(values), latency, record.GetTraceType()));
+  }
+
   return Status::OK();
 }
 

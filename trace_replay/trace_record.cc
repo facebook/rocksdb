@@ -11,6 +11,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_record_result.h"
 #include "trace_replay/trace_record_handler.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -48,9 +49,10 @@ WriteQueryTraceRecord::~WriteQueryTraceRecord() {}
 
 Slice WriteQueryTraceRecord::GetWriteBatchRep() const { return Slice(rep_); }
 
-Status WriteQueryTraceRecord::Accept(Handler* handler) {
+Status WriteQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // GetQueryTraceRecord
@@ -74,9 +76,10 @@ uint32_t GetQueryTraceRecord::GetColumnFamilyID() const { return cf_id_; }
 
 Slice GetQueryTraceRecord::GetKey() const { return Slice(key_); }
 
-Status GetQueryTraceRecord::Accept(Handler* handler) {
+Status GetQueryTraceRecord::Accept(Handler* handler,
+                                   std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // IteratorQueryTraceRecord
@@ -120,9 +123,10 @@ uint32_t IteratorSeekQueryTraceRecord::GetColumnFamilyID() const {
 
 Slice IteratorSeekQueryTraceRecord::GetKey() const { return Slice(key_); }
 
-Status IteratorSeekQueryTraceRecord::Accept(Handler* handler) {
+Status IteratorSeekQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // MultiGetQueryTraceRecord
@@ -155,9 +159,10 @@ std::vector<Slice> MultiGetQueryTraceRecord::GetKeys() const {
   return std::vector<Slice>(keys_.begin(), keys_.end());
 }
 
-Status MultiGetQueryTraceRecord::Accept(Handler* handler) {
+Status MultiGetQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

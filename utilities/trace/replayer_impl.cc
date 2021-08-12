@@ -10,13 +10,9 @@
 #include <cmath>
 #include <thread>
 
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
-#include "rocksdb/trace_reader_writer.h"
 #include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -77,17 +73,22 @@ Status ReplayerImpl::Next(std::unique_ptr<TraceRecord>* record) {
   return DecodeTraceRecord(&trace, trace_file_version_, record);
 }
 
-Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record) {
-  return record->Accept(exec_handler_.get());
+Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record,
+                             std::unique_ptr<TraceRecordResult>* result) {
+  return record->Accept(exec_handler_.get(), result);
 }
 
-Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record) {
-  Status s = record->Accept(exec_handler_.get());
+Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record,
+                             std::unique_ptr<TraceRecordResult>* result) {
+  Status s = record->Accept(exec_handler_.get(), result);
   record.reset();
   return s;
 }
 
-Status ReplayerImpl::Replay(const ReplayOptions& options) {
+Status ReplayerImpl::Replay(
+    const ReplayOptions& options,
+    const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
+        result_callback) {
   if (options.fast_forward <= 0.0) {
     return Status::InvalidArgument("Wrong fast forward speed!");
   }
@@ -136,7 +137,13 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
               1.0 * (trace.ts - header_ts_) / options.fast_forward))));
 
-      s = Execute(std::move(record));
+      if (result_callback == nullptr) {
+        s = Execute(std::move(record));
+      } else {
+        std::unique_ptr<TraceRecordResult> res;
+        s = Execute(std::move(record), &res);
+        result_callback(s, std::move(res));
+      }
     }
   } else {
     // Multi-threaded replay.
@@ -195,10 +202,16 @@ Status ReplayerImpl::Replay(const ReplayOptions& options) {
         ra->handler = exec_handler_.get();
         ra->trace_file_version = trace_file_version_;
         ra->error_cb = error_cb;
+        ra->result_cb = result_callback;
         thread_pool.Schedule(&ReplayerImpl::BackgroundWork, ra.release(),
                              nullptr, nullptr);
+      } else {
+        // Skip unsupported traces.
+        if (result_callback != nullptr) {
+          result_callback(Status::NotSupported("Unsupported trace type."),
+                          nullptr);
+        }
       }
-      // Skip unsupported traces.
     }
 
     thread_pool.WaitForJobsAndJoinAllThreads();
@@ -293,13 +306,26 @@ void ReplayerImpl::BackgroundWork(void* arg) {
   std::unique_ptr<TraceRecord> record;
   Status s =
       DecodeTraceRecord(&(ra->trace_entry), ra->trace_file_version, &record);
-  if (s.ok()) {
-    s = record->Accept(ra->handler);
-    record.reset();
+  if (!s.ok()) {
+    // Stop the replay
+    if (ra->error_cb != nullptr) {
+      ra->error_cb(s, ra->trace_entry.ts);
+    }
+    // Report the result
+    if (ra->result_cb != nullptr) {
+      ra->result_cb(s, nullptr);
+    }
+    return;
   }
-  if (!s.ok() && ra->error_cb) {
-    ra->error_cb(s, ra->trace_entry.ts);
+
+  if (ra->result_cb == nullptr) {
+    s = record->Accept(ra->handler, nullptr);
+  } else {
+    std::unique_ptr<TraceRecordResult> res;
+    s = record->Accept(ra->handler, &res);
+    ra->result_cb(s, std::move(res));
   }
+  record.reset();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
