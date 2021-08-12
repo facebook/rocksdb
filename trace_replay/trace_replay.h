@@ -5,13 +5,17 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/utilities/replayer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -43,31 +47,6 @@ const unsigned int kTraceMetadataSize =
 static const int kTraceFileMajorVersion = 0;
 static const int kTraceFileMinorVersion = 2;
 
-// Supported Trace types.
-enum TraceType : char {
-  kTraceBegin = 1,
-  kTraceEnd = 2,
-  kTraceWrite = 3,
-  kTraceGet = 4,
-  kTraceIteratorSeek = 5,
-  kTraceIteratorSeekForPrev = 6,
-  // Block cache related types.
-  kBlockTraceIndexBlock = 7,
-  kBlockTraceFilterBlock = 8,
-  kBlockTraceDataBlock = 9,
-  kBlockTraceUncompressionDictBlock = 10,
-  kBlockTraceRangeDeletionBlock = 11,
-  // For IOTracing.
-  kIOTracer = 12,
-  // For query tracing
-  kTraceMultiGet = 13,
-  // All trace types should be added before kTraceMax
-  kTraceMax,
-};
-
-// TODO: This should also be made part of public interface to help users build
-// custom TracerReaders and TraceWriters.
-//
 // The data structure that defines a single trace.
 struct Trace {
   uint64_t ts;  // timestamp
@@ -105,28 +84,6 @@ enum TracePayloadType : char {
   kMultiGetKeys = 10,
 };
 
-struct WritePayload {
-  Slice write_batch_data;
-};
-
-struct GetPayload {
-  uint32_t cf_id = 0;
-  Slice get_key;
-};
-
-struct IterPayload {
-  uint32_t cf_id = 0;
-  Slice iter_key;
-  Slice lower_bound;
-  Slice upper_bound;
-};
-
-struct MultiGetPayload {
-  uint32_t multiget_size;
-  std::vector<uint32_t> cf_ids;
-  std::vector<std::string> multiget_keys;
-};
-
 class TracerHelper {
  public:
   // Parse the string with major and minor version only
@@ -142,22 +99,28 @@ class TracerHelper {
   // Decode a string into the given trace object.
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
 
+  // Decode a string into the given trace header.
+  static Status DecodeHeader(const std::string& encoded_trace, Trace* header);
+
   // Set the payload map based on the payload type
   static bool SetPayloadMap(uint64_t& payload_map,
                             const TracePayloadType payload_type);
 
   // Decode the write payload and store in WrteiPayload
-  static void DecodeWritePayload(Trace* trace, WritePayload* write_payload);
+  static Status DecodeWriteRecord(Trace* trace, int trace_file_version,
+                                  std::unique_ptr<TraceRecord>* record);
 
   // Decode the get payload and store in WrteiPayload
-  static void DecodeGetPayload(Trace* trace, GetPayload* get_payload);
+  static Status DecodeGetRecord(Trace* trace, int trace_file_version,
+                                std::unique_ptr<TraceRecord>* record);
 
   // Decode the iter payload and store in WrteiPayload
-  static void DecodeIterPayload(Trace* trace, IterPayload* iter_payload);
+  static Status DecodeIterRecord(Trace* trace, int trace_file_version,
+                                 std::unique_ptr<TraceRecord>* record);
 
   // Decode the multiget payload and store in MultiGetPayload
-  static void DecodeMultiGetPayload(Trace* trace,
-                                    MultiGetPayload* multiget_payload);
+  static Status DecodeMultiGetRecord(Trace* trace, int trace_file_version,
+                                     std::unique_ptr<TraceRecord>* record);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -220,77 +183,6 @@ class Tracer {
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
-};
-
-// Replayer helps to replay the captured RocksDB operations, using a user
-// provided TraceReader.
-// The Replayer is instantiated via db_bench today, on using "replay" benchmark.
-class Replayer {
- public:
-  Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-           std::unique_ptr<TraceReader>&& reader);
-  ~Replayer();
-
-  // Replay all the traces from the provided trace stream, taking the delay
-  // between the traces into consideration.
-  Status Replay();
-
-  // Replay the provide trace stream, which is the same as Replay(), with
-  // multi-threads. Queries are scheduled in the thread pool job queue.
-  // User can set the number of threads in the thread pool.
-  Status MultiThreadReplay(uint32_t threads_num);
-
-  // Enables fast forwarding a replay by reducing the delay between the ingested
-  // traces.
-  // fast_forward : Rate of replay speedup.
-  //   If 1, replay the operations at the same rate as in the trace stream.
-  //   If > 1, speed up the replay by this amount.
-  Status SetFastForward(uint32_t fast_forward);
-
- private:
-  Status ReadHeader(Trace* header);
-  Status ReadFooter(Trace* footer);
-  Status ReadTrace(Trace* trace);
-
-  // The background function for MultiThreadReplay to execute Get query
-  // based on the trace records.
-  static void BGWorkGet(void* arg);
-
-  // The background function for MultiThreadReplay to execute WriteBatch
-  // (Put, Delete, SingleDelete, DeleteRange) based on the trace records.
-  static void BGWorkWriteBatch(void* arg);
-
-  // The background function for MultiThreadReplay to execute Iterator (Seek)
-  // based on the trace records.
-  static void BGWorkIterSeek(void* arg);
-
-  // The background function for MultiThreadReplay to execute Iterator
-  // (SeekForPrev) based on the trace records.
-  static void BGWorkIterSeekForPrev(void* arg);
-
-  // The background function for MultiThreadReplay to execute MultiGet based on
-  // the trace records
-  static void BGWorkMultiGet(void* arg);
-
-  DBImpl* db_;
-  Env* env_;
-  std::unique_ptr<TraceReader> trace_reader_;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
-  uint32_t fast_forward_;
-  // When reading the trace header, the trace file version can be parsed.
-  // Replayer will use different decode method to get the trace content based
-  // on different trace file version.
-  int trace_file_version_;
-};
-
-// The passin arg of MultiThreadRepkay for each trace record.
-struct ReplayerWorkerArg {
-  DB* db;
-  Trace trace_entry;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
-  WriteOptions woptions;
-  ReadOptions roptions;
-  int trace_file_version;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
