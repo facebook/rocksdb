@@ -191,9 +191,6 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
-
-  // Used when experimental_mempurge_threshold > 0.0.
-  bool contains_mempurge_outcome_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
