@@ -854,7 +854,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
                                 CompactionReason::kUniversalSizeAmplification);
 }
 
-Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(double fanout_threshold) {
+Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
+    double fanout_threshold) {
   // Try find all potential compactions with total size just over
   // options.max_compaction_size / 2, and take the one with the lowest
   // fanout (defined in declaration of the function).
@@ -877,7 +878,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(double f
   // TODO include files from upper levels.
   // This algorithm has lots of room to improve to pick more efficient
   // compactions.
-  assert(sorted_runs_.size() >= 0);
+  assert(sorted_runs_.size() >= 2);
   int second_last_level = sorted_runs_[sorted_runs_.size() - 2].level;
   if (second_last_level == 0) {
     // Can't split Level 0.
