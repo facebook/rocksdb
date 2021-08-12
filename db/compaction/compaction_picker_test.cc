@@ -849,11 +849,13 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace3) {
           &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
-  ASSERT_EQ(3, compaction->start_level());
-  ASSERT_EQ(2U, compaction->num_input_files(0));
-  ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(6U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(0, compaction->num_input_files(1));
+  ASSERT_EQ(2, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->num_input_files(1));
+  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
+  ASSERT_EQ(6U, compaction->input(1, 1)->fd.GetNumber());
+  ASSERT_EQ(0, compaction->num_input_files(2));
 }
 
 TEST_F(CompactionPickerTest, UniversalIncrementalSpace4) {

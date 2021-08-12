@@ -864,6 +864,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // last level. Once total size exceeds the size threshold, calculate
   // the fanout value. And then shrinking from the small side of the
   // window. Keep doing it until the end.
+  // Finally, we try to include upper level files if they fall into
+  // the range.
   //
   // Note that it is a similar problem as leveled compaction's
   // kMinOverlappingRatio priority, but instead of picking single files
@@ -875,7 +877,6 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // 1/2 of the bottommost level, so picking single file in second most
   // level will cause significant waste, which is not desirable.
   //
-  // TODO include files from upper levels.
   // This algorithm has lots of room to improve to pick more efficient
   // compactions.
   assert(sorted_runs_.size() >= 2);
@@ -991,17 +992,20 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
     return nullptr;
   }
 
-  std::vector<CompactionInputFiles> inputs(2);
-  inputs[0].level = second_last_level;
-  inputs[1].level = output_level;
+  std::vector<CompactionInputFiles> inputs;
+  CompactionInputFiles bottom_level_inputs;
+  CompactionInputFiles second_last_level_inputs;
+  second_last_level_inputs.level = second_last_level;
+  bottom_level_inputs.level = output_level;
   for (int i = picked_start_idx; i <= picked_end_idx; i++) {
     if (files[i]->being_compacted) {
       return nullptr;
     }
-    inputs[0].files.push_back(files[i]);
+    second_last_level_inputs.files.push_back(files[i]);
   }
-  assert(!inputs[0].empty());
-  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_, &(inputs[0]),
+  assert(!second_last_level_inputs.empty());
+  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                       &second_last_level_inputs,
                                        /*next_smallest=*/nullptr)) {
     return nullptr;
   }
@@ -1010,10 +1014,40 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // SetupOtherInputs() for simplicity.
   int parent_index = -1;  // Create and use bottom_start_idx?
   if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                 &(inputs[0]), &(inputs[1]), &parent_index,
+                                 &second_last_level_inputs,
+                                 &bottom_level_inputs, &parent_index,
                                  /*base_index=*/-1)) {
     return nullptr;
   }
+
+  // Try to include files in upper levels if they fall into the range.
+  // Since we need to go from lower level up and this is in the reverse
+  // order, compared to level order, we first write to an reversed
+  // data structure and finally copy them to compaction inputs.
+  InternalKey smallest, largest;
+  picker_->GetRange(second_last_level_inputs, &smallest, &largest);
+  std::vector<CompactionInputFiles> inputs_reverse;
+  for (auto it = ++(++sorted_runs_.rbegin()); it != sorted_runs_.rend(); it++) {
+    SortedRun& sr = *it;
+    if (sr.level == 0) {
+      break;
+    }
+    std::vector<FileMetaData*> level_inputs;
+    vstorage_->GetCleanInputsWithinInterval(sr.level, &smallest, &largest,
+                                            &level_inputs);
+    if (!level_inputs.empty()) {
+      inputs_reverse.push_back({});
+      inputs_reverse.back().level = sr.level;
+      inputs_reverse.back().files = level_inputs;
+      picker_->GetRange(inputs_reverse.back(), &smallest, &largest);
+    }
+  }
+  for (auto it = inputs_reverse.rbegin(); it != inputs_reverse.rend(); it++) {
+    inputs.push_back(*it);
+  }
+
+  inputs.push_back(second_last_level_inputs);
+  inputs.push_back(bottom_level_inputs);
 
   // TODO support multi paths?
   uint32_t path_id = 0;
