@@ -95,7 +95,7 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~WriteQueryTraceRecord() override;
 
-  TraceType GetTraceType() const override { return kTraceWrite; };
+  TraceType GetTraceType() const override { return kTraceWrite; }
 
   virtual Slice GetWriteBatchRep() const;
 
@@ -116,7 +116,7 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~GetQueryTraceRecord() override;
 
-  TraceType GetTraceType() const override { return kTraceGet; };
+  TraceType GetTraceType() const override { return kTraceGet; }
 
   virtual uint32_t GetColumnFamilyID() const;
 
@@ -187,7 +187,7 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~MultiGetQueryTraceRecord() override;
 
-  TraceType GetTraceType() const override { return kTraceMultiGet; };
+  TraceType GetTraceType() const override { return kTraceMultiGet; }
 
   virtual std::vector<uint32_t> GetColumnFamilyIDs() const;
 

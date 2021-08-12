@@ -38,7 +38,6 @@ Status TraceExecutionHandler::Handle(const GetQueryTraceRecord& record) {
   if (it == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
-  assert(it->second != nullptr);
 
   std::string value;
   Status s = db_->Get(read_opts_, it->second, record.GetKey(), &value);
@@ -53,7 +52,6 @@ Status TraceExecutionHandler::Handle(
   if (it == cf_map_.end()) {
     return Status::Corruption("Invalid Column Family ID.");
   }
-  assert(it->second != nullptr);
 
   Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
 
@@ -80,7 +78,6 @@ Status TraceExecutionHandler::Handle(const MultiGetQueryTraceRecord& record) {
     if (it == cf_map_.end()) {
       return Status::Corruption("Invalid Column Family ID.");
     }
-    assert(it->second != nullptr);
     handles.push_back(it->second);
   }
 

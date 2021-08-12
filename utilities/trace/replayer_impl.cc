@@ -25,12 +25,13 @@ ReplayerImpl::ReplayerImpl(DB* db,
                            const std::vector<ColumnFamilyHandle*>& handles,
                            std::unique_ptr<TraceReader>&& reader)
     : Replayer(),
-      env_(db->GetEnv()),
       trace_reader_(std::move(reader)),
       prepared_(false),
       trace_end_(false),
       header_ts_(0),
-      exec_handler_(TraceRecord::NewExecutionHandler(db, handles)) {}
+      exec_handler_(TraceRecord::NewExecutionHandler(db, handles)),
+      env_(db->GetEnv()),
+      trace_file_version_(-1) {}
 
 ReplayerImpl::~ReplayerImpl() {
   exec_handler_.reset();
