@@ -895,7 +895,6 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(double f
 
   int picked_start_idx = 0;
   int picked_end_idx = 0;
-  int picked_bottom_start_idx = 0;
   double picked_fanout = fanout_threshold;
 
   // Use half target compaction bytes as anchor to stop growing second most
@@ -905,8 +904,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(double f
   int start_idx = 0;
   int bottom_end_idx = 0;
   int bottom_start_idx = 0;
-  uint64_t non_bottom_size;
-  uint64_t bottom_size;
+  uint64_t non_bottom_size = 0;
+  uint64_t bottom_size = 0;
   bool end_bottom_size_counted = false;
   for (int end_idx = 0; end_idx < static_cast<int>(files.size()); end_idx++) {
     FileMetaData* end_file = files[end_idx];
@@ -968,7 +967,6 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(double f
         picked_start_idx = start_idx;
         picked_end_idx = end_idx;
         picked_fanout = fanout;
-        picked_bottom_start_idx = bottom_start_idx;
       }
       // Shrink from the start end to under comp_thres_size
       while (non_bottom_size + bottom_size > comp_thres_size &&
