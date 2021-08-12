@@ -89,7 +89,8 @@ class CompactionOptionsUniversal {
         max_size_amplification_percent(200),
         compression_size_percent(-1),
         stop_style(kCompactionStopStyleTotalSize),
-        allow_trivial_move(false) {}
+        allow_trivial_move(false),
+        incremental(false) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE
