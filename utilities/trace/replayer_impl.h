@@ -62,17 +62,17 @@ class ReplayerImpl : public Replayer {
   // Generic function to execute a Trace in a thread pool.
   static void BackgroundWork(void* arg);
 
-  Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
-  // When reading the trace header, the trace file version can be parsed.
-  // Replayer will use different decode method to get the trace content based
-  // on different trace file version.
-  int trace_file_version_;
   std::mutex mutex_;
   std::atomic<bool> prepared_;
   std::atomic<bool> trace_end_;
   uint64_t header_ts_;
   std::unique_ptr<TraceRecord::Handler> exec_handler_;
+  Env* env_;
+  // When reading the trace header, the trace file version can be parsed.
+  // Replayer will use different decode method to get the trace content based
+  // on different trace file version.
+  int trace_file_version_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.
