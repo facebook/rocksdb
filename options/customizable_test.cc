@@ -491,11 +491,13 @@ TEST_F(CustomizableTest, UniqueIdTest) {
 }
 
 TEST_F(CustomizableTest, IsInstanceOfTest) {
-  std::shared_ptr<TestCustomizable> tc = std::make_shared<ACustomizable>("A");
+  std::shared_ptr<TestCustomizable> tc = std::make_shared<ACustomizable>("A_1");
 
+  ASSERT_EQ(tc->GetId(), std::string("A_1"));
   ASSERT_TRUE(tc->IsInstanceOf("A"));
   ASSERT_TRUE(tc->IsInstanceOf("TestCustomizable"));
   ASSERT_FALSE(tc->IsInstanceOf("B"));
+  ASSERT_FALSE(tc->IsInstanceOf("A_1"));
   ASSERT_EQ(tc->CheckedCast<ACustomizable>(), tc.get());
   ASSERT_EQ(tc->CheckedCast<TestCustomizable>(), tc.get());
   ASSERT_EQ(tc->CheckedCast<BCustomizable>(), nullptr);
