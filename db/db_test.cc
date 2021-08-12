@@ -3115,6 +3115,12 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetLiveFilesWithPath(
+      std::unordered_map<std::string, std::vector<std::string>>&, uint64_t*,
+      bool /*flush_memtable*/ = true) override {
+    return Status::OK();
+  }
+
   Status GetLiveFilesChecksumInfo(
       FileChecksumList* /*checksum_list*/) override {
     return Status::OK();

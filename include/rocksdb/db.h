@@ -1350,6 +1350,14 @@ class DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) = 0;
 
+  // Retrieve the all files in the database, just like GetLiveFiles.
+  // Unlike GetLiveFiles, the files returned by GetLiveFilesWithPath are put
+  // into a map. The key is files path, the value is a list of all files in the
+  // path.
+  virtual Status GetLiveFilesWithPath(
+      std::unordered_map<std::string, std::vector<std::string>>&,
+      uint64_t* manifest_file_size, bool flush_memtable = true) = 0;
+
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 

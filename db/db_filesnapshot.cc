@@ -114,6 +114,12 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   return Status::OK();
 }
 
+Status DBImpl::GetLiveFilesWithPath(
+    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+    uint64_t* manifest_file_size, bool flush_memtable) {
+  return Status::Corruption("GetLiveFilesWithPath not supported in DBImpl");
+}
+
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   {
     // If caller disabled deletions, this function should return files that are

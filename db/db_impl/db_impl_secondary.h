@@ -168,6 +168,13 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
+  Status GetLiveFilesWithPath(
+      std::unordered_map<std::string, std::vector<std::string>>& ret,
+      uint64_t* /*manifest_file_size*/,
+      bool /*flush_memtable*/ = true) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
   using DBImpl::Flush;
   Status Flush(const FlushOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/) override {

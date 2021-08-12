@@ -77,6 +77,12 @@ class CompactedDBImpl : public DBImpl {
     return DBImpl::GetLiveFiles(ret, manifest_file_size,
                                 false /* flush_memtable */);
   }
+  virtual Status GetLiveFilesWithPath(
+      std::unordered_map<std::string, std::vector<std::string>>& ret,
+      uint64_t* manifest_file_size, bool /*flush_memtable*/) override {
+    return DBImpl::GetLiveFilesWithPath(ret, manifest_file_size,
+                                        false /*flush_memtable*/);
+  }
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/) override {

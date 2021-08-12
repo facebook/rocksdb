@@ -84,6 +84,12 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
   return Status::OK();
 }
 
+Status BlobDBImpl::GetLiveFilesWithPath(
+    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+    uint64_t* manifest_file_size, bool flush_memtable) {
+  return Status::Corruption("GetLiveFilesWithPath not supported in BlobDBImpl");
+}
+
 void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   // Path should be relative to db_name.
   assert(bdb_options_.path_relative);

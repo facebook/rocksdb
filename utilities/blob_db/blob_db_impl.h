@@ -161,6 +161,11 @@ class BlobDBImpl : public BlobDB {
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
+
+  virtual Status GetLiveFilesWithPath(
+      std::unordered_map<std::string, std::vector<std::string>>&,
+      uint64_t* manifest_file_size, bool flush_memtable = true) override;
+
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
 
   ~BlobDBImpl();
