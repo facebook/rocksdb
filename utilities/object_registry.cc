@@ -87,10 +87,13 @@ std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
 // Returns the entry if it is found, and nullptr otherwise
 const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
     const std::string &type, const std::string &name) const {
-  for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
-    const auto *entry = iter->get()->FindEntry(type, name);
-    if (entry != nullptr) {
-      return entry;
+  {
+    std::unique_lock<std::mutex> lock(library_mutex_);
+    for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
+      const auto *entry = iter->get()->FindEntry(type, name);
+      if (entry != nullptr) {
+        return entry;
+      }
     }
   }
   if (parent_ != nullptr) {
@@ -100,9 +103,55 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
   }
 }
 
+Status ObjectRegistry::SetManagedObject(
+    const std::string &key, const std::shared_ptr<Customizable> &object) {
+  std::shared_ptr<Customizable> curr;
+  if (parent_ != nullptr) {
+    curr = parent_->GetManagedObject(key);
+  }
+  if (curr == nullptr) {
+    // We did not find the object in any parent.  Update in the current
+    std::unique_lock<std::mutex> lock(objects_mutex_);
+    auto iter = managed_objects_.find(key);
+    if (iter != managed_objects_.end()) {  // The object exists
+      curr = iter->second.lock();
+      if (curr != nullptr && curr != object) {
+        return Status::InvalidArgument("Object already exists: ", key);
+      } else {
+        iter->second = object;
+      }
+    } else {
+      // The object does not exist.  Add it
+      managed_objects_[key] = object;
+    }
+  } else if (curr != object) {
+    return Status::InvalidArgument("Object already exists: ", key);
+  }
+  return Status::OK();
+}
+
+std::shared_ptr<Customizable> ObjectRegistry::GetManagedObject(
+    const std::string &key) const {
+  {
+    std::unique_lock<std::mutex> lock(objects_mutex_);
+    auto iter = managed_objects_.find(key);
+    if (iter != managed_objects_.end()) {
+      return iter->second.lock();
+    }
+  }
+  if (parent_ != nullptr) {
+    return parent_->GetManagedObject(key);
+  } else {
+    return nullptr;
+  }
+}
+
 void ObjectRegistry::Dump(Logger *logger) const {
-  for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
-    iter->get()->Dump(logger);
+  {
+    std::unique_lock<std::mutex> lock(library_mutex_);
+    for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
+      iter->get()->Dump(logger);
+    }
   }
   if (parent_ != nullptr) {
     parent_->Dump(logger);

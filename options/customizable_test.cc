@@ -888,6 +888,29 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_FALSE(mc.AreEquivalent(options, &mc2, &mismatch));
   ASSERT_EQ(mismatch, "immutable");
 }
+
+TEST_F(CustomizableTest, CustomManagedObjects) {
+  std::shared_ptr<TestCustomizable> object1, object2;
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=1;bool=true", &object1));
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_1", &object2));
+  ASSERT_EQ(object1, object2);
+  auto* opts = object2->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 1);
+  ASSERT_EQ(opts->b, true);
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_2", &object2));
+  ASSERT_NE(object1, object2);
+  object1.reset();
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=2;bool=false", &object1));
+  opts = object1->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 2);
+  ASSERT_EQ(opts->b, false);
+}
 #endif  // !ROCKSDB_LITE
 
 class TestSecondaryCache : public SecondaryCache {

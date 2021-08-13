@@ -18,6 +18,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Customizable;
 class Logger;
 class ObjectLibrary;
 
@@ -35,6 +36,9 @@ using FactoryFunc =
 // The RegistrarFunc should return the number of objects loaded into this
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
+
+template <typename T>
+using ConfigureFunc = std::function<Status(T*)>;
 
 class ObjectLibrary {
  public:
@@ -134,11 +138,12 @@ class ObjectRegistry {
 
   std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
     auto library = std::make_shared<ObjectLibrary>(id);
-    libraries_.push_back(library);
+    AddLibrary(library);
     return library;
   }
 
   void AddLibrary(const std::shared_ptr<ObjectLibrary>& library) {
+    std::unique_lock<std::mutex> lock(library_mutex_);
     libraries_.push_back(library);
   }
 
@@ -237,6 +242,70 @@ class ObjectRegistry {
     }
   }
 
+  // Sets the object for the given id/type to be the input object
+  // If the registry does not contain this id/type, the object is added and OK
+  // is returned. If the registry contains a different object, an error is
+  // returned. If the registry contains the input object, OK is returned.
+  template <typename T>
+  Status SetManagedObject(const std::shared_ptr<T>& object) {
+    assert(object != nullptr);
+    std::string key = std::string(T::Type()) + "://" + object->GetId();
+    const auto c = std::static_pointer_cast<Customizable>(object);
+
+    return SetManagedObject(key, c);
+  }
+
+  // Returns the object for the given id, if one exists.
+  // If the object is not found in the registry, an error is returned.
+  // If the object was found in the registry, the result is updated and OK is
+  // returned.
+  template <typename T>
+  Status GetManagedObject(const std::string& id,
+                          std::shared_ptr<T>* result) const {
+    std::string key = std::string(T::Type()) + "://" + id;
+    auto c = GetManagedObject(key);
+    if (c != nullptr) {
+      *result = std::static_pointer_cast<T>(c);
+      return Status::OK();
+    } else {
+      return Status::NotFound("Cannot find SharedObject: ", key);
+    }
+  }
+
+  template <typename T>
+  Status NewManagedObject(const std::string& id, std::shared_ptr<T>* result,
+                          const ConfigureFunc<T>& cfunc = nullptr) {
+    std::string key = std::string(T::Type()) + "://" + id;
+    if (parent_ != nullptr) {
+      auto object = parent_->GetManagedObject(key);
+      if (object != nullptr) {
+        *result = std::static_pointer_cast<T>(object);
+        return Status::OK();
+      }
+    }
+    {
+      std::unique_lock<std::mutex> lock(objects_mutex_);
+      auto iter = managed_objects_.find(key);
+      if (iter != managed_objects_.end()) {
+        auto object = iter->second.lock();
+        if (object != nullptr) {
+          *result = std::static_pointer_cast<T>(object);
+          return Status::OK();
+        }
+      }
+      std::shared_ptr<T> object;
+      Status s = NewSharedObject(id, &object);
+      if (s.ok() && cfunc != nullptr) {
+        s = cfunc(object.get());
+      }
+      if (s.ok()) {
+        managed_objects_[key] = std::static_pointer_cast<Customizable>(object);
+        *result = object;
+      }
+      return s;
+    }
+  }
+
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
@@ -245,6 +314,17 @@ class ObjectRegistry {
     libraries_.push_back(library);
   }
 
+  // Returns the Customizable managed object associated with the key (Type/ID).
+  // If not found, nullptr is returned.
+  std::shared_ptr<Customizable> GetManagedObject(const std::string& key) const;
+
+  // Sets the managed object associated with the key (Type/ID) to c.
+  // If the named managed object does not exist, the object is added and OK is
+  // returned If the object exists and is the same as c, OK is returned
+  // Otherwise, an error status is returned.
+  Status SetManagedObject(const std::string& key,
+                          const std::shared_ptr<Customizable>& c);
+
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
                                         const std::string& name) const;
 
@@ -252,7 +332,10 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::unordered_map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
+  mutable std::mutex objects_mutex_;  // Mutex for managed objects
+  mutable std::mutex library_mutex_;  // Mutex for managed libraries
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

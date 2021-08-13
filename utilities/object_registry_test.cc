@@ -6,6 +6,8 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/object_registry.h"
+
+#include "rocksdb/customizable.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -204,6 +206,162 @@ TEST_F(EnvRegistryTest, TestRegistryParents) {
   ASSERT_NOK(parent->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
+}
+class MyCustomizable : public Customizable {
+ public:
+  static const char* Type() { return "MyCustomizable"; }
+  MyCustomizable(const char* prefix, const std::string& id) : id_(id) {
+    name_ = id_.substr(0, strlen(prefix) - 1);
+  }
+  const char* Name() const override { return name_.c_str(); }
+  std::string GetId() const override { return id_; }
+
+ private:
+  std::string id_;
+  std::string name_;
+};
+
+TEST_F(EnvRegistryTest, TestManagedObjects) {
+  auto registry = ObjectRegistry::NewInstance();
+  auto m_a = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  auto m_b = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  std::shared_ptr<MyCustomizable> obj;
+
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_a));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+
+  ASSERT_NOK(registry->SetManagedObject<MyCustomizable>(m_b));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_a));
+  m_a.reset();
+  obj.reset();
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_b));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_b);
+}
+
+TEST_F(EnvRegistryTest, TestTwoManagedObjects) {
+  auto registry = ObjectRegistry::NewInstance();
+  auto m_a = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  auto m_b = std::make_shared<MyCustomizable>("Test://", "Test://B");
+  std::shared_ptr<MyCustomizable> obj;
+
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_a));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_b));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_EQ(obj, m_b);
+
+  m_a.reset();
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_EQ(obj, m_b);
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+
+  m_b.reset();
+  obj.reset();
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+}
+
+TEST_F(EnvRegistryTest, TestTwoManagedClasses) {
+  class MyCustomizable2 : public MyCustomizable {
+   public:
+    static const char* Type() { return "MyCustomizable2"; }
+    MyCustomizable2(const char* prefix, const std::string& id)
+        : MyCustomizable(prefix, id) {}
+  };
+
+  auto registry = ObjectRegistry::NewInstance();
+  auto m_a = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  auto m_b = std::make_shared<MyCustomizable2>("Test://", "Test://A");
+  std::shared_ptr<MyCustomizable> obj_a;
+  std::shared_ptr<MyCustomizable2> obj_b;
+
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj_a));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable2>("Test://A", &obj_b));
+
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_a));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj_a));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable2>("Test://A", &obj_b));
+  ASSERT_EQ(obj_a, m_a);
+
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable2>(m_b));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable2>("Test://A", &obj_b));
+  ASSERT_EQ(obj_b, m_b);
+
+  obj_a.reset();
+  m_a.reset();
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj_a));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable2>("Test://A", &obj_b));
+
+  m_b.reset();
+  obj_b.reset();
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj_a));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable2>("Test://A", &obj_b));
+}
+
+TEST_F(EnvRegistryTest, TestManagedObjectsWithParent) {
+  auto base = ObjectRegistry::NewInstance();
+  auto registry = ObjectRegistry::NewInstance(base);
+
+  auto m_a = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  auto m_b = std::make_shared<MyCustomizable>("Test://", "Test://A");
+  std::shared_ptr<MyCustomizable> obj;
+
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_OK(base->SetManagedObject<MyCustomizable>(m_a));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+
+  ASSERT_NOK(registry->SetManagedObject<MyCustomizable>(m_b));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_a));
+  m_a.reset();
+  obj.reset();
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_OK(registry->SetManagedObject<MyCustomizable>(m_b));
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_b);
+}
+
+TEST_F(EnvRegistryTest, TestNewManagedObject) {
+  auto registry = ObjectRegistry::NewInstance();
+  registry->AddLibrary("test")->Register<MyCustomizable>(
+      "Test://.*",
+      [](const std::string& uri, std::unique_ptr<MyCustomizable>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MyCustomizable("Test://", uri));
+        return guard->get();
+      });
+  std::shared_ptr<MyCustomizable> m_a, m_b, obj;
+  std::unordered_map<std::string, std::string> opt_map;
+
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_NOK(registry->GetManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://A", &m_a));
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://B", &m_b));
+
+  ASSERT_OK(registry->GetManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://A", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_EQ(obj, m_b);
+
+  m_a.reset();
+  obj.reset();
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://A", &m_a));
+  ASSERT_EQ(1, m_a.use_count());
+  ASSERT_OK(registry->NewManagedObject<MyCustomizable>("Test://B", &obj));
+  ASSERT_EQ(2, obj.use_count());
 }
 }  // namespace ROCKSDB_NAMESPACE
 
