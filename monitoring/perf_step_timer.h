@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
+#include "monitoring/perf_flag_imp.h"
 #include "monitoring/perf_level_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/system_clock.h"
@@ -13,10 +14,11 @@ namespace ROCKSDB_NAMESPACE {
 class PerfStepTimer {
  public:
   explicit PerfStepTimer(
-      uint64_t* metric, SystemClock* clock = nullptr, bool use_cpu_time = false,
+      uint64_t* metric, bool enable_flag = false, SystemClock* clock = nullptr,
+      bool use_cpu_time = false,
       PerfLevel enable_level = PerfLevel::kEnableTimeExceptForMutex,
       Statistics* statistics = nullptr, uint32_t ticker_type = 0)
-      : perf_counter_enabled_(perf_level >= enable_level),
+      : perf_counter_enabled_(perf_level >= enable_level || enable_flag),
         use_cpu_time_(use_cpu_time),
         ticker_type_(ticker_type),
         clock_((perf_counter_enabled_ || statistics != nullptr)

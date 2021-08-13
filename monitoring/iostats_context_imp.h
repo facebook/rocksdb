@@ -29,15 +29,16 @@ extern __thread IOStatsContext iostats_context;
 #define IOSTATS(metric) (iostats_context.metric)
 
 // Declare and set start time of the timer
-#define IOSTATS_TIMER_GUARD(metric)                                     \
-  PerfStepTimer iostats_step_timer_##metric(&(iostats_context.metric)); \
+#define IOSTATS_TIMER_GUARD(metric)                                        \
+  PerfStepTimer iostats_step_timer_##metric(&(iostats_context.metric),     \
+                                            CheckPerfFlag(flag_##metric)); \
   iostats_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define IOSTATS_CPU_TIMER_GUARD(metric, clock)         \
-  PerfStepTimer iostats_step_timer_##metric(           \
-      &(iostats_context.metric), clock, true,          \
-      PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
+#define IOSTATS_CPU_TIMER_GUARD(metric, clock)                              \
+  PerfStepTimer iostats_step_timer_##metric(                                \
+      &(iostats_context.metric), CheckPerfFlag(flag_##metric), clock, true, \
+      PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);                      \
   iostats_step_timer_##metric.Start();
 
 #else  // ROCKSDB_SUPPORT_THREAD_LOCAL && !NIOSTATS_CONTEXT

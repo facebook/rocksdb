@@ -29,6 +29,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/perf_flag.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -57,6 +58,7 @@ using ROCKSDB_NAMESPACE::BlockBasedTableOptions;
 using ROCKSDB_NAMESPACE::BottommostLevelCompaction;
 using ROCKSDB_NAMESPACE::BytewiseComparator;
 using ROCKSDB_NAMESPACE::Cache;
+using ROCKSDB_NAMESPACE::CheckPerfFlag;
 using ROCKSDB_NAMESPACE::Checkpoint;
 using ROCKSDB_NAMESPACE::ColumnFamilyDescriptor;
 using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
@@ -71,6 +73,8 @@ using ROCKSDB_NAMESPACE::CuckooTableOptions;
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::DBOptions;
 using ROCKSDB_NAMESPACE::DbPath;
+using ROCKSDB_NAMESPACE::DisablePerfFlag;
+using ROCKSDB_NAMESPACE::EnablePerfFlag;
 using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::FileLock;
@@ -3584,6 +3588,14 @@ void rocksdb_options_add_compact_on_deletion_collector_factory(
 void rocksdb_set_perf_level(int v) {
   PerfLevel level = static_cast<PerfLevel>(v);
   SetPerfLevel(level);
+}
+
+void rocksdb_enable_perf_flag(uint64_t flag) { EnablePerfFlag(flag); }
+
+void rocksdb_disable_perf_flag(uint64_t flag) { DisablePerfFlag(flag); }
+
+int rocksdb_check_perf_flag(uint64_t flag) {
+  return static_cast<int>(CheckPerfFlag(flag));
 }
 
 rocksdb_perfcontext_t* rocksdb_perfcontext_create() {
