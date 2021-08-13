@@ -1334,6 +1334,11 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
 
     std::function<void()> verify_stats;
     if (compressed) {
+      if (!Snappy_Supported()) {
+        fprintf(stderr, "skipping compressed test, snappy unavailable\n");
+        continue;
+      }
+      options.compression = CompressionType::kSnappyCompression;
       table_options.no_block_cache = true;
       table_options.block_cache_compressed = NewLRUCache(1 << 25, 0, false);
       verify_stats = [&options] {
