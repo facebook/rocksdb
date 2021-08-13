@@ -4178,7 +4178,13 @@ TEST_F(DBTest2, TestNumPread) {
 
 class TraceExecutionResultHandler : public TraceRecordResult::Handler {
  public:
-  TraceExecutionResultHandler() { Reset(); }
+  TraceExecutionResultHandler()
+      : total_latency_(0),
+        cnt_(0),
+        writes_(0),
+        gets_(0),
+        seeks_(0),
+        multigets_(0) {}
   ~TraceExecutionResultHandler() override {}
 
   virtual Status Handle(const StatusOnlyTraceExecutionResult& result) override {
