@@ -995,7 +995,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
      *new_batch = batch;
      Status s = new_batch->Put("key_extra", "value_extra");
      if (s.ok()) {
-      *batch_changed = true;
+       *batch_changed = true;
      } else {
        assert(false);
      }
@@ -1148,8 +1148,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   for (size_t i = 0; i < batch_keys_pre_flush.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys_pre_flush[i].size(); j++) {
-      ASSERT_OK(batch.Put(handles_[0], batch_keys_pre_flush[i][j], DummyString(1024)));
-      ASSERT_OK(batch.Put(handles_[1], batch_keys_pre_flush[i][j], DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys_pre_flush[i][j],
+                          DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[1], batch_keys_pre_flush[i][j],
+                          DummyString(1024)));
     }
     ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
@@ -1171,8 +1173,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   for (size_t i = 0; i < batch_keys_post_flush.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys_post_flush[i].size(); j++) {
-      ASSERT_OK(batch.Put(handles_[0], batch_keys_post_flush[i][j], DummyString(1024)));
-      ASSERT_OK(batch.Put(handles_[1], batch_keys_post_flush[i][j], DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys_post_flush[i][j],
+                          DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[1], batch_keys_post_flush[i][j],
+                          DummyString(1024)));
     }
     ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
@@ -1325,7 +1329,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
         ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
       }
       ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
-                                  true /* disallow_trivial_move */));
+                                            true /* disallow_trivial_move */));
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
@@ -3051,7 +3055,9 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   }
 
   // OK, now trigger a manual compaction
-  ASSERT_TRUE(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsManualCompactionPaused());
 
   // Wait for compactions to get scheduled and stopped
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
@@ -3069,7 +3075,10 @@ TEST_F(DBTest2, PausingManualCompaction1) {
 
   manual_compactions_paused = 0;
   // Now make sure CompactFiles also not run
-  ASSERT_TRUE(dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), files_before_compact, 0).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
+                                 files_before_compact, 0)
+                  .IsManualCompactionPaused());
   // Wait for manual compaction to get scheduled and finish
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
@@ -3145,7 +3154,9 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
-  ASSERT_TRUE(dbfull()->CompactRange(compact_options, nullptr, nullptr).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   // As manual compaction disabled, not even reach sync point
   ASSERT_EQ(run_manual_compactions, 0);
@@ -3202,7 +3213,9 @@ TEST_F(DBTest2, PausingManualCompaction4) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_TRUE(dbfull()->CompactRange(compact_options, nullptr, nullptr).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   ASSERT_EQ(run_manual_compactions, 1);
 #ifndef ROCKSDB_LITE
@@ -3292,7 +3305,9 @@ TEST_F(DBTest2, CancelManualCompaction1) {
       });
 
   compact_options.canceled->store(false, std::memory_order_release);
-  ASSERT_TRUE(dbfull()->CompactRange(compact_options, nullptr, nullptr).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(compactions_run, 3);
@@ -3478,7 +3493,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
 
   // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
   // without notifying), 3 Notify compaction end (return without notifying).
-  ASSERT_TRUE(dbfull()->CompactRange(compact_options, nullptr, nullptr).IsManualCompactionPaused());
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(listener->num_compaction_started_, 0);
@@ -4239,9 +4256,9 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(db_->Write(wo, &batch));
 
   single_iter = db_->NewIterator(ro);
-  ASSERT_OK(single_iter->status());
   single_iter->Seek("f");
   single_iter->SeekForPrev("g");
+  ASSERT_OK(single_iter->status());
   delete single_iter;
 
   ASSERT_EQ("1", Get(0, "a"));
@@ -4895,9 +4912,9 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
-  ASSERT_OK(dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
-                              nullptr /* end */, nullptr /* column_family */,
-                              true /* disallow_trivial_move */));
+  ASSERT_OK(dbfull()->TEST_CompactRange(
+      0 /* level */, nullptr /* begin */, nullptr /* end */,
+      nullptr /* column_family */, true /* disallow_trivial_move */));
 
   // Ensure pinned_value doesn't rely on memory munmap'd by the above
   // compaction. It crashes if it does.
@@ -5197,13 +5214,15 @@ TEST_F(DBTest2, TestCompactFiles) {
   ASSERT_EQ(files.size(), 2);
 
   Status user_thread1_status;
-  port::Thread user_thread1(
-      [&]() { user_thread1_status = db_->CompactFiles(CompactionOptions(), handle, files, 1); });
+  port::Thread user_thread1([&]() {
+    user_thread1_status =
+        db_->CompactFiles(CompactionOptions(), handle, files, 1);
+  });
 
   Status user_thread2_status;
   port::Thread user_thread2([&]() {
     user_thread2_status = db_->IngestExternalFile(handle, {external_file2},
-                                      IngestExternalFileOptions());
+                                                  IngestExternalFileOptions());
     TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile1");
   });
 
@@ -5875,7 +5894,6 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     // Re-execute similar queries after a full compaction
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
-      ASSERT_OK(iterator->status());
 
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
@@ -5897,10 +5915,11 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       if (expect_filter_check) {
         ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+
+      ASSERT_OK(iterator->status());
     }
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-      ASSERT_OK(iterator->status());
 
       iterator->SeekForPrev("xx0");
       ASSERT_TRUE(iterator->Valid());
@@ -5915,19 +5934,21 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       if (expect_filter_check) {
         ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+
+      ASSERT_OK(iterator->status());
     }
 
     ub_str = "xg9";
     ub = Slice(ub_str);
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-      ASSERT_OK(iterator->status());
       iterator->SeekForPrev("xg0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
         ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+      ASSERT_OK(iterator->status());
     }
   }
 }

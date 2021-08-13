@@ -1438,7 +1438,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       if (!io_s.ok() && s.ok()) {
         s = io_s;
       }
-
     }
   }
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
