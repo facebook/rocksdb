@@ -1786,6 +1786,12 @@ struct TraceOptions {
   uint64_t filter = kTraceFilterNone;
 };
 
+// CacheDumpOptions is used to control DumpCache()
+struct CacheDumpOptions {
+  // The path to dump the file
+  std::string dump_file_path;
+};
+
 // ImportColumnFamilyOptions is used by ImportColumnFamily()
 struct ImportColumnFamilyOptions {
   // Can be set to true to move the files instead of copying them.

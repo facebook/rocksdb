@@ -87,6 +87,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/cache_dump.h"
 #include "table/get_context.h"
 #include "table/merging_iterator.h"
 #include "table/multiget_context.h"
@@ -5152,6 +5153,40 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
     }
   }
   return s;
+}
+
+Status DBImpl::DumpCache(const CacheDumpOptions& dump_options,
+                         const std::shared_ptr<Cache> cache) {
+  if (cache == nullptr) {
+    return Status::InvalidArgument("Cache pointer is null!");
+  }
+  CacheDumper dumper(env_, dump_options, cache, db_id_,
+                     immutable_db_options_.clock);
+  std::set<std::string> prefix_set;
+  if (db_session_id_.size() > 0) {
+    prefix_set.insert(db_session_id_);
+    dumper.SetCacheKeyFilter(prefix_set, db_session_id_.size());
+  }
+  Status s = dumper.Prepare();
+  if (!s.ok()) {
+    return s;
+  }
+  IOStatus io_s = dumper.Run();
+  return std::move(io_s);
+}
+
+Status DBImpl::LoadDumpedCache(const CacheDumpOptions& dump_options,
+                               const std::shared_ptr<Cache> cache) {
+  if (cache == nullptr) {
+    return Status::InvalidArgument("Cache pointer is null!");
+  }
+  CacheDumpedLoader cache_loader(env_, dump_options, cache, db_id_);
+  Status s = cache_loader.PrepareFileReader();
+  if (!s.ok()) {
+    return s;
+  }
+  IOStatus io_s = cache_loader.Run();
+  return std::move(io_s);
 }
 
 Status DBImpl::ReserveFileNumbersBeforeIngestion(

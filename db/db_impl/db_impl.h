@@ -498,6 +498,13 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
 
+  using DB::DumpCache;
+  virtual Status DumpCache(const CacheDumpOptions& dump_options,
+                           const std::shared_ptr<Cache> cache) override;
+  using DB::LoadDumpedCache;
+  virtual Status LoadDumpedCache(const CacheDumpOptions& dump_options,
+                                 const std::shared_ptr<Cache> cache) override;
+
 #endif  // ROCKSDB_LITE
 
   // ---- End of implementations of the DB interface ----

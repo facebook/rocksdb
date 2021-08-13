@@ -1712,6 +1712,16 @@ class DB {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
 
+  virtual Status DumpCache(const CacheDumpOptions& /*dump_options*/,
+                           const std::shared_ptr<Cache> /*cache*/) {
+    return Status::NotSupported("DumpCache() is not implemented.");
+  }
+
+  virtual Status LoadDumpedCache(const CacheDumpOptions& /*dump_options*/,
+                                 const std::shared_ptr<Cache> /*cache*/) {
+    return Status::NotSupported("LoadDumpedCache() is not implemented.");
+  }
+
 #ifndef ROCKSDB_LITE
   // Make the secondary instance catch up with the primary by tailing and
   // replaying the MANIFEST and WAL of the primary.

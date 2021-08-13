@@ -1174,6 +1174,154 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   Destroy(options);
 }
 
+class LRUCacheWithStat : public LRUCache {
+ public:
+  LRUCacheWithStat(
+      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+      double high_pri_pool_ratio,
+      std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+      bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy metadata_charge_policy =
+          kDontChargeCacheMetadata,
+      const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr)
+      : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                 high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
+                 metadata_charge_policy, secondary_cache) {
+    insert_count_ = 0;
+    lookup_count_ = 0;
+  }
+  ~LRUCacheWithStat() {}
+
+  Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
+                Handle** handle, Priority priority) override {
+    insert_count_++;
+    return LRUCache::Insert(key, value, charge, deleter, handle, priority);
+  }
+  Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
+                size_t chargge, Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    insert_count_++;
+    return LRUCache::Insert(key, value, helper, chargge, handle, priority);
+  }
+  Handle* Lookup(const Slice& key, Statistics* stats) override {
+    lookup_count_++;
+    return LRUCache::Lookup(key, stats);
+  }
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 const CreateCallback& create_cb, Priority priority, bool wait,
+                 Statistics* stats = nullptr) override {
+    lookup_count_++;
+    return LRUCache::Lookup(key, helper, create_cb, priority, wait, stats);
+  }
+
+  uint32_t GetInsertCount() { return insert_count_; }
+  uint32_t GetLookupcount() { return lookup_count_; }
+  void ResetCount() {
+    insert_count_ = 0;
+    lookup_count_ = 0;
+  }
+
+ private:
+  uint32_t insert_count_;
+  uint32_t lookup_count_;
+};
+
+TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
+  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<LRUCacheWithStat> tmp_cache(new LRUCacheWithStat(
+      cache_opts.capacity, cache_opts.num_shard_bits,
+      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
+      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache));
+  std::shared_ptr<Cache> cache(tmp_cache.get());
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  const int N = 256;
+  std::vector<std::string> value;
+  value.resize(N);
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1000);
+    value[i] = p_v;
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+
+  // do th eread for all the key value pairs, so all the blocks should be in
+  // cache
+  uint32_t start_insert = tmp_cache->GetInsertCount();
+  uint32_t start_lookup = tmp_cache->GetLookupcount();
+  std::string v;
+  for (int i = 0; i < N; i++) {
+    v = Get(Key(i));
+    ASSERT_EQ(v, value[i]);
+  }
+  uint32_t dump_insert = tmp_cache->GetInsertCount() - start_insert;
+  uint32_t dump_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  fprintf(stdout, "dump insert: %d\n", static_cast<int>(dump_insert));
+  fprintf(stdout, "dump lookup: %d\n", static_cast<int>(dump_lookup));
+  // We have enough blocks in the block cache
+
+  CacheDumpOptions cd_options;
+  cd_options.dump_file_path = db_->GetName() + "/cache_dump";
+  fprintf(stdout, "The cache dump file path: %s\n",
+          cd_options.dump_file_path.c_str());
+  Status s = db_->DumpCache(cd_options, cache);
+  ASSERT_OK(s);
+  fprintf(stdout, "dump is sucessful\n");
+  // cache->EraseUnRefEntries();
+
+  // we have a new cache it is empty, then, before we do the Get, we do the
+  // dumpload
+  /*
+  tmp_cache.reset(new LRUCacheWithStat(cache_opts.capacity,
+  cache_opts.num_shard_bits, cache_opts.strict_capacity_limit,
+  cache_opts.high_pri_pool_ratio, cache_opts.memory_allocator,
+  cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+  cache_opts.secondary_cache)); std::shared_ptr<Cache> cache_new(tmp_cache.get);
+  table_options.block_cache = cache_new;
+  table_options.block_size = 4 * 1024;
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  DestroyAndReopen(options);
+  */
+  // Reopen(options);
+  /*
+  fprintf(stdout, "start load\n");
+  start_insert = tmp_cache->GetInsertCount();
+  start_lookup = tmp_cache->GetLookupcount();
+  s = db_->LoadDumpedCache(cd_options, cache);
+  uint32_t load_insert = tmp_cache->GetInsertCount() - start_insert;
+  uint32_t load_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  fprintf(stdout, "load end, load_insert: %d, load_lookup: %d\n",
+  static_cast<int>(load_insert), static_cast<int>(load_lookup)); ASSERT_OK(s);
+  */
+
+  // After load, we do the Get again
+  start_insert = tmp_cache->GetInsertCount();
+  start_lookup = tmp_cache->GetLookupcount();
+  for (int i = 0; i < N; i++) {
+    v = Get(Key(i));
+    // ASSERT_EQ(v, value[i]);
+  }
+  uint32_t final_insert = tmp_cache->GetInsertCount() - start_insert;
+  uint32_t final_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  fprintf(stdout, "after loaded insert: %d", static_cast<int>(final_insert));
+  fprintf(stdout, "after loaded lookup: %d", static_cast<int>(final_lookup));
+  Destroy(options);
+}
+//#endif
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
