@@ -125,10 +125,7 @@ Status ReplayerImpl::Replay(
       // In single-threaded replay, decode first then sleep.
       std::unique_ptr<TraceRecord> record;
       s = DecodeTraceRecord(&trace, trace_file_version_, &record);
-      // Skip unsupported traces, stop for other errors.
-      if (s.IsNotSupported()) {
-        continue;
-      } else if (!s.ok()) {
+      if (!s.ok() && !s.IsNotSupported()) {
         break;
       }
 
@@ -136,6 +133,15 @@ Status ReplayerImpl::Replay(
           replay_epoch +
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
               1.0 * (trace.ts - header_ts_) / options.fast_forward))));
+
+      // Skip unsupported traces, stop for other errors.
+      if (s.IsNotSupported()) {
+        if (result_callback == nullptr) {
+          result_callback(s, nullptr);
+        }
+        s = Status::OK();
+        continue;
+      }
 
       if (result_callback == nullptr) {
         s = Execute(std::move(record));
