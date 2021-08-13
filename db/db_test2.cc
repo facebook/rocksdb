@@ -4397,8 +4397,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
 
   ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
-  Put("hello", "world");
-  Merge("foo", "bar");
+  ASSERT_OK(Put("hello", "world"));
+  ASSERT_OK(Merge("foo", "bar"));
 
   // Open another db, replay, and verify the data
   std::string value;
@@ -4479,8 +4479,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   uint64_t fake_ts = 1U;
   // Write
   batch.Clear();
-  batch.Put("trace-record-write1", "write1");
-  batch.Put("trace-record-write2", "write2");
+  ASSERT_OK(batch.Put("trace-record-write1", "write1"));
+  ASSERT_OK(batch.Put("trace-record-write2", "write2"));
   record.reset(new WriteQueryTraceRecord(batch.Data(), fake_ts++));
   ASSERT_OK(replayer->Execute(std::move(record)));
   ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write1", &value));
