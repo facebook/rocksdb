@@ -1515,7 +1515,18 @@ TEST_F(DBBloomFilterTest, MemtableSelfTuningBloomFilter) {
   options.write_buffer_size = kMemtableSize;
   options.memtable_whole_key_filtering = false;
   options.memtable_self_tuning_bloom = true;
+
+  Random rnd(1477);
+
   Reopen(options);
+  std::vector<std::string> unique_keys;
+  for (uint64_t i = 0; i < 100; i++) {
+    std::string tempkey = rnd.RandomString(128);
+    std::string tempval = rnd.RandomString(64);
+    ASSERT_OK(Put(tempkey, tempval));
+    unique_keys.push_back(tempkey);
+  }
+
   std::string key1("AAAABBBB");
   std::string key2("AAAACCCC");  // not in DB
   std::string key3("AAAADDDD");

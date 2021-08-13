@@ -506,6 +506,8 @@ class MemTable {
     return bloom_filter_->UniqueEntryEstimate();
   }
 
+  uint32_t BFBitSize() const { return bloom_filter_->BitSize(); }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 

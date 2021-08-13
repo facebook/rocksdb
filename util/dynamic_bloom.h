@@ -75,6 +75,8 @@ class DynamicBloom {
 
   uint64_t UniqueEntryEstimate() const;
 
+  uint32_t BitSize() const;
+
  private:
   // Length of the structure, in 64-bit words. For this structure, "word"
   // will always refer to 64-bit words.
