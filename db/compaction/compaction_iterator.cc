@@ -567,6 +567,8 @@ void CompactionIterator::NextFromInput() {
         // SingleDelete.
         if (prev_snapshot == 0 ||
             DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
+          TEST_SYNC_POINT_CALLBACK(
+              "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
           if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes in a row.  This could be due to
             // unexpected user input.
