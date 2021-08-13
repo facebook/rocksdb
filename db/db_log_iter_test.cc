@@ -185,31 +185,38 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
+
     for (int i = 0; i < 1024; i++) {
       ASSERT_OK(Put("key" + ToString(i), DummyString(10)));
     }
-    ASSERT_OK(dbfull()->Flush(FlushOptions()));
-    ASSERT_OK(dbfull()->FlushWAL(false));
+
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->FlushWAL(false));
+
     // Corrupt this log to create a gap
-    ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
-    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_OK(db_->DisableFileDeletions());
+
+    VectorLogPtr wal_files;
+    ASSERT_OK(db_->GetSortedWalFiles(wal_files));
+    ASSERT_FALSE(wal_files.empty());
+
     const auto logfile_path = dbname_ + "/" + wal_files.front()->PathName();
-    if (mem_env_) {
-      mem_env_->Truncate(logfile_path, wal_files.front()->SizeFileBytes() / 2);
-    } else {
-      ASSERT_EQ(0, truncate(logfile_path.c_str(),
-                   wal_files.front()->SizeFileBytes() / 2));
-    }
+    ASSERT_OK(test::TruncateFile(env_, logfile_path,
+                                 wal_files.front()->SizeFileBytes() / 2));
+
+    ASSERT_OK(db_->EnableFileDeletions());
 
     // Insert a new entry to a new log file
     ASSERT_OK(Put("key1025", DummyString(10)));
-    ASSERT_OK(dbfull()->FlushWAL(false));
+    ASSERT_OK(db_->FlushWAL(false));
+
     // Try to read from the beginning. Should stop before the gap and read less
     // than 1025 entries
     auto iter = OpenTransactionLogIter(0);
-    int count;
+    int count = 0;
     SequenceNumber last_sequence_read = ReadRecords(iter, count, false);
     ASSERT_LT(last_sequence_read, 1025U);
+
     // Try to read past the gap, should be able to seek to key1025
     auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
     ExpectRecords(1, iter2);

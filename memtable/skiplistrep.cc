@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include <random>
+
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/inlineskiplist.h"
@@ -95,6 +97,66 @@ public:
     return (end_count >= start_count) ? (end_count - start_count) : 0;
   }
 
+  void UniqueRandomSample(const uint64_t& num_entries,
+                          const uint64_t& target_sample_size,
+                          std::unordered_set<const char*>* entries) override {
+    entries->clear();
+    // Avoid divide-by-0.
+    assert(target_sample_size > 0);
+    assert(num_entries > 0);
+    // NOTE: the size of entries is not enforced to be exactly
+    // target_sample_size at the end of this function, it might be slightly
+    // greater or smaller.
+    SkipListRep::Iterator iter(&skip_list_);
+    // There are two methods to create the subset of samples (size m)
+    // from the table containing N elements:
+    // 1-Iterate linearly through the N memtable entries. For each entry i,
+    //   add it to the sample set with a probability
+    //   (target_sample_size - entries.size() ) / (N-i).
+    //
+    // 2-Pick m random elements without repetition.
+    // We pick Option 2 when m<sqrt(N) and
+    // Option 1 when m > sqrt(N).
+    if (target_sample_size >
+        static_cast<uint64_t>(std::sqrt(1.0 * num_entries))) {
+      Random* rnd = Random::GetTLSInstance();
+      iter.SeekToFirst();
+      uint64_t counter = 0, num_samples_left = target_sample_size;
+      for (; iter.Valid() && (num_samples_left > 0); iter.Next(), counter++) {
+        // Add entry to sample set with probability
+        // num_samples_left/(num_entries - counter).
+        if (rnd->Next() % (num_entries - counter) < num_samples_left) {
+          entries->insert(iter.key());
+          num_samples_left--;
+        }
+      }
+    } else {
+      // Option 2: pick m random elements with no duplicates.
+      // If Option 2 is picked, then target_sample_size<sqrt(N)
+      // Using a set spares the need to check for duplicates.
+      for (uint64_t i = 0; i < target_sample_size; i++) {
+        // We give it 5 attempts to find a non-duplicate
+        // With 5 attempts, the chances of returning `entries` set
+        // of size target_sample_size is:
+        // PROD_{i=1}^{target_sample_size-1} [1-(i/N)^5]
+        // which is monotonically increasing with N in the worse case
+        // of target_sample_size=sqrt(N), and is always >99.9% for N>4.
+        // At worst, for the final pick , when m=sqrt(N) there is
+        // a probability of p= 1/sqrt(N) chances to find a duplicate.
+        for (uint64_t j = 0; j < 5; j++) {
+          iter.RandomSeek();
+          // unordered_set::insert returns pair<iterator, bool>.
+          // The second element is true if an insert successfully happened.
+          // If element is already in the set, this bool will be false, and
+          // true otherwise.
+          if ((entries->insert(iter.key())).second) {
+            break;
+          }
+        }
+      }
+    }
+  }
+
   ~SkipListRep() override {}
 
   // Iteration over the contents of a skip list
@@ -142,6 +204,8 @@ public:
         iter_.SeekForPrev(EncodeKey(&tmp_, user_key));
       }
     }
+
+    void RandomSeek() override { iter_.RandomSeek(); }
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.

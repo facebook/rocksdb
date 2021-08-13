@@ -15,6 +15,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/write_batch.h"
 #include "trace_replay/trace_replay.h"
 
@@ -182,7 +183,7 @@ class TraceAnalyzer {
   Status WriteTraceUnit(TraceUnit& unit);
 
   // The trace  processing functions for different type
-  Status HandleGet(uint32_t column_family_id, const std::string& key,
+  Status HandleGet(uint32_t column_family_id, const Slice& key,
                    const uint64_t& ts, const uint32_t& get_ret);
   Status HandlePut(uint32_t column_family_id, const Slice& key,
                    const Slice& value);
@@ -192,9 +193,10 @@ class TraceAnalyzer {
                            const Slice& end_key);
   Status HandleMerge(uint32_t column_family_id, const Slice& key,
                      const Slice& value);
-  Status HandleIter(uint32_t column_family_id, const std::string& key,
-                    const uint64_t& ts, TraceType& trace_type);
-  Status HandleMultiGet(MultiGetPayload& multiget_payload, const uint64_t& ts);
+  Status HandleIter(uint32_t column_family_id, const Slice& key,
+                    const uint64_t& ts, TraceType trace_type);
+  Status HandleMultiGet(const std::vector<uint32_t>& column_family_ids,
+                        const std::vector<Slice>& keys, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
@@ -246,7 +248,7 @@ class TraceAnalyzer {
   Status TraceUnitWriter(
       std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>& f_ptr, TraceUnit& unit);
   Status WriteTraceSequence(const uint32_t& type, const uint32_t& cf_id,
-                            const std::string& key, const size_t value_size,
+                            const Slice& key, const size_t value_size,
                             const uint64_t ts);
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);

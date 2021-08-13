@@ -107,6 +107,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ExternalSstIngestion";
     case CompactionReason::kPeriodicCompaction:
       return "PeriodicCompaction";
+    case CompactionReason::kChangeTemperature:
+      return "ChangeTemperature";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1927,11 +1929,12 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   // Pass temperature of botommost files to FileSystem.
   FileOptions fo_copy = file_options_;
-  Temperature temperature = Temperature::kUnknown;
-  if (bottommost_level_) {
-    fo_copy.temperature = temperature =
+  Temperature temperature = sub_compact->compaction->output_temperature();
+  if (temperature == Temperature::kUnknown && bottommost_level_) {
+    temperature =
         sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
   }
+  fo_copy.temperature = temperature;
 
   Status s;
   IOStatus io_s = NewWritableFile(fs_.get(), fname, &writable_file, fo_copy);
