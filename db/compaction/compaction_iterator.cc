@@ -495,11 +495,11 @@ void CompactionIterator::NextFromInput() {
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
       }
-      assert(current_user_key_snapshot_ == last_snapshot);
-      if (current_user_key_snapshot_ != last_snapshot) {
+      assert(current_user_key_snapshot_ >= last_snapshot);
+      if (current_user_key_snapshot_ < last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
                         "current_user_key_snapshot_ (%" PRIu64
-                        ") != last_snapshot (%" PRIu64 ")",
+                        ") < last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
       }
 
@@ -559,6 +559,8 @@ void CompactionIterator::NextFromInput() {
         // SingleDelete.
         if (prev_snapshot == 0 ||
             DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
+          TEST_SYNC_POINT_CALLBACK(
+              "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
           if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes in a row.  This could be due to
             // unexpected user input.
@@ -962,7 +964,8 @@ void CompactionIterator::PrepareOutput() {
         !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
         InEarliestSnapshot(ikey_.sequence) && ikey_.type != kTypeMerge) {
-      assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
+      // assert(ikey_.type != kTypeDeletion && ikey_.type !=
+      // kTypeSingleDeletion);
       if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for seq-zero optimization",

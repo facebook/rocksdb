@@ -2804,6 +2804,56 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithSD2) {
+  constexpr size_t snapshot_cache_bits = 7;  // same as default
+  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+  ASSERT_OK(txn->Put("bar", "value"));
+  ASSERT_OK(txn->SingleDelete("key"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(db->Put(WriteOptions(), "haha", "value"));
+
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  auto* dummy_txn = db->BeginTransaction(WriteOptions(), txn_opts, nullptr);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:2", [&](void* /*arg*/) {
+        ASSERT_OK(dummy_txn->Rollback());
+        delete dummy_txn;
+
+        ASSERT_OK(db->Put(WriteOptions(), "dontcare", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Put(WriteOptions(), "haha2", "value"));
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  db->ReleaseSnapshot(snapshot);
+
+  std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions()));
+  it->Seek("key");
+  ASSERT_FALSE(it->Valid());
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
