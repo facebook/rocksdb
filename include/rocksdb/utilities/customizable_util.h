@@ -73,6 +73,7 @@ static Status NewSharedObject(
     }
     return status;
   } else if (opt_map.empty()) {
+    // There was no ID and no map (everything empty), so reset/clear the result
     result->reset();
     return Status::OK();
   } else {
@@ -160,6 +161,7 @@ static Status NewUniqueObject(
     }
     return status;
   } else if (opt_map.empty()) {
+    // There was no ID and no map (everything empty), so reset/clear the result
     result->reset();
     return Status::OK();
   } else {
@@ -230,6 +232,7 @@ static Status NewStaticObject(
     }
     return status;
   } else if (opt_map.empty()) {
+    // There was no ID and no map (everything empty), so reset/clear the result
     *result = nullptr;
     return Status::OK();
   } else {
