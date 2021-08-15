@@ -902,6 +902,40 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   delete snapshot_db;
 }
 
+TEST_F(CheckpointTest, CheckpointWithNoDefaultDbpath) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_ + "_db", std::numeric_limits<uint64_t>::max());
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char value[] = "value";
+
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+
+  // Create a checkpoint
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+  std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
+
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+
+  // Make sure the checkpoint can be opened and the value read
+  options.create_if_missing = false;
+  DB* checkpoint_db = nullptr;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
+
+  std::unique_ptr<DB> checkpoint_db_guard(checkpoint_db);
+
+  PinnableSlice get_value;
+  ASSERT_OK(checkpoint_db->Get(
+      ReadOptions(), checkpoint_db->DefaultColumnFamily(), key, &get_value));
+
+  ASSERT_EQ(value, get_value);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
