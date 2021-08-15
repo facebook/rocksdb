@@ -71,6 +71,10 @@ extern std::string Rocks2LevelTableFileName(const std::string& fullname);
 // TODO(yhchiang): could merge this function with ParseFileName()
 extern uint64_t TableFileNameToNumber(const std::string& name);
 
+// Return the the path of sstable by path id.
+extern std::string TableFilePath(const std::vector<DbPath>& db_paths,
+                                 uint32_t path_id);
+
 // Return the name of the sstable with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".

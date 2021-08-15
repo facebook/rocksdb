@@ -10,6 +10,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include <iostream>
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
@@ -85,9 +86,25 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status BlobDBImpl::GetLiveFilesWithPath(
-    std::unordered_map<std::string, std::vector<std::string>>&,
-    uint64_t*, bool) {
-  return Status::Corruption("GetLiveFilesWithPath not supported in BlobDBImpl");
+    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+    uint64_t* manifest_file_size, bool flush_memtable) {
+  if (!bdb_options_.path_relative) {
+    return Status::NotSupported(
+        "Not able to get relative blob file path from absolute blob_dir.");
+  }
+  // Hold a lock in the beginning to avoid updates to base DB during the call
+  ReadLock rl(&mutex_);
+  Status s = db_->GetLiveFilesWithPath(path_to_files, manifest_file_size, flush_memtable);
+  if (!s.ok()) {
+    return s;
+  }
+  for (auto bfile_pair : blob_files_) {
+    auto blob_file = bfile_pair.second;
+    // Path should be relative to db_name, but begin with slash.
+    path_to_files[dbname_].emplace_back(
+        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber()));
+  }
+  return Status::OK();
 }
 
 void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {

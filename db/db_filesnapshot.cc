@@ -115,9 +115,97 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetLiveFilesWithPath(
-    std::unordered_map<std::string, std::vector<std::string>>&,
-    uint64_t*, bool) {
-  return Status::Corruption("GetLiveFilesWithPath not supported in DBImpl");
+    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+    uint64_t* manifest_file_size, bool flush_memtable) {
+  *manifest_file_size = 0;
+
+  mutex_.Lock();
+
+  if (flush_memtable) {
+    // flush all dirty data to disk.
+    Status status;
+    if (immutable_db_options_.atomic_flush) {
+      autovector<ColumnFamilyData*> cfds;
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+      mutex_.Unlock();
+      status = AtomicFlushMemTables(cfds, FlushOptions(),
+                                    FlushReason::kGetLiveFiles);
+      if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
+      mutex_.Lock();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        cfd->Ref();
+        mutex_.Unlock();
+        status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
+        TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
+        TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
+        mutex_.Lock();
+        cfd->UnrefAndTryDelete();
+        if (!status.ok() && !status.IsColumnFamilyDropped()) {
+          break;
+        } else if (status.IsColumnFamilyDropped()) {
+          status = Status::OK();
+        }
+      }
+    }
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+
+    if (!status.ok()) {
+      mutex_.Unlock();
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
+                      status.ToString().c_str());
+      return status;
+    }
+  }
+
+  path_to_files.clear();
+
+  // Make a set of all of the live table and blob files
+  std::vector<FileDescriptor> live_table_files;
+  std::vector<uint64_t> live_blob_files;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
+
+    // Get SST/blob files. The key is the path of SST/blob files. The value
+    // is a list containing the names of the SST/blob files.
+    const std::vector<DbPath>& cf_paths = cfd->ioptions()->cf_paths;
+    for (const auto& table_file : live_table_files) {
+      std::string path = TableFilePath(cf_paths, table_file.GetPathId());
+      path_to_files[path].emplace_back(
+          MakeTableFileName("", table_file.GetNumber()));
+    }
+
+    for (const auto& blob_file_number : live_blob_files) {
+      path_to_files[cf_paths[0].path].emplace_back(
+          BlobFileName("", blob_file_number));
+    }
+  }
+  path_to_files[dbname_].emplace_back(CurrentFileName(""));
+  path_to_files[dbname_].emplace_back(
+      DescriptorFileName("", versions_->manifest_file_number()));
+  // The OPTIONS file number is zero in read-write mode when OPTIONS file
+  // writing failed and the DB was configured with
+  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
+  // number is zero when no OPTIONS file exist at all. In those cases we do not
+  // record any OPTIONS file in the live file list.
+  if (versions_->options_file_number() != 0) {
+    path_to_files[dbname_].emplace_back(
+        OptionsFileName("", versions_->options_file_number()));
+  }
+
+  // find length of manifest file while holding the mutex lock
+  *manifest_file_size = versions_->manifest_file_size();
+
+  mutex_.Unlock();
+  return Status::OK();
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {

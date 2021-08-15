@@ -399,7 +399,7 @@ class StackableDB : public DB {
 
   virtual Status GetLiveFilesWithPath(
       std::unordered_map<std::string, std::vector<std::string>>& ret,
-      uint64_t* manifest_file_size, bool flush_memtable) override {
+      uint64_t* manifest_file_size, bool flush_memtable = true) override {
     return db_->GetLiveFilesWithPath(ret, manifest_file_size, flush_memtable);
   }
 
