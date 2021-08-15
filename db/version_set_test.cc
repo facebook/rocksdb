@@ -1089,7 +1089,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   first_version->Ref();
 
   // Get live files directly from version.
-  std::vector<uint64_t> version_table_files;
+  std::vector<FileDescriptor> version_table_files;
   std::vector<uint64_t> version_blob_files;
 
   first_version->AddLiveFiles(&version_table_files, &version_blob_files);
@@ -1127,7 +1127,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
 
   // Get all live files from version set. Note that the result contains
   // duplicates.
-  std::vector<uint64_t> all_table_files;
+  std::vector<FileDescriptor> all_table_files;
   std::vector<uint64_t> all_blob_files;
 
   versions_->AddLiveFiles(&all_table_files, &all_blob_files);

@@ -375,8 +375,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   assert(state.manifest_file_number != 0);
 
   // Now, convert lists to unordered sets, WITHOUT mutex held; set is slow.
-  std::unordered_set<uint64_t> sst_live_set(state.sst_live.begin(),
-                                            state.sst_live.end());
+  std::unordered_set<uint64_t> sst_live_set;
+  for (const auto& fd : state.sst_live) {
+    sst_live_set.emplace(fd.GetNumber());
+  }
   std::unordered_set<uint64_t> blob_live_set(state.blob_live.begin(),
                                              state.blob_live.end());
   std::unordered_set<uint64_t> log_recycle_files_set(

@@ -3634,7 +3634,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   return false;
 }
 
-void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
+void Version::AddLiveFiles(std::vector<FileDescriptor>* live_table_files,
                            std::vector<uint64_t>* live_blob_files) const {
   assert(live_table_files);
   assert(live_blob_files);
@@ -3644,7 +3644,7 @@ void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
     for (const auto& meta : level_files) {
       assert(meta);
 
-      live_table_files->emplace_back(meta->fd.GetNumber());
+      live_table_files->emplace_back(meta->fd);
     }
   }
 
@@ -5403,7 +5403,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
       v->GetMutableCFOptions().prefix_extractor.get());
 }
 
-void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
+void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_table_files,
                               std::vector<uint64_t>* live_blob_files) const {
   assert(live_table_files);
   assert(live_blob_files);

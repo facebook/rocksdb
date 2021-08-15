@@ -727,7 +727,7 @@ class Version {
 
   // Add all files listed in the current version to *live_table_files and
   // *live_blob_files.
-  void AddLiveFiles(std::vector<uint64_t>* live_table_files,
+  void AddLiveFiles(std::vector<FileDescriptor>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
 
   // Return a human readable string that describes this version's contents.
@@ -1209,7 +1209,7 @@ class VersionSet {
 
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
-  void AddLiveFiles(std::vector<uint64_t>* live_table_files,
+  void AddLiveFiles(std::vector<FileDescriptor>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
 
   // Return the approximate size of data to be scanned for range [start, end)

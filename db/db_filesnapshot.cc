@@ -73,7 +73,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   }
 
   // Make a set of all of the live table and blob files
-  std::vector<uint64_t> live_table_files;
+  std::vector<FileDescriptor> live_table_files;
   std::vector<uint64_t> live_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
@@ -88,8 +88,8 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
-  for (const auto& table_file_number : live_table_files) {
-    ret.emplace_back(MakeTableFileName("", table_file_number));
+  for (const auto& table_file : live_table_files) {
+    ret.emplace_back(MakeTableFileName("", table_file.GetNumber()));
   }
 
   for (const auto& blob_file_number : live_blob_files) {
@@ -115,8 +115,8 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetLiveFilesWithPath(
-    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
-    uint64_t* manifest_file_size, bool flush_memtable) {
+    std::unordered_map<std::string, std::vector<std::string>>&,
+    uint64_t*, bool) {
   return Status::Corruption("GetLiveFilesWithPath not supported in DBImpl");
 }
 

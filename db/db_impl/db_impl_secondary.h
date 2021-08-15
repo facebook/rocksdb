@@ -169,7 +169,7 @@ class DBImplSecondary : public DBImpl {
   }
 
   Status GetLiveFilesWithPath(
-      std::unordered_map<std::string, std::vector<std::string>>& ret,
+      std::unordered_map<std::string, std::vector<std::string>>&,
       uint64_t* /*manifest_file_size*/,
       bool /*flush_memtable*/ = true) override {
     return Status::NotSupported("Not supported operation in secondary mode.");

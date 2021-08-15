@@ -142,7 +142,7 @@ struct JobContext {
   std::vector<CandidateFileInfo> full_scan_candidate_files;
 
   // the list of all live sst files that cannot be deleted
-  std::vector<uint64_t> sst_live;
+  std::vector<FileDescriptor> sst_live;
 
   // the list of sst files that we need to delete
   std::vector<ObsoleteFileInfo> sst_delete_files;

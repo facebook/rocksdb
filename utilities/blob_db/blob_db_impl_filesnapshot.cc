@@ -85,8 +85,8 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status BlobDBImpl::GetLiveFilesWithPath(
-    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
-    uint64_t* manifest_file_size, bool flush_memtable) {
+    std::unordered_map<std::string, std::vector<std::string>>&,
+    uint64_t*, bool) {
   return Status::Corruption("GetLiveFilesWithPath not supported in BlobDBImpl");
 }
 
