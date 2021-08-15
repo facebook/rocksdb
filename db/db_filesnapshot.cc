@@ -182,11 +182,13 @@ Status DBImpl::GetLiveFilesWithPath(
       path_to_files[path].emplace_back(
           MakeTableFileName("", table_file.GetNumber()));
     }
+    live_table_files.clear();
 
     for (const auto& blob_file_number : live_blob_files) {
       path_to_files[cf_paths[0].path].emplace_back(
           BlobFileName("", blob_file_number));
     }
+    live_blob_files.clear();
   }
   path_to_files[dbname_].emplace_back(CurrentFileName(""));
   path_to_files[dbname_].emplace_back(

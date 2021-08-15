@@ -15,6 +15,7 @@
 #include <cinttypes>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "db/wal_manager.h"
@@ -196,7 +197,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     uint64_t* sequence_number, uint64_t log_size_for_flush,
     bool get_live_table_checksum) {
   Status s;
-  std::vector<std::string> live_files;
+  std::unordered_map<std::string, std::vector<std::string>> path_to_files;
   uint64_t manifest_file_size = 0;
   uint64_t min_log_num = port::kMaxUint64;
   *sequence_number = db_->GetLatestSequenceNumber();
@@ -229,24 +230,28 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     }
   }
 
-  // this will return live_files prefixed with "/"
-  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+  // Get live files. The key is the path of live files. The value
+  // is a list containing the names of the live files.
+  // This wnames of the live files prefixed with "/"
+  s = db_->GetLiveFilesWithPath(path_to_files, &manifest_file_size,
+                                flush_memtable);
 
   if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
     return Status::InvalidArgument("cannot get the min log number to keep.");
   }
-  // Between GetLiveFiles and getting min_log_num, flush might happen
+  // Between GetLiveFilesWithPath and getting min_log_num, flush might happen
   // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
   // not get the new MANIFEST size, the deleted WALs might not be reflected in
   // the checkpoint's MANIFEST.
   //
-  // If we get min_log_num before the above GetLiveFiles, then there might
-  // be too many unnecessary WALs to be included in the checkpoint.
+  // If we get min_log_num before the above GetLiveFilesWithPath, then there
+  // might be too many unnecessary WALs to be included in the checkpoint.
   //
   // Ideally, min_log_num should be got together with manifest_file_size in
-  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
-  // which is a public API.
-  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+  // GetLiveFilesWithPath atomically. But that needs changes to
+  // GetLiveFilesWithPath' signature which is a public API.
+  s = db_->GetLiveFilesWithPath(path_to_files, &manifest_file_size,
+                                flush_memtable);
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
@@ -270,44 +275,50 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   size_t wal_size = live_wal_files.size();
 
   // process live files, non-table, non-blob files first
-  std::string manifest_fname, current_fname;
+  std::tuple<std::string, std::string> manifest_fname;
+  std::string current_fname;
   // record table and blob files for processing next
-  std::vector<std::tuple<std::string, uint64_t, FileType>>
+  std::vector<std::tuple<std::string, std::string, uint64_t, FileType>>
       live_table_and_blob_files;
-  for (auto& live_file : live_files) {
+  for (const auto& live_files : path_to_files) {
     if (!s.ok()) {
       break;
     }
-    uint64_t number;
-    FileType type;
-    bool ok = ParseFileName(live_file, &number, &type);
-    if (!ok) {
-      s = Status::Corruption("Can't parse file name. This is very bad");
-      break;
-    }
-    // we should only get sst, blob, options, manifest and current files here
-    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
-           type == kCurrentFile || type == kOptionsFile);
-    assert(live_file.size() > 0 && live_file[0] == '/');
-    if (type == kCurrentFile) {
-      // We will craft the current file manually to ensure it's consistent with
-      // the manifest number. This is necessary because current's file contents
-      // can change during checkpoint creation.
-      current_fname = live_file;
-      continue;
-    } else if (type == kDescriptorFile) {
-      manifest_fname = live_file;
-    }
+    std::string path = live_files.first;
+    for (const auto& live_file : live_files.second) {
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(live_file, &number, &type);
+      if (!ok) {
+        s = Status::Corruption("Can't parse file name. This is very bad");
+        break;
+      }
+      // we should only get sst, blob, options, manifest and current files here
+      assert(type == kTableFile || type == kBlobFile ||
+             type == kDescriptorFile || type == kCurrentFile ||
+             type == kOptionsFile);
+      assert(live_file.size() > 0 && live_file[0] == '/');
+      if (type == kCurrentFile) {
+        // We will craft the current file manually to ensure it's consistent
+        // with the manifest number. This is necessary because current's file
+        // contents can change during checkpoint creation.
+        current_fname = live_file;
+        continue;
+      } else if (type == kDescriptorFile) {
+        manifest_fname = std::make_tuple(path, live_file);
+      }
 
-    if (type != kTableFile && type != kBlobFile) {
-      // copy non-table, non-blob files here
-      // * if it's kDescriptorFile, limit the size to manifest_file_size
-      s = copy_file_cb(db_->GetName(), live_file,
-                       (type == kDescriptorFile) ? manifest_file_size : 0, type,
-                       kUnknownFileChecksumFuncName, kUnknownFileChecksum);
-    } else {
-      // process table and blob files below
-      live_table_and_blob_files.emplace_back(live_file, number, type);
+      if (type != kTableFile && type != kBlobFile) {
+        // copy non-table, non-blob files here
+        // * if it's kDescriptorFile, limit the size to manifest_file_size
+        s = copy_file_cb(db_->GetName(), live_file,
+                         (type == kDescriptorFile) ? manifest_file_size : 0,
+                         type, kUnknownFileChecksumFuncName,
+                         kUnknownFileChecksum);
+      } else {
+        // process table and blob files below
+        live_table_and_blob_files.emplace_back(path, live_file, number, type);
+      }
     }
   }
 
@@ -319,9 +330,10 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     checksum_list.reset(NewFileChecksumList());
     // should succeed even without checksum info present, else manifest
     // is corrupt
-    s = GetFileChecksumsFromManifest(db_->GetEnv(),
-                                     db_->GetName() + manifest_fname,
-                                     manifest_file_size, checksum_list.get());
+    s = GetFileChecksumsFromManifest(
+        db_->GetEnv(),
+        std::get<0>(manifest_fname) + std::get<1>(manifest_fname),
+        manifest_file_size, checksum_list.get());
   }
 
   // copy/hard link live table and blob files
@@ -330,15 +342,16 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       break;
     }
 
-    const std::string& src_fname = std::get<0>(file);
-    const uint64_t number = std::get<1>(file);
-    const FileType type = std::get<2>(file);
+    const std::string& path = std::get<0>(file);
+    const std::string& src_fname = std::get<1>(file);
+    const uint64_t number = std::get<2>(file);
+    const FileType type = std::get<3>(file);
 
     // rules:
     // * for kTableFile/kBlobFile, attempt hard link instead of copy.
     // * but can't hard link across filesystems.
     if (same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, type);
+      s = link_file_cb(path, src_fname, type);
       if (s.IsNotSupported()) {
         same_fs = false;
         s = Status::OK();
@@ -363,12 +376,13 @@ Status CheckpointImpl::CreateCustomCheckpoint(
           assert(checksum_value == kUnknownFileChecksum);
         }
       }
-      s = copy_file_cb(db_->GetName(), src_fname, 0, type, checksum_name,
-                       checksum_value);
+      s = copy_file_cb(path, src_fname, 0, type, checksum_name, checksum_value);
     }
   }
-  if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
-    s = create_file_cb(current_fname, manifest_fname.substr(1) + "\n",
+  if (s.ok() && !current_fname.empty() &&
+      !std::get<1>(manifest_fname).empty()) {
+    s = create_file_cb(current_fname,
+                       std::get<1>(manifest_fname).substr(1) + "\n",
                        kCurrentFile);
   }
   ROCKS_LOG_INFO(db_options.info_log, "Number of log files %" ROCKSDB_PRIszt,
