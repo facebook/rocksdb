@@ -1376,10 +1376,13 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
 
     // Make sure we can cache hit even on a full copy of the DB. Using
     // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
+    // (Checkpoint  not available in LITE mode to test this.)
+#ifndef ROCKSDB_LITE
     auto db_copy_name = dbname_ + "-copy";
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
+    delete checkpoint;
 
     Close();
     Destroy(options);
@@ -1388,6 +1391,7 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
 
     ASSERT_EQ(Get("key1"), std::string("abc"));
     verify_stats();
+#endif  // !ROCKSDB_LITE
 
     Close();
   }
