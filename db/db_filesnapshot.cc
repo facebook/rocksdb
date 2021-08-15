@@ -26,92 +26,19 @@ namespace ROCKSDB_NAMESPACE {
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
                             uint64_t* manifest_file_size,
                             bool flush_memtable) {
-  *manifest_file_size = 0;
-
-  mutex_.Lock();
-
-  if (flush_memtable) {
-    // flush all dirty data to disk.
-    Status status;
-    if (immutable_db_options_.atomic_flush) {
-      autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds);
-      mutex_.Unlock();
-      status = AtomicFlushMemTables(cfds, FlushOptions(),
-                                    FlushReason::kGetLiveFiles);
-      if (status.IsColumnFamilyDropped()) {
-        status = Status::OK();
-      }
-      mutex_.Lock();
-    } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        cfd->Ref();
-        mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
-        TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
-        TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
-        mutex_.Lock();
-        cfd->UnrefAndTryDelete();
-        if (!status.ok() && !status.IsColumnFamilyDropped()) {
-          break;
-        } else if (status.IsColumnFamilyDropped()) {
-          status = Status::OK();
-        }
-      }
-    }
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-
-    if (!status.ok()) {
-      mutex_.Unlock();
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
-                      status.ToString().c_str());
-      return status;
-    }
+  std::unordered_map<std::string, std::vector<std::string>> path_to_files;
+  Status s =
+      GetLiveFilesWithPath(path_to_files, manifest_file_size, flush_memtable);
+  if (!s.ok()) {
+    return s;
   }
-
-  // Make a set of all of the live table and blob files
-  std::vector<FileDescriptor> live_table_files;
-  std::vector<uint64_t> live_blob_files;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
-      continue;
-    }
-    cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
-  }
-
   ret.clear();
-  ret.reserve(live_table_files.size() + live_blob_files.size() +
-              3);  // for CURRENT + MANIFEST + OPTIONS
-
-  // create names of the live files. The names are not absolute
-  // paths, instead they are relative to dbname_;
-  for (const auto& table_file : live_table_files) {
-    ret.emplace_back(MakeTableFileName("", table_file.GetNumber()));
+  for (const auto& live_files : path_to_files) {
+    for (const auto& live_file : live_files.second) {
+      ret.emplace_back(live_file);
+    }
   }
-
-  for (const auto& blob_file_number : live_blob_files) {
-    ret.emplace_back(BlobFileName("", blob_file_number));
-  }
-
-  ret.emplace_back(CurrentFileName(""));
-  ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
-  // The OPTIONS file number is zero in read-write mode when OPTIONS file
-  // writing failed and the DB was configured with
-  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
-  // number is zero when no OPTIONS file exist at all. In those cases we do not
-  // record any OPTIONS file in the live file list.
-  if (versions_->options_file_number() != 0) {
-    ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
-  }
-
-  // find length of manifest file while holding the mutex lock
-  *manifest_file_size = versions_->manifest_file_size();
-
-  mutex_.Unlock();
-  return Status::OK();
+  return s;
 }
 
 Status DBImpl::GetLiveFilesWithPath(

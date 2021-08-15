@@ -92,11 +92,15 @@ class DummyDB : public StackableDB {
     return Status::OK();
   }
 
-  Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                      bool /*flush_memtable*/ = true) override {
+  Status GetLiveFilesWithPath(
+    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+    uint64_t* manifest_file_size, bool  /*flush_memtable*/ = true) override {
     EXPECT_TRUE(!deletions_enabled_);
-    vec = live_files_;
-    *mfs = 100;
+    path_to_files.clear();
+    for (const auto& live_file : live_files_) {
+      path_to_files[dbname_].emplace_back(live_file);
+    }
+    *manifest_file_size = 100;
     return Status::OK();
   }
 

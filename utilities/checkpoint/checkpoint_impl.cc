@@ -311,10 +311,9 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       if (type != kTableFile && type != kBlobFile) {
         // copy non-table, non-blob files here
         // * if it's kDescriptorFile, limit the size to manifest_file_size
-        s = copy_file_cb(db_->GetName(), live_file,
-                         (type == kDescriptorFile) ? manifest_file_size : 0,
-                         type, kUnknownFileChecksumFuncName,
-                         kUnknownFileChecksum);
+        s = copy_file_cb(
+            path, live_file, (type == kDescriptorFile) ? manifest_file_size : 0,
+            type, kUnknownFileChecksumFuncName, kUnknownFileChecksum);
       } else {
         // process table and blob files below
         live_table_and_blob_files.emplace_back(path, live_file, number, type);

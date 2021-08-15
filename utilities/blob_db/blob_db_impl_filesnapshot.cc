@@ -65,24 +65,18 @@ Status BlobDBImpl::EnableFileDeletions(bool force) {
 Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
                                 uint64_t* manifest_file_size,
                                 bool flush_memtable) {
-  if (!bdb_options_.path_relative) {
-    return Status::NotSupported(
-        "Not able to get relative blob file path from absolute blob_dir.");
-  }
-  // Hold a lock in the beginning to avoid updates to base DB during the call
-  ReadLock rl(&mutex_);
-  Status s = db_->GetLiveFiles(ret, manifest_file_size, flush_memtable);
+  std::unordered_map<std::string, std::vector<std::string>> path_to_files;
+  Status s =
+      GetLiveFilesWithPath(path_to_files, manifest_file_size, flush_memtable);
   if (!s.ok()) {
     return s;
   }
-  ret.reserve(ret.size() + blob_files_.size());
-  for (auto bfile_pair : blob_files_) {
-    auto blob_file = bfile_pair.second;
-    // Path should be relative to db_name, but begin with slash.
-    ret.emplace_back(
-        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber()));
+  for (const auto& live_files : path_to_files) {
+    for (const auto& live_file : live_files.second) {
+      ret.emplace_back(live_file);
+    }
   }
-  return Status::OK();
+  return s;
 }
 
 Status BlobDBImpl::GetLiveFilesWithPath(
