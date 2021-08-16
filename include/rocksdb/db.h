@@ -458,6 +458,11 @@ class DB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value, std::string* timestamp) {
     assert(options.verify_checksums || column_family != nullptr || key != nullptr || value != nullptr || timestamp != nullptr);
+    (void)options;
+    (void)column_family;
+    (void)key;
+    (void)value;
+    (void)timestamp;
     co_return Status::NotSupported(
         "AsyncGet() that returns timestamp is not implemented.");
   }

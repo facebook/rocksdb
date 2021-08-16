@@ -264,6 +264,18 @@ class MockRandomAccessFile : public FSRandomAccessFile {
     }
   }
 
+    async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    (void)offset;
+    (void)n;
+    (void)options;
+    (void)result;
+    (void)scratch;
+    (void)dbg;
+    throw "Not implemented";
+  }
+
  private:
   MemFile* file_;
   bool use_direct_io_;

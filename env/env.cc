@@ -106,6 +106,16 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
     return status_to_io_status(target_->Read(offset, n, result, scratch));
   }
 
+  async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& /*options*/,
+                Slice* result, char* scratch,
+                IODebugContext* /*dbg*/) const override {
+    (void)offset;
+    (void)n;
+    (void)result;
+    (void)scratch;
+    throw "Not supported";
+  }
+
   IOStatus MultiRead(FSReadRequest* fs_reqs, size_t num_reqs,
                      const IOOptions& /*options*/,
                      IODebugContext* /*dbg*/) override {

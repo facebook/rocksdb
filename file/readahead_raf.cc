@@ -74,6 +74,18 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
     return s;
   }
 
+  async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    (void)offset;
+    (void)n;
+    (void)options;
+    (void)result;
+    (void)scratch;
+    (void)dbg;
+    throw "Not implemented";
+  }
+
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
                     IODebugContext* dbg) override {
     if (n < readahead_size_) {
