@@ -30,6 +30,19 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+
+ protected:
+#ifndef ROCKSDB_LITE
+  uint64_t GetSstSizeHelper(Temperature temperature) {
+    std::string prop;
+    bool s =
+        dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
+                                  ToString(static_cast<uint8_t>(temperature)),
+                              &prop);
+    assert(s);
+    return static_cast<uint64_t>(std::atoi(prop.c_str()));
+  }
+#endif  // ROCKSDB_LITE
 };
 
 #ifndef ROCKSDB_LITE
@@ -223,7 +236,7 @@ TEST_P(PrefixFullBloomWithReverseComparator,
   ASSERT_OK(dbfull()->Put(WriteOptions(), "bar234", "foo2"));
   ASSERT_OK(dbfull()->Put(WriteOptions(), "foo123", "foo3"));
 
-  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
   if (bbto.block_cache) {
     bbto.block_cache->EraseUnRefEntries();
@@ -255,18 +268,20 @@ INSTANTIATE_TEST_CASE_P(PrefixFullBloomWithReverseComparator,
                         PrefixFullBloomWithReverseComparator, testing::Bool());
 
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
-  Put("", "");
+  ASSERT_OK(Put("", ""));
   Iterator* iter1 = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter1->status());
   std::string prop_value;
   ASSERT_OK(
       iter1->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number1 =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
-  Put("", "");
-  Flush();
+  ASSERT_OK(Put("", ""));
+  ASSERT_OK(Flush());
 
   Iterator* iter2 = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter2->status());
   ASSERT_OK(
       iter2->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number2 =
@@ -274,9 +289,10 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
 
   ASSERT_GT(version_number2, version_number1);
 
-  Put("", "");
+  ASSERT_OK(Put("", ""));
 
   Iterator* iter3 = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter3->status());
   ASSERT_OK(
       iter3->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number3 =
@@ -306,8 +322,8 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  Put(1, "a", "begin");
-  Put(1, "z", "end");
+  ASSERT_OK(Put(1, "a", "begin"));
+  ASSERT_OK(Put(1, "z", "end"));
   ASSERT_OK(Flush(1));
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
 
@@ -323,10 +339,10 @@ TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
   options.merge_operator = MergeOperators::CreatePutOperator();
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
-  Put("poi", "Finch");
-  db_->Merge(WriteOptions(), "poi", "Reese");
-  db_->Merge(WriteOptions(), "poi", "Shaw");
-  db_->Merge(WriteOptions(), "poi", "Root");
+  ASSERT_OK(Put("poi", "Finch"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "poi", "Reese"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "poi", "Shaw"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "poi", "Root"));
   options.max_successive_merges = 2;
   Reopen(options);
 }
@@ -388,10 +404,10 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   wo.disableWAL = true;
 
   std::function<void()> wait_flush = [&]() {
-    dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
-    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-    dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-    dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[3]));
   };
 
   // Create some data and flush "default" and "nikitich" so that they
@@ -566,10 +582,10 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   wo.disableWAL = true;
 
   std::function<void()> wait_flush = [&]() {
-    dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
-    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-    dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-    static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
+    ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
   };
 
   // Trigger a flush on cf2
@@ -585,7 +601,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   wait_flush();
-  static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+  ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default") +
                   GetNumberOfSstFilesForColumnFamily(db_, "cf1") +
@@ -616,7 +632,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   wait_flush();
   ASSERT_OK(db2->Put(wo, Key(1), DummyString(1)));
   wait_flush();
-  static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+  ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
               static_cast<uint64_t>(1));
@@ -740,9 +756,9 @@ TEST_F(DBTest2, WalFilterTest) {
     for (size_t i = 0; i < batch_keys.size(); i++) {
       WriteBatch batch;
       for (size_t j = 0; j < batch_keys[i].size(); j++) {
-        batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
+        ASSERT_OK(batch.Put(handles_[0], batch_keys[i][j], DummyString(1024)));
       }
-      dbfull()->Write(WriteOptions(), &batch);
+      ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
     }
 
     WalFilter::WalProcessingOption wal_processing_option =
@@ -761,14 +777,14 @@ TEST_F(DBTest2, WalFilterTest) {
       TryReopenWithColumnFamilies({ "default", "pikachu" }, options);
     if (wal_processing_option ==
       WalFilter::WalProcessingOption::kCorruptedRecord) {
-      assert(!status.ok());
+      ASSERT_NOK(status);
       // In case of corruption we can turn off paranoid_checks to reopen
       // databse
       options.paranoid_checks = false;
       ReopenWithColumnFamilies({ "default", "pikachu" }, options);
     }
     else {
-      assert(status.ok());
+      ASSERT_OK(status);
     }
 
     // Compute which keys we expect to be found
@@ -825,7 +841,7 @@ TEST_F(DBTest2, WalFilterTest) {
       break;
     }
     default:
-      assert(false);  // unhandled case
+      FAIL();  // unhandled case
     }
 
     bool checked_after_reopen = false;
@@ -868,7 +884,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
       num_keys_added_(0) {}
     void Put(const Slice& key, const Slice& value) override {
       if (num_keys_added_ < num_keys_to_add_in_new_batch_) {
-        new_write_batch_->Put(key, value);
+        ASSERT_OK(new_write_batch_->Put(key, value));
         ++num_keys_added_;
       }
     }
@@ -895,8 +911,12 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
                                   bool* batch_changed) const override {
       if (current_record_index_ >= change_records_from_index_) {
         ChangeBatchHandler handler(new_batch, num_keys_to_add_in_new_batch_);
-        batch.Iterate(&handler);
-        *batch_changed = true;
+        Status s = batch.Iterate(&handler);
+        if (s.ok()) {
+          *batch_changed = true;
+        } else {
+          assert(false);
+        }
       }
 
       // Filter is passed as a const object for RocksDB to not modify the
@@ -928,9 +948,9 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
   for (size_t i = 0; i < batch_keys.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys[i][j], DummyString(1024)));
     }
-    dbfull()->Write(WriteOptions(), &batch);
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
 
   // Create a test filter that would apply wal_processing_option at the first
@@ -989,8 +1009,12 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
    WalProcessingOption LogRecord(const WriteBatch& batch, WriteBatch* new_batch,
                                  bool* batch_changed) const override {
      *new_batch = batch;
-     new_batch->Put("key_extra", "value_extra");
-     *batch_changed = true;
+     Status s = new_batch->Put("key_extra", "value_extra");
+     if (s.ok()) {
+       *batch_changed = true;
+     } else {
+       assert(false);
+     }
      return WalProcessingOption::kContinueProcessing;
    }
 
@@ -1016,9 +1040,9 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
   for (size_t i = 0; i < batch_keys.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys[i][j], DummyString(1024)));
     }
-    dbfull()->Write(WriteOptions(), &batch);
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
 
   // Create a test filter that would add extra keys
@@ -1101,7 +1125,11 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
         }
       } handler(log_number, cf_log_number_map_, cf_wal_keys_);
 
-      batch.Iterate(&handler);
+      Status s = batch.Iterate(&handler);
+      if (!s.ok()) {
+        // TODO(AR) is this ok?
+        return WalProcessingOption::kCorruptedRecord;
+      }
 
       return WalProcessingOption::kContinueProcessing;
    }
@@ -1136,14 +1164,16 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   for (size_t i = 0; i < batch_keys_pre_flush.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys_pre_flush[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys_pre_flush[i][j], DummyString(1024));
-      batch.Put(handles_[1], batch_keys_pre_flush[i][j], DummyString(1024));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys_pre_flush[i][j],
+                          DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[1], batch_keys_pre_flush[i][j],
+                          DummyString(1024)));
     }
-    dbfull()->Write(WriteOptions(), &batch);
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
 
   //Flush default column-family
-  db_->Flush(FlushOptions(), handles_[0]);
+  ASSERT_OK(db_->Flush(FlushOptions(), handles_[0]));
 
   // Do some more writes
   std::vector<std::vector<std::string>> batch_keys_post_flush(3);
@@ -1159,10 +1189,12 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   for (size_t i = 0; i < batch_keys_post_flush.size(); i++) {
     WriteBatch batch;
     for (size_t j = 0; j < batch_keys_post_flush[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys_post_flush[i][j], DummyString(1024));
-      batch.Put(handles_[1], batch_keys_post_flush[i][j], DummyString(1024));
+      ASSERT_OK(batch.Put(handles_[0], batch_keys_post_flush[i][j],
+                          DummyString(1024)));
+      ASSERT_OK(batch.Put(handles_[1], batch_keys_post_flush[i][j],
+                          DummyString(1024)));
     }
-    dbfull()->Write(WriteOptions(), &batch);
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
   }
 
   // On Recovery we should only find the second batch applicable to default CF
@@ -1189,10 +1221,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     for (size_t j = 0; j < batch_keys_post_flush[i].size(); j++) {
       Slice key_from_the_log(keys_cf[index++]);
       Slice batch_key(batch_keys_post_flush[i][j]);
-      ASSERT_TRUE(key_from_the_log.compare(batch_key) == 0);
+      ASSERT_EQ(key_from_the_log.compare(batch_key), 0);
     }
   }
-  ASSERT_TRUE(index == keys_cf.size());
+  ASSERT_EQ(index, keys_cf.size());
 
   index = 0;
   keys_cf = cf_wal_keys[name_id_map["pikachu"]];
@@ -1201,7 +1233,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     for (size_t j = 0; j < batch_keys_pre_flush[i].size(); j++) {
       Slice key_from_the_log(keys_cf[index++]);
       Slice batch_key(batch_keys_pre_flush[i][j]);
-      ASSERT_TRUE(key_from_the_log.compare(batch_key) == 0);
+      ASSERT_EQ(key_from_the_log.compare(batch_key), 0);
     }
   }
 
@@ -1209,10 +1241,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     for (size_t j = 0; j < batch_keys_post_flush[i].size(); j++) {
       Slice key_from_the_log(keys_cf[index++]);
       Slice batch_key(batch_keys_post_flush[i][j]);
-      ASSERT_TRUE(key_from_the_log.compare(batch_key) == 0);
+      ASSERT_EQ(key_from_the_log.compare(batch_key), 0);
     }
   }
-  ASSERT_TRUE(index == keys_cf.size());
+  ASSERT_EQ(index, keys_cf.size());
 }
 
 TEST_F(DBTest2, PresetCompressionDict) {
@@ -1309,11 +1341,11 @@ TEST_F(DBTest2, PresetCompressionDict) {
           ASSERT_OK(Put(1, Key(static_cast<int>(key_num)),
                         seq_datas[(key_num / 10) % 10]));
         }
-        dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
         ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
       }
-      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
-                                  true /* disallow_trivial_move */);
+      ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
+                                            true /* disallow_trivial_move */));
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
@@ -1883,7 +1915,7 @@ TEST_F(DBTest2, CompressionOptions) {
           ASSERT_OK(Put(key, value));
         }
         ASSERT_OK(Flush());
-        dbfull()->TEST_WaitForCompact();
+        ASSERT_OK(dbfull()->TEST_WaitForCompact());
       }
 
       // Make sure that we wrote enough to check all 7 levels
@@ -1898,6 +1930,7 @@ TEST_F(DBTest2, CompressionOptions) {
         ASSERT_EQ(key_value_written[key], value);
         key_value_written.erase(key);
       }
+      ASSERT_OK(db_iter->status());
       ASSERT_EQ(0, key_value_written.size());
     }
   }
@@ -1979,7 +2012,7 @@ TEST_F(DBTest2, CompactionStall) {
   // Hold NotifyOnCompactionCompleted in the unlock mutex section
   TEST_SYNC_POINT("DBTest2::CompactionStall:3");
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_LT(NumTableFilesAtLevel(0),
             options.level0_file_num_compaction_trigger);
   ASSERT_GT(listener->compacted_files_cnt_.load(),
@@ -2000,8 +2033,8 @@ TEST_F(DBTest2, FirstSnapshotTest) {
   // This snapshot will have sequence number 0 what is expected behaviour.
   const Snapshot* s1 = db_->GetSnapshot();
 
-  Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
-  Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
+  ASSERT_OK(Put(1, "k1", std::string(100000, 'x')));  // Fill memtable
+  ASSERT_OK(Put(1, "k2", std::string(100000, 'y')));  // Trigger flush
 
   db_->ReleaseSnapshot(s1);
 }
@@ -2014,17 +2047,17 @@ TEST_F(DBTest2, DuplicateSnapshot) {
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   SequenceNumber oldest_ww_snap, first_ww_snap;
 
-  Put("k", "v");  // inc seq
+  ASSERT_OK(Put("k", "v"));  // inc seq
   snapshots.push_back(db_->GetSnapshot());
   snapshots.push_back(db_->GetSnapshot());
-  Put("k", "v");  // inc seq
+  ASSERT_OK(Put("k", "v"));  // inc seq
   snapshots.push_back(db_->GetSnapshot());
   snapshots.push_back(dbi->GetSnapshotForWriteConflictBoundary());
   first_ww_snap = snapshots.back()->GetSequenceNumber();
-  Put("k", "v");  // inc seq
+  ASSERT_OK(Put("k", "v"));  // inc seq
   snapshots.push_back(dbi->GetSnapshotForWriteConflictBoundary());
   snapshots.push_back(db_->GetSnapshot());
-  Put("k", "v");  // inc seq
+  ASSERT_OK(Put("k", "v"));  // inc seq
   snapshots.push_back(db_->GetSnapshot());
 
   {
@@ -2064,19 +2097,19 @@ class PinL0IndexAndFilterBlocksTest
     options->table_factory.reset(NewBlockBasedTableFactory(table_options));
     CreateAndReopenWithCF({"pikachu"}, *options);
 
-    Put(1, "a", "begin");
-    Put(1, "z", "end");
+    ASSERT_OK(Put(1, "a", "begin"));
+    ASSERT_OK(Put(1, "z", "end"));
     ASSERT_OK(Flush(1));
     // move this table to L1
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
 
     // reset block cache
     table_options.block_cache = NewLRUCache(64 * 1024);
     options->table_factory.reset(NewBlockBasedTableFactory(table_options));
     TryReopenWithColumnFamilies({"default", "pikachu"}, *options);
     // create new table at L0
-    Put(1, "a2", "begin2");
-    Put(1, "z2", "end2");
+    ASSERT_OK(Put(1, "a2", "begin2"));
+    ASSERT_OK(Put(1, "z2", "end2"));
     ASSERT_OK(Flush(1));
 
     if (close_afterwards) {
@@ -2120,7 +2153,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
   std::string value;
   // Miss and hit count should remain the same, they're all pinned.
-  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
@@ -2248,7 +2281,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   // cache read for both of index and filter. If prefetch doesn't explicitly
   // happen, it will happen when verifying the file.
   Compact(1, "a", "zzzzz");
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   if (!disallow_preload_) {
     ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
@@ -2319,10 +2352,10 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   GenerateNewRandomFile(&rnd);
   // Add three more small files that overlap with the previous file
   for (int i = 0; i < 3; i++) {
-    Put("a", "z");
+    ASSERT_OK(Put("a", "z"));
     ASSERT_OK(Flush());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Output files to L1 are cut to three pieces, according to
   // options.max_compaction_bytes
@@ -2483,6 +2516,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_EQ(0, get_perf_context()->iter_next_cpu_nanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_EQ(0, get_perf_context()->iter_prev_cpu_nanos);
   ASSERT_EQ(0, env_->now_cpu_count_.load());
@@ -2519,6 +2553,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonNanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_prev_cpu_nanos, 0);
   ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonNanos);
@@ -2716,6 +2751,7 @@ TEST_F(DBTest2, ReadAmpBitmap) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), Get(iter->key().ToString()));
     }
+    ASSERT_OK(iter->status());
     delete iter;
 
     // Read amp is on average 100% since we read all what we loaded in memory
@@ -3035,10 +3071,12 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   }
 
   // OK, now trigger a manual compaction
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsManualCompactionPaused());
 
   // Wait for compactions to get scheduled and stopped
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   // Get file names after compaction is stopped
   files_meta.clear();
@@ -3053,10 +3091,12 @@ TEST_F(DBTest2, PausingManualCompaction1) {
 
   manual_compactions_paused = 0;
   // Now make sure CompactFiles also not run
-  dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
-                         files_before_compact, 0);
+  ASSERT_TRUE(dbfull()
+                  ->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
+                                 files_before_compact, 0)
+                  .IsManualCompactionPaused());
   // Wait for manual compaction to get scheduled and finish
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   files_meta.clear();
   files_after_compact.clear();
@@ -3109,7 +3149,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
-        Flush();
+        ASSERT_OK(Flush());
       }
 
       for (int l = 1; l < options.num_levels - i; l++) {
@@ -3130,8 +3170,10 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   // As manual compaction disabled, not even reach sync point
   ASSERT_EQ(run_manual_compactions, 0);
 #ifndef ROCKSDB_LITE
@@ -3141,8 +3183,8 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:1");
   dbfull()->EnableManualCompaction();
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
@@ -3163,7 +3205,7 @@ TEST_F(DBTest2, PausingManualCompaction4) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
-        Flush();
+        ASSERT_OK(Flush());
       }
 
       for (int l = 1; l < options.num_levels - i; l++) {
@@ -3187,8 +3229,10 @@ TEST_F(DBTest2, PausingManualCompaction4) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   ASSERT_EQ(run_manual_compactions, 1);
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
@@ -3197,8 +3241,8 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
   dbfull()->EnableManualCompaction();
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
@@ -3223,7 +3267,7 @@ TEST_F(DBTest2, CancelManualCompaction1) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
-        Flush();
+        ASSERT_OK(Flush());
       }
 
       for (int l = 1; l < options.num_levels - i; l++) {
@@ -3251,8 +3295,10 @@ TEST_F(DBTest2, CancelManualCompaction1) {
       "DBImpl::RunManualCompaction()::1",
       [&](void* /*arg*/) { ++compactions_run; });
 
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   // Since compactions are disabled, we shouldn't start compacting.
   // E.g. we should call the compaction function exactly one time.
@@ -3275,8 +3321,10 @@ TEST_F(DBTest2, CancelManualCompaction1) {
       });
 
   compact_options.canceled->store(false, std::memory_order_release);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(compactions_run, 3);
 
@@ -3287,8 +3335,8 @@ TEST_F(DBTest2, CancelManualCompaction1) {
 
   // Compactions should work again if we re-enable them..
   compact_options.canceled->store(false, std::memory_order_relaxed);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
@@ -3314,7 +3362,7 @@ TEST_F(DBTest2, CancelManualCompaction2) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
-        Flush();
+        ASSERT_OK(Flush());
       }
 
       for (int l = 1; l < options.num_levels - i; l++) {
@@ -3353,8 +3401,10 @@ TEST_F(DBTest2, CancelManualCompaction2) {
       });
 
   compact_options.canceled->store(false, std::memory_order_release);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   // NOTE: as we set compact_options.max_subcompacitons = 1, and store true to
   // the canceled variable from the single compacting thread (via callback),
@@ -3371,8 +3421,8 @@ TEST_F(DBTest2, CancelManualCompaction2) {
 
   // Compactions should work again if we re-enable them..
   compact_options.canceled->store(false, std::memory_order_relaxed);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
@@ -3424,7 +3474,7 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
     for (int j = 0; j < 10; j++) {
       ASSERT_OK(Put(Key(i + j * 10), rnd.RandomString(50)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -3445,8 +3495,10 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   listener->subcode_ = Status::SubCode::kManualCompactionPaused;
 
   compact_options.canceled->store(false, std::memory_order_release);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_GT(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -3457,8 +3509,10 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
 
   // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
   // without notifying), 3 Notify compaction end (return without notifying).
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(compact_options, nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -3479,8 +3533,8 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   listener->subcode_ = Status::SubCode::kNone;
 
   compact_options.canceled->store(false, std::memory_order_release);
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_GT(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -3558,7 +3612,7 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
 
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_EQ("v1", Get("foo"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_EQ("v1", Get("foo"));
 }
 
@@ -3584,7 +3638,7 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
   ASSERT_NE(0, cache->GetUsage());
 
   ASSERT_EQ("v1", Get("foo"));
-  Flush();
+  ASSERT_OK(Flush());
 
   size_t prev_size = cache->GetUsage();
   // Remember block cache size, so that we can find that
@@ -3611,7 +3665,7 @@ TEST_F(DBTest2, IterRaceFlush1) {
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
-    Flush();
+    ASSERT_OK(Flush());
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
   });
 
@@ -3621,6 +3675,7 @@ TEST_F(DBTest2, IterRaceFlush1) {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
   }
 
@@ -3640,7 +3695,7 @@ TEST_F(DBTest2, IterRaceFlush2) {
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:1");
     ASSERT_OK(Put("foo", "v2"));
-    Flush();
+    ASSERT_OK(Flush());
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
   });
 
@@ -3650,6 +3705,7 @@ TEST_F(DBTest2, IterRaceFlush2) {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
   }
 
@@ -3669,7 +3725,7 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
-    Flush();
+    ASSERT_OK(Flush());
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
   });
 
@@ -3677,9 +3733,11 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
   // "v1" or "v2".
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
-    it->Refresh();
+    ASSERT_OK(it->status());
+    ASSERT_OK(it->Refresh());
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
   }
 
@@ -3699,7 +3757,7 @@ TEST_F(DBTest2, GetRaceFlush1) {
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
-    Flush();
+    ASSERT_OK(Flush());
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
   });
 
@@ -3722,7 +3780,7 @@ TEST_F(DBTest2, GetRaceFlush2) {
   port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
-    Flush();
+    ASSERT_OK(Flush());
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
   });
 
@@ -3795,6 +3853,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   ASSERT_EQ("second", value);
   // nothing should be returned using memtable-only iterator after flushing.
   it = db_->NewIterator(ropt, handles_[1]);
+  ASSERT_OK(it->status());
   count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -3802,11 +3861,13 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   }
   ASSERT_TRUE(!it->Valid());
   ASSERT_EQ(0, count);
+  ASSERT_OK(it->status());
   delete it;
 
   // Add a key to memtable
   ASSERT_OK(Put(1, "foobar", "third"));
   it = db_->NewIterator(ropt, handles_[1]);
+  ASSERT_OK(it->status());
   count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -3816,6 +3877,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   }
   ASSERT_TRUE(!it->Valid());
   ASSERT_EQ(1, count);
+  ASSERT_OK(it->status());
   delete it;
 }
 
@@ -3844,28 +3906,28 @@ TEST_F(DBTest2, LowPriWrite) {
   WriteOptions wo;
   for (int i = 0; i < 6; i++) {
     wo.low_pri = false;
-    Put("", "", wo);
+    ASSERT_OK(Put("", "", wo));
     wo.low_pri = true;
-    Put("", "", wo);
-    Flush();
+    ASSERT_OK(Put("", "", wo));
+    ASSERT_OK(Flush());
   }
   ASSERT_EQ(0, rate_limit_count.load());
   wo.low_pri = true;
-  Put("", "", wo);
+  ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
   wo.low_pri = false;
-  Put("", "", wo);
+  ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
 
   TEST_SYNC_POINT("DBTest.LowPriWrite:0");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   wo.low_pri = true;
-  Put("", "", wo);
+  ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
   wo.low_pri = false;
-  Put("", "", wo);
+  ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
 }
 
@@ -3905,10 +3967,10 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       for (int j = 0; j <= kNumKeysPerFile; ++j) {
         ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
       }
-      dbfull()->TEST_WaitForFlushMemTable();
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
     }
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
     ASSERT_EQ(0, options.rate_limiter->GetTotalBytesThrough(Env::IO_HIGH));
@@ -3927,6 +3989,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
                             direct_io_extra));
 
     Iterator* iter = db_->NewIterator(ReadOptions());
+    ASSERT_OK(iter->status());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
     }
@@ -3947,8 +4010,8 @@ TEST_F(DBTest2, ReduceLevel) {
   options.disable_auto_compactions = true;
   options.num_levels = 7;
   Reopen(options);
-  Put("foo", "bar");
-  Flush();
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
   MoveFilesToLevel(6);
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -3956,7 +4019,7 @@ TEST_F(DBTest2, ReduceLevel) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 1;
-  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
@@ -3985,35 +4048,35 @@ TEST_F(DBTest2, ReadCallbackTest) {
   // the DB instead of assuming what seq the DB used.
   int i = 1;
   for (; i < 10; i++) {
-    Put(key, value + std::to_string(i));
+    ASSERT_OK(Put(key, value + std::to_string(i)));
     // Take a snapshot to avoid the value being removed during compaction
     auto snapshot = dbfull()->GetSnapshot();
     snapshots.push_back(snapshot);
   }
-  Flush();
+  ASSERT_OK(Flush());
   for (; i < 20; i++) {
-    Put(key, value + std::to_string(i));
+    ASSERT_OK(Put(key, value + std::to_string(i)));
     // Take a snapshot to avoid the value being removed during compaction
     auto snapshot = dbfull()->GetSnapshot();
     snapshots.push_back(snapshot);
   }
-  Flush();
+  ASSERT_OK(Flush());
   MoveFilesToLevel(6);
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
   for (; i < 30; i++) {
-    Put(key, value + std::to_string(i));
+    ASSERT_OK(Put(key, value + std::to_string(i)));
     auto snapshot = dbfull()->GetSnapshot();
     snapshots.push_back(snapshot);
   }
-  Flush();
+  ASSERT_OK(Flush());
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
   // And also add some values to the memtable
   for (; i < 40; i++) {
-    Put(key, value + std::to_string(i));
+    ASSERT_OK(Put(key, value + std::to_string(i)));
     auto snapshot = dbfull()->GetSnapshot();
     snapshots.push_back(snapshot);
   }
@@ -4086,21 +4149,21 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
       [&](void* /*arg*/) { env_->SleepForMicroseconds(1000000); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put("key", "val");
+  ASSERT_OK(Put("key", "val"));
   FlushOptions flush_opts;
   flush_opts.wait = false;
   db_->Flush(flush_opts);
   TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered");
 
-  db_->DisableFileDeletions();
+  ASSERT_OK(db_->DisableFileDeletions());
   VectorLogPtr log_files;
-  db_->GetSortedWalFiles(log_files);
+  ASSERT_OK(db_->GetSortedWalFiles(log_files));
   TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured");
   for (const auto& log_file : log_files) {
     ASSERT_OK(env_->FileExists(LogFileName(dbname_, log_file->LogNumber())));
   }
 
-  db_->EnableFileDeletions();
+  ASSERT_OK(db_->EnableFileDeletions());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -4303,6 +4366,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   single_iter = db_->NewIterator(ro);
   single_iter->Seek("f");
   single_iter->SeekForPrev("g");
+  ASSERT_OK(single_iter->status());
   delete single_iter;
 
   ASSERT_EQ("1", Get(0, "a"));
@@ -4314,8 +4378,8 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
-  Put("hello", "world");
-  Merge("foo", "bar");
+  ASSERT_OK(Put("hello", "world"));
+  ASSERT_OK(Merge("foo", "bar"));
 
   // Open another db, replay, and verify the data
   std::string value;
@@ -4471,8 +4535,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
 
   ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
-  Put("hello", "world");
-  Merge("foo", "bar");
+  ASSERT_OK(Put("hello", "world"));
+  ASSERT_OK(Merge("foo", "bar"));
 
   // Open another db, replay, and verify the data
   std::string value;
@@ -4566,8 +4630,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   uint64_t fake_ts = 1U;
   // Write
   batch.Clear();
-  batch.Put("trace-record-write1", "write1");
-  batch.Put("trace-record-write2", "write2");
+  ASSERT_OK(batch.Put("trace-record-write1", "write1"));
+  ASSERT_OK(batch.Put("trace-record-write2", "write2"));
   record.reset(new WriteQueryTraceRecord(batch.Data(), fake_ts++));
   ASSERT_OK(replayer->Execute(std::move(record), &result));
   ASSERT_TRUE(result != nullptr);
@@ -4900,8 +4964,8 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
-  Put("hello", "world");
-  Merge("foo", "bar");
+  ASSERT_OK(Put("hello", "world"));
+  ASSERT_OK(Merge("foo", "bar"));
 
   // Open another db, replay, and verify the data
   std::string value;
@@ -5054,9 +5118,9 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
-  dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
-                              nullptr /* end */, nullptr /* column_family */,
-                              true /* disallow_trivial_move */);
+  ASSERT_OK(dbfull()->TEST_CompactRange(
+      0 /* level */, nullptr /* begin */, nullptr /* end */,
+      nullptr /* column_family */, true /* disallow_trivial_move */));
 
   // Ensure pinned_value doesn't rely on memory munmap'd by the above
   // compaction. It crashes if it does.
@@ -5100,10 +5164,10 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
 
   // Since v is the size of a block, each key should take a block
   // of 400+ bytes.
-  Put("1", v);
-  Put("3", v);
-  Put("5", v);
-  Put("7", v);
+  ASSERT_OK(Put("1", v));
+  ASSERT_OK(Put("3", v));
+  ASSERT_OK(Put("5", v));
+  ASSERT_OK(Put("7", v));
   ASSERT_OK(Flush());
 
   ASSERT_EQ(0, bbto.block_cache->GetPinnedUsage());
@@ -5132,16 +5196,18 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
     iter->Seek("3");
     ASSERT_TRUE(iter->Valid());
 
+    ASSERT_OK(iter->status());
+
     ASSERT_GT(bbto.block_cache->GetPinnedUsage(), 0);
     ASSERT_LT(bbto.block_cache->GetPinnedUsage(), 800);
   }
   ASSERT_EQ(0, bbto.block_cache->GetPinnedUsage());
 
   // Test compaction case
-  Put("2", v);
-  Put("5", v);
-  Put("6", v);
-  Put("8", v);
+  ASSERT_OK(Put("2", v));
+  ASSERT_OK(Put("5", v));
+  ASSERT_OK(Put("6", v));
+  ASSERT_OK(Put("8", v));
   ASSERT_OK(Flush());
 
   // Clear existing data in block cache
@@ -5200,20 +5266,20 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put("1", "1");
-  Put("9", "1");
-  Flush();
+  ASSERT_OK(Put("1", "1"));
+  ASSERT_OK(Put("9", "1"));
+  ASSERT_OK(Flush());
 
   expected_lower_bound = 0;
   expected_higher_bound = 8 * 1024;
 
-  Put("1", "1");
-  Put("9", "1");
-  Flush();
+  ASSERT_OK(Put("1", "1"));
+  ASSERT_OK(Put("9", "1"));
+  ASSERT_OK(Flush());
 
-  Put("1", "1");
-  Put("9", "1");
-  Flush();
+  ASSERT_OK(Put("1", "1"));
+  ASSERT_OK(Put("9", "1"));
+  ASSERT_OK(Flush());
 
   // Full compaction to make sure there is no L0 file after the open.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -5246,13 +5312,13 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   options.max_open_files = -1;
   Reopen(options);
 
-  Put("1", "1");
-  Put("9", "1");
-  Flush();
+  ASSERT_OK(Put("1", "1"));
+  ASSERT_OK(Put("9", "1"));
+  ASSERT_OK(Flush());
 
-  Put("1", "1");
-  Put("9", "1");
-  Flush();
+  ASSERT_OK(Put("1", "1"));
+  ASSERT_OK(Put("9", "1"));
+  ASSERT_OK(Flush());
 
   ASSERT_TRUE(called.load());
   called = false;
@@ -5353,17 +5419,24 @@ TEST_F(DBTest2, TestCompactFiles) {
   GetSstFiles(env_, dbname_, &files);
   ASSERT_EQ(files.size(), 2);
 
-  port::Thread user_thread1(
-      [&]() { db_->CompactFiles(CompactionOptions(), handle, files, 1); });
+  Status user_thread1_status;
+  port::Thread user_thread1([&]() {
+    user_thread1_status =
+        db_->CompactFiles(CompactionOptions(), handle, files, 1);
+  });
 
+  Status user_thread2_status;
   port::Thread user_thread2([&]() {
-    ASSERT_OK(db_->IngestExternalFile(handle, {external_file2},
-                                      IngestExternalFileOptions()));
+    user_thread2_status = db_->IngestExternalFile(handle, {external_file2},
+                                                  IngestExternalFileOptions());
     TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile1");
   });
 
   user_thread1.join();
   user_thread2.join();
+
+  ASSERT_OK(user_thread1_status);
+  ASSERT_OK(user_thread2_status);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -5456,7 +5529,7 @@ TEST_F(DBTest2, OldStatsInterface) {
   options.statistics = stats;
   Reopen(options);
 
-  Put("foo", "bar");
+  ASSERT_OK(Put("foo", "bar"));
   ASSERT_EQ("bar", Get("foo"));
   ASSERT_OK(Flush());
   ASSERT_EQ("bar", Get("foo"));
@@ -5504,6 +5577,7 @@ TEST_F(DBTest2, PrefixBloomReseek) {
   ASSERT_OK(Put("bbb1", ""));
 
   Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter->status());
 
   // Seeking into f1, the iterator will check bloom filter which returns the
   // file iterator ot be invalidate, and the cursor will put into f2, with
@@ -5542,6 +5616,7 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter->status());
 
   // Bloom filter is filterd out by f1.
   // This is just one of several valid position following the contract.
@@ -5549,6 +5624,7 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   // the behavior of the current implementation. If underlying implementation
   // changes, the test might fail here.
   iter->Seek("bbb1");
+  ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
 
   delete iter;
@@ -5695,6 +5771,7 @@ TEST_F(DBTest2, SeekFileRangeDeleteTail) {
     ReadOptions ro;
     ro.total_order_seek = true;
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    ASSERT_OK(iter->status());
     iter->Seek("e");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ("x", iter->key().ToString());
@@ -5712,6 +5789,7 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
 
   ASSERT_OK(Put("a", "a"));
   Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter->status());
   ASSERT_OK(Flush());
   size_t value = options.write_buffer_manager->memory_usage();
   ASSERT_GT(value, base_value);
@@ -5778,14 +5856,14 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
                                    nullptr));
 
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "5"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "6"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "7"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "8"));
-  Flush();
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,4,1", FilesPerLevel());
 #endif  // ROCKSDB_LITE
@@ -5794,8 +5872,8 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
 }
 
 TEST_F(DBTest2, FileConsistencyCheckInOpen) {
-  Put("foo", "bar");
-  Flush();
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
 
   SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
@@ -5830,10 +5908,11 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));
   ASSERT_OK(Put("y1", large_value));
-  Flush();
+  ASSERT_OK(Flush());
 
   {
     std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+    ASSERT_OK(iterator->status());
     iterator->SeekForPrev("x3");
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("x1", iterator->key().ToString());
@@ -5945,7 +6024,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     ASSERT_OK(Put("xx1", ""));
     ASSERT_OK(Put("xz1", ""));
     ASSERT_OK(Put("zz", ""));
-    Flush();
+    ASSERT_OK(Flush());
 
     // After reopening DB with prefix size 2 => 1, prefix extractor
     // won't take effective unless it won't change results based
@@ -5955,6 +6034,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
 
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+      ASSERT_OK(iterator->status());
       iterator->Seek("xa");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
@@ -5979,6 +6059,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
 
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      ASSERT_OK(iterator->status());
 
       // SeekForPrev() never uses prefix bloom if it is changed.
       iterator->SeekForPrev("xg0");
@@ -5993,6 +6074,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     ub = Slice(ub_str);
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      ASSERT_OK(iterator->status());
 
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
@@ -6039,6 +6121,8 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       if (expect_filter_check) {
         ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+
+      ASSERT_OK(iterator->status());
     }
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
@@ -6056,6 +6140,8 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       if (expect_filter_check) {
         ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+
+      ASSERT_OK(iterator->status());
     }
 
     ub_str = "xg9";
@@ -6068,6 +6154,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       if (expect_filter_check) {
         ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
+      ASSERT_OK(iterator->status());
     }
   }
 }
@@ -6087,29 +6174,29 @@ TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
   Reopen(options);
 
   ASSERT_OK(Put("b1", "ok"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Flushing several files so that the chance that hash bucket
   // is empty fo "b" in at least one of the files is high.
   ASSERT_OK(Put("a1", ""));
   ASSERT_OK(Put("c1", ""));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(Put("a2", ""));
   ASSERT_OK(Put("c2", ""));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(Put("a3", ""));
   ASSERT_OK(Put("c3", ""));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(Put("a4", ""));
   ASSERT_OK(Put("c4", ""));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(Put("a5", ""));
   ASSERT_OK(Put("c5", ""));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_EQ("ok", Get("b1"));
 }
@@ -6132,7 +6219,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));
   ASSERT_OK(Put("y1", large_value));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions ro;
   ro.total_order_seek = false;
@@ -6143,6 +6230,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("x1", iterator->key().ToString());
     ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    ASSERT_OK(iterator->status());
   }
 
   std::string ub_str = "b9";
@@ -6154,6 +6242,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     iterator->Seek("b1");
     ASSERT_FALSE(iterator->Valid());
     ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    ASSERT_OK(iterator->status());
   }
 
   ub_str = "z";
@@ -6164,6 +6253,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("x1", iterator->key().ToString());
     ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    ASSERT_OK(iterator->status());
   }
 
   ub_str = "c";
@@ -6173,6 +6263,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     iterator->Seek("b1");
     ASSERT_FALSE(iterator->Valid());
     ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    ASSERT_OK(iterator->status());
   }
 
   // The same queries without recreating iterator
@@ -6185,6 +6276,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     iterator->Seek("b1");
     ASSERT_FALSE(iterator->Valid());
     ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    ASSERT_OK(iterator->status());
 
     ub_str = "z";
     ub = Slice(ub_str);
@@ -6320,6 +6412,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   options.level0_file_num_compaction_trigger = 2;
   Reopen(options);
 
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
@@ -6332,6 +6431,10 @@ TEST_F(DBTest2, BottommostTemperature) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6340,6 +6443,10 @@ TEST_F(DBTest2, BottommostTemperature) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // reopen and check the information is persisted
   Reopen(options);
@@ -6347,6 +6454,21 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
   ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
@@ -6360,6 +6482,13 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
 
   DestroyAndReopen(options);
 
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("bar", "bar"));
@@ -6372,6 +6501,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
@@ -6380,6 +6513,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   // Update bottommost temperature
   options.bottommost_temperature = Temperature::kWarm;
@@ -6388,6 +6525,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   // Should not impact existing ones
   ASSERT_EQ(Temperature::kUnknown,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
 
   // new generated file should have the new settings
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -6395,6 +6536,10 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(1, metadata.file_count);
   ASSERT_EQ(Temperature::kWarm,
             metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6404,6 +6549,21 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 #endif  // ROCKSDB_LITE
 
