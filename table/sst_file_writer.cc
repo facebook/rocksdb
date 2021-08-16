@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
@@ -245,7 +246,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   // Here we mimic the way db_session_id behaves by resetting the db_session_id
   // every time SstFileWriter is used, and in this case db_id is set to be "SST
   // Writer".
-  std::string db_session_id = r->ioptions.env->GenerateUniqueId();
+  std::string db_session_id = DBImpl::GenerateDbSessionId(r->ioptions.env);
   if (!db_session_id.empty() && db_session_id.back() == '\n') {
     db_session_id.pop_back();
   }
