@@ -369,7 +369,8 @@ class ColumnFamilyData {
 
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
-                                 SequenceNumber earliest_seq);
+                                 SequenceNumber earliest_seq,
+                                 const uint32_t* filter_bits = nullptr);
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
                          SequenceNumber earliest_seq);
 

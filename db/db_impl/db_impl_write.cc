@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 #include <cmath>
+#include <numbers>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -1848,24 +1849,24 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
     std::unique_ptr<uint32_t> new_filterbits;
+
     if (mutable_cf_options.memtable_self_tuning_bloom) {
       const uint64_t pastentries = cfd->mem()->BFUniqueEntryEstimate();
-      const uint32_t pastbfsize = cfd->mem()->BFBitSize();
       const uint32_t newsize =
           static_cast<uint32_t>((pastentries * (-1.0) * std::log(0.01)) /
-                                (std::log(2.0) * std::log(2.0)));
+                                (std::numbers::ln2_v * std::numbers::ln2_v));
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
           "Estimate Unique BF entries %" PRIu64 ". Memtable says %" PRIu64
           " entries "
-          "(can include duplicates). Size=%" PRIu32
-          " bits. New size = %" PRIu32,
-          pastentries, memtable_info.num_entries, pastbfsize, newsize);
+          "(can include duplicates). New BF size = %" PRIu32 " bits.",
+          pastentries, memtable_info.num_entries, newsize);
       new_filterbits.reset(new uint32_t);
       *new_filterbits = newsize;
     }
-    (void)new_filterbits;
-    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+
+    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq,
+                                        new_filterbits.get());
     context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,

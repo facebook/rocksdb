@@ -67,15 +67,4 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
 }
 
-uint32_t DynamicBloom::BitSize() const {
-  // Determine how much to round off + align by so that x ^ i (that's xor) is
-  // a valid u64 index if x is a valid u64 index and 0 <= i < kNumDoubleProbes.
-  uint32_t block_bytes = /*bytes/u64*/ 8 *
-                         /*u64s*/ std::max(1U, roundUpToPow2(kNumDoubleProbes));
-
-  uint32_t blocks = 8 * kLen / block_bytes;
-
-  return blocks * (block_bytes * 8 /* block_bits */);
-}
-
 }  // namespace ROCKSDB_NAMESPACE

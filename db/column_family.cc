@@ -1060,9 +1060,10 @@ uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
 }
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
-    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq,
+    const uint32_t* filter_bits) {
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_);
+                      write_buffer_manager_, earliest_seq, id_, filter_bits);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
@@ -1070,17 +1071,6 @@ void ColumnFamilyData::CreateNewMemtable(
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  // if (mutable_cf_options.memtable_self_tuning_bloom) {
-  //   size_t num_add = 0, payload_bytes = 0, garbage_bytes = 0, memtable_hit =
-  //   0,
-  //          memtable_miss = 0, zero = 0;
-  //   uint32_t memtable_prefix_bloom_bits =
-  //                static_cast<uint32_t>(
-  //                    static_cast<double>(mutable_cf_options.write_buffer_size)
-  //                    * 0.0015) *
-  //                8u,
-  //            num_probes = 6;
-  // }
   SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
   mem_->Ref();
 }
