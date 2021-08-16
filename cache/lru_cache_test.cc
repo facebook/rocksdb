@@ -1229,12 +1229,12 @@ class LRUCacheWithStat : public LRUCache {
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
-  std::shared_ptr<LRUCacheWithStat> tmp_cache(new LRUCacheWithStat(
+  LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
       cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache));
-  std::shared_ptr<Cache> cache(tmp_cache.get());
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache(tmp_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1247,9 +1247,12 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   Random rnd(301);
   const int N = 256;
   std::vector<std::string> value;
+  char buf[1000];
+  memset(buf, 'a', 1000);
   value.resize(N);
   for (int i = 0; i < N; i++) {
-    std::string p_v = rnd.RandomString(1000);
+    // std::string p_v = rnd.RandomString(1000);
+    std::string p_v(buf, 1000);
     value[i] = p_v;
     ASSERT_OK(Put(Key(i), p_v));
   }
@@ -1278,46 +1281,51 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   Status s = db_->DumpCache(cd_options, cache);
   ASSERT_OK(s);
   fprintf(stdout, "dump is sucessful\n");
-  // cache->EraseUnRefEntries();
 
   // we have a new cache it is empty, then, before we do the Get, we do the
   // dumpload
   /*
-  tmp_cache.reset(new LRUCacheWithStat(cache_opts.capacity,
+  tmp_cache = new LRUCacheWithStat(cache_opts.capacity,
   cache_opts.num_shard_bits, cache_opts.strict_capacity_limit,
   cache_opts.high_pri_pool_ratio, cache_opts.memory_allocator,
   cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-  cache_opts.secondary_cache)); std::shared_ptr<Cache> cache_new(tmp_cache.get);
+  cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache_new(tmp_cache);
   table_options.block_cache = cache_new;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.env = fault_env_.get();
-  DestroyAndReopen(options);
+  //DestroyAndReopen(options);
   */
   // Reopen(options);
-  /*
+
   fprintf(stdout, "start load\n");
   start_insert = tmp_cache->GetInsertCount();
   start_lookup = tmp_cache->GetLookupcount();
-  s = db_->LoadDumpedCache(cd_options, cache);
+  //s = db_->LoadDumpedCache(table_options, cd_options, cache);
   uint32_t load_insert = tmp_cache->GetInsertCount() - start_insert;
   uint32_t load_lookup = tmp_cache->GetLookupcount() - start_lookup;
   fprintf(stdout, "load end, load_insert: %d, load_lookup: %d\n",
-  static_cast<int>(load_insert), static_cast<int>(load_lookup)); ASSERT_OK(s);
-  */
+          static_cast<int>(load_insert), static_cast<int>(load_lookup));
+  ASSERT_OK(s);
 
   // After load, we do the Get again
+
   start_insert = tmp_cache->GetInsertCount();
   start_lookup = tmp_cache->GetLookupcount();
   for (int i = 0; i < N; i++) {
     v = Get(Key(i));
-    // ASSERT_EQ(v, value[i]);
+    if (v != value[i]) {
+      fprintf(stdout, "The lookup does not match: %d\n", i);
+    }
   }
+
   uint32_t final_insert = tmp_cache->GetInsertCount() - start_insert;
   uint32_t final_lookup = tmp_cache->GetLookupcount() - start_lookup;
-  fprintf(stdout, "after loaded insert: %d", static_cast<int>(final_insert));
-  fprintf(stdout, "after loaded lookup: %d", static_cast<int>(final_lookup));
+  fprintf(stdout, "after loaded insert: %d\n", static_cast<int>(final_insert));
+  fprintf(stdout, "after loaded lookup: %d\n", static_cast<int>(final_lookup));
+
   Destroy(options);
 }
 //#endif

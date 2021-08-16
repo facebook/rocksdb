@@ -43,6 +43,8 @@ struct ColumnFamilyOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
 struct DBOptions;
+struct TableProperties;
+struct BlockBasedTableOptions;
 struct ExternalSstFileInfo;
 struct FlushOptions;
 struct Options;
@@ -1717,8 +1719,10 @@ class DB {
     return Status::NotSupported("DumpCache() is not implemented.");
   }
 
-  virtual Status LoadDumpedCache(const CacheDumpOptions& /*dump_options*/,
-                                 const std::shared_ptr<Cache> /*cache*/) {
+  virtual Status LoadDumpedCache(
+      const BlockBasedTableOptions& /*table_options*/,
+      const CacheDumpOptions& /*dump_options*/,
+      const std::shared_ptr<Cache> /*cache*/) {
     return Status::NotSupported("LoadDumpedCache() is not implemented.");
   }
 

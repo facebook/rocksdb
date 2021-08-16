@@ -502,7 +502,8 @@ class DBImpl : public DB {
   virtual Status DumpCache(const CacheDumpOptions& dump_options,
                            const std::shared_ptr<Cache> cache) override;
   using DB::LoadDumpedCache;
-  virtual Status LoadDumpedCache(const CacheDumpOptions& dump_options,
+  virtual Status LoadDumpedCache(const BlockBasedTableOptions& table_options,
+                                 const CacheDumpOptions& dump_options,
                                  const std::shared_ptr<Cache> cache) override;
 
 #endif  // ROCKSDB_LITE

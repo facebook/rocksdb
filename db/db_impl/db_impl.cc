@@ -5175,12 +5175,14 @@ Status DBImpl::DumpCache(const CacheDumpOptions& dump_options,
   return std::move(io_s);
 }
 
-Status DBImpl::LoadDumpedCache(const CacheDumpOptions& dump_options,
+Status DBImpl::LoadDumpedCache(const BlockBasedTableOptions& table_options,
+                               const CacheDumpOptions& dump_options,
                                const std::shared_ptr<Cache> cache) {
   if (cache == nullptr) {
     return Status::InvalidArgument("Cache pointer is null!");
   }
-  CacheDumpedLoader cache_loader(env_, dump_options, cache, db_id_);
+  CacheDumpedLoader cache_loader(env_, table_options, dump_options, cache,
+                                 db_id_);
   Status s = cache_loader.PrepareFileReader();
   if (!s.ok()) {
     return s;

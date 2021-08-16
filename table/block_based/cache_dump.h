@@ -18,6 +18,7 @@
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/parsed_full_filter_block.h"
+#include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "util/crc32c.h"
 
@@ -204,7 +205,7 @@ class CacheDumper {
 
   std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
   DumpOneBlockCallBack() {
-    return [&](const Slice& key, void* value, size_t charge,
+    return [&](const Slice& key, void* value, size_t /*charge*/,
                Cache::DeleterFn deleter) {
       auto e = role_map_.find(deleter);
       CacheEntryRole role;
@@ -224,25 +225,41 @@ class CacheDumper {
         filter_out = true;
       }
       */
+      const char* block_start = nullptr;
+      size_t block_len = 0;
       switch (role) {
         case CacheEntryRole::kDataBlock:
           type = CacheDumpBlockType::kData;
+          block_start = (static_cast<Block*>(value))->data();
+          block_len = (static_cast<Block*>(value))->size();
           fprintf(stdout, "kDataBlock");
           break;
         case CacheEntryRole::kDeprecatedFilterBlock:
           type = CacheDumpBlockType::kDeprecatedFilterBlock;
+          block_start = (static_cast<BlockContents*>(value))->data.data();
+          block_len = (static_cast<BlockContents*>(value))->data.size();
           fprintf(stdout, "kDeprecatedFilterBlock");
           break;
         case CacheEntryRole::kFilterBlock:
           type = CacheDumpBlockType::kFilter;
+          block_start = (static_cast<ParsedFullFilterBlock*>(value))
+                            ->GetBlockContentsData()
+                            .data();
+          block_len = (static_cast<ParsedFullFilterBlock*>(value))
+                          ->GetBlockContentsData()
+                          .size();
           fprintf(stdout, "kFilterBlock");
           break;
         case CacheEntryRole::kFilterMetaBlock:
           type = CacheDumpBlockType::kFilterMetaBlock;
+          block_start = (static_cast<Block*>(value))->data();
+          block_len = (static_cast<Block*>(value))->size();
           fprintf(stdout, "kFilterMetaBlock");
           break;
         case CacheEntryRole::kIndexBlock:
           type = CacheDumpBlockType::kIndex;
+          block_start = (static_cast<Block*>(value))->data();
+          block_len = (static_cast<Block*>(value))->size();
           fprintf(stdout, "kIndexBlock");
           break;
         case CacheEntryRole::kMisc:
@@ -261,10 +278,10 @@ class CacheDumper {
           fprintf(stdout, "out");
           filter_out = true;
       }
-      if (!filter_out) {
-        char buffer[charge];
-        memcpy(buffer, value, charge);
-        WriteCacheBlock(type, key, (void*)buffer, charge);
+      if (!filter_out && block_start != nullptr) {
+        char buffer[block_len];
+        memcpy(buffer, block_start, block_len);
+        WriteCacheBlock(type, key, (void*)buffer, block_len);
       }
     };
   }
@@ -351,10 +368,15 @@ class CacheDumper {
 
 class CacheDumpedLoader {
  public:
-  CacheDumpedLoader(Env* env, const CacheDumpOptions& dump_options,
+  CacheDumpedLoader(Env* env, const BlockBasedTableOptions& toptions,
+                    const CacheDumpOptions& dump_options,
                     const std::shared_ptr<Cache> cache,
                     const std::string& db_id)
-      : env_(env), options_(dump_options), cache_(cache), db_id_(db_id) {}
+      : env_(env),
+        toptions_(toptions),
+        options_(dump_options),
+        cache_(cache),
+        db_id_(db_id) {}
   ~CacheDumpedLoader() {
     Close().PermitUncheckedError();
     delete[] buffer_;
@@ -398,40 +420,70 @@ class CacheDumpedLoader {
       if (!io_s.ok()) {
         break;
       }
+      MemoryAllocator* memory_allocator = GetMemoryAllocator(toptions_);
+      CacheAllocationPtr heap_buf =
+          AllocateBlock(data_content.value_len, memory_allocator);
+      memcpy(heap_buf.get(), data_content.value, data_content.value_len);
+      BlockContents* raw_block_contents = nullptr;
+      *raw_block_contents =
+          BlockContents(std::move(heap_buf), data_content.value_len);
+      // TODO: do we need the statistic for the dumped cache load?
+      Statistics* statistics = nullptr;
+
       if (data_content.type == CacheDumpBlockType::kDeprecatedFilterBlock) {
+        std::unique_ptr<BlockContents> block_holder;
+        block_holder.reset(BlocklikeTraits<BlockContents>::Create(
+            std::move(*raw_block_contents), 0, statistics, false,
+            toptions_.filter_policy.get()));
         Cache::Handle* cache_handle = nullptr;
-        cache_->Insert(data_content.key, data_content.value,
+        cache_->Insert(data_content.key, block_holder.get(),
                        BlocklikeTraits<BlockContents>::GetCacheItemHelper(
                            BlockType::kFilter),
                        data_content.value_len, &cache_handle,
                        Cache::Priority::LOW);
         fprintf(stdout, "Loaded filter BlockContent kFilter\n");
       } else if (data_content.type == CacheDumpBlockType::kFilter) {
+        std::unique_ptr<ParsedFullFilterBlock> block_holder;
+        block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
+            std::move(*raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            statistics, false, toptions_.filter_policy.get()));
         Cache::Handle* cache_handle = nullptr;
         cache_->Insert(
-            data_content.key, data_content.value,
+            data_content.key, block_holder.get(),
             BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
                 BlockType::kFilter),
             data_content.value_len, &cache_handle, Cache::Priority::LOW);
         fprintf(stdout, "Loaded filter ParsedFullFilterBlock kFilter\n");
       } else if (data_content.type == CacheDumpBlockType::kData) {
+        std::unique_ptr<Block> block_holder;
+        block_holder.reset(BlocklikeTraits<Block>::Create(
+            std::move(*raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            statistics, false, toptions_.filter_policy.get()));
         Cache::Handle* cache_handle = nullptr;
         cache_->Insert(
-            data_content.key, data_content.value,
+            data_content.key, block_holder.get(),
             BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData),
             data_content.value_len, &cache_handle, Cache::Priority::LOW);
         fprintf(stdout, "Loaded Block kData\n");
       } else if (data_content.type == CacheDumpBlockType::kIndex) {
+        std::unique_ptr<Block> block_holder;
+        block_holder.reset(BlocklikeTraits<Block>::Create(
+            std::move(*raw_block_contents), 0, statistics, false,
+            toptions_.filter_policy.get()));
         Cache::Handle* cache_handle = nullptr;
         cache_->Insert(
-            data_content.key, data_content.value,
+            data_content.key, block_holder.get(),
             BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kIndex),
             data_content.value_len, &cache_handle, Cache::Priority::LOW);
         fprintf(stdout, "Loaded Block kIndex\n");
       } else if (data_content.type == CacheDumpBlockType::kFilterMetaBlock) {
+        std::unique_ptr<Block> block_holder;
+        block_holder.reset(BlocklikeTraits<Block>::Create(
+            std::move(*raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            statistics, false, toptions_.filter_policy.get()));
         Cache::Handle* cache_handle = nullptr;
         cache_->Insert(
-            data_content.key, data_content.value,
+            data_content.key, block_holder.get(),
             BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kFilter),
             data_content.value_len, &cache_handle, Cache::Priority::LOW);
         fprintf(stdout, "Loaded Block kFilter\n");
@@ -536,6 +588,7 @@ class CacheDumpedLoader {
   }
 
   Env* env_;
+  const BlockBasedTableOptions& toptions_;
   CacheDumpOptions options_;
   std::shared_ptr<Cache> cache_;
   std::string db_id_;
