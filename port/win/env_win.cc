@@ -347,8 +347,7 @@ IOStatus WinFileSystem::NewRandomAccessFile(
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(
-        fname, hFile, std::max(GetSectorSize(fname), page_size_), options));
+    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
     fileGuard.release();
   }
   return s;
@@ -433,9 +432,8 @@ IOStatus WinFileSystem::OpenWritableFile(
   } else {
     // Here we want the buffer allocation to be aligned by the SSD page size
     // and to be a multiple of it
-    result->reset(new WinWritableFile(
-        fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
-        c_BufferCapacity, local_options));
+    result->reset(new WinWritableFile(fname, hFile, GetPageSize(),
+                                      c_BufferCapacity, local_options));
   }
   return s;
 }
@@ -487,8 +485,7 @@ IOStatus WinFileSystem::NewRandomRWFile(const std::string& fname,
   }
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
-  result->reset(new WinRandomRWFile(
-      fname, hFile, std::max(GetSectorSize(fname), GetPageSize()), options));
+  result->reset(new WinRandomRWFile(fname, hFile, GetPageSize(), options));
   fileGuard.release();
 
   return s;
@@ -1183,13 +1180,23 @@ bool WinFileSystem::DirExists(const std::string& dname) {
 size_t WinFileSystem::GetSectorSize(const std::string& fname) {
   size_t sector_size = kSectorSize;
 
-  if (RX_PathIsRelative(RX_FN(fname).c_str())) {
-    return sector_size;
-  }
-
   // obtain device handle
   char devicename[7] = "\\\\.\\";
-  int erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+  int erresult = 0;
+  if (RX_PathIsRelative(RX_FN(fname).c_str())) {
+    RX_FILESTRING rx_current_dir;
+    rx_current_dir.resize(MAX_PATH);
+    DWORD len = RX_GetCurrentDirectory(MAX_PATH, &rx_current_dir[0]);
+    if (len == 0) {
+      return sector_size;
+    }
+    rx_current_dir.resize(len);
+    std::string current_dir = FN_TO_RX(rx_current_dir);
+    erresult =
+        strncat_s(devicename, sizeof(devicename), current_dir.c_str(), 2);
+  } else {
+    erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+  }
 
   if (erresult) {
     assert(false);
