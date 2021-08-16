@@ -641,7 +641,7 @@ async_result<IOStatus> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t 
         filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
-  co_return s;
+  co_return  s;
 }
 
 IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
