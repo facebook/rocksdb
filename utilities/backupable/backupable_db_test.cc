@@ -93,8 +93,8 @@ class DummyDB : public StackableDB {
   }
 
   Status GetLiveFilesWithPath(
-    std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
-    uint64_t* manifest_file_size, bool  /*flush_memtable*/ = true) override {
+      std::unordered_map<std::string, std::vector<std::string>>& path_to_files,
+      uint64_t* manifest_file_size, bool /*flush_memtable*/ = true) override {
     EXPECT_TRUE(!deletions_enabled_);
     path_to_files.clear();
     for (const auto& live_file : live_files_) {

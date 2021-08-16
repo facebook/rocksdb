@@ -904,7 +904,8 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
 
 TEST_F(CheckpointTest, CheckpointWithNoDefaultDbpath) {
   Options options = CurrentOptions();
-  options.db_paths.emplace_back(dbname_ + "_db", std::numeric_limits<uint64_t>::max());
+  options.db_paths.emplace_back(dbname_ + "_db",
+                                std::numeric_limits<uint64_t>::max());
 
   Reopen(options);
 

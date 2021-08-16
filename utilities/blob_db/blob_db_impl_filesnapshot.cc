@@ -10,7 +10,6 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/blob_db/blob_db_impl.h"
-#include <iostream>
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
@@ -88,7 +87,8 @@ Status BlobDBImpl::GetLiveFilesWithPath(
   }
   // Hold a lock in the beginning to avoid updates to base DB during the call
   ReadLock rl(&mutex_);
-  Status s = db_->GetLiveFilesWithPath(path_to_files, manifest_file_size, flush_memtable);
+  Status s = db_->GetLiveFilesWithPath(path_to_files, manifest_file_size,
+                                       flush_memtable);
   if (!s.ok()) {
     return s;
   }
