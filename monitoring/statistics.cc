@@ -201,6 +201,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.error.handler.autoresume.retry.total.count"},
     {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
      "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

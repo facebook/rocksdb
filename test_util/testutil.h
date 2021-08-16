@@ -98,10 +98,8 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
 class SimpleSuffixReverseComparator : public Comparator {
  public:
   SimpleSuffixReverseComparator() {}
-
-  virtual const char* Name() const override {
-    return "SimpleSuffixReverseComparator";
-  }
+  static const char* kClassName() { return "SimpleSuffixReverseComparator"; }
+  virtual const char* Name() const override { return kClassName(); }
 
   virtual int Compare(const Slice& a, const Slice& b) const override {
     Slice prefix_a = Slice(a.data(), 8);
@@ -774,6 +772,15 @@ class ChanglingMergeOperator : public MergeOperator {
                                  Logger* /*logger*/) const override {
     return false;
   }
+  static const char* kClassName() { return "ChanglingMergeOperator"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
+
   virtual const char* Name() const override { return name_.c_str(); }
 
  protected:
@@ -796,6 +803,15 @@ class ChanglingCompactionFilter : public CompactionFilter {
               const Slice& /*existing_value*/, std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     return false;
+  }
+
+  static const char* kClassName() { return "ChanglingCompactionFilter"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilter::IsInstanceOf(id);
+    }
   }
 
   const char* Name() const override { return name_.c_str(); }
@@ -823,6 +839,14 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
   // Returns a name that identifies this compaction filter factory.
   const char* Name() const override { return name_.c_str(); }
+  static const char* kClassName() { return "ChanglingCompactionFilterFactory"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilterFactory::IsInstanceOf(id);
+    }
+  }
 
  protected:
   std::string name_;
@@ -867,5 +891,9 @@ Status TryDeleteDir(Env* env, const std::string& dirname);
 // Delete a directory if it exists
 void DeleteDir(Env* env, const std::string& dirname);
 
+// Creates an Env from the system environment by looking at the system
+// environment variables.
+Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
+                           std::shared_ptr<Env>* guard);
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

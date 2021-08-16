@@ -70,7 +70,7 @@ class GenericRateLimiter : public RateLimiter {
   }
 
  private:
-  void Refill();
+  void RefillBytesAndGrantRequests();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
@@ -101,8 +101,8 @@ class GenericRateLimiter : public RateLimiter {
   Random rnd_;
 
   struct Req;
-  Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
+  bool wait_until_refill_pending_;
 
   bool auto_tuned_;
   int64_t num_drains_;

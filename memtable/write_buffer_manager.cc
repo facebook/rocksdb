@@ -9,6 +9,7 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include "cache/cache_entry_roles.h"
 #include "db/db_impl/db_impl.h"
 #include "util/coding.h"
 
@@ -107,9 +108,9 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     // Expand size by at least 256KB.
     // Add a dummy record to the cache
     Cache::Handle* handle = nullptr;
-    Status s =
-        cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
-                                   kSizeDummyEntry, nullptr, &handle);
+    Status s = cache_rep_->cache_->Insert(
+        cache_rep_->GetNextCacheKey(), nullptr, kSizeDummyEntry,
+        GetNoopDeleterForRole<CacheEntryRole::kWriteBuffer>(), &handle);
     s.PermitUncheckedError();  // TODO: What to do on error?
     // We keep the handle even if insertion fails and a null handle is
     // returned, so that when memory shrinks, we don't release extra

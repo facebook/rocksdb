@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
@@ -16,6 +17,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
+#include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -24,7 +26,20 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("/db_test2", /*env_do_fsync=*/true) {}
+  DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+
+ protected:
+#ifndef ROCKSDB_LITE
+  uint64_t GetSstSizeHelper(Temperature temperature) {
+    std::string prop;
+    bool s =
+        dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
+                                  ToString(static_cast<uint8_t>(temperature)),
+                              &prop);
+    assert(s);
+    return static_cast<uint64_t>(std::atoi(prop.c_str()));
+  }
+#endif  // ROCKSDB_LITE
 };
 
 #ifndef ROCKSDB_LITE
@@ -90,7 +105,7 @@ class TestReadOnlyWithCompressedCache
       public testing::WithParamInterface<std::tuple<int, bool>> {
  public:
   TestReadOnlyWithCompressedCache()
-      : DBTestBase("/test_readonly_with_compressed_cache",
+      : DBTestBase("test_readonly_with_compressed_cache",
                    /*env_do_fsync=*/true) {
     max_open_files_ = std::get<0>(GetParam());
     use_mmap_ = std::get<1>(GetParam());
@@ -192,7 +207,7 @@ class PrefixFullBloomWithReverseComparator
       public ::testing::WithParamInterface<bool> {
  public:
   PrefixFullBloomWithReverseComparator()
-      : DBTestBase("/prefix_bloom_reverse", /*env_do_fsync=*/true) {}
+      : DBTestBase("prefix_bloom_reverse", /*env_do_fsync=*/true) {}
   void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
@@ -332,7 +347,7 @@ class DBTestSharedWriteBufferAcrossCFs
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBTestSharedWriteBufferAcrossCFs()
-      : DBTestBase("/db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
   void SetUp() override {
     use_old_interface_ = std::get<0>(GetParam());
     cost_cache_ = std::get<1>(GetParam());
@@ -1412,7 +1427,7 @@ class PresetCompressionDictTest
       public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
  public:
   PresetCompressionDictTest()
-      : DBTestBase("/db_test2", false /* env_do_fsync */),
+      : DBTestBase("db_test2", false /* env_do_fsync */),
         compression_type_(std::get<0>(GetParam())),
         bottommost_(std::get<1>(GetParam())) {}
 
@@ -2040,7 +2055,7 @@ class PinL0IndexAndFilterBlocksTest
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PinL0IndexAndFilterBlocksTest()
-      : DBTestBase("/db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
   void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());
@@ -3201,6 +3216,350 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, CancelManualCompaction1) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  int run_manual_compactions = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Setup a callback to disable compactions after a couple of levels are
+  // compacted
+  int compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1",
+      [&](void* /*arg*/) { ++compactions_run; });
+
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Since compactions are disabled, we shouldn't start compacting.
+  // E.g. we should call the compaction function exactly one time.
+  ASSERT_EQ(compactions_run, 0);
+  ASSERT_EQ(run_manual_compactions, 0);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  compactions_run = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void* /*arg*/) {
+        ++compactions_run;
+        // After 3 compactions disable
+        if (compactions_run == 3) {
+          compact_options.canceled->store(true, std::memory_order_release);
+        }
+      });
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(compactions_run, 3);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+
+  // Compactions should work again if we re-enable them..
+  compact_options.canceled->store(false, std::memory_order_relaxed);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, CancelManualCompaction2) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+  compact_options.max_subcompactions = 1;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  int compactions_run = 0;
+  std::atomic<int> kv_compactions{0};
+  int compactions_stopped_at = 0;
+  int kv_compactions_stopped_at = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void* /*arg*/) {
+        ++compactions_run;
+        // After 3 compactions disable
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator:ProcessKV", [&](void* /*arg*/) {
+        int kv_compactions_run =
+            kv_compactions.fetch_add(1, std::memory_order_release);
+        if (kv_compactions_run == 5) {
+          compact_options.canceled->store(true, std::memory_order_release);
+          kv_compactions_stopped_at = kv_compactions_run;
+          compactions_stopped_at = compactions_run;
+        }
+      });
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  // NOTE: as we set compact_options.max_subcompacitons = 1, and store true to
+  // the canceled variable from the single compacting thread (via callback),
+  // this value is deterministically kv_compactions_stopped_at + 1.
+  ASSERT_EQ(kv_compactions, kv_compactions_stopped_at + 1);
+  ASSERT_EQ(compactions_run, compactions_stopped_at);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionIterator::ProcessKV");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "DBImpl::RunManualCompaction()::1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+
+  // Compactions should work again if we re-enable them..
+  compact_options.canceled->store(false, std::memory_order_relaxed);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+class CancelCompactionListener : public EventListener {
+ public:
+  CancelCompactionListener()
+      : num_compaction_started_(0), num_compaction_ended_(0) {}
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    num_compaction_started_++;
+  }
+
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    ASSERT_EQ(ci.status.code(), code_);
+    ASSERT_EQ(ci.status.subcode(), subcode_);
+    num_compaction_ended_++;
+  }
+
+  std::atomic<size_t> num_compaction_started_;
+  std::atomic<size_t> num_compaction_ended_;
+  Status::Code code_;
+  Status::SubCode subcode_;
+};
+
+TEST_F(DBTest2, CancelManualCompactionWithListener) {
+  CompactRangeOptions compact_options;
+  auto canceledPtr =
+      std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>{true});
+  compact_options.canceled = canceledPtr.get();
+  compact_options.max_subcompactions = 1;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CancelCompactionListener* listener = new CancelCompactionListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(i + j * 10), rnd.RandomString(50)));
+    }
+    Flush();
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator:ProcessKV", [&](void* /*arg*/) {
+        compact_options.canceled->store(true, std::memory_order_release);
+      });
+
+  int running_compaction = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinishCompactionOutputFile1",
+      [&](void* /*arg*/) { running_compaction++; });
+
+  // Case I: 1 Notify begin compaction, 2 DisableManualCompaction, 3 Compaction
+  // not run, 4 Notify compaction end.
+  listener->code_ = Status::kIncomplete;
+  listener->subcode_ = Status::SubCode::kManualCompactionPaused;
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+  ASSERT_EQ(running_compaction, 0);
+
+  listener->num_compaction_started_ = 0;
+  listener->num_compaction_ended_ = 0;
+
+  // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
+  // without notifying), 3 Notify compaction end (return without notifying).
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+  ASSERT_EQ(running_compaction, 0);
+
+  // Case III: 1 Notify begin compaction, 2 Compaction in between
+  // 3. DisableManualCompaction, , 4 Notify compaction end.
+  // compact_options.canceled->store(false, std::memory_order_release);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionIterator:ProcessKV");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:BeforeVerify", [&](void* /*arg*/) {
+        compact_options.canceled->store(true, std::memory_order_release);
+      });
+
+  listener->code_ = Status::kOk;
+  listener->subcode_ = Status::SubCode::kNone;
+
+  compact_options.canceled->store(false, std::memory_order_release);
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+
+  // Compaction job will succeed.
+  ASSERT_GT(running_compaction, 0);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, CompactionOnBottomPriorityWithListener) {
+  int num_levels = 3;
+  const int kNumFilesTrigger = 4;
+
+  Options options = CurrentOptions();
+  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+  env_->SetBackgroundThreads(0, Env::Priority::LOW);
+  env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.env = env_;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+
+  CancelCompactionListener* listener = new CancelCompactionListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+
+  int num_bottom_thread_compaction_scheduled = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+      [&](void* /*arg*/) { num_bottom_thread_compaction_scheduled++; });
+
+  int num_compaction_jobs = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():End",
+      [&](void* /*arg*/) { num_compaction_jobs++; });
+
+  listener->code_ = Status::kOk;
+  listener->subcode_ = Status::SubCode::kNone;
+
+  Random rnd(301);
+  for (int i = 0; i < 1; ++i) {
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    }
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_GT(num_bottom_thread_compaction_scheduled, 0);
+  ASSERT_EQ(num_compaction_jobs, 1);
+  ASSERT_GT(listener->num_compaction_started_, 0);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();
@@ -3911,8 +4270,16 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  // Unprepared replay should fail with Status::Incomplete()
+  ASSERT_TRUE(replayer->Replay().IsIncomplete());
+  ASSERT_OK(replayer->Prepare());
+  // Ok to repeatedly Prepare().
+  ASSERT_OK(replayer->Prepare());
+  // Replay using 1 thread, 1x speed.
+  ASSERT_OK(replayer->Replay());
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);
@@ -3925,6 +4292,229 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_EQ("bar", value);
   ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
   ASSERT_EQ("rocks", value);
+
+  // Re-replay should fail with Status::Incomplete() if Prepare() was not
+  // called. Currently we don't distinguish between unprepared and trace end.
+  ASSERT_TRUE(replayer->Replay().IsIncomplete());
+
+  // Re-replay using 2 threads, 2x speed.
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay(ReplayOptions(2, 2.0)));
+
+  // Re-replay using 2 threads, 1/2 speed.
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay(ReplayOptions(2, 0.5)));
+  replayer.reset();
+
+  for (auto handle : handles) {
+    delete handle;
+  }
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(DBTest2, TraceAndManualReplay) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  ReadOptions ro;
+  WriteOptions wo;
+  TraceOptions trace_opts;
+  EnvOptions env_opts;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Random rnd(301);
+  Iterator* single_iter = nullptr;
+
+  ASSERT_TRUE(db_->EndTrace().IsIOError());
+
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
+
+  ASSERT_OK(Put(0, "a", "1"));
+  ASSERT_OK(Merge(0, "b", "2"));
+  ASSERT_OK(Delete(0, "c"));
+  ASSERT_OK(SingleDelete(0, "d"));
+  ASSERT_OK(db_->DeleteRange(wo, dbfull()->DefaultColumnFamily(), "e", "f"));
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("f", "11"));
+  ASSERT_OK(batch.Merge("g", "12"));
+  ASSERT_OK(batch.Delete("h"));
+  ASSERT_OK(batch.SingleDelete("i"));
+  ASSERT_OK(batch.DeleteRange("j", "k"));
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  single_iter = db_->NewIterator(ro);
+  single_iter->Seek("f");
+  single_iter->SeekForPrev("g");
+  delete single_iter;
+
+  ASSERT_EQ("1", Get(0, "a"));
+  ASSERT_EQ("12", Get(0, "g"));
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "rocksdb", "rocks"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
+
+  ASSERT_OK(db_->EndTrace());
+  // These should not get into the trace file as it is after EndTrace.
+  Put("hello", "world");
+  Merge("foo", "bar");
+
+  // Open another db, replay, and verify the data
+  std::string value;
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay");
+  ASSERT_OK(DestroyDB(dbname2, options));
+
+  // Using a different name than db2, to pacify infer's use-after-lifetime
+  // warnings (http://fbinfer.com).
+  DB* db2_init = nullptr;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(
+      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
+  delete cf;
+  delete db2_init;
+
+  DB* db2 = nullptr;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  ColumnFamilyOptions cf_options;
+  cf_options.merge_operator = MergeOperators::CreatePutOperator();
+  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
+  column_families.push_back(
+      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  std::vector<ColumnFamilyHandle*> handles;
+  DBOptions db_opts;
+  db_opts.env = env_;
+  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+
+  env_->SleepForMicroseconds(100);
+  // Verify that the keys don't already exist
+  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+
+  // Manual replay for 2 times. The 2nd checks if the replay can restart.
+  std::unique_ptr<TraceRecord> record;
+  for (int i = 0; i < 2; i++) {
+    // Next should fail if unprepared.
+    ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
+    ASSERT_OK(replayer->Prepare());
+    Status s = Status::OK();
+    // Looping until trace end.
+    while (s.ok()) {
+      s = replayer->Next(&record);
+      // Skip unsupported operations.
+      if (s.IsNotSupported()) {
+        continue;
+      }
+      if (s.ok()) {
+        ASSERT_OK(replayer->Execute(std::move(record)));
+      }
+    }
+    // Status::Incomplete() will be returned when manually reading the trace
+    // end, or Prepare() was not called.
+    ASSERT_TRUE(s.IsIncomplete());
+    ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
+  }
+
+  ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
+  ASSERT_EQ("1", value);
+  ASSERT_OK(db2->Get(ro, handles[0], "g", &value));
+  ASSERT_EQ("12", value);
+  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
+
+  ASSERT_OK(db2->Get(ro, handles[1], "foo", &value));
+  ASSERT_EQ("bar", value);
+  ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
+  ASSERT_EQ("rocks", value);
+
+  // Test execution of artificially created TraceRecords.
+  uint64_t fake_ts = 1U;
+  // Write
+  batch.Clear();
+  batch.Put("trace-record-write1", "write1");
+  batch.Put("trace-record-write2", "write2");
+  record.reset(new WriteQueryTraceRecord(batch.Data(), fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write1", &value));
+  ASSERT_EQ("write1", value);
+  ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write2", &value));
+  ASSERT_EQ("write2", value);
+
+  // Get related
+  // Get an existing key.
+  record.reset(new GetQueryTraceRecord(handles[0]->GetID(),
+                                       "trace-record-write1", fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get an non-existing key, should still return Status::OK().
+  record.reset(new GetQueryTraceRecord(handles[0]->GetID(), "trace-record-get",
+                                       fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get from an invalid (non-existing) cf_id.
+  uint32_t invalid_cf_id = handles[1]->GetID() + 1;
+  record.reset(new GetQueryTraceRecord(invalid_cf_id, "whatever", fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+
+  // Iteration related
+  for (IteratorSeekQueryTraceRecord::SeekType seekType :
+       {IteratorSeekQueryTraceRecord::kSeek,
+        IteratorSeekQueryTraceRecord::kSeekForPrev}) {
+    // Seek to an existing key.
+    record.reset(new IteratorSeekQueryTraceRecord(
+        seekType, handles[0]->GetID(), "trace-record-write1", fake_ts++));
+    ASSERT_OK(replayer->Execute(std::move(record)));
+    // Seek to an non-existing key, should still return Status::OK().
+    record.reset(new IteratorSeekQueryTraceRecord(
+        seekType, handles[0]->GetID(), "trace-record-get", fake_ts++));
+    ASSERT_OK(replayer->Execute(std::move(record)));
+    // Seek from an invalid cf_id.
+    record.reset(new IteratorSeekQueryTraceRecord(seekType, invalid_cf_id,
+                                                  "whatever", fake_ts++));
+    ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+  }
+
+  // MultiGet related
+  // Get existing keys.
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a", "foo"}), fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get all non-existing keys, should still return Status::OK().
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"no1", "no2"}), fake_ts++));
+  // Get mixed of existing and non-existing keys, should still return
+  // Status::OK().
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a", "no2"}), fake_ts++));
+  ASSERT_OK(replayer->Execute(std::move(record)));
+  // Get from an invalid (non-existing) cf_id.
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>(
+          {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id}),
+      std::vector<std::string>({"a", "foo", "whatever"}), fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsCorruption());
+  // Empty MultiGet
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>(), std::vector<std::string>(), fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
+  // MultiGet size mismatch
+  record.reset(new MultiGetQueryTraceRecord(
+      std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
+      std::vector<std::string>({"a"}), fake_ts++));
+  ASSERT_TRUE(replayer->Execute(std::move(record)).IsInvalidArgument());
+
+  replayer.reset();
 
   for (auto handle : handles) {
     delete handle;
@@ -3989,8 +4579,12 @@ TEST_F(DBTest2, TraceWithLimit) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay());
+  replayer.reset();
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_TRUE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
@@ -4060,8 +4654,12 @@ TEST_F(DBTest2, TraceWithSampling) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay());
+  replayer.reset();
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_FALSE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
@@ -4160,8 +4758,12 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
-  ASSERT_OK(replayer.Replay());
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(
+      db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay());
+  replayer.reset();
 
   // All the key-values should not present since we filter out the WRITE ops.
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
@@ -4988,7 +5590,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_OK(Put("key", "2"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "3"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "4"));
-  Flush();
+  ASSERT_OK(Flush());
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = 2;
@@ -5531,6 +6133,166 @@ TEST_P(RenameCurrentTest, Compaction) {
   ASSERT_EQ("NOT_FOUND", Get("foo"));
   ASSERT_EQ("d_value", Get("d"));
 }
+
+TEST_F(DBTest2, BottommostTemperature) {
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // non-bottommost file still has unknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // reopen and check the information is persisted
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
+}
+
+TEST_F(DBTest2, BottommostTemperatureUniversal) {
+  const int kTriggerNum = 3;
+  const int kNumLevels = 5;
+  const int kBottommostLevel = kNumLevels - 1;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kTriggerNum;
+  options.num_levels = kNumLevels;
+
+  DestroyAndReopen(options);
+
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
+  for (int i = 0; i < kTriggerNum; i++) {
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+
+  // Update bottommost temperature
+  options.bottommost_temperature = Temperature::kWarm;
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  // Should not impact existing ones
+  ASSERT_EQ(Temperature::kUnknown,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+
+  // new generated file should have the new settings
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kWarm,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // non-bottommost file still has unknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
@@ -5587,6 +6349,21 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
 
+TEST_F(DBTest2, RenameDirectory) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  Close();
+  auto old_dbname = dbname_;
+  auto new_dbname = dbname_ + "_2";
+  EXPECT_OK(env_->RenameFile(dbname_, new_dbname));
+  options.create_if_missing = false;
+  dbname_ = new_dbname;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ("value0", Get("foo"));
+  Destroy(options);
+  dbname_ = old_dbname;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

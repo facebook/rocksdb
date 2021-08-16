@@ -383,6 +383,12 @@ enum Tickers : uint32_t {
   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
 
+  // Statistics for memtable garbage collection:
+  // Raw bytes of data (payload) present on memtable at flush time.
+  MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+  // Outdated bytes of data present on memtable at flush time.
+  MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+
   TICKER_ENUM_MAX
 };
 
@@ -572,7 +578,7 @@ class Statistics {
   // Resets all ticker and histogram stats
   virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
-  // String representation of the statistic object.
+  // String representation of the statistic object. Must be thread-safe.
   virtual std::string ToString() const {
     // Do nothing by default
     return std::string("ToString(): not implemented");

@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/false) {}
+  DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -1362,6 +1362,28 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 }
 
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(2, "baz", "xyz"));
+  ASSERT_OK(Put(1, "abc", "def"));
+
+  // Note: keys for the same CF do not form a consecutive range
+  std::vector<int> cfs{1, 2, 1};
+  std::vector<std::string> keys{"foo", "baz", "abc"};
+  std::vector<std::string> values;
+
+  values =
+      MultiGet(cfs, keys, /* snapshot */ nullptr, /* batched */ GetParam());
+
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "bar");
+  ASSERT_EQ(values[1], "xyz");
+  ASSERT_EQ(values[2], "def");
+}
+
 INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Bool());
 
@@ -2576,7 +2598,7 @@ class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
   DBBasicTestTrackWal()
-      : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_basic_test_track_wal", /*env_do_fsync=*/false) {}
 
   int CountWalFiles() {
     VectorLogPtr log_files;
@@ -2820,6 +2842,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     const char* Name() const override { return "MyBlockCache"; }
 
+    using Cache::Insert;
     Status Insert(const Slice& key, void* value, size_t charge,
                   void (*deleter)(const Slice& key, void* value),
                   Handle** handle = nullptr,
@@ -2828,6 +2851,7 @@ class DBBasicTestMultiGet : public DBTestBase {
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
+    using Cache::Lookup;
     Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);

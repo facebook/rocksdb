@@ -65,17 +65,19 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 const int kLoadConcurency = 128;
 
-TableCache::TableCache(const ImmutableCFOptions& ioptions,
-                       const FileOptions& file_options, Cache* const cache,
+TableCache::TableCache(const ImmutableOptions& ioptions,
+                       const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
-                       const std::shared_ptr<IOTracer>& io_tracer)
+                       const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_session_id)
     : ioptions_(ioptions),
-      file_options_(file_options),
+      file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      db_session_id_(db_session_id) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -133,11 +135,11 @@ Status TableCache::GetTableReader(
             file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
         ro,
-        TableReaderOptions(ioptions_, prefix_extractor, file_options,
-                           internal_comparator, skip_filters, immortal_tables_,
-                           false /* force_direct_prefetch */, level,
-                           fd.largest_seqno, block_cache_tracer_,
-                           max_file_size_for_l0_meta_pin),
+        TableReaderOptions(
+            ioptions_, prefix_extractor, file_options, internal_comparator,
+            skip_filters, immortal_tables_, false /* force_direct_prefetch */,
+            level, fd.largest_seqno, block_cache_tracer_,
+            max_file_size_for_l0_meta_pin, db_session_id_, fd.GetNumber()),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -295,6 +297,7 @@ Status TableCache::GetRangeTombstoneIterator(
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter) {
+  assert(out_iter);
   const FileDescriptor& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
@@ -306,8 +309,15 @@ Status TableCache::GetRangeTombstoneIterator(
     }
   }
   if (s.ok()) {
+    // Note: NewRangeTombstoneIterator could return nullptr
     out_iter->reset(t->NewRangeTombstoneIterator(options));
-    assert(out_iter);
+  }
+  if (handle) {
+    if (*out_iter) {
+      (*out_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
+    } else {
+      ReleaseHandle(handle);
+    }
   }
   return s;
 }

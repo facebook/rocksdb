@@ -72,7 +72,7 @@ class ArenaWrappedDBIter : public Iterator {
   Status Refresh() override;
 
   void Init(Env* env, const ReadOptions& read_options,
-            const ImmutableCFOptions& cf_options,
+            const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
@@ -105,8 +105,7 @@ class ArenaWrappedDBIter : public Iterator {
 // `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
 // be supported.
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, ReadCallback* read_callback,

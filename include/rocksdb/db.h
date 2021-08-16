@@ -39,25 +39,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct Options;
-struct DBOptions;
 struct ColumnFamilyOptions;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
-struct TableProperties;
+struct DBOptions;
 struct ExternalSstFileInfo;
-class WriteBatch;
-class Env;
-class EventListener;
-class StatsHistoryIterator;
-class TraceWriter;
+struct FlushOptions;
+struct Options;
+struct ReadOptions;
+struct TableProperties;
+struct WriteOptions;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
+class Env;
+class EventListener;
 class FileSystem;
+#ifndef ROCKSDB_LITE
+class Replayer;
+#endif
+class StatsHistoryIterator;
+#ifndef ROCKSDB_LITE
+class TraceReader;
+class TraceWriter;
+#endif
+class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -140,11 +146,15 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
 // and a number of wrapper implementations.
 class DB {
  public:
-  // Open the database with the specified "name".
+  // Open the database with the specified "name" for reads and writes.
   // Stores a pointer to a heap-allocated database in *dbptr and returns
   // OK on success.
-  // Stores nullptr in *dbptr and returns a non-OK status on error.
-  // Caller should delete *dbptr when it is no longer needed.
+  // Stores nullptr in *dbptr and returns a non-OK status on error, including
+  // if the DB is already open (read-write) by another DB object. (This
+  // guarantee depends on options.env->LockFile(), which might not provide
+  // this guarantee in a custom Env implementation.)
+  //
+  // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
@@ -152,6 +162,12 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -164,6 +180,12 @@ class DB {
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
   // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -238,6 +260,16 @@ class DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
+  // Open DB and run the compaction.
+  // It's a read-only operation, the result won't be installed to the DB, it
+  // will be output to the `output_directory`. The API should only be used with
+  // `options.CompactionService` to run compaction triggered by
+  // `CompactionService`.
+  static Status OpenAndCompact(
+      const std::string& name, const std::string& output_directory,
+      const std::string& input, std::string* output,
+      const CompactionServiceOptionsOverride& override_options);
 
   virtual Status Resume() { return Status::NotSupported(); }
 
@@ -763,6 +795,10 @@ class DB {
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
 
+    //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
+    //      map with statistics on block cache usage.
+    static const std::string kBlockCacheEntryStats;
+
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
     static const std::string kNumImmutableMemTable;
@@ -877,6 +913,10 @@ class DB {
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
     //      files belong to the latest LSM tree.
     static const std::string kLiveSstFilesSize;
+
+    // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
+    //      of SST files at all certain file temperature
+    static const std::string kLiveSstFilesSizeAtTemperature;
 
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
@@ -1082,6 +1122,8 @@ class DB {
   // and the data is rearranged to reduce the cost of operations
   // needed to access the data.  This operation should typically only
   // be invoked by users who understand the underlying implementation.
+  // This call blocks until the operation completes successfully, fails,
+  // or is aborted (Status::Incomplete). See DisableManualCompaction.
   //
   // begin==nullptr is treated as a key before all keys in the database.
   // end==nullptr is treated as a key after all keys in the database.
@@ -1136,9 +1178,9 @@ class DB {
       const std::unordered_map<std::string, std::string>& new_options) = 0;
 
   // CompactFiles() inputs a list of files specified by file numbers and
-  // compacts them to the specified level. Note that the behavior is different
-  // from CompactRange() in that CompactFiles() performs the compaction job
-  // using the CURRENT thread.
+  // compacts them to the specified level. A small difference compared to
+  // CompactRange() is that CompactFiles() performs the compaction job
+  // using the CURRENT thread, so is not considered a "background" job.
   //
   // @see GetDataBaseMetaData
   // @see GetColumnFamilyMetaData
@@ -1181,12 +1223,15 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
   // After this function call, CompactRange() or CompactFiles() will not
-  // run compactions and fail. The function will wait for all outstanding
-  // manual compactions to finish before returning
+  // run compactions and fail. Calling this function will tell outstanding
+  // manual compactions to abort and will wait for them to finish or abort
+  // before returning.
   virtual void DisableManualCompaction() = 0;
   // Re-enable CompactRange() and ComapctFiles() that are disabled by
-  // DisableManualCompaction(). In debug mode, it might hit assertion if
-  // no DisableManualCompaction() was previously called.
+  // DisableManualCompaction(). This function must be called as many times
+  // as DisableManualCompaction() has been called in order to re-enable
+  // manual compactions, and must not be called more times than
+  // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
 
   // Number of levels used for this DB.
@@ -1388,6 +1433,12 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
+  // Obtains the meta data of all column families for the DB.
+  // The returned map contains one entry for each column family indexed by the
+  // name of the column family.
+  virtual void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* /*metadata*/) {}
+
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
   // - Duplicate keys in the new files will overwrite exiting keys (default)
@@ -1587,6 +1638,7 @@ class DB {
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
 #ifndef ROCKSDB_LITE
+
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
@@ -1637,6 +1689,15 @@ class DB {
   virtual Status EndBlockCacheTrace() {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
+
+  // Create a default trace replayer.
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& /*handles*/,
+      std::unique_ptr<TraceReader>&& /*reader*/,
+      std::unique_ptr<Replayer>* /*replayer*/) {
+    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

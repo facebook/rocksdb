@@ -571,7 +571,6 @@ TEST_F(BlobDBTest, EnableDisableCompressionGC) {
   Random rnd(301);
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
-  bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
   bdb_options.compression = kSnappyCompression;
@@ -599,6 +598,11 @@ TEST_F(BlobDBTest, EnableDisableCompressionGC) {
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(2, blob_files.size());
   ASSERT_EQ(kNoCompression, blob_files[1]->GetCompressionType());
+
+  // Enable GC. If we do it earlier the snapshot release triggered compaction
+  // may compact files and trigger GC before we can verify there are two files.
+  bdb_options.enable_garbage_collection = true;
+  Reopen(bdb_options);
 
   // Trigger compaction
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -638,7 +642,6 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
   Random rnd(301);
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
-  bdb_options.enable_garbage_collection = true;
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
   bdb_options.compression = kLZ4Compression;
@@ -667,6 +670,11 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(2, blob_files.size());
   ASSERT_EQ(kSnappyCompression, blob_files[1]->GetCompressionType());
+
+  // Enable GC. If we do it earlier the snapshot release triggered compaction
+  // may compact files and trigger GC before we can verify there are two files.
+  bdb_options.enable_garbage_collection = true;
+  Reopen(bdb_options);
 
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   VerifyDB(data);
@@ -863,10 +871,13 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
 
+  Options options;
+  options.disable_auto_compactions = true;
+
   // i = when to take snapshot
   for (int i = 0; i < 4; i++) {
     Destroy();
-    Open(bdb_options);
+    Open(bdb_options, options);
 
     const Snapshot *snapshot = nullptr;
 

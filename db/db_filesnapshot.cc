@@ -98,7 +98,14 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   ret.emplace_back(CurrentFileName(""));
   ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
-  ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
+  // The OPTIONS file number is zero in read-write mode when OPTIONS file
+  // writing failed and the DB was configured with
+  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
+  // number is zero when no OPTIONS file exist at all. In those cases we do not
+  // record any OPTIONS file in the live file list.
+  if (versions_->options_file_number() != 0) {
+    ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
+  }
 
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->manifest_file_size();
@@ -120,7 +127,22 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
       bg_cv_.Wait();
     }
   }
-  return wal_manager_.GetSortedWalFiles(files);
+
+  // Disable deletion in order to avoid the case where a file is deleted in
+  // the middle of the process so IO error is returned.
+  Status s = DisableFileDeletions();
+  bool file_deletion_supported = !s.IsNotSupported();
+  if (s.ok() || !file_deletion_supported) {
+    s = wal_manager_.GetSortedWalFiles(files);
+    if (file_deletion_supported) {
+      Status s2 = EnableFileDeletions(false);
+      if (!s2.ok() && s.ok()) {
+        s = s2;
+      }
+    }
+  }
+
+  return s;
 }
 
 Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {

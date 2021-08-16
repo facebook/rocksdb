@@ -29,6 +29,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CheckpointTest : public testing::Test {
@@ -750,7 +751,8 @@ TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
   for (std::string checkpoint_dir : {"", "/", "////"}) {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_TRUE(checkpoint->CreateCheckpoint("").IsInvalidArgument());
+    ASSERT_TRUE(
+        checkpoint->CreateCheckpoint(checkpoint_dir).IsInvalidArgument());
     delete checkpoint;
   }
 }
@@ -781,6 +783,50 @@ TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
 
   // make sure it's openable even though whatever data that wasn't synced got
   // dropped.
+  options.env = env_;
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
+  ASSERT_EQ("val1", get_result);
+  delete snapshot_db;
+  delete db_;
+  db_ = nullptr;
+}
+
+TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
+  // Regression test for a bug where checkpoint failed on a DB where persisting
+  // OPTIONS file failed and the DB was opened with
+  // `fail_if_options_file_error == false`.
+  Options options = CurrentOptions();
+  options.fail_if_options_file_error = false;
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+
+  // Setup `FaultInjectionTestFS` and `SyncPoint` callbacks to fail one
+  // operation when inside the OPTIONS file persisting code.
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  fault_fs->SetRandomMetadataWriteError(1 /* one_in */);
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:start", [fault_fs](void* /* arg */) {
+        fault_fs->EnableMetadataWriteErrorInjection();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FaultInjectionTestFS::InjectMetadataWriteError:Injected",
+      [fault_fs](void* /* arg */) {
+        fault_fs->DisableMetadataWriteErrorInjection();
+      });
+  options.env = fault_fs_env.get();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+
+  // Make sure it's usable.
   options.env = env_;
   DB* snapshot_db;
   ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));

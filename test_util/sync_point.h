@@ -13,34 +13,42 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 
-// This is only set from db_stress.cc and for testing only.
-// If non-zero, kill at various points in source code with probability 1/this
-extern int rocksdb_kill_odds;
-// If kill point has a prefix on this list, will skip killing.
-extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
-
 #ifdef NDEBUG
 // empty in release build
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight)
+#define TEST_KILL_RANDOM(kill_point)
 #else
 
 namespace ROCKSDB_NAMESPACE {
-// Kill the process with probability 1/odds for testing.
-extern void TestKillRandom(std::string kill_point, int odds,
-                           const std::string& srcfile, int srcline);
 
 // To avoid crashing always at some frequently executed codepaths (during
 // kill random test), use this factor to reduce odds
 #define REDUCE_ODDS 2
 #define REDUCE_ODDS2 4
 
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)                  \
-  {                                                                      \
-    if (rocksdb_kill_odds > 0) {                                         \
-      TestKillRandom(kill_point, rocksdb_kill_odds, __FILE__, __LINE__); \
-    }                                                                    \
+// A class used to pass when a kill point is reached.
+struct KillPoint {
+ public:
+  // This is only set from db_stress.cc and for testing only.
+  // If non-zero, kill at various points in source code with probability 1/this
+  int rocksdb_kill_odds = 0;
+  // If kill point has a prefix on this list, will skip killing.
+  std::vector<std::string> rocksdb_kill_exclude_prefixes;
+  // Kill the process with probability 1/odds for testing.
+  void TestKillRandom(std::string kill_point, int odds,
+                      const std::string& srcfile, int srcline);
+
+  static KillPoint* GetInstance();
+};
+
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight) \
+  {                                                                        \
+    KillPoint::GetInstance()->TestKillRandom(                              \
+        kill_point, rocksdb_kill_odds_weight, __FILE__, __LINE__);         \
   }
+#define TEST_KILL_RANDOM(kill_point) TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, 1)
 }  // namespace ROCKSDB_NAMESPACE
+
 #endif
 
 #ifdef NDEBUG

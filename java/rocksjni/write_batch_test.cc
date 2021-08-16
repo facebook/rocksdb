@@ -47,7 +47,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   ROCKSDB_NAMESPACE::WriteBufferManager wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   ROCKSDB_NAMESPACE::MemTable* mem = new ROCKSDB_NAMESPACE::MemTable(
-      cmp, ROCKSDB_NAMESPACE::ImmutableCFOptions(options),
+      cmp, ROCKSDB_NAMESPACE::ImmutableOptions(options),
       ROCKSDB_NAMESPACE::MutableCFOptions(options), &wb,
       ROCKSDB_NAMESPACE::kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();

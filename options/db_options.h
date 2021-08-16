@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool flush_verify_memtable_count;
   bool track_and_verify_wals_in_manifest;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
@@ -35,6 +36,9 @@ struct ImmutableDBOptions {
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
+  // The wal_dir option from the file.  To determine the
+  // directory in use, the GetWalDir or IsWalDirSameAsDBPath
+  // methods should be used instead of accessing this variable directly.
   std::string wal_dir;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
@@ -53,6 +57,7 @@ struct ImmutableDBOptions {
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;
+  double experimental_mempurge_threshold;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;
@@ -99,6 +104,12 @@ struct ImmutableDBOptions {
   SystemClock* clock;
   Statistics* stats;
   Logger* logger;
+  std::shared_ptr<CompactionService> compaction_service;
+
+  bool IsWalDirSameAsDBPath() const;
+  bool IsWalDirSameAsDBPath(const std::string& path) const;
+  const std::string& GetWalDir() const;
+  const std::string& GetWalDir(const std::string& path) const;
 };
 
 struct MutableDBOptions {
@@ -128,5 +139,19 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
   int max_background_flushes;
 };
+
+#ifndef ROCKSDB_LITE
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string);
+
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options);
+
+bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
+                              const MutableDBOptions& that_options);
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
