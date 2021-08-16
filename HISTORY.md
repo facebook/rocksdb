@@ -17,6 +17,7 @@
 * Add a comment to suggest btrfs user to disable file preallocation by setting `options.allow_fallocate=false`.
 * Fast forward option in Trace replay changed to double type to allow replaying at a lower speed, by settings the value between 0 and 1. This option can be set via `ReplayOptions` in `Replayer::Replay()`, or via `--trace_replay_fast_forward` in db_bench.
 * Add property `LiveSstFilesSizeAtTemperature` to retrieve sst file size at different temperature.
+* Added a stat rocksdb.secondary.cache.hits
 
 ## Public API change
 * Added APIs to decode and replay trace file via Replayer class. Added `DB::NewDefaultReplayer()` to create a default Replayer instance. Added `TraceReader::Reset()` to restart reading a trace file. Created trace_record.h and utilities/replayer.h files to access decoded Trace records and replay them.
