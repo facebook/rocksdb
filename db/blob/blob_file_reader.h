@@ -46,7 +46,7 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 Statistics* statistics);
+                 SystemClock* clock, Statistics* statistics);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -75,6 +75,8 @@ class BlobFileReader {
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       SystemClock* clock,
+                                       Statistics* statistics,
                                        PinnableSlice* value);
 
   static void SaveValue(const Slice& src, PinnableSlice* dst);
@@ -82,6 +84,7 @@ class BlobFileReader {
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
+  SystemClock* clock_;
   Statistics* statistics_;
 };
 

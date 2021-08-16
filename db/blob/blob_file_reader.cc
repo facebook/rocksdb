@@ -18,6 +18,7 @@
 #include "test_util/sync_point.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -62,8 +63,9 @@ Status BlobFileReader::Create(
     }
   }
 
-  blob_file_reader->reset(new BlobFileReader(std::move(file_reader), file_size,
-                                             compression_type, statistics));
+  blob_file_reader->reset(
+      new BlobFileReader(std::move(file_reader), file_size, compression_type,
+                         immutable_options.clock, statistics));
 
   return Status::OK();
 }
@@ -264,10 +266,12 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type, Statistics* statistics)
+    CompressionType compression_type, SystemClock* clock,
+    Statistics* statistics)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
+      clock_(clock),
       statistics_(statistics) {
   assert(file_reader_);
 }
@@ -333,8 +337,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
   {
-    const Status s =
-        UncompressBlobIfNeeded(value_slice, compression_type, value);
+    const Status s = UncompressBlobIfNeeded(value_slice, compression_type,
+                                            clock_, statistics_, value);
     if (!s.ok()) {
       return s;
     }
@@ -391,6 +395,8 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
 
 Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
                                               CompressionType compression_type,
+                                              SystemClock* clock,
+                                              Statistics* statistics,
                                               PinnableSlice* value) {
   assert(value);
 
@@ -408,9 +414,14 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
   constexpr uint32_t compression_format_version = 2;
   constexpr MemoryAllocator* allocator = nullptr;
 
-  CacheAllocationPtr output =
-      UncompressData(info, value_slice.data(), value_slice.size(),
-                     &uncompressed_size, compression_format_version, allocator);
+  CacheAllocationPtr output;
+
+  {
+    StopWatch stop_watch(clock, statistics, BLOB_DB_DECOMPRESSION_MICROS);
+    output = UncompressData(info, value_slice.data(), value_slice.size(),
+                            &uncompressed_size, compression_format_version,
+                            allocator);
+  }
 
   TEST_SYNC_POINT_CALLBACK(
       "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", &output);
