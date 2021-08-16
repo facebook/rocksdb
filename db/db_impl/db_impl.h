@@ -51,8 +51,13 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
+#ifndef ROCKSDB_LITE
 #include "rocksdb/trace_reader_writer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/transaction_log.h"
+#ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/replayer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
@@ -463,6 +468,12 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+
+  using DB::NewDefaultReplayer;
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& handles,
+      std::unique_ptr<TraceReader>&& reader,
+      std::unique_ptr<Replayer>* replayer) override;
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(

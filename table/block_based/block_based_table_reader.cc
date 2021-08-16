@@ -36,6 +36,7 @@
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/trace_record.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"

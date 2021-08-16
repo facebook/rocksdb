@@ -6989,6 +6989,10 @@ class CompactionReasonJni {
         return ROCKSDB_NAMESPACE::CompactionReason::kFlush;
       case 0x0D:
         return ROCKSDB_NAMESPACE::CompactionReason::kExternalSstIngestion;
+      case 0x0E:
+        return ROCKSDB_NAMESPACE::CompactionReason::kPeriodicCompaction;
+      case 0x0F:
+        return ROCKSDB_NAMESPACE::CompactionReason::kChangeTemperature;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::CompactionReason::kUnknown;

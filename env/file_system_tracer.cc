@@ -7,6 +7,7 @@
 
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
 

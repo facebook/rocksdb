@@ -211,15 +211,13 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
       RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
       true /* auto_tuned */));
 
-  // Use callback to advance time because we need to advance (1) after Request()
-  // has determined the bytes are not available; and (2) before
-  // RefillBytesAndGrantRequests() computes the next refill time (ensuring
-  // refill time in the future allows the next request to drain the rate
-  // limiter).
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::RefillBytesAndGrantRequests", [&](void* /*arg*/) {
-        special_env.SleepForMicroseconds(static_cast<int>(
-            std::chrono::microseconds(kTimePerRefill).count()));
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
