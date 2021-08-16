@@ -690,7 +690,7 @@ TEST_F(CustomizableTest, TestStringDepth) {
     ShallowCustomizable() {
       inner_ = std::make_shared<ACustomizable>("a");
       RegisterOptions("inner", &inner_, &inner_option_info);
-    };
+    }
     static const char* kClassName() { return "shallow"; }
     const char* Name() const override { return kClassName(); }
 

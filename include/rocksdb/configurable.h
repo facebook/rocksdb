@@ -277,7 +277,7 @@ class Configurable {
   // @param options The remaining name/value pairs from the opt_value
   // @param default_id If specified and there is no id field in the map, this
   // value is returned as the ID
-  // @return OK if the value was converted to a map succesfully and an ID was
+  // @return OK if the value was converted to a map successfully and an ID was
   // found.
   // @return InvalidArgument if the value could not be converted to a map or
   // there was or there is no id property in the map.
