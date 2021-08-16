@@ -139,6 +139,7 @@ class DBImpl : public DB {
 
   virtual ~DBImpl();
 
+
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;
@@ -169,6 +170,10 @@ class DBImpl : public DB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
   virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, std::string* timestamp) override;
+
+  virtual async_result<Status> AsyncGet(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value, std::string* timestamp) override;
 
@@ -518,6 +523,9 @@ class DBImpl : public DB {
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
   Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options);
+  
+  async_result<Status> AsyncGetImpl(const ReadOptions& options, const Slice& key,
                  GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.

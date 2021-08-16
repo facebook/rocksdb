@@ -22,6 +22,8 @@ MACHINE ?= $(shell uname -m)
 ARFLAGS = ${EXTRA_ARFLAGS} rs
 STRIPFLAGS = -S -x
 
+CXXFLAGS += -fcoroutines
+
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
   -e '@a=split("\t",$$_,-1); $$t=$$a[8];'				\

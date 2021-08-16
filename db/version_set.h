@@ -48,6 +48,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/async_result.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "table/get_context.h"
@@ -690,6 +691,13 @@ class Version {
   //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
+           std::string* timestamp, Status* status, MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq,
+           bool* value_found = nullptr, bool* key_exists = nullptr,
+           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
+           bool* is_blob = nullptr, bool do_merge = true);
+
+  async_result<Status> AsyncGet(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            std::string* timestamp, Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,

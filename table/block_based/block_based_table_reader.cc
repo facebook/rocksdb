@@ -1572,6 +1572,184 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   return s;
 }
 
+template <typename TBlocklike>
+async_result<Status> BlockBasedTable::AsyncMaybeReadBlockAndLoadToCache(
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    const bool wait, CachableEntry<TBlocklike>* block_entry,
+    BlockType block_type, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context, BlockContents* contents) const {
+  assert(block_entry != nullptr);
+  const bool no_io = (ro.read_tier == kBlockCacheTier);
+  Cache* block_cache = rep_->table_options.block_cache.get();
+  Cache* block_cache_compressed =
+      rep_->table_options.block_cache_compressed.get();
+
+  // First, try to get the block from the cache
+  //
+  // If either block cache is enabled, we'll try to read from it.
+  Status s;
+  char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  Slice key /* key to the block cache */;
+  Slice ckey /* key to the compressed block cache */;
+  bool is_cache_hit = false;
+  if (block_cache != nullptr || block_cache_compressed != nullptr) {
+    // create key for block cache
+    if (block_cache != nullptr) {
+      key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
+                        handle, cache_key);
+    }
+
+    if (block_cache_compressed != nullptr) {
+      ckey = GetCacheKey(rep_->compressed_cache_key_prefix,
+                         rep_->compressed_cache_key_prefix_size, handle,
+                         compressed_cache_key);
+    }
+
+    if (!contents) {
+      s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
+                                ro, block_entry, uncompression_dict, block_type,
+                                wait, get_context);
+      // Value could still be null at this point, so check the cache handle
+      // and update the read pattern for prefetching
+      if (block_entry->GetValue() || block_entry->GetCacheHandle()) {
+        // TODO(haoyu): Differentiate cache hit on uncompressed block cache and
+        // compressed block cache.
+        is_cache_hit = true;
+        if (prefetch_buffer) {
+          // Update the block details so that PrefetchBuffer can use the read
+          // pattern to determine if reads are sequential or not for
+          // prefetching. It should also take in account blocks read from cache.
+          prefetch_buffer->UpdateReadPattern(handle.offset(),
+                                             block_size(handle));
+        }
+      }
+    }
+
+    // Can't find the block from the cache. If I/O is allowed, read from the
+    // file.
+    if (block_entry->GetValue() == nullptr &&
+        block_entry->GetCacheHandle() == nullptr && !no_io && ro.fill_cache) {
+      Statistics* statistics = rep_->ioptions.stats;
+      const bool maybe_compressed =
+          block_type != BlockType::kFilter &&
+          block_type != BlockType::kCompressionDictionary &&
+          rep_->blocks_maybe_compressed;
+      const bool do_uncompress = maybe_compressed && !block_cache_compressed;
+      CompressionType raw_block_comp_type;
+      BlockContents raw_block_contents;
+      if (!contents) {
+        StopWatch sw(rep_->ioptions.clock, statistics, READ_BLOCK_GET_MICROS);
+        BlockFetcher block_fetcher(
+            rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
+            &raw_block_contents, rep_->ioptions, do_uncompress,
+            maybe_compressed, block_type, uncompression_dict,
+            rep_->persistent_cache_options,
+            GetMemoryAllocator(rep_->table_options),
+            GetMemoryAllocatorForCompressedBlock(rep_->table_options));
+        auto a_result = block_fetcher.AsyncReadBlockContents();
+        s = a_result.result();
+        raw_block_comp_type = block_fetcher.get_compression_type();
+        contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
+      } else {
+        raw_block_comp_type = contents->get_compression_type();
+      }
+
+      if (s.ok()) {
+        // If filling cache is allowed and a cache is configured, try to put the
+        // block to the cache.
+        s = PutDataBlockToCache(
+            key, ckey, block_cache, block_cache_compressed, block_entry,
+            contents, raw_block_comp_type, uncompression_dict,
+            GetMemoryAllocator(rep_->table_options), block_type, get_context);
+      }
+    }
+  }
+
+  // Fill lookup_context.
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+      lookup_context) {
+    size_t usage = 0;
+    uint64_t nkeys = 0;
+    if (block_entry->GetValue()) {
+      // Approximate the number of keys in the block using restarts.
+      nkeys =
+          rep_->table_options.block_restart_interval *
+          BlocklikeTraits<TBlocklike>::GetNumRestarts(*block_entry->GetValue());
+      usage = block_entry->GetValue()->ApproximateMemoryUsage();
+    }
+    TraceType trace_block_type = TraceType::kTraceMax;
+    switch (block_type) {
+      case BlockType::kData:
+        trace_block_type = TraceType::kBlockTraceDataBlock;
+        break;
+      case BlockType::kFilter:
+        trace_block_type = TraceType::kBlockTraceFilterBlock;
+        break;
+      case BlockType::kCompressionDictionary:
+        trace_block_type = TraceType::kBlockTraceUncompressionDictBlock;
+        break;
+      case BlockType::kRangeDeletion:
+        trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
+        break;
+      case BlockType::kIndex:
+        trace_block_type = TraceType::kBlockTraceIndexBlock;
+        break;
+      default:
+        // This cannot happen.
+        assert(false);
+        break;
+    }
+    bool no_insert = no_io || !ro.fill_cache;
+    if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
+            trace_block_type, lookup_context->caller)) {
+      // Defer logging the access to Get() and MultiGet() to trace additional
+      // information, e.g., referenced_key_exist_in_block.
+
+      // Make a copy of the block key here since it will be logged later.
+      lookup_context->FillLookupContext(
+          is_cache_hit, no_insert, trace_block_type,
+          /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
+    } else {
+      // Avoid making copy of block_key and cf_name when constructing the access
+      // record.
+      BlockCacheTraceRecord access_record(
+          rep_->ioptions.clock->NowMicros(),
+          /*block_key=*/"", trace_block_type,
+          /*block_size=*/usage, rep_->cf_id_for_tracing(),
+          /*cf_name=*/"", rep_->level_for_tracing(),
+          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
+          no_insert, lookup_context->get_id,
+          lookup_context->get_from_user_specified_snapshot,
+          /*referenced_key=*/"");
+      // TODO: Should handle this error?
+      block_cache_tracer_
+          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                             lookup_context->referenced_key)
+          .PermitUncheckedError();
+    }
+  }
+
+  assert(s.ok() || block_entry->GetValue() == nullptr);
+  co_return s;
+}
+
 // This function reads multiple data blocks from disk using Env::MultiRead()
 // and optionally inserts them into the block cache. It uses the scratch
 // buffer provided by the caller, which is contiguous. If scratch is a nullptr
@@ -1937,6 +2115,90 @@ Status BlockBasedTable::RetrieveBlock(
 
   assert(s.ok());
   return s;
+}
+
+template <typename TBlocklike>
+async_result<Status> BlockBasedTable::AsyncRetrieveBlock(
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    bool for_compaction, bool use_cache, bool wait_for_cache) const {
+  assert(block_entry);
+  assert(block_entry->IsEmpty());
+
+  Status s;
+  if (use_cache) {
+    auto a_result = AsyncMaybeReadBlockAndLoadToCache(
+        prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
+        block_entry, block_type, get_context, lookup_context,
+        /*contents=*/nullptr);
+    s = a_result.result();
+
+    if (!s.ok()) {
+      co_return s;
+    }
+
+    if (block_entry->GetValue() != nullptr ||
+        block_entry->GetCacheHandle() != nullptr) {
+      assert(s.ok());
+      co_return s;
+    }
+  }
+
+  assert(block_entry->IsEmpty());
+
+  const bool no_io = ro.read_tier == kBlockCacheTier;
+  if (no_io) {
+    co_return Status::Incomplete("no blocking io");
+  }
+
+  const bool maybe_compressed =
+      block_type != BlockType::kFilter &&
+      block_type != BlockType::kCompressionDictionary &&
+      rep_->blocks_maybe_compressed;
+  const bool do_uncompress = maybe_compressed;
+  std::unique_ptr<TBlocklike> block;
+
+  {
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats,
+                 READ_BLOCK_GET_MICROS);
+    s = ReadBlockFromFile(
+        rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
+        rep_->ioptions, do_uncompress, maybe_compressed, block_type,
+        uncompression_dict, rep_->persistent_cache_options,
+        block_type == BlockType::kData
+            ? rep_->table_options.read_amp_bytes_per_bit
+            : 0,
+        GetMemoryAllocator(rep_->table_options), for_compaction,
+        rep_->blocks_definitely_zstd_compressed,
+        rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  if (!s.ok()) {
+    co_return s;
+  }
+
+  block_entry->SetOwnedValue(block.release());
+
+  assert(s.ok());
+  co_return s;
 }
 
 // Explicitly instantiate templates for both "blocklike" types we use.
@@ -2428,6 +2690,195 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
 
   return s;
+}
+
+async_result<Status> BlockBasedTable::AsyncGet(const ReadOptions& read_options, const Slice& key,
+                                      GetContext* get_context,
+                                      const SliceTransform* prefix_extractor,
+                                      bool skip_filters) {
+  assert(key.size() >= 8);  // key must be internal key
+  assert(get_context != nullptr);
+  Status s;
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+
+  FilterBlockReader* const filter =
+      !skip_filters ? rep_->filter.get() : nullptr;
+
+  // First check the full filter
+  // If full filter not useful, Then go into each block
+  uint64_t tracing_get_id = get_context->get_tracing_get_id();
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserGet, tracing_get_id,
+      /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+    // Trace the key since it contains both user key and sequence number.
+    lookup_context.referenced_key = key.ToString();
+    lookup_context.get_from_user_specified_snapshot =
+        read_options.snapshot != nullptr;
+  }
+  TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
+  const bool may_match =
+      FullFilterKeyMayMatch(read_options, filter, key, no_io, prefix_extractor,
+                            get_context, &lookup_context);
+  TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
+  if (!may_match) {
+    RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
+    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
+  } else {
+    IndexBlockIter iiter_on_stack;
+    // if prefix_extractor found in block differs from options, disable
+    // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
+    bool need_upper_bound_check = false;
+    if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
+      need_upper_bound_check = PrefixExtractorChanged(
+          rep_->table_properties.get(), prefix_extractor);
+    }
+    auto iiter =
+        NewIndexIterator(read_options, need_upper_bound_check, &iiter_on_stack,
+                         get_context, &lookup_context);
+    std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+    if (iiter != &iiter_on_stack) {
+      iiter_unique_ptr.reset(iiter);
+    }
+
+    size_t ts_sz =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
+    bool matched = false;  // if such user key matched a key in SST
+    bool done = false;
+    for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
+      IndexValue v = iiter->value();
+
+      bool not_exist_in_filter =
+          filter != nullptr && filter->IsBlockBased() == true &&
+          !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
+                               prefix_extractor, v.handle.offset(), no_io,
+                               /*const_ikey_ptr=*/nullptr, get_context,
+                               &lookup_context);
+
+      if (not_exist_in_filter) {
+        // Not found
+        // TODO: think about interaction with Merge. If a user key cannot
+        // cross one data block, we should be fine.
+        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
+        PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
+        break;
+      }
+
+      if (!v.first_internal_key.empty() && !skip_filters &&
+          UserComparatorWrapper(rep_->internal_comparator.user_comparator())
+                  .CompareWithoutTimestamp(
+                      ExtractUserKey(key),
+                      ExtractUserKey(v.first_internal_key)) < 0) {
+        // The requested key falls between highest key in previous block and
+        // lowest key in current block.
+        break;
+      }
+
+      BlockCacheLookupContext lookup_data_block_context{
+          TableReaderCaller::kUserGet, tracing_get_id,
+          /*get_from_user_specified_snapshot=*/read_options.snapshot !=
+              nullptr};
+      bool does_referenced_key_exist = false;
+      DataBlockIter biter;
+      uint64_t referenced_data_size = 0;
+      DataBlockIter** result_biter = nullptr;
+      AsyncNewDataBlockIterator<DataBlockIter>(
+          read_options, v.handle, &biter, BlockType::kData, get_context,
+          &lookup_data_block_context,
+          /*s=*/Status(), result_biter, /*prefetch_buffer*/ nullptr);
+
+      if (no_io && biter.status().IsIncomplete()) {
+        // couldn't get block from block_cache
+        // Update Saver.state to Found because we are only looking for
+        // whether we can guarantee the key is not there when "no_io" is set
+        get_context->MarkKeyMayExist();
+        s = biter.status();
+        break;
+      }
+      if (!biter.status().ok()) {
+        s = biter.status();
+        break;
+      }
+
+      bool may_exist = biter.SeekForGet(key);
+      // If user-specified timestamp is supported, we cannot end the search
+      // just because hash index lookup indicates the key+ts does not exist.
+      if (!may_exist && ts_sz == 0) {
+        // HashSeek cannot find the key this block and the the iter is not
+        // the end of the block, i.e. cannot be in the following blocks
+        // either. In this case, the seek_key cannot be found, so we break
+        // from the top level for-loop.
+        done = true;
+      } else {
+        // Call the *saver function on each entry/block until it returns false
+        for (; biter.Valid(); biter.Next()) {
+          ParsedInternalKey parsed_key;
+          Status pik_status = ParseInternalKey(
+              biter.key(), &parsed_key, false /* log_err_key */);  // TODO
+          if (!pik_status.ok()) {
+            s = pik_status;
+          }
+
+          if (!get_context->SaveValue(
+                  parsed_key, biter.value(), &matched,
+                  biter.IsValuePinned() ? &biter : nullptr)) {
+            if (get_context->State() == GetContext::GetState::kFound) {
+              does_referenced_key_exist = true;
+              referenced_data_size = biter.key().size() + biter.value().size();
+            }
+            done = true;
+            break;
+          }
+        }
+        s = biter.status();
+      }
+      // Write the block cache access record.
+      if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+        // Avoid making copy of block_key, cf_name, and referenced_key when
+        // constructing the access record.
+        Slice referenced_key;
+        if (does_referenced_key_exist) {
+          referenced_key = biter.key();
+        } else {
+          referenced_key = key;
+        }
+        BlockCacheTraceRecord access_record(
+            rep_->ioptions.clock->NowMicros(),
+            /*block_key=*/"", lookup_data_block_context.block_type,
+            lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
+            /*cf_name=*/"", rep_->level_for_tracing(),
+            rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
+            lookup_data_block_context.is_cache_hit,
+            lookup_data_block_context.no_insert,
+            lookup_data_block_context.get_id,
+            lookup_data_block_context.get_from_user_specified_snapshot,
+            /*referenced_key=*/"", referenced_data_size,
+            lookup_data_block_context.num_keys_in_block,
+            does_referenced_key_exist);
+        // TODO: Should handle status here?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record,
+                               lookup_data_block_context.block_key,
+                               rep_->cf_name_for_tracing(), referenced_key)
+            .PermitUncheckedError();
+      }
+
+      if (done) {
+        // Avoid the extra Next which is expensive in two-level indexes
+        break;
+      }
+    }
+    if (matched && filter != nullptr && !filter->IsBlockBased()) {
+      RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
+                                rep_->level);
+    }
+    if (s.ok() && !iiter->status().IsNotFound()) {
+      s = iiter->status();
+    }
+  }
+
+  co_return s;
 }
 
 using MultiGetRange = MultiGetContext::Range;

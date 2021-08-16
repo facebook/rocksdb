@@ -14,6 +14,7 @@
 
 #include "env/file_system_tracer.h"
 #include "port/port.h"
+#include "rocksdb/async_result.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
@@ -121,6 +122,10 @@ class RandomAccessFileReader {
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+                char* scratch, AlignedBuf* aligned_buf,
+                bool for_compaction = false) const;
+
+  async_result<IOStatus> AsyncRead(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
                 char* scratch, AlignedBuf* aligned_buf,
                 bool for_compaction = false) const;
 

@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "rocksdb/async_result.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -451,6 +452,14 @@ class DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
+  }
+
+  virtual async_result<Status> AsyncGet(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, std::string* timestamp) {
+    assert(options.verify_checksums || column_family != nullptr || key != nullptr || value != nullptr || timestamp != nullptr);
+    co_return Status::NotSupported(
+        "AsyncGet() that returns timestamp is not implemented.");
   }
 
   // Get() methods that return timestamp. Derived DB classes don't need to worry

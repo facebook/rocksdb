@@ -321,4 +321,113 @@ IOStatus BlockFetcher::ReadBlockContents() {
   return io_status_;
 }
 
+async_result<IOStatus> BlockFetcher::AsyncReadBlockContents() {
+    if (TryGetUncompressBlockFromPersistentCache()) {
+    compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
+    co_return IOStatus::OK();
+  }
+  if (TryGetFromPrefetchBuffer()) {
+    if (!io_status_.ok()) {
+      co_return io_status_;
+    }
+  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+    IOOptions opts;
+    async_result<IOStatus> a_result;
+    io_status_ = file_->PrepareIOOptions(read_options_, opts);
+    // Actual file read
+    if (io_status_.ok()) {
+      if (file_->use_direct_io()) {
+        PERF_TIMER_GUARD(block_read_time);
+        a_result =
+            file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        io_status_ = a_result.result();
+        PERF_COUNTER_ADD(block_read_count, 1);
+        used_buf_ = const_cast<char*>(slice_.data());
+      } else {
+        PrepareBufferForBlockFromFile();
+        PERF_TIMER_GUARD(block_read_time);
+        a_result =
+            file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, used_buf_, nullptr, for_compaction_);
+        io_status_ = a_result.result();
+        PERF_COUNTER_ADD(block_read_count, 1);
+#ifndef NDEBUG
+        if (slice_.data() == &stack_buf_[0]) {
+          num_stack_buf_memcpy_++;
+        } else if (slice_.data() == heap_buf_.get()) {
+          num_heap_buf_memcpy_++;
+        } else if (slice_.data() == compressed_buf_.get()) {
+          num_compressed_buf_memcpy_++;
+        }
+#endif
+      }
+    }
+
+    // TODO: introduce dedicated perf counter for range tombstones
+    switch (block_type_) {
+      case BlockType::kFilter:
+        PERF_COUNTER_ADD(filter_block_read_count, 1);
+        break;
+
+      case BlockType::kCompressionDictionary:
+        PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
+        break;
+
+      case BlockType::kIndex:
+        PERF_COUNTER_ADD(index_block_read_count, 1);
+        break;
+
+      // Nothing to do here as we don't have counters for the other types.
+      default:
+        break;
+    }
+
+    PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
+    if (!io_status_.ok()) {
+      co_return io_status_;
+    }
+
+    if (slice_.size() != block_size_with_trailer_) {
+      co_return IOStatus::Corruption("truncated block read from " +
+                                  file_->file_name() + " offset " +
+                                  ToString(handle_.offset()) + ", expected " +
+                                  ToString(block_size_with_trailer_) +
+                                  " bytes, got " + ToString(slice_.size()));
+    }
+
+    CheckBlockChecksum();
+    if (io_status_.ok()) {
+      InsertCompressedBlockToPersistentCacheIfNeeded();
+    } else {
+      co_return io_status_;
+    }
+  }
+
+  compression_type_ = get_block_compression_type(slice_.data(), block_size_);
+
+  if (do_uncompress_ && compression_type_ != kNoCompression) {
+    PERF_TIMER_GUARD(block_decompress_time);
+    // compressed page, uncompress, update cache
+    UncompressionContext context(compression_type_);
+    UncompressionInfo info(context, uncompression_dict_, compression_type_);
+    io_status_ = status_to_io_status(UncompressBlockContents(
+        info, slice_.data(), block_size_, contents_, footer_.version(),
+        ioptions_, memory_allocator_));
+#ifndef NDEBUG
+    num_heap_buf_memcpy_++;
+#endif
+    compression_type_ = kNoCompression;
+  } else {
+    GetBlockContents();
+  }
+
+  InsertUncompressedBlockToPersistentCacheIfNeeded();
+
+  co_return io_status_;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -480,6 +480,92 @@ Status TableCache::Get(const ReadOptions& options,
   return s;
 }
 
+async_result<Status> TableCache::AsyncGet(const ReadOptions& options,
+                                  const InternalKeyComparator& internal_comparator,
+                                  const FileMetaData& file_meta, const Slice& k,
+                                  GetContext* get_context,
+                                  const SliceTransform* prefix_extractor,
+                                  HistogramImpl* file_read_hist, bool skip_filters,
+                                  int level, size_t max_file_size_for_l0_meta_pin) {
+  auto& fd = file_meta.fd;
+  std::string* row_cache_entry = nullptr;
+  bool done = false;
+#ifndef ROCKSDB_LITE
+  IterKey row_cache_key;
+  std::string row_cache_entry_buffer;
+
+  // Check row cache if enabled. Since row cache does not currently store
+  // sequence numbers, we cannot use it if we need to fetch the sequence.
+  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
+    auto user_key = ExtractUserKey(k);
+    CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
+    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
+                           get_context);
+    if (!done) {
+      row_cache_entry = &row_cache_entry_buffer;
+    }
+  }
+#endif  // ROCKSDB_LITE
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (!done) {
+    assert(s.ok());
+    if (t == nullptr) {
+      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
+                    prefix_extractor,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    true /* record_read_stats */, file_read_hist, skip_filters,
+                    level, true /* prefetch_index_and_filter_in_cache */,
+                    max_file_size_for_l0_meta_pin);
+      if (s.ok()) {
+        t = GetTableReaderFromHandle(handle);
+      }
+    }
+    SequenceNumber* max_covering_tombstone_seq =
+        get_context->max_covering_tombstone_seq();
+    if (s.ok() && max_covering_tombstone_seq != nullptr &&
+        !options.ignore_range_deletions) {
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          t->NewRangeTombstoneIterator(options));
+      if (range_del_iter != nullptr) {
+        *max_covering_tombstone_seq = std::max(
+            *max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+      }
+    }
+    if (s.ok()) {
+      get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
+      s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      get_context->SetReplayLog(nullptr);
+    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
+      // Couldn't find Table in cache but treat as kFound if no_io set
+      get_context->MarkKeyMayExist();
+      s = Status::OK();
+      done = true;
+    }
+  }
+
+#ifndef ROCKSDB_LITE
+  // Put the replay log in row cache only if something was found.
+  if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
+    size_t charge =
+        row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
+    void* row_ptr = new std::string(std::move(*row_cache_entry));
+    // If row cache is full, it's OK to continue.
+    ioptions_.row_cache
+        ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
+                 &DeleteEntry<std::string>)
+        .PermitUncheckedError();
+  }
+#endif  // ROCKSDB_LITE
+
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
+  co_return s;
+}
+
 // Batched version of TableCache::MultiGet.
 Status TableCache::MultiGet(const ReadOptions& options,
                             const InternalKeyComparator& internal_comparator,

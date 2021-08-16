@@ -182,6 +182,156 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   return io_s;
 }
 
+async_result<IOStatus> RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t offset,
+                                      size_t n, Slice* result, char* scratch,
+                                      AlignedBuf* aligned_buf,
+                                      bool for_compaction) const {
+  (void)aligned_buf;
+
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
+  IOStatus io_s;
+  uint64_t elapsed = 0;
+  {
+    StopWatch sw(clock_, stats_, hist_type_,
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                 true /*delay_enabled*/);
+    auto prev_perf_level = GetPerfLevel();
+    IOSTATS_TIMER_GUARD(read_nanos);
+    if (use_direct_io()) {
+#ifndef ROCKSDB_LITE
+      size_t alignment = file_->GetRequiredBufferAlignment();
+      size_t aligned_offset =
+          TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
+      size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
+      size_t read_size =
+          Roundup(static_cast<size_t>(offset + n), alignment) - aligned_offset;
+      AlignedBuffer buf;
+      buf.Alignment(alignment);
+      buf.AllocateNewBuffer(read_size);
+      while (buf.CurrentSize() < read_size) {
+        size_t allowed;
+        if (for_compaction && rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(
+              buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
+              Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
+        } else {
+          assert(buf.CurrentSize() == 0);
+          allowed = read_size;
+        }
+        Slice tmp;
+
+        FileOperationInfo::StartTimePoint start_ts;
+        uint64_t orig_offset = 0;
+        if (ShouldNotifyListeners()) {
+          start_ts = FileOperationInfo::StartNow();
+          orig_offset = aligned_offset + buf.CurrentSize();
+        }
+
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+          // Only user reads are expected to specify a timeout. And user reads
+          // are not subjected to rate_limiter and should go through only
+          // one iteration of this loop, so we don't need to check and adjust
+          // the opts.timeout before calling file_->Read
+          assert(!opts.timeout.count() || allowed == read_size);
+          io_s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
+                             &tmp, buf.Destination(), nullptr);
+        }
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = FileOperationInfo::FinishNow();
+          NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
+                                 io_s);
+        }
+
+        buf.Size(buf.CurrentSize() + tmp.size());
+        if (!io_s.ok() || tmp.size() < allowed) {
+          break;
+        }
+      }
+      size_t res_len = 0;
+      if (io_s.ok() && offset_advance < buf.CurrentSize()) {
+        res_len = std::min(buf.CurrentSize() - offset_advance, n);
+        if (aligned_buf == nullptr) {
+          buf.Read(scratch, offset_advance, res_len);
+        } else {
+          scratch = buf.BufferStart() + offset_advance;
+          aligned_buf->reset(buf.Release());
+        }
+      }
+      *result = Slice(scratch, res_len);
+#endif  // !ROCKSDB_LITE
+    } else {
+      size_t pos = 0;
+      const char* res_scratch = nullptr;
+      while (pos < n) {
+        size_t allowed;
+        if (for_compaction && rate_limiter_ != nullptr) {
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStart();
+          }
+          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
+                                                Env::IOPriority::IO_LOW, stats_,
+                                                RateLimiter::OpType::kRead);
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStop();
+          }
+        } else {
+          allowed = n;
+        }
+        Slice tmp_result;
+
+#ifndef ROCKSDB_LITE
+        FileOperationInfo::StartTimePoint start_ts;
+        if (ShouldNotifyListeners()) {
+          start_ts = FileOperationInfo::StartNow();
+        }
+#endif
+
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+          // Only user reads are expected to specify a timeout. And user reads
+          // are not subjected to rate_limiter and should go through only
+          // one iteration of this loop, so we don't need to check and adjust
+          // the opts.timeout before calling file_->Read
+          assert(!opts.timeout.count() || allowed == n);
+          auto a_result = file_->AsyncRead(offset + pos, allowed, opts, &tmp_result,
+                             scratch + pos, nullptr);
+          io_s = a_result.result();
+        }
+#ifndef ROCKSDB_LITE
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = FileOperationInfo::FinishNow();
+          NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
+                                 finish_ts, io_s);
+        }
+#endif
+
+        if (res_scratch == nullptr) {
+          // we can't simply use `scratch` because reads of mmap'd files return
+          // data in a different buffer.
+          res_scratch = tmp_result.data();
+        } else {
+          // make sure chunks are inserted contiguously into `res_scratch`.
+          assert(tmp_result.data() == res_scratch + pos);
+        }
+        pos += tmp_result.size();
+        if (!io_s.ok() || tmp_result.size() < allowed) {
+          break;
+        }
+      }
+      *result = Slice(res_scratch, io_s.ok() ? pos : 0);
+    }
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+    SetPerfLevel(prev_perf_level);
+  }
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    file_read_hist_->Add(elapsed);
+  }
+
+  co_return io_s;
+}
+
+
 size_t End(const FSReadRequest& r) {
   return static_cast<size_t>(r.offset) + r.len;
 }

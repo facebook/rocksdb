@@ -603,6 +603,47 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
+async_result<IOStatus> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
+                                     const IOOptions& /*opts*/, Slice* result,
+                                     char* scratch,
+                                     IODebugContext* /*dbg*/) const {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(n, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(scratch, GetRequiredBufferAlignment()));
+  }
+  IOStatus s;
+  ssize_t r = -1;
+  size_t left = n;
+  char* ptr = scratch;
+  while (left > 0) {
+    r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+    if (r <= 0) {
+      if (r == -1 && errno == EINTR) {
+        continue;
+      }
+      break;
+    }
+    ptr += r;
+    offset += r;
+    left -= r;
+    if (use_direct_io() &&
+        r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+      // Bytes reads don't fill sectors. Should only happen at the end
+      // of the file.
+      break;
+    }
+  }
+  if (r < 0) {
+    // An error: return a non-ok status
+    s = IOError(
+        "While pread offset " + ToString(offset) + " len " + ToString(n),
+        filename_, errno);
+  }
+  *result = Slice(scratch, (r < 0) ? 0 : n - left);
+  co_return s;
+}
+
 IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
                                           const IOOptions& options,

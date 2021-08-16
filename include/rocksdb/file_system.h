@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/async_result.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -709,6 +710,10 @@ class FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const = 0;
 
+  virtual async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                        Slice* result, char* scratch,
+                        IODebugContext* dbg) const = 0;
+
   // Readahead the file starting from offset by n bytes for caching.
   // If it's not implemented (default: `NotSupported`), RocksDB will create
   // internal prefetch buffer to improve read performance.
@@ -1377,6 +1382,13 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
                 IODebugContext* dbg) const override {
     return target_->Read(offset, n, options, result, scratch, dbg);
   }
+
+  async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    return target_->AsyncRead(offset, n, options, result, scratch, dbg);
+  }
+
   IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                      const IOOptions& options, IODebugContext* dbg) override {
     return target_->MultiRead(reqs, num_reqs, options, dbg);

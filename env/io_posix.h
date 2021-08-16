@@ -194,6 +194,10 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const override;
 
+  virtual async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& opts,
+                        Slice* result, char* scratch,
+                        IODebugContext* dbg) const override;
+
   virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                              const IOOptions& options,
                              IODebugContext* dbg) override;
