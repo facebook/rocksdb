@@ -642,13 +642,16 @@ Status BlockBasedTable::Open(
       }
     } else {
       // External (ingested) SST file - should not use current file number
-      // (changed from original), so that same file ingested into different DBs
-      // can share block cache entries. Although they can modify the embedded
-      // global_seqno, that information is not currently cached under these
-      // portable/stable keys.
-      // Note: For now, each external SST file gets its own unique session id.
+      // (which is changed from original), so that same file ingested into
+      // different DBs can share block cache entries. Although they can modify
+      // the embedded global_seqno, that information is not currently cached
+      // under these portable/stable keys.
+      // Note: For now, each external SST file gets its own unique session id,
+      // so we can use a fixed file number under than session id.
+      // ... except FIXME (peterd): sst_file_writer currently uses wrong
+      // format for db_session_ids so this approach doesn't work yet.
       db_session_id = rep->table_properties->db_session_id;
-      file_num = 0;
+      file_num = 1;
     }
   }
   SetupCacheKeyPrefix(rep, db_session_id, file_num);
