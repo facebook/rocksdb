@@ -57,6 +57,7 @@
 #include "table/meta_blocks.h"
 #include "table/multiget_context.h"
 #include "table/persistent_cache_helper.h"
+#include "table/persistent_cache_options.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
@@ -371,7 +372,7 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
 // Helper function to setup the cache key's prefix for the Table.
 void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
                                           const std::string& db_session_id,
-                                          uint64_t cur_file_num) {
+                                          uint64_t file_num) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
@@ -379,19 +380,28 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
     GenerateCachePrefix<Cache, FSRandomAccessFile>(
         rep->table_options.block_cache.get(), rep->file->file(),
         &rep->cache_key_prefix[0], &rep->cache_key_prefix_size, db_session_id,
-        cur_file_num);
-  }
-  if (rep->table_options.persistent_cache != nullptr) {
-    GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
-        rep->table_options.persistent_cache.get(), rep->file->file(),
-        &rep->persistent_cache_key_prefix[0],
-        &rep->persistent_cache_key_prefix_size, "", cur_file_num);
+        file_num);
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
     GenerateCachePrefix<Cache, FSRandomAccessFile>(
         rep->table_options.block_cache_compressed.get(), rep->file->file(),
         &rep->compressed_cache_key_prefix[0],
-        &rep->compressed_cache_key_prefix_size, "", cur_file_num);
+        &rep->compressed_cache_key_prefix_size, db_session_id, file_num);
+  }
+  if (rep->table_options.persistent_cache != nullptr) {
+    char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
+    size_t persistent_cache_key_prefix_size = 0;
+
+    GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
+        rep->table_options.persistent_cache.get(), rep->file->file(),
+        &persistent_cache_key_prefix[0], &persistent_cache_key_prefix_size,
+        db_session_id, file_num);
+
+    rep->persistent_cache_options =
+        PersistentCacheOptions(rep->table_options.persistent_cache,
+                               std::string(persistent_cache_key_prefix,
+                                           persistent_cache_key_prefix_size),
+                               rep->ioptions.stats);
   }
 }
 
@@ -513,7 +523,7 @@ Status BlockBasedTable::Open(
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
-    size_t max_file_size_for_l0_meta_pin, const std::string& db_session_id,
+    size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
     uint64_t cur_file_num) {
   table_reader->reset();
 
@@ -588,16 +598,11 @@ Status BlockBasedTable::Open(
     rep->internal_prefix_transform.reset(
         new InternalKeySliceTransform(prefix_extractor));
   }
-  SetupCacheKeyPrefix(rep, db_session_id, cur_file_num);
-  std::unique_ptr<BlockBasedTable> new_table(
-      new BlockBasedTable(rep, block_cache_tracer));
 
-  // page cache options
-  rep->persistent_cache_options =
-      PersistentCacheOptions(rep->table_options.persistent_cache,
-                             std::string(rep->persistent_cache_key_prefix,
-                                         rep->persistent_cache_key_prefix_size),
-                             rep->ioptions.stats);
+  // For fully portable/stable cache keys, we need to read the properties
+  // block before setting up cache keys. TODO: consider setting up a bootstrap
+  // cache key for PersistentCache to use for metaindex and properties blocks.
+  rep->persistent_cache_options = PersistentCacheOptions();
 
   // Meta-blocks are not dictionary compressed. Explicitly set the dictionary
   // handle to null, otherwise it may be seen as uninitialized during the below
@@ -605,6 +610,8 @@ Status BlockBasedTable::Open(
   rep->compression_dict_handle = BlockHandle::NullBlockHandle();
 
   // Read metaindex
+  std::unique_ptr<BlockBasedTable> new_table(
+      new BlockBasedTable(rep, block_cache_tracer));
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
   s = new_table->ReadMetaIndexBlock(ro, prefetch_buffer.get(), &metaindex,
@@ -620,6 +627,36 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+
+  // With properties loaded, we can set up portable/stable cache keys if
+  // necessary info is available
+  std::string db_session_id = cur_db_session_id;
+  uint64_t file_num = cur_file_num;
+  if (rep->table_properties && !rep->table_properties->db_session_id.empty()) {
+    const auto& uprops = rep->table_properties->user_collected_properties;
+    auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
+    if (version_iter == uprops.end()) {
+      // Normal (non-external) SST file - can only use embedded db_session_id
+      // with current file number (which should be original file number)
+      if (file_num > 0) {
+        db_session_id = rep->table_properties->db_session_id;
+      }
+    } else {
+      // External (ingested) SST file - should not use current file number
+      // (which is changed from original), so that same file ingested into
+      // different DBs can share block cache entries. Although they can modify
+      // the embedded global_seqno, that information is not currently cached
+      // under these portable/stable keys.
+      // Note: For now, each external SST file gets its own unique session id,
+      // so we can use a fixed file number under than session id.
+      // ... except FIXME (peterd): sst_file_writer currently uses wrong
+      // format for db_session_ids so this approach doesn't work yet.
+      db_session_id = rep->table_properties->db_session_id;
+      file_num = 1;
+    }
+  }
+  SetupCacheKeyPrefix(rep, db_session_id, file_num);
+
   s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(),
                                    metaindex_iter.get(), internal_comparator,
                                    &lookup_context);
