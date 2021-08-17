@@ -468,6 +468,7 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
@@ -476,22 +477,26 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
                           str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
-  // k2 should be demoted to NVM
+  // k1 should be demoted to NVM
   ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
                           str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup("k2", &LRUSecondaryCacheTest::helper_, test_item_creator,
+                    Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should promote k1 and demote k2
-  handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup("k1", &LRUSecondaryCacheTest::helper_, test_item_creator,
+                    Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+  ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_HITS),
+            secondary_cache->num_lookups());
 
   cache.reset();
   secondary_cache.reset();
