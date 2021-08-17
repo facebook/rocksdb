@@ -4248,6 +4248,7 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
+    result.GetStatus().PermitUncheckedError();
     switch (result.GetTraceType()) {
       case kTraceWrite: {
         total_latency_ += result.GetLatency();
@@ -4273,6 +4274,7 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
+    result.GetStatus().PermitUncheckedError();
     switch (result.GetTraceType()) {
       case kTraceGet: {
         total_latency_ += result.GetLatency();
@@ -4290,6 +4292,9 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
       const MultiValuesTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
+    }
+    for (const Status& s : result.GetMultiStatus()) {
+      s.PermitUncheckedError();
     }
     switch (result.GetTraceType()) {
       case kTraceMultiGet: {
@@ -4607,7 +4612,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
       if (s.ok()) {
         ASSERT_OK(replayer->Execute(std::move(record), &result));
         if (result != nullptr) {
-          result->Accept(&res_handler);
+          ASSERT_OK(result->Accept(&res_handler));
           result.reset();
         }
       }
@@ -4736,10 +4741,12 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   MultiValuesTraceExecutionResult* mvr =
       dynamic_cast<MultiValuesTraceExecutionResult*>(result.get());
   ASSERT_TRUE(mvr != nullptr);
-  ASSERT_OK(mvr->GetMultiStatus()[0]);
-  ASSERT_EQ(mvr->GetValues()[0], "1");
-  ASSERT_TRUE(mvr->GetMultiStatus()[1].IsNotFound());
-  ASSERT_EQ(mvr->GetValues()[1], "");
+  std::vector<Status> ss = mvr->GetMultiStatus();
+  ASSERT_OK(ss[0]);
+  ASSERT_TRUE(ss[1].IsNotFound());
+  std::vector<std::string> values = mvr->GetValues();
+  ASSERT_EQ(values[0], "1");
+  ASSERT_EQ(values[1], "");
   ASSERT_OK(result->Accept(&res_handler));  // MultiGet x 3
   // Get from an invalid (non-existing) cf_id.
   record.reset(new MultiGetQueryTraceRecord(
