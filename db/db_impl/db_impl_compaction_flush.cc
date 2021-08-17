@@ -1358,6 +1358,12 @@ Status DBImpl::CompactFilesImpl(
                                    newf.second.fd.GetNumber(),
                                    newf.second.fd.GetPathId()));
     }
+
+    for (const auto& blob_file : c->edit()->GetBlobFileAdditions()) {
+      (*output_file_names)
+          .push_back(BlobFileName(c->immutable_options()->cf_paths.front().path,
+                                  blob_file.GetBlobFileNumber()));
+    }
   }
 
   c.reset();
@@ -3460,6 +3466,35 @@ void DBImpl::BuildCompactionJobInfo(
         c->immutable_options()->cf_paths, file_number, desc.GetPathId()));
     compaction_job_info->output_file_infos.push_back(CompactionFileInfo{
         newf.first, file_number, meta.oldest_blob_file_number});
+  }
+
+  // Update BlobFilesInfo.
+  for (auto blob_file : c->edit()->GetBlobFileAdditions()) {
+    BlobFileInfo blob_file_info;
+    blob_file_info.blob_file_number = blob_file.GetBlobFileNumber();
+    blob_file_info.blob_file_path =
+        BlobFileName(c->immutable_options()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber());
+    blob_file_info.total_blob_count = blob_file.GetTotalBlobCount();
+    blob_file_info.total_blob_bytes = blob_file.GetTotalBlobBytes();
+    blob_file_info.compression_type =
+        c->mutable_cf_options()->blob_compression_type;
+    compaction_job_info->blob_files_info.emplace_back(blob_file_info);
+  }
+
+  // Update BlobFilesGarbageInfo.
+  for (auto blob_file : c->edit()->GetBlobFileGarbages()) {
+    BlobFileGarbageInfo blob_file_garbage_info;
+    blob_file_garbage_info.blob_file_number = blob_file.GetBlobFileNumber();
+    blob_file_garbage_info.blob_file_path =
+        BlobFileName(c->immutable_options()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber());
+    blob_file_garbage_info.garbage_blob_count = blob_file.GetGarbageBlobCount();
+    blob_file_garbage_info.garbage_blob_bytes = blob_file.GetGarbageBlobBytes();
+    blob_file_garbage_info.compression_type =
+        c->mutable_cf_options()->blob_compression_type;
+    compaction_job_info->blob_files_garbage_info.emplace_back(
+        blob_file_garbage_info);
   }
 }
 #endif

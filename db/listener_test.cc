@@ -1113,6 +1113,243 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   }
 }
 
+class BlobDBJobLevelEventListenerTest : public EventListener {
+ public:
+  BlobDBJobLevelEventListenerTest(EventListenerTest* test)
+      : test_(test), call_count_(0) {}
+
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      const VersionStorageInfo::BlobFiles& blob_files,
+      uint64_t blob_file_number) {
+    const auto it = blob_files.find(blob_file_number);
+
+    if (it == blob_files.end()) {
+      return nullptr;
+    }
+
+    const auto& meta = it->second;
+    assert(meta);
+
+    return meta;
+  }
+
+  const VersionStorageInfo::BlobFiles& GetBlobFiles() {
+    VersionSet* const versions = test_->dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    EXPECT_NE(cfd, nullptr);
+
+    Version* const current = cfd->current();
+    EXPECT_NE(current, nullptr);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    EXPECT_NE(storage_info, nullptr);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+    return blob_files;
+  }
+
+  std::vector<std::string> GetFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    for (auto fname : flushed_files_) {
+      result.push_back(fname);
+    }
+    return result;
+  }
+
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+    call_count_++;
+    EXPECT_GE(info.blob_files_info.size(), 1);
+    const auto& blob_files = GetBlobFiles();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      flushed_files_.push_back(info.file_path);
+    }
+    for (auto blob_file_info : info.blob_files_info) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
+      EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
+      EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
+      EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
+      EXPECT_EQ(blob_file_info.compression_type, kNoCompression);
+      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+    }
+  }
+
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+    call_count_++;
+    EXPECT_GE(ci.blob_files_garbage_info.size(), 1);
+    const auto& blob_files = GetBlobFiles();
+
+    for (auto blob_file_info : ci.blob_files_info) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
+      EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
+      EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
+      EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
+      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+      EXPECT_EQ(blob_file_info.compression_type, kNoCompression);
+    }
+
+    for (auto blob_file_garbage_info : ci.blob_files_garbage_info) {
+      EXPECT_GT(blob_file_garbage_info.blob_file_number, 0);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0);
+      EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0);
+      EXPECT_EQ(blob_file_garbage_info.compression_type, kNoCompression);
+    }
+  }
+
+  EventListenerTest* test_;
+  uint32_t call_count_;
+
+ private:
+  std::vector<std::string> flushed_files_;
+  std::mutex mutex_;
+};
+
+// Test OnFlushCompleted EventListener called for blob files
+TEST_F(EventListenerTest, BlobDBOnFlushCompleted) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  options.min_blob_size = 0;
+  BlobDBJobLevelEventListenerTest* blob_event_listener =
+      new BlobDBJobLevelEventListenerTest(this);
+  options.listeners.emplace_back(blob_event_listener);
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "blob_value1"));
+  ASSERT_OK(Put("Key2", "blob_value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key3", "blob_value3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("Key1"), "blob_value1");
+  ASSERT_EQ(Get("Key2"), "blob_value2");
+  ASSERT_EQ(Get("Key3"), "blob_value3");
+
+  ASSERT_GT(blob_event_listener->call_count_, 0);
+}
+
+// Test OnCompactionCompleted EventListener called for blob files
+TEST_F(EventListenerTest, BlobDBOnCompactionCmpleted) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.min_blob_size = 0;
+  BlobDBJobLevelEventListenerTest* blob_event_listener =
+      new BlobDBJobLevelEventListenerTest(this);
+  options.listeners.emplace_back(blob_event_listener);
+
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "blob_value1"));
+  ASSERT_OK(Put("Key2", "blob_value2"));
+  ASSERT_OK(Put("Key3", "blob_value3"));
+  ASSERT_OK(Put("Key4", "blob_value4"));
+  ASSERT_OK(Flush());
+
+  // This will generate garbage because of overwriting keys values.
+  ASSERT_OK(Put("Key3", "new_blob_value3"));
+  ASSERT_OK(Put("Key4", "new_blob_value4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key5", "blob_value5"));
+  ASSERT_OK(Put("Key6", "blob_value6"));
+  ASSERT_OK(Flush());
+
+  blob_event_listener->call_count_ = 0;
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  // On compaction, because of blob_garbage_collection_age_cutoff, it will
+  // delete the oldest blob file and create new blob file during compaction.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  // Make sure, OnCompactionCompleted is called.
+  ASSERT_GT(blob_event_listener->call_count_, 0);
+}
+
+// Test CompactFiles calls OnCompactionCompleted EventListener for blob files
+// and populate the blob files info.
+TEST_F(EventListenerTest, BlobDBCompactFiles) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+
+  BlobDBJobLevelEventListenerTest* blob_event_listener =
+      new BlobDBJobLevelEventListenerTest(this);
+  options.listeners.emplace_back(blob_event_listener);
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "blob_value1"));
+  ASSERT_OK(Put("Key2", "blob_value2"));
+  ASSERT_OK(Put("Key3", "blob_value3"));
+  ASSERT_OK(Put("Key4", "blob_value4"));
+  ASSERT_OK(Flush());
+
+  // This will generate garbage because of overwriting keys values.
+  ASSERT_OK(Put("Key3", "new_blob_value3"));
+  ASSERT_OK(Put("Key4", "new_blob_value4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key5", "blob_value5"));
+  ASSERT_OK(Put("Key6", "blob_value6"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> output_file_names;
+  CompactionJobInfo compaction_job_info;
+
+  // On compaction, because of blob_garbage_collection_age_cutoff, it will
+  // delete the oldest blob file and create new blob file during compaction
+  // which will be populated in output_files_names.
+  ASSERT_OK(dbfull()->CompactFiles(
+      CompactionOptions(), blob_event_listener->GetFlushedFiles(), 1, -1,
+      &output_file_names, &compaction_job_info));
+
+  bool is_blob_in_output = false;
+  for (auto file : output_file_names) {
+    if (EndsWith(file, ".blob")) {
+      is_blob_in_output = true;
+    }
+  }
+  ASSERT_TRUE(is_blob_in_output);
+
+  for (auto blob_file_info : compaction_job_info.blob_files_info) {
+    EXPECT_GT(blob_file_info.blob_file_number, 0);
+    EXPECT_GT(blob_file_info.total_blob_bytes, 0);
+    EXPECT_GT(blob_file_info.total_blob_count, 0);
+    EXPECT_GT(blob_file_info.blob_file_path.size(), 0);
+  }
+
+  for (auto blob_file_garbage_info :
+       compaction_job_info.blob_files_garbage_info) {
+    EXPECT_GT(blob_file_garbage_info.blob_file_number, 0);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0);
+    EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

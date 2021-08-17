@@ -206,6 +206,22 @@ struct FileOperationInfo {
   }
 };
 
+struct BlobFileInfo {
+  std::string blob_file_path;
+  uint64_t blob_file_number;
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+  CompressionType compression_type;
+};
+
+struct BlobFileGarbageInfo {
+  std::string blob_file_path;
+  uint64_t blob_file_number;
+  uint64_t garbage_blob_count;
+  uint64_t garbage_blob_bytes;
+  CompressionType compression_type;
+};
+
 struct FlushJobInfo {
   // the id of the column family
   uint32_t cf_id;
@@ -239,6 +255,8 @@ struct FlushJobInfo {
   TableProperties table_properties;
 
   FlushReason flush_reason;
+
+  std::vector<BlobFileInfo> blob_files_info;
 };
 
 struct CompactionFileInfo {
@@ -299,6 +317,10 @@ struct CompactionJobInfo {
 
   // Statistics and other additional details on the compaction
   CompactionJobStats stats;
+
+  std::vector<BlobFileInfo> blob_files_info;
+
+  std::vector<BlobFileGarbageInfo> blob_files_garbage_info;
 };
 
 struct MemTableInfo {
