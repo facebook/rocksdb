@@ -2807,9 +2807,9 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
 
 TEST_P(WritePreparedTransactionTest,
        ReleaseEarliestSnapshotDuringCompaction_WithSD) {
-  constexpr size_t snapshot_cache_bits = 7;  // same as default
-  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
-  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
@@ -2859,9 +2859,9 @@ TEST_P(WritePreparedTransactionTest,
 
 TEST_P(WritePreparedTransactionTest,
        ReleaseEarliestSnapshotDuringCompaction_WithSD2) {
-  constexpr size_t snapshot_cache_bits = 7;  // same as default
-  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
-  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
@@ -2869,8 +2869,8 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
   ASSERT_OK(db->Flush(FlushOptions()));
 
-  auto* txn =
-      db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
   ASSERT_OK(txn->Put("bar", "value"));
   ASSERT_OK(txn->SingleDelete("key"));
   ASSERT_OK(txn->SetName("txn"));
@@ -2882,9 +2882,11 @@ TEST_P(WritePreparedTransactionTest,
 
   ASSERT_OK(db->Put(WriteOptions(), "haha", "value"));
 
+  // Create a dummy transaction to take a snapshot for ww-conflict detection.
   TransactionOptions txn_opts;
   txn_opts.set_snapshot = true;
-  auto* dummy_txn = db->BeginTransaction(WriteOptions(), txn_opts, nullptr);
+  auto* dummy_txn =
+      db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr);
 
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::NextFromInput:SingleDelete:2", [&](void* /*arg*/) {
@@ -2905,9 +2907,9 @@ TEST_P(WritePreparedTransactionTest,
 
 TEST_P(WritePreparedTransactionTest,
        ReleaseEarliestSnapshotDuringCompaction_WithDelete) {
-  constexpr size_t snapshot_cache_bits = 7;  // same as default
-  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
-  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
@@ -2958,9 +2960,9 @@ TEST_P(WritePreparedTransactionTest,
 
 TEST_P(WritePreparedTransactionTest,
        ReleaseSnapshotBetweenSDAndPutDuringCompaction) {
-  constexpr size_t snapshot_cache_bits = 7;  // same as default
-  constexpr size_t commit_cache_bits = 0;    // minimum commit cache
-  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
