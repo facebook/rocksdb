@@ -6,10 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include <cinttypes>
-
-// Used to import M_LN2
+// Used to import M_LN2 from <cmath>
 #define _USE_MATH_DEFINES
+#include <cinttypes>
 #include <cmath>
 
 #include "db/db_impl/db_impl.h"
@@ -1855,6 +1854,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (mutable_cf_options.memtable_self_tuning_bloom) {
       const uint64_t pastentries = cfd->mem()->BFUniqueEntryEstimate();
       new_filterbits.reset(new uint32_t);
+      // Calculate new BF size by assuming the number of unique keys
+      // will be similar to the mutable memtable being switched,
+      // (for 6 probes (hash functions) and a target FPR of 1%)
+      // m = - n_approx * ln(0.01)/[ln(2)**2]
       *new_filterbits = static_cast<uint32_t>(
           (pastentries * (-1.0) * (-2.0 * M_LN10 /* ln(0.01) */)) /
           (M_LN2 * M_LN2));
