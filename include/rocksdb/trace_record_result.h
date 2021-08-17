@@ -63,7 +63,7 @@ class TraceExecutionResult : public TraceRecordResult {
   TraceExecutionResult(uint64_t start_timestamp, uint64_t end_timestamp,
                        TraceType trace_type);
 
-  // Execution start/end timestamps and request latency in nanoseconds.
+  // Execution start/end timestamps and request latency in microseconds.
   virtual uint64_t GetStartTimestamp() const;
   virtual uint64_t GetEndTimestamp() const;
   inline uint64_t GetLatency() const {
@@ -80,10 +80,10 @@ class TraceExecutionResult : public TraceRecordResult {
 // Iterator::SeekForPrev().
 class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
  public:
-  StatusOnlyTraceExecutionResult(const Status& status, uint64_t start_timestamp,
+  StatusOnlyTraceExecutionResult(Status status, uint64_t start_timestamp,
                                  uint64_t end_timestamp, TraceType trace_type);
 
-  virtual ~StatusOnlyTraceExecutionResult() override;
+  virtual ~StatusOnlyTraceExecutionResult() override = default;
 
   // Return value of DB::Write(), etc.
   virtual Status GetStatus() const;
@@ -98,12 +98,11 @@ class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
 // Example operation: DB::Get()
 class SingleValueTraceExecutionResult : public TraceExecutionResult {
  public:
-  SingleValueTraceExecutionResult(const Status& status,
-                                  const std::string& value,
+  SingleValueTraceExecutionResult(Status status, const std::string& value,
                                   uint64_t start_timestamp,
                                   uint64_t end_timestamp, TraceType trace_type);
 
-  SingleValueTraceExecutionResult(const Status& status, std::string&& value,
+  SingleValueTraceExecutionResult(Status status, std::string&& value,
                                   uint64_t start_timestamp,
                                   uint64_t end_timestamp, TraceType trace_type);
 

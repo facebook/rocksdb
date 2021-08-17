@@ -29,12 +29,10 @@ uint64_t TraceExecutionResult::GetEndTimestamp() const { return ts_end_; }
 
 // StatusOnlyTraceExecutionResult
 StatusOnlyTraceExecutionResult::StatusOnlyTraceExecutionResult(
-    const Status& status, uint64_t start_timestamp, uint64_t end_timestamp,
+    Status status, uint64_t start_timestamp, uint64_t end_timestamp,
     TraceType trace_type)
     : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
-      status_(status) {}
-
-StatusOnlyTraceExecutionResult::~StatusOnlyTraceExecutionResult() {}
+      status_(std::move(status)) {}
 
 Status StatusOnlyTraceExecutionResult::GetStatus() const { return status_; }
 
@@ -45,17 +43,17 @@ Status StatusOnlyTraceExecutionResult::Accept(Handler* handler) {
 
 // SingleValueTraceExecutionResult
 SingleValueTraceExecutionResult::SingleValueTraceExecutionResult(
-    const Status& status, const std::string& value, uint64_t start_timestamp,
+    Status status, const std::string& value, uint64_t start_timestamp,
     uint64_t end_timestamp, TraceType trace_type)
     : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
-      status_(status),
+      status_(std::move(status)),
       value_(value) {}
 
 SingleValueTraceExecutionResult::SingleValueTraceExecutionResult(
-    const Status& status, std::string&& value, uint64_t start_timestamp,
+    Status status, std::string&& value, uint64_t start_timestamp,
     uint64_t end_timestamp, TraceType trace_type)
     : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
-      status_(status),
+      status_(std::move(status)),
       value_(std::move(value)) {}
 
 SingleValueTraceExecutionResult::~SingleValueTraceExecutionResult() {

@@ -36,12 +36,12 @@ Status TraceExecutionHandler::Handle(
   if (result != nullptr) {
     result->reset(nullptr);
   }
-  uint64_t start = clock_->NowNanos();
+  uint64_t start = clock_->NowMicros();
 
   WriteBatch batch(record.GetWriteBatchRep().ToString());
   Status s = db_->Write(write_opts_, &batch);
 
-  uint64_t end = clock_->NowNanos();
+  uint64_t end = clock_->NowMicros();
 
   if (s.ok() && result != nullptr) {
     result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
@@ -62,12 +62,12 @@ Status TraceExecutionHandler::Handle(
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  uint64_t start = clock_->NowNanos();
+  uint64_t start = clock_->NowMicros();
 
   std::string value;
   Status s = db_->Get(read_opts_, it->second, record.GetKey(), &value);
 
-  uint64_t end = clock_->NowNanos();
+  uint64_t end = clock_->NowMicros();
 
   // Treat not found as ok, return other errors.
   if (!s.ok() && !s.IsNotFound()) {
@@ -93,7 +93,7 @@ Status TraceExecutionHandler::Handle(
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  uint64_t start = clock_->NowNanos();
+  uint64_t start = clock_->NowMicros();
 
   Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
   switch (record.GetSeekType()) {
@@ -109,7 +109,7 @@ Status TraceExecutionHandler::Handle(
   Status s = single_iter->status();
   delete single_iter;
 
-  uint64_t end = clock_->NowNanos();
+  uint64_t end = clock_->NowMicros();
 
   if (s.ok() && result != nullptr) {
     result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
@@ -144,12 +144,12 @@ Status TraceExecutionHandler::Handle(
     return Status::InvalidArgument("MultiGet cf_ids and keys size mismatch.");
   }
 
-  uint64_t start = clock_->NowNanos();
+  uint64_t start = clock_->NowMicros();
 
   std::vector<std::string> values;
   std::vector<Status> ss = db_->MultiGet(read_opts_, handles, keys, &values);
 
-  uint64_t end = clock_->NowNanos();
+  uint64_t end = clock_->NowMicros();
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {

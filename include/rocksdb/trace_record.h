@@ -135,8 +135,8 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
   // rep string for the WriteBatch.
   virtual Slice GetWriteBatchRep() const;
 
-  virtual Status Accept(Handler* handler,
-                        std::unique_ptr<TraceRecordResult>* result) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   PinnableSlice rep_;
@@ -161,8 +161,8 @@ class GetQueryTraceRecord : public QueryTraceRecord {
   // Key to get.
   virtual Slice GetKey() const;
 
-  virtual Status Accept(Handler* handler,
-                        std::unique_ptr<TraceRecordResult>* result) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   uint32_t cf_id_;
@@ -204,8 +204,8 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   // Key to seek to.
   virtual Slice GetKey() const;
 
-  virtual Status Accept(Handler* handler,
-                        std::unique_ptr<TraceRecordResult>* result) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   SeekType type_;
@@ -234,8 +234,8 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
   // Keys to get.
   virtual std::vector<Slice> GetKeys() const;
 
-  virtual Status Accept(Handler* handler,
-                        std::unique_ptr<TraceRecordResult>* result) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   std::vector<uint32_t> cf_ids_;
