@@ -29,7 +29,7 @@ class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
 
-struct TableFileCreationBriefInfo {
+struct FileCreationBriefInfo {
   // the name of the database where the file was created
   std::string db_name;
   // the name of the column family where the file was created.
@@ -39,6 +39,9 @@ struct TableFileCreationBriefInfo {
   // the id of the job (which could be flush or compaction) that
   // created the file.
   int job_id;
+};
+
+struct TableFileCreationBriefInfo : public FileCreationBriefInfo {
   // reason of creating the table.
   TableFileCreationReason reason;
 };
@@ -56,6 +59,23 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   // The checksum of the table file being created
   std::string file_checksum;
   // The checksum function name of checksum generator used for this table file
+  std::string file_checksum_func_name;
+};
+
+struct BlobFileCreationBriefInfo : public FileCreationBriefInfo {};
+
+struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
+  BlobFileCreationInfo() = default;
+
+  // the size of the blob file.
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+
+  // The status indicating whether the creation was successful or not.
+  Status status;
+  // The checksum of the blob file being created
+  std::string file_checksum;
+  // The checksum function name of checksum generator used for this blob file
   std::string file_checksum_func_name;
 };
 
@@ -150,7 +170,7 @@ struct WriteStallInfo {
 
 #ifndef ROCKSDB_LITE
 
-struct TableFileDeletionInfo {
+struct FileDeletionInfo {
   // The name of the database where the file was deleted.
   std::string db_name;
   // The path to the deleted file.
@@ -160,6 +180,10 @@ struct TableFileDeletionInfo {
   // The status indicating whether the deletion was successful or not.
   Status status;
 };
+
+struct TableFileDeletionInfo : public FileDeletionInfo {};
+
+struct BlobFileDeletionInfo : public FileDeletionInfo {};
 
 enum class FileOperationType {
   kRead,
@@ -576,6 +600,13 @@ class EventListener : public Customizable {
   // means normal writes to the database can be issued and the user can
   // initiate any further recovery actions needed
   virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+
+  virtual void OnBlobFileCreationStarted(
+      const BlobFileCreationBriefInfo& /*info*/) {}
+
+  virtual void OnBlobFileCreated(const BlobFileCreationInfo& /*info*/) {}
+
+  virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
 
   virtual ~EventListener() {}
 };

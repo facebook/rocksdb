@@ -1350,6 +1350,97 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
   }
 }
 
+class BlobDBFileLevelEventListener : public EventListener {
+ public:
+  BlobDBFileLevelEventListener() {
+    files_started_.store(0);
+    files_created_.store(0);
+    files_deleted_.store(0);
+  }
+
+  void OnBlobFileCreationStarted(
+      const BlobFileCreationBriefInfo& info) override {
+    files_started_++;
+    EXPECT_GT(info.db_name.size(), 0);
+    EXPECT_GT(info.cf_name.size(), 0);
+    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.job_id, 0);
+  }
+
+  void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
+    files_created_++;
+    EXPECT_GT(info.db_name.size(), 0);
+    EXPECT_GT(info.cf_name.size(), 0);
+    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.job_id, 0);
+    EXPECT_GT(info.total_blob_count, 0);
+    EXPECT_GT(info.total_blob_bytes, 0);
+    EXPECT_EQ(info.file_checksum, "");
+    EXPECT_EQ(info.file_checksum_func_name, "");
+    EXPECT_TRUE(info.status.ok());
+  }
+
+  void OnBlobFileDeleted(const BlobFileDeletionInfo& info) override {
+    files_deleted_++;
+    EXPECT_GT(info.db_name.size(), 0);
+    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.job_id, 0);
+    EXPECT_TRUE(info.status.ok());
+  }
+
+  void CheckCounters() {
+    EXPECT_EQ(files_started_, files_created_);
+    EXPECT_GT(files_started_, 0);
+    EXPECT_GT(files_deleted_, 0);
+  }
+
+ private:
+  std::atomic<uint32_t> files_started_;
+  std::atomic<uint32_t> files_created_;
+  std::atomic<uint32_t> files_deleted_;
+};
+
+TEST_F(EventListenerTest, BlobDBFileTest) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+
+  BlobDBFileLevelEventListener* blob_event_listener =
+      new BlobDBFileLevelEventListener();
+  options.listeners.emplace_back(blob_event_listener);
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "blob_value1"));
+  ASSERT_OK(Put("Key2", "blob_value2"));
+  ASSERT_OK(Put("Key3", "blob_value3"));
+  ASSERT_OK(Put("Key4", "blob_value4"));
+  ASSERT_OK(Flush());
+
+  // This will generate garbage because of overwriting keys values.
+  ASSERT_OK(Put("Key3", "new_blob_value3"));
+  ASSERT_OK(Put("Key4", "new_blob_value4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key5", "blob_value5"));
+  ASSERT_OK(Put("Key6", "blob_value6"));
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  // On compaction, because of blob_garbage_collection_age_cutoff, it will
+  // delete the oldest blob file and create new blob file during compaction.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  blob_event_listener->CheckCounters();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

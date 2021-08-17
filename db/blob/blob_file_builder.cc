@@ -12,6 +12,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -35,14 +36,14 @@ BlobFileBuilder::BlobFileBuilder(
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCompletionCallback* blob_callback,
+    BlobFileCompletionCallback* blob_callback, const std::string& dbname,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
                       job_id, column_family_id, column_family_name, io_priority,
-                      write_hint, io_tracer, blob_callback, blob_file_paths,
-                      blob_file_additions) {}
+                      write_hint, io_tracer, blob_callback, dbname,
+                      blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
@@ -52,7 +53,7 @@ BlobFileBuilder::BlobFileBuilder(
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCompletionCallback* blob_callback,
+    BlobFileCompletionCallback* blob_callback, const std::string& dbname,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -69,6 +70,7 @@ BlobFileBuilder::BlobFileBuilder(
       write_hint_(write_hint),
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
+      dbname_(dbname),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
@@ -161,6 +163,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::string blob_file_path =
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
 
+#ifndef ROCKSDB_LITE
+  EventHelpers::NotifyBlobFileCreationStarted(immutable_options_->listeners,
+                                              dbname_, column_family_name_,
+                                              blob_file_path, job_id_);
+#endif  // !ROCKSDB_LITE
+
   std::unique_ptr<FSWritableFile> file;
 
   {
@@ -171,6 +179,14 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
 
     if (!s.ok()) {
+#ifndef ROCKSDB_LITE
+      std::string file_checksum = kUnknownFileChecksum;
+      std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
+      EventHelpers::NotifyBlobFileCreationFinished(
+          immutable_options_->listeners, dbname_, column_family_name_,
+          blob_file_path, job_id_, s, file_checksum, file_checksum_func_name,
+          blob_count_, blob_bytes_);
+#endif  // !ROCKSDB_LITE
       return s;
     }
   }
@@ -298,6 +314,14 @@ Status BlobFileBuilder::CloseBlobFile() {
   Status s = writer_->AppendFooter(footer, &checksum_method, &checksum_value);
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
+
+#ifndef ROCKSDB_LITE
+
+  EventHelpers::NotifyBlobFileCreationFinished(
+      immutable_options_->listeners, blob_file_paths_->back() /*dbname*/,
+      column_family_name_, blob_file_paths_->back(), job_id_, s, checksum_value,
+      checksum_method, blob_count_, blob_bytes_);
+#endif  // !ROCKSDB_LITE
 
   if (!s.ok()) {
     return s;

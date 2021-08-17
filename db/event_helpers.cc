@@ -247,4 +247,61 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
 #endif  // ROCKSDB_LITE
 }
 
+#ifndef ROCKSDB_LITE
+void EventHelpers::NotifyBlobFileCreationStarted(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    const std::string& db_name, const std::string& cf_name,
+    const std::string& file_path, int job_id) {
+  BlobFileCreationBriefInfo info;
+  info.db_name = db_name;
+  info.cf_name = cf_name;
+  info.file_path = file_path;
+  info.job_id = job_id;
+  for (auto& listener : listeners) {
+    listener->OnBlobFileCreationStarted(info);
+  }
+}
+
+void EventHelpers::NotifyBlobFileCreationFinished(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    const std::string& db_name, const std::string& cf_name,
+    const std::string& file_path, int job_id, const Status& s,
+    const std::string& file_checksum,
+    const std::string& file_checksum_func_name, uint64_t total_blob_count,
+    uint64_t total_blob_bytes) {
+  if (listeners.size() == 0) {
+    return;
+  }
+  BlobFileCreationInfo info;
+  info.db_name = db_name;
+  info.cf_name = cf_name;
+  info.file_path = file_path;
+  info.job_id = job_id;
+  info.status = s;
+  info.file_checksum = file_checksum;
+  info.file_checksum_func_name = file_checksum_func_name;
+  info.total_blob_count = total_blob_count;
+  info.total_blob_bytes = total_blob_bytes;
+  for (auto& listener : listeners) {
+    listener->OnBlobFileCreated(info);
+  }
+  info.status.PermitUncheckedError();
+}
+
+void EventHelpers::NotifyBlobFileDeletion(
+    const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
+    uint64_t /*file_number*/, const std::string& file_path,
+    const Status& status, const std::string& dbname) {
+  BlobFileDeletionInfo info;
+  info.db_name = dbname;
+  info.job_id = job_id;
+  info.file_path = file_path;
+  info.status = status;
+  for (auto& listener : listeners) {
+    listener->OnBlobFileDeleted(info);
+  }
+  info.status.PermitUncheckedError();
+}
+#endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
