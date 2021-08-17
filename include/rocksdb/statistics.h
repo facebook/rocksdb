@@ -389,6 +389,9 @@ enum Tickers : uint32_t {
   // Outdated bytes of data present on memtable at flush time.
   MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
 
+  // Secondary cache statistics
+  SECONDARY_CACHE_HITS,
+
   TICKER_ENUM_MAX
 };
 
