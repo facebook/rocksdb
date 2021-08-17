@@ -11,23 +11,28 @@ namespace ROCKSDB_NAMESPACE {
 TraceRecordResult::TraceRecordResult(TraceType trace_type)
     : trace_type_(trace_type) {}
 
-TraceRecordResult::~TraceRecordResult() {}
-
 TraceType TraceRecordResult::GetTraceType() const { return trace_type_; }
 
 // TraceExecutionResult
-TraceExecutionResult::TraceExecutionResult(uint64_t latency,
+TraceExecutionResult::TraceExecutionResult(uint64_t start_timestamp,
+                                           uint64_t end_timestamp,
                                            TraceType trace_type)
-    : TraceRecordResult(trace_type), latency_(latency) {}
+    : TraceRecordResult(trace_type),
+      ts_start_(start_timestamp),
+      ts_end_(end_timestamp) {
+  assert(ts_start_ <= ts_end_);
+}
 
-TraceExecutionResult::~TraceExecutionResult() {}
+uint64_t TraceExecutionResult::GetStartTimestamp() const { return ts_start_; }
 
-uint64_t TraceExecutionResult::GetLatency() const { return latency_; }
+uint64_t TraceExecutionResult::GetEndTimestamp() const { return ts_end_; }
 
 // StatusOnlyTraceExecutionResult
 StatusOnlyTraceExecutionResult::StatusOnlyTraceExecutionResult(
-    const Status& status, uint64_t latency, TraceType trace_type)
-    : TraceExecutionResult(latency, trace_type), status_(status) {}
+    const Status& status, uint64_t start_timestamp, uint64_t end_timestamp,
+    TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
+      status_(status) {}
 
 StatusOnlyTraceExecutionResult::~StatusOnlyTraceExecutionResult() {}
 
@@ -40,20 +45,22 @@ Status StatusOnlyTraceExecutionResult::Accept(Handler* handler) {
 
 // SingleValueTraceExecutionResult
 SingleValueTraceExecutionResult::SingleValueTraceExecutionResult(
-    const Status& status, const std::string& value, uint64_t latency,
-    TraceType trace_type)
-    : TraceExecutionResult(latency, trace_type),
+    const Status& status, const std::string& value, uint64_t start_timestamp,
+    uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       status_(status),
       value_(value) {}
 
 SingleValueTraceExecutionResult::SingleValueTraceExecutionResult(
-    const Status& status, std::string&& value, uint64_t latency,
-    TraceType trace_type)
-    : TraceExecutionResult(latency, trace_type),
+    const Status& status, std::string&& value, uint64_t start_timestamp,
+    uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       status_(status),
       value_(std::move(value)) {}
 
-SingleValueTraceExecutionResult::~SingleValueTraceExecutionResult() {}
+SingleValueTraceExecutionResult::~SingleValueTraceExecutionResult() {
+  value_.clear();
+}
 
 Status SingleValueTraceExecutionResult::GetStatus() const { return status_; }
 
@@ -67,20 +74,23 @@ Status SingleValueTraceExecutionResult::Accept(Handler* handler) {
 // MultiValuesTraceExecutionResult
 MultiValuesTraceExecutionResult::MultiValuesTraceExecutionResult(
     const std::vector<Status>& multi_status,
-    const std::vector<std::string>& values, uint64_t latency,
-    TraceType trace_type)
-    : TraceExecutionResult(latency, trace_type),
+    const std::vector<std::string>& values, uint64_t start_timestamp,
+    uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       multi_status_(multi_status),
       values_(values) {}
 
 MultiValuesTraceExecutionResult::MultiValuesTraceExecutionResult(
     std::vector<Status>&& multi_status, std::vector<std::string>&& values,
-    uint64_t latency, TraceType trace_type)
-    : TraceExecutionResult(latency, trace_type),
+    uint64_t start_timestamp, uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       multi_status_(std::move(multi_status)),
       values_(std::move(values)) {}
 
-MultiValuesTraceExecutionResult::~MultiValuesTraceExecutionResult() {}
+MultiValuesTraceExecutionResult::~MultiValuesTraceExecutionResult() {
+  multi_status_.clear();
+  values_.clear();
+}
 
 std::vector<Status> MultiValuesTraceExecutionResult::GetMultiStatus() const {
   return multi_status_;

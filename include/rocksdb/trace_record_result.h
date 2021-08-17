@@ -23,14 +23,14 @@ class TraceRecordResult {
  public:
   explicit TraceRecordResult(TraceType trace_type);
 
-  virtual ~TraceRecordResult();
+  virtual ~TraceRecordResult() = default;
 
   // Trace type of the corresponding TraceRecord.
   virtual TraceType GetTraceType() const;
 
   class Handler {
    public:
-    virtual ~Handler() {}
+    virtual ~Handler() = default;
 
     // Handle StatusOnlyTraceExecutionResult
     virtual Status Handle(const StatusOnlyTraceExecutionResult& /*result*/) {
@@ -60,15 +60,19 @@ class TraceRecordResult {
 // Base class for the execution results types of trace records.
 class TraceExecutionResult : public TraceRecordResult {
  public:
-  TraceExecutionResult(uint64_t latency, TraceType trace_type);
+  TraceExecutionResult(uint64_t start_timestamp, uint64_t end_timestamp,
+                       TraceType trace_type);
 
-  virtual ~TraceExecutionResult() override;
-
-  // Request latency in nanoseconds.
-  virtual uint64_t GetLatency() const;
+  // Execution start/end timestamps and request latency in nanoseconds.
+  virtual uint64_t GetStartTimestamp() const;
+  virtual uint64_t GetEndTimestamp() const;
+  inline uint64_t GetLatency() const {
+    return GetEndTimestamp() - GetStartTimestamp();
+  }
 
  private:
-  uint64_t latency_;
+  uint64_t ts_start_;
+  uint64_t ts_end_;
 };
 
 // Operation that only returns a Status.
@@ -76,8 +80,9 @@ class TraceExecutionResult : public TraceRecordResult {
 // Iterator::SeekForPrev().
 class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
  public:
-  StatusOnlyTraceExecutionResult(const Status& status, uint64_t latency,
-                                 TraceType trace_type);
+  StatusOnlyTraceExecutionResult(const Status& status, uint64_t start_timestamp,
+                                 uint64_t end_timestamp, TraceType trace_type);
+
   virtual ~StatusOnlyTraceExecutionResult() override;
 
   // Return value of DB::Write(), etc.
@@ -94,11 +99,13 @@ class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
 class SingleValueTraceExecutionResult : public TraceExecutionResult {
  public:
   SingleValueTraceExecutionResult(const Status& status,
-                                  const std::string& value, uint64_t latency,
-                                  TraceType trace_type);
+                                  const std::string& value,
+                                  uint64_t start_timestamp,
+                                  uint64_t end_timestamp, TraceType trace_type);
 
   SingleValueTraceExecutionResult(const Status& status, std::string&& value,
-                                  uint64_t latency, TraceType trace_type);
+                                  uint64_t start_timestamp,
+                                  uint64_t end_timestamp, TraceType trace_type);
 
   virtual ~SingleValueTraceExecutionResult() override;
 
@@ -121,11 +128,13 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
  public:
   MultiValuesTraceExecutionResult(const std::vector<Status>& multi_status,
                                   const std::vector<std::string>& values,
-                                  uint64_t latency, TraceType trace_type);
+                                  uint64_t start_timestamp,
+                                  uint64_t end_timestamp, TraceType trace_type);
 
   MultiValuesTraceExecutionResult(std::vector<Status>&& multi_status,
                                   std::vector<std::string>&& values,
-                                  uint64_t latency, TraceType trace_type);
+                                  uint64_t start_timestamp,
+                                  uint64_t end_timestamp, TraceType trace_type);
 
   virtual ~MultiValuesTraceExecutionResult() override;
 

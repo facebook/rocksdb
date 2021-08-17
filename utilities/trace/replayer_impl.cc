@@ -129,10 +129,13 @@ Status ReplayerImpl::Replay(
         break;
       }
 
-      std::this_thread::sleep_until(
+      std::chrono::system_clock::time_point sleep_to =
           replay_epoch +
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
-              1.0 * (trace.ts - header_ts_) / options.fast_forward))));
+              1.0 * (trace.ts - header_ts_) / options.fast_forward)));
+      if (sleep_to > std::chrono::system_clock::now()) {
+        std::this_thread::sleep_until(sleep_to);
+      }
 
       // Skip unsupported traces, stop for other errors.
       if (s.IsNotSupported()) {
@@ -194,10 +197,13 @@ Status ReplayerImpl::Replay(
 
       // In multi-threaded replay, sleep first thatn start decoding and
       // execution in a thread.
-      std::this_thread::sleep_until(
+      std::chrono::system_clock::time_point sleep_to =
           replay_epoch +
           std::chrono::microseconds(static_cast<uint64_t>(std::llround(
-              1.0 * (trace.ts - header_ts_) / options.fast_forward))));
+              1.0 * (trace.ts - header_ts_) / options.fast_forward)));
+      if (sleep_to > std::chrono::system_clock::now()) {
+        std::this_thread::sleep_until(sleep_to);
+      }
 
       if (trace_type == kTraceWrite || trace_type == kTraceGet ||
           trace_type == kTraceIteratorSeek ||

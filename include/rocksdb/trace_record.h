@@ -51,10 +51,9 @@ class WriteQueryTraceRecord;
 // Base class for all types of trace records.
 class TraceRecord {
  public:
-  TraceRecord();
   explicit TraceRecord(uint64_t timestamp);
 
-  virtual ~TraceRecord();
+  virtual ~TraceRecord() = default;
 
   // Type of the trace record.
   virtual TraceType GetTraceType() const = 0;
@@ -64,7 +63,7 @@ class TraceRecord {
 
   class Handler {
    public:
-    virtual ~Handler() {}
+    virtual ~Handler() = default;
 
     // Handle WriteQueryTraceRecord
     virtual Status Handle(const WriteQueryTraceRecord& /*record*/,
@@ -120,8 +119,6 @@ class TraceRecord {
 class QueryTraceRecord : public TraceRecord {
  public:
   explicit QueryTraceRecord(uint64_t timestamp);
-
-  virtual ~QueryTraceRecord() override;
 };
 
 // Trace record for DB::Write() operation.
@@ -176,8 +173,6 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit IteratorQueryTraceRecord(uint64_t timestamp);
-
-  virtual ~IteratorQueryTraceRecord() override;
 };
 
 // Trace record for Iterator::Seek() and Iterator::SeekForPrev() operation.

@@ -19,8 +19,6 @@ namespace ROCKSDB_NAMESPACE {
 // TraceRecord
 TraceRecord::TraceRecord(uint64_t timestamp) : timestamp_(timestamp) {}
 
-TraceRecord::~TraceRecord() {}
-
 uint64_t TraceRecord::GetTimestamp() const { return timestamp_; }
 
 TraceRecord::Handler* TraceRecord::NewExecutionHandler(
@@ -31,8 +29,6 @@ TraceRecord::Handler* TraceRecord::NewExecutionHandler(
 // QueryTraceRecord
 QueryTraceRecord::QueryTraceRecord(uint64_t timestamp)
     : TraceRecord(timestamp) {}
-
-QueryTraceRecord::~QueryTraceRecord() {}
 
 // WriteQueryTraceRecord
 WriteQueryTraceRecord::WriteQueryTraceRecord(PinnableSlice&& write_batch_rep,
@@ -45,7 +41,7 @@ WriteQueryTraceRecord::WriteQueryTraceRecord(const std::string& write_batch_rep,
   rep_.PinSelf(write_batch_rep);
 }
 
-WriteQueryTraceRecord::~WriteQueryTraceRecord() {}
+WriteQueryTraceRecord::~WriteQueryTraceRecord() { rep_.clear(); }
 
 Slice WriteQueryTraceRecord::GetWriteBatchRep() const { return Slice(rep_); }
 
@@ -70,7 +66,7 @@ GetQueryTraceRecord::GetQueryTraceRecord(uint32_t column_family_id,
   key_.PinSelf(key);
 }
 
-GetQueryTraceRecord::~GetQueryTraceRecord() {}
+GetQueryTraceRecord::~GetQueryTraceRecord() { key_.clear(); }
 
 uint32_t GetQueryTraceRecord::GetColumnFamilyID() const { return cf_id_; }
 
@@ -85,8 +81,6 @@ Status GetQueryTraceRecord::Accept(Handler* handler,
 // IteratorQueryTraceRecord
 IteratorQueryTraceRecord::IteratorQueryTraceRecord(uint64_t timestamp)
     : QueryTraceRecord(timestamp) {}
-
-IteratorQueryTraceRecord::~IteratorQueryTraceRecord() {}
 
 // IteratorSeekQueryTraceRecord
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
@@ -106,7 +100,7 @@ IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
   key_.PinSelf(key);
 }
 
-IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() {}
+IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() { key_.clear(); }
 
 TraceType IteratorSeekQueryTraceRecord::GetTraceType() const {
   return static_cast<TraceType>(type_);
@@ -149,7 +143,10 @@ MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
   }
 }
 
-MultiGetQueryTraceRecord::~MultiGetQueryTraceRecord() {}
+MultiGetQueryTraceRecord::~MultiGetQueryTraceRecord() {
+  cf_ids_.clear();
+  keys_.clear();
+}
 
 std::vector<uint32_t> MultiGetQueryTraceRecord::GetColumnFamilyIDs() const {
   return cf_ids_;

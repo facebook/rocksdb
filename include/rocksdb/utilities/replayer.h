@@ -40,7 +40,7 @@ struct ReplayOptions {
 // instantiated via db_bench today, on using "replay" benchmark.
 class Replayer {
  public:
-  virtual ~Replayer() {}
+  virtual ~Replayer() = default;
 
   // Make some preparation before replaying the trace. This will also reset the
   // replayer in order to restart replaying.
@@ -85,7 +85,7 @@ class Replayer {
   // between the traces into consideration.
   //
   // result_callback reports the status of executing a trace record, and the
-  // actual operation execution result (See the desciption for Execute()).
+  // actual operation execution result (See the description for Execute()).
   virtual Status Replay(
       const ReplayOptions& options,
       const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&

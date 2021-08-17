@@ -41,11 +41,11 @@ Status TraceExecutionHandler::Handle(
   WriteBatch batch(record.GetWriteBatchRep().ToString());
   Status s = db_->Write(write_opts_, &batch);
 
-  uint64_t latency = clock_->NowNanos() - start;
+  uint64_t end = clock_->NowNanos();
 
   if (s.ok() && result != nullptr) {
-    result->reset(
-        new StatusOnlyTraceExecutionResult(s, latency, record.GetTraceType()));
+    result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
+                                                     record.GetTraceType()));
   }
 
   return s;
@@ -67,7 +67,7 @@ Status TraceExecutionHandler::Handle(
   std::string value;
   Status s = db_->Get(read_opts_, it->second, record.GetKey(), &value);
 
-  uint64_t latency = clock_->NowNanos() - start;
+  uint64_t end = clock_->NowNanos();
 
   // Treat not found as ok, return other errors.
   if (!s.ok() && !s.IsNotFound()) {
@@ -77,7 +77,7 @@ Status TraceExecutionHandler::Handle(
   if (result != nullptr) {
     // Report the actual opetation status in TraceExecutionResult
     result->reset(new SingleValueTraceExecutionResult(
-        s, std::move(value), latency, record.GetTraceType()));
+        s, std::move(value), start, end, record.GetTraceType()));
   }
   return Status::OK();
 }
@@ -109,11 +109,11 @@ Status TraceExecutionHandler::Handle(
   Status s = single_iter->status();
   delete single_iter;
 
-  uint64_t latency = clock_->NowNanos() - start;
+  uint64_t end = clock_->NowNanos();
 
   if (s.ok() && result != nullptr) {
-    result->reset(
-        new StatusOnlyTraceExecutionResult(s, latency, record.GetTraceType()));
+    result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
+                                                     record.GetTraceType()));
   }
 
   return s;
@@ -149,7 +149,7 @@ Status TraceExecutionHandler::Handle(
   std::vector<std::string> values;
   std::vector<Status> ss = db_->MultiGet(read_opts_, handles, keys, &values);
 
-  uint64_t latency = clock_->NowNanos() - start;
+  uint64_t end = clock_->NowNanos();
 
   // Treat not found as ok, return other errors.
   for (Status s : ss) {
@@ -161,7 +161,7 @@ Status TraceExecutionHandler::Handle(
   if (result != nullptr) {
     // Report the actual opetation status in TraceExecutionResult
     result->reset(new MultiValuesTraceExecutionResult(
-        std::move(ss), std::move(values), latency, record.GetTraceType()));
+        std::move(ss), std::move(values), start, end, record.GetTraceType()));
   }
 
   return Status::OK();
