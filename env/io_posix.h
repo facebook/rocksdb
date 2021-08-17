@@ -312,7 +312,6 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
     (void)dbg;
     throw "Not implemented";
   }
-  
   virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
 };
 

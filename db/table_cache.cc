@@ -536,7 +536,8 @@ async_result<Status> TableCache::AsyncGet(const ReadOptions& options,
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      auto a_result = t->AsyncGet(options, k, get_context, prefix_extractor, skip_filters);
+      s = a_result.result();
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       // Couldn't find Table in cache but treat as kFound if no_io set
