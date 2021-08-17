@@ -119,11 +119,12 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   // use bloom_filter_ for both whole key and prefix bloom filter
   if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
       moptions_.memtable_prefix_bloom_bits > 0) {
-    bloom_filter_.reset(new DynamicBloom(
-        &arena_,
-        filter_bits ? *filter_bits : moptions_.memtable_prefix_bloom_bits,
-        6 /* hard coded 6 probes */, moptions_.memtable_huge_page_size,
-        ioptions.logger));
+    uint32_t bf_bits =
+        filter_bits ? *filter_bits : moptions_.memtable_prefix_bloom_bits;
+    bloom_filter_.reset(
+        new DynamicBloom(&arena_, bf_bits, 6 /* hard coded 6 probes */,
+                         moptions_.memtable_huge_page_size, ioptions.logger));
+    TEST_SYNC_POINT_CALLBACK("Memtable::BloomFilterSize", &bf_bits);
   }
 }
 

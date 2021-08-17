@@ -7,8 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+
+// Used to import M_LN2
+#define _USE_MATH_DEFINES
 #include <cmath>
-#include <numbers>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -1852,17 +1854,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
     if (mutable_cf_options.memtable_self_tuning_bloom) {
       const uint64_t pastentries = cfd->mem()->BFUniqueEntryEstimate();
-      const uint32_t newsize =
-          static_cast<uint32_t>((pastentries * (-1.0) * std::log(0.01)) /
-                                (std::numbers::ln2_v * std::numbers::ln2_v));
-      ROCKS_LOG_INFO(
-          immutable_db_options_.info_log,
-          "Estimate Unique BF entries %" PRIu64 ". Memtable says %" PRIu64
-          " entries "
-          "(can include duplicates). New BF size = %" PRIu32 " bits.",
-          pastentries, memtable_info.num_entries, newsize);
       new_filterbits.reset(new uint32_t);
-      *new_filterbits = newsize;
+      *new_filterbits = static_cast<uint32_t>(
+          (pastentries * (-1.0) * (-2.0 * M_LN10 /* ln(0.01) */)) /
+          (M_LN2 * M_LN2));
+      TEST_SYNC_POINT_CALLBACK("DBImpl::SelfTuningBloom:NewBFSize",
+                               new_filterbits.get());
     }
 
     new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq,

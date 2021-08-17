@@ -1516,64 +1516,66 @@ TEST_F(DBBloomFilterTest, MemtableSelfTuningBloomFilter) {
   options.memtable_whole_key_filtering = false;
   options.memtable_self_tuning_bloom = true;
 
+  uint32_t initial_bf_bits =
+      static_cast<uint32_t>(static_cast<double>(options.write_buffer_size) *
+                            options.memtable_prefix_bloom_size_ratio) *
+      8u;
+
+  uint32_t updated_bf_bits = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SelfTuningBloom:NewBFSize", [&updated_bf_bits](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        updated_bf_bits = *(static_cast<uint32_t*>(arg));
+      });
+
+  uint32_t memtable_bf_bits = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "Memtable::BloomFilterSize", [&memtable_bf_bits](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        memtable_bf_bits = *(static_cast<uint32_t*>(arg));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Random rnd(1477);
 
+  // Reset Perf Context counters to 0.
+  get_perf_context()->Reset();
   Reopen(options);
-  std::vector<std::string> unique_keys;
-  for (uint64_t i = 0; i < 100; i++) {
+  std::vector<std::string> unique_keys, unique_values;
+  for (uint64_t i = 0; i < 200; i++) {
     std::string tempkey = rnd.RandomString(128);
     std::string tempval = rnd.RandomString(64);
     ASSERT_OK(Put(tempkey, tempval));
     unique_keys.push_back(tempkey);
   }
-
-  std::string key1("AAAABBBB");
-  std::string key2("AAAACCCC");  // not in DB
-  std::string key3("AAAADDDD");
-  std::string key4("AAAAEEEE");
-  std::string value1("Value1");
-  std::string value2("Value2");
-  std::string value3("Value3");
-  std::string value4("Value4");
-  ASSERT_OK(Put(key1, value1));
-  ASSERT_OK(Put(key2, value2));
-  ASSERT_OK(Put(key3, value3));
-  ASSERT_OK(Put(key4, value4));
-  ASSERT_OK(Put(key1, value2));
-  ASSERT_OK(Put(key3, value4));
+  for (const auto& k : unique_keys) {
+    std::string tempval = rnd.RandomString(64);
+    ASSERT_OK(Put(k, tempval));
+  }
+  ASSERT_EQ(memtable_bf_bits, initial_bf_bits);
   ASSERT_OK(Flush());
-  ASSERT_OK(Put(key3, value1));
-  ASSERT_OK(Put(key2, value4));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put(key4, value2));
-  ASSERT_OK(Put(key1, value3));
-  // ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_GT(updated_bf_bits, 0);
+  ASSERT_EQ(updated_bf_bits, memtable_bf_bits);
+  ASSERT_LT(updated_bf_bits, initial_bf_bits);
+  // We haven't used the BF yet.
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
 
-  // // check memtable bloom stats
-  // ASSERT_EQ("NOT_FOUND", Get(key2));
-  // ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
-  // // same prefix, bloom filter false positive
-  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
-
-  // // enable whole key bloom filter
-  // options.memtable_whole_key_filtering = true;
-  // Reopen(options);
-  // // check memtable bloom stats
-  // ASSERT_OK(Put(key3, value3, WriteOptions()));
-  // ASSERT_EQ("NOT_FOUND", Get(key2));
-  // // whole key bloom filter kicks in and determines it's a miss
-  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
-  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
-
-  // // verify whole key filtering does not depend on prefix_extractor
-  // options.prefix_extractor.reset();
-  // Reopen(options);
-  // // check memtable bloom stats
-  // ASSERT_OK(Put(key4, value4, WriteOptions()));
-  // ASSERT_EQ("NOT_FOUND", Get(key2));
-  // // whole key bloom filter kicks in and determines it's a miss
-  // ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
-  // ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+  unique_keys.clear();
+  for (uint64_t i = 0; i < 200; i++) {
+    std::string tempkey = rnd.RandomString(128);
+    std::string tempval = rnd.RandomString(64);
+    ASSERT_OK(Put(tempkey, tempval));
+    unique_keys.push_back(tempkey);
+    unique_values.push_back(tempval);
+  }
+  for (auto kit = unique_keys.begin(), vit = unique_values.begin();
+       kit != unique_keys.end() && vit != unique_values.end(); kit++, vit++) {
+    ASSERT_EQ(*vit, Get(*kit));
+  }
+  // Show that the memtable BF has been used, and
+  // the program did not crash.
+  ASSERT_EQ(unique_keys.size(), get_perf_context()->bloom_memtable_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
 }
 
 TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
