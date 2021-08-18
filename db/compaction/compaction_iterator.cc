@@ -1062,7 +1062,7 @@ inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
          (ikey_.sequence < preserve_deletes_seqnum_);
 }
 
-bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
+bool CompactionIterator::IsInCurrentEarliestSnapshot(SequenceNumber sequence) {
   assert(snapshot_checker_ != nullptr);
   bool pre_condition = (earliest_snapshot_ == kMaxSequenceNumber ||
                         (earliest_snapshot_iter_ != snapshots_->end() &&
