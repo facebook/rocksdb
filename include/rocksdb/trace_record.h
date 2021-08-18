@@ -82,6 +82,7 @@ class TraceRecord {
                           std::unique_ptr<TraceRecordResult>* result) = 0;
   };
 
+  // Accept the handler and report the corresponding result in `result`.
   virtual Status Accept(Handler* handler,
                         std::unique_ptr<TraceRecordResult>* result) = 0;
 

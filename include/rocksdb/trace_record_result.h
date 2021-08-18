@@ -19,6 +19,8 @@ class SingleValueTraceExecutionResult;
 class StatusOnlyTraceExecutionResult;
 
 // Base class for the results of all types of trace records.
+// Theses classes can be used to report the execution result of
+// TraceRecord::Handler::Handle() or TraceRecord::Accept().
 class TraceRecordResult {
  public:
   explicit TraceRecordResult(TraceType trace_type);
@@ -42,13 +44,50 @@ class TraceRecordResult {
     virtual Status Handle(const MultiValuesTraceExecutionResult& result) = 0;
   };
 
+  /*
+   * Example handler to just print the trace record execution results.
+   *
+   * class ResultPrintHandler : public TraceRecordResult::Handler {
+   *  public:
+   *   ResultPrintHandler();
+   *   ~ResultPrintHandler() override {}
+   *
+   *   Status Handle(const StatusOnlyTraceExecutionResult& result) override {
+   *     std::cout << "Status: " << result.GetStatus().ToString() << std::endl;
+   *   }
+   *
+   *   Status Handle(const SingleValueTraceExecutionResult& result) override {
+   *     std::cout << "Status: " << result.GetStatus().ToString()
+   *               << ", value: " << result.GetValue() << std::endl;
+   *   }
+   *
+   *   Status Handle(const MultiValuesTraceExecutionResult& result) override {
+   *     size_t size = result.GetMultiStatus().size();
+   *     for (size_t i = 0; i < size; i++) {
+   *       std::cout << "Status: " << result.GetMultiStatus()[i].ToString()
+   *                 << ", value: " << result.GetValues()[i] << std::endl;
+   *     }
+   *   }
+   * };
+   * */
+
+  // Accept the handler.
   virtual Status Accept(Handler* handler) = 0;
 
  private:
   TraceType trace_type_;
 };
 
-// Base class for the execution results types of trace records.
+// Base class for the results from the trace record execution handler (created
+// by TraceRecord::NewExecutionHandler()).
+//
+// The actual execution status or returned values may be hidden from
+// TraceRecord::Handler::Handle and TraceRecord::Accept. For example, a
+// GetQueryTraceRecord's execution calls DB::Get() internally. DB::Get() may
+// return Status::NotFound() but TraceRecord::Handler::Handle() or
+// TraceRecord::Accept() will still return Status::OK(). The actual status from
+// DB::Get() and the returned value string may be saved in a
+// SingleValueTraceExecutionResult.
 class TraceExecutionResult : public TraceRecordResult {
  public:
   TraceExecutionResult(uint64_t start_timestamp, uint64_t end_timestamp,
@@ -66,7 +105,7 @@ class TraceExecutionResult : public TraceRecordResult {
   uint64_t ts_end_;
 };
 
-// Operation that only returns a Status.
+// Result for operations that only return a single Status.
 // Example operations: DB::Write(), Iterator::Seek() and
 // Iterator::SeekForPrev().
 class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
@@ -85,7 +124,7 @@ class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
   Status status_;
 };
 
-// Operation that returns a Status and a value.
+// Result for operations that return a Status and a value.
 // Example operation: DB::Get()
 class SingleValueTraceExecutionResult : public TraceExecutionResult {
  public:
@@ -112,7 +151,7 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
   std::string value_;
 };
 
-// Operation that returns a vector of values and status.
+// Result for operations that return multiple Status(es) and values.
 // Example operation: DB::MultiGet()
 class MultiValuesTraceExecutionResult : public TraceExecutionResult {
  public:
@@ -123,10 +162,10 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
 
   virtual ~MultiValuesTraceExecutionResult() override;
 
-  // Return status of DB::MultiGet(), etc.
+  // Returned Status(es) of DB::MultiGet(), etc.
   virtual const std::vector<Status>& GetMultiStatus() const;
 
-  // Values for the searched keys.
+  // Returned values for the searched keys.
   virtual const std::vector<std::string>& GetValues() const;
 
   virtual Status Accept(Handler* handler) override;
