@@ -184,6 +184,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   bool DoesInputReferenceBlobFiles() const override { return false; }
 
+  const Compaction* real_compaction() const override { return nullptr; }
+
   bool key_not_exists_beyond_output_level = false;
 
   bool is_bottommost_level = false;

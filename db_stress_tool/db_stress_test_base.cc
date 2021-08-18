@@ -1743,6 +1743,9 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   std::unordered_set<std::string> unknownPropertyNames = {
       DB::Properties::kEstimateOldestKeyTime,
       DB::Properties::kOptionsStatistics,
+      DB::Properties::
+          kLiveSstFilesSizeAtTemperature,  // similar to levelPropertyNames, it
+                                           // requires a number suffix
   };
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
