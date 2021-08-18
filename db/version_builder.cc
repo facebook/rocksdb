@@ -92,7 +92,8 @@ class VersionBuilder::Rep {
         std::shared_ptr<SharedBlobFileMetaData> shared_meta)
         : shared_meta_(std::move(shared_meta)) {}
 
-    explicit MutableBlobFileMetaData(std::shared_ptr<BlobFileMetaData> meta)
+    explicit MutableBlobFileMetaData(
+        const std::shared_ptr<BlobFileMetaData>& meta)
         : shared_meta_(meta->GetSharedMeta()),
           linked_ssts_(meta->GetLinkedSsts()),
           garbage_count_(meta->GetGarbageBlobCount()),
@@ -199,24 +200,6 @@ class VersionBuilder::Rep {
       }
       delete f;
     }
-  }
-
-  bool IsBlobFileInVersion(uint64_t blob_file_number) const {
-    auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
-    if (mutable_it != mutable_blob_file_metas_.end()) {
-      return true;
-    }
-
-    assert(base_vstorage_);
-
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-    auto base_it = base_blob_files.find(blob_file_number);
-    if (base_it != base_blob_files.end()) {
-      return true;
-    }
-
-    return false;
   }
 
   using ExpectedLinkedSsts =
@@ -388,6 +371,24 @@ class VersionBuilder::Rep {
     }
 
     return true;
+  }
+
+  bool IsBlobFileInVersion(uint64_t blob_file_number) const {
+    auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
+    if (mutable_it != mutable_blob_file_metas_.end()) {
+      return true;
+    }
+
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+
+    auto base_it = base_blob_files.find(blob_file_number);
+    if (base_it != base_blob_files.end()) {
+      return true;
+    }
+
+    return false;
   }
 
   MutableBlobFileMetaData* GetOrCreateMutableBlobFileMetaData(
@@ -767,6 +768,7 @@ class VersionBuilder::Rep {
         const auto& base_meta = base_it->second;
         const auto& mutable_meta = mutable_it->second;
 
+        assert(base_meta);
         assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
 
         if (base_meta->GetGarbageBlobCount() ==
