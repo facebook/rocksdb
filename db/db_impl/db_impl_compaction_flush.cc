@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <deque>
 
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
@@ -198,7 +199,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     need_cancel = true;
   }
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
-  uint8_t switched_to_mempurge = 0;
+  bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
@@ -285,7 +286,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   // If flush ran smoothly and no mempurge happened
   // install new SST file path.
-  if (s.ok() && (switched_to_mempurge == 0)) {
+  if (s.ok() && (!switched_to_mempurge)) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, mutable_cf_options,
@@ -414,7 +415,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
-  std::vector<uint8_t> switched_to_mempurge(num_cfs, false);
+  std::deque<bool> switched_to_mempurge(num_cfs, false);
   Status s;
   IOStatus log_io_s = IOStatus::OK();
   assert(num_cfs == static_cast<int>(jobs.size()));
@@ -464,10 +465,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
+    assert(switched_to_mempurge.size() ==
+           static_cast<long unsigned int>(num_cfs));
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
-      exec_status[i].second = jobs[i]->Run(
-          &logs_with_prep_tracker_, &file_meta[i], &(switched_to_mempurge[i]));
+      exec_status[i].second =
+          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
+                       &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
       io_status[i] = jobs[i]->io_status();
     }
@@ -479,8 +483,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
     assert(exec_status.size() > 0);
     assert(!file_meta.empty());
-    exec_status[0].second = jobs[0]->Run(
-        &logs_with_prep_tracker_, &file_meta[0], switched_to_mempurge.data());
+    assert(!switched_to_mempurge.empty());
+    exec_status[0].second =
+        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0],
+                     &(switched_to_mempurge.front()));
     exec_status[0].first = true;
     io_status[0] = jobs[0]->io_status();
 
@@ -662,7 +668,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; s.ok() && i != num_cfs; ++i) {
       // If mempurge happened instead of Flush,
       // no NotifyOnFlushCompleted call (no SST file created).
-      if (switched_to_mempurge[i] > 0) {
+      if (switched_to_mempurge[i]) {
         continue;
       }
       if (cfds[i]->IsDropped()) {

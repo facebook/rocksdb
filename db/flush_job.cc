@@ -197,7 +197,7 @@ void FlushJob::PickMemTable() {
 }
 
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
-                     uint8_t* switched_to_mempurge) {
+                     bool* switched_to_mempurge) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
@@ -228,9 +228,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
   Status mempurge_s = Status::NotFound("No MemPurge.");
-  if (switched_to_mempurge) {
-    *switched_to_mempurge = 0;
-  }
   if ((db_options_.experimental_mempurge_threshold > 0.0) &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
       (!mems_.empty()) && MemPurgeDecider()) {
@@ -249,7 +246,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
       }
     } else {
       if (switched_to_mempurge) {
-        *switched_to_mempurge = 1;
+        *switched_to_mempurge = true;
       } else {
         // The mempurge process was successful, but no switch_to_mempurge
         // pointer provided so no way to propagate the state of flush job.

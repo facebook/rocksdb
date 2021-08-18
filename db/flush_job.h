@@ -84,7 +84,7 @@ class FlushJob {
   void PickMemTable();
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
-             uint8_t* switched_to_mempurge = nullptr);
+             bool* switched_to_mempurge = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
