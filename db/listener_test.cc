@@ -1181,15 +1181,15 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
   ASSERT_OK(Put("Key6", "blob_value6"));
   ASSERT_OK(Flush());
 
-  ASSERT_GT(listener->blob_file_writes_.load(), 0);
-  ASSERT_GT(listener->blob_file_flushes_.load(), 0);
+  ASSERT_GT(listener->blob_file_writes_.load(), 0U);
+  ASSERT_GT(listener->blob_file_flushes_.load(), 0U);
   Close();
 
   Reopen(options);
-  ASSERT_GT(listener->blob_file_closes_.load(), 0);
-  ASSERT_GT(listener->blob_file_syncs_.load(), 0);
+  ASSERT_GT(listener->blob_file_closes_.load(), 0U);
+  ASSERT_GT(listener->blob_file_syncs_.load(), 0U);
   if (true == options.use_direct_io_for_flush_and_compaction) {
-    ASSERT_GT(listener->blob_file_truncates_.load(), 0);
+    ASSERT_GT(listener->blob_file_truncates_.load(), 0U);
   }
 }
 
@@ -1274,10 +1274,10 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     }
 
     for (auto blob_file_garbage_info : ci.blob_files_garbage_info) {
-      EXPECT_GT(blob_file_garbage_info.blob_file_number, 0);
-      EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0);
-      EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0);
-      EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0);
+      EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
+      EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0U);
       EXPECT_EQ(blob_file_garbage_info.compression_type, kNoCompression);
     }
   }
@@ -1415,18 +1415,18 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
   ASSERT_TRUE(is_blob_in_output);
 
   for (auto blob_file_info : compaction_job_info.blob_files_info) {
-    EXPECT_GT(blob_file_info.blob_file_number, 0);
-    EXPECT_GT(blob_file_info.total_blob_bytes, 0);
-    EXPECT_GT(blob_file_info.total_blob_count, 0);
-    EXPECT_GT(blob_file_info.blob_file_path.size(), 0);
+    EXPECT_GT(blob_file_info.blob_file_number, 0U);
+    EXPECT_GT(blob_file_info.total_blob_bytes, 0U);
+    EXPECT_GT(blob_file_info.total_blob_count, 0U);
+    EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
   }
 
   for (auto blob_file_garbage_info :
        compaction_job_info.blob_files_garbage_info) {
-    EXPECT_GT(blob_file_garbage_info.blob_file_number, 0);
-    EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0);
-    EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0);
-    EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0);
+    EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
+    EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0U);
   }
 }
 
@@ -1441,20 +1441,20 @@ class BlobDBFileLevelEventListener : public EventListener {
   void OnBlobFileCreationStarted(
       const BlobFileCreationBriefInfo& info) override {
     files_started_++;
-    EXPECT_GT(info.db_name.size(), 0);
-    EXPECT_GT(info.cf_name.size(), 0);
-    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.db_name.size(), 0U);
+    EXPECT_GT(info.cf_name.size(), 0U);
+    EXPECT_GT(info.file_path.size(), 0U);
     EXPECT_GT(info.job_id, 0);
   }
 
   void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
     files_created_++;
-    EXPECT_GT(info.db_name.size(), 0);
-    EXPECT_GT(info.cf_name.size(), 0);
-    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.db_name.size(), 0U);
+    EXPECT_GT(info.cf_name.size(), 0U);
+    EXPECT_GT(info.file_path.size(), 0U);
     EXPECT_GT(info.job_id, 0);
-    EXPECT_GT(info.total_blob_count, 0);
-    EXPECT_GT(info.total_blob_bytes, 0);
+    EXPECT_GT(info.total_blob_count, 0U);
+    EXPECT_GT(info.total_blob_bytes, 0U);
     EXPECT_EQ(info.file_checksum, "");
     EXPECT_EQ(info.file_checksum_func_name, "");
     EXPECT_TRUE(info.status.ok());
@@ -1462,16 +1462,16 @@ class BlobDBFileLevelEventListener : public EventListener {
 
   void OnBlobFileDeleted(const BlobFileDeletionInfo& info) override {
     files_deleted_++;
-    EXPECT_GT(info.db_name.size(), 0);
-    EXPECT_GT(info.file_path.size(), 0);
+    EXPECT_GT(info.db_name.size(), 0U);
+    EXPECT_GT(info.file_path.size(), 0U);
     EXPECT_GT(info.job_id, 0);
     EXPECT_TRUE(info.status.ok());
   }
 
   void CheckCounters() {
     EXPECT_EQ(files_started_, files_created_);
-    EXPECT_GT(files_started_, 0);
-    EXPECT_GT(files_deleted_, 0);
+    EXPECT_GT(files_started_, 0U);
+    EXPECT_GT(files_deleted_, 0U);
   }
 
  private:
