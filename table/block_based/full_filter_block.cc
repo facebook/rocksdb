@@ -23,9 +23,13 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
       last_whole_key_recorded_(false),
       last_prefix_recorded_(false),
       last_key_in_domain_(false),
-      num_added_(0) {
+      any_added_(false) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
+}
+
+size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
+  return filter_bits_builder_->EstimateEntriesAdded();
 }
 
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
@@ -69,7 +73,7 @@ void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
 // Add key to filter if needed
 inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
   filter_bits_builder_->AddKey(key);
-  num_added_++;
+  any_added_ = true;
 }
 
 // Add prefix to filter if needed
@@ -102,8 +106,8 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
-  if (num_added_ != 0) {
-    num_added_ = 0;
+  if (any_added_) {
+    any_added_ = false;
     return filter_bits_builder_->Finish(&filter_data_);
   }
   return Slice();

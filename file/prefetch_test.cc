@@ -70,7 +70,7 @@ class PrefetchTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  PrefetchTest() : DBTestBase("/prefetch_test", true) {}
+  PrefetchTest() : DBTestBase("prefetch_test", true) {}
 };
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,

@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,7 +28,7 @@ using BFP = BloomFilterPolicy;
 class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest()
-      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_test", /*env_do_fsync=*/true) {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -41,7 +42,7 @@ class DBBloomFilterTestWithParam : public DBTestBase,
 
  public:
   DBBloomFilterTestWithParam()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -506,12 +507,27 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       ASSERT_LE(reads, 3 * N / 100);
     }
 
+#ifndef ROCKSDB_LITE
+    // Sanity check some table properties
+    std::map<std::string, std::string> props;
+    ASSERT_TRUE(db_->GetMapProperty(
+        handles_[1], DB::Properties::kAggregatedTableProperties, &props));
+    uint64_t nkeys = N + N / 100;
+    uint64_t filter_size = ParseUint64(props["filter_size"]);
+    EXPECT_LE(filter_size,
+              (partition_filters_ ? 12 : 11) * nkeys / /*bits / byte*/ 8);
+    EXPECT_GE(filter_size, 10 * nkeys / /*bits / byte*/ 8);
+
+    uint64_t num_filter_entries = ParseUint64(props["num_filter_entries"]);
+    EXPECT_EQ(num_filter_entries, nkeys);
+#endif  // ROCKSDB_LITE
+
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
@@ -535,7 +551,7 @@ INSTANTIATE_TEST_CASE_P(
                         test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
         std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -1078,7 +1094,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
 
  public:
   DBBloomFilterTestVaryPrefixAndFormatVer()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
 

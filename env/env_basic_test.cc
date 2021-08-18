@@ -17,15 +17,81 @@
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
+typedef Env* CreateEnvFunc();
+namespace {
+// These functions are used to create the various environments under which this
+// test can execute. These functions are used to allow the test cases to be
+// created without the Env being initialized, thereby eliminating a potential
+// static initialization fiasco/race condition when attempting to get a
+// custom/configured env prior to main being invoked.
 
-class EnvBasicTestWithParam : public testing::Test,
-                              public ::testing::WithParamInterface<Env*> {
+static Env* GetDefaultEnv() { return Env::Default(); }
+
+static Env* GetMockEnv() {
+  static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
+  return mock_env.get();
+}
+#ifndef ROCKSDB_LITE
+static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
+  ConfigOptions config_opts;
+  config_opts.invoke_prepare_options = false;
+
+  std::shared_ptr<EncryptionProvider> provider;
+  EXPECT_OK(EncryptionProvider::CreateFromString(config_opts, provider_id,
+                                                 &provider));
+  return NewEncryptedEnv(base, provider);
+}
+
+static Env* GetCtrEncryptedEnv() {
+  static std::unique_ptr<Env> ctr_encrypt_env(
+      NewTestEncryptedEnv(Env::Default(), "CTR://test"));
+  return ctr_encrypt_env.get();
+}
+
+static Env* GetMemoryEnv() {
+  static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
+  return mem_env.get();
+}
+
+static Env* GetTestEnv() {
+  static std::shared_ptr<Env> env_guard;
+  static Env* custom_env = nullptr;
+  if (custom_env == nullptr) {
+    const char* uri = getenv("TEST_ENV_URI");
+    if (uri != nullptr) {
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), uri, "", &custom_env,
+                                   &env_guard));
+    }
+  }
+  EXPECT_NE(custom_env, nullptr);
+  return custom_env;
+}
+
+static Env* GetTestFS() {
+  static std::shared_ptr<Env> fs_env_guard;
+  static Env* fs_env = nullptr;
+  if (fs_env == nullptr) {
+    const char* uri = getenv("TEST_FS_URI");
+    if (uri != nullptr) {
+      EXPECT_OK(
+          Env::CreateFromUri(ConfigOptions(), uri, "", &fs_env, &fs_env_guard));
+    }
+  }
+  EXPECT_NE(fs_env, nullptr);
+  return fs_env;
+}
+#endif  // ROCKSDB_LITE
+
+}  // namespace
+class EnvBasicTestWithParam
+    : public testing::Test,
+      public ::testing::WithParamInterface<CreateEnvFunc*> {
  public:
   Env* env_;
   const EnvOptions soptions_;
   std::string test_dir_;
 
-  EnvBasicTestWithParam() : env_(GetParam()) {
+  EnvBasicTestWithParam() : env_(GetParam()()) {
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
@@ -37,35 +103,22 @@ class EnvBasicTestWithParam : public testing::Test,
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
-                        ::testing::Values(Env::Default()));
+                        ::testing::Values(&GetDefaultEnv));
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
-                        ::testing::Values(Env::Default()));
+                        ::testing::Values(&GetDefaultEnv));
 
-static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
-                        ::testing::Values(mock_env.get()));
+                        ::testing::Values(&GetMockEnv));
 
 #ifndef ROCKSDB_LITE
-static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
-  std::shared_ptr<EncryptionProvider> provider;
-  EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
-                                                 &provider));
-  return NewEncryptedEnv(base, provider);
-}
-
 // next statements run env test against default encryption code.
-static std::unique_ptr<Env> ctr_encrypt_env(NewTestEncryptedEnv(Env::Default(),
-                                                                "test://CTR"));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
-                        ::testing::Values(ctr_encrypt_env.get()));
+                        ::testing::Values(&GetCtrEncryptedEnv));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
-                        ::testing::Values(ctr_encrypt_env.get()));
-#endif  // ROCKSDB_LITE
+                        ::testing::Values(&GetCtrEncryptedEnv));
 
-#ifndef ROCKSDB_LITE
-static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
-                        ::testing::Values(mem_env.get()));
+                        ::testing::Values(&GetMemoryEnv));
 
 namespace {
 
@@ -74,20 +127,15 @@ namespace {
 //
 // The purpose of returning an empty vector (instead of nullptr) is that gtest
 // ValuesIn() will skip running tests when given an empty collection.
-std::vector<Env*> GetCustomEnvs() {
-  static Env* custom_env;
-  static bool init = false;
-  if (!init) {
-    init = true;
-    const char* uri = getenv("TEST_ENV_URI");
-    if (uri != nullptr) {
-      Env::LoadEnv(uri, &custom_env);
-    }
+std::vector<CreateEnvFunc*> GetCustomEnvs() {
+  std::vector<CreateEnvFunc*> res;
+  const char* uri = getenv("TEST_ENV_URI");
+  if (uri != nullptr) {
+    res.push_back(&GetTestEnv);
   }
-
-  std::vector<Env*> res;
-  if (custom_env != nullptr) {
-    res.emplace_back(custom_env);
+  uri = getenv("TEST_FS_URI");
+  if (uri != nullptr) {
+    res.push_back(&GetTestFS);
   }
   return res;
 }
@@ -99,7 +147,6 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
 
 INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
-
 #endif  // ROCKSDB_LITE
 
 TEST_P(EnvBasicTestWithParam, Basics) {

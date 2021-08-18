@@ -539,7 +539,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   int level_ = -1;
 
   std::vector<std::string> keys;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
 
@@ -551,8 +551,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_writer.reset(
       new WritableFileWriter(std::move(f), "" /* don't care */, FileOptions()));
   std::unique_ptr<TableBuilder> builder;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
   std::string column_family_name;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(

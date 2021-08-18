@@ -109,17 +109,26 @@ Status ExternalSstFileIngestionJob::Prepare(
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<FSWritableFile> file_to_sync;
-        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
-                                         &file_to_sync, nullptr);
-        if (status.ok()) {
-          TEST_SYNC_POINT(
-              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
-          status = SyncIngestedFile(file_to_sync.get());
-          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
-          if (!status.ok()) {
-            ROCKS_LOG_WARN(db_options_.info_log,
-                           "Failed to sync ingested file %s: %s",
-                           path_inside_db.c_str(), status.ToString().c_str());
+        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                           &file_to_sync, nullptr);
+        TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
+                                 &s);
+        // Some file systems (especially remote/distributed) don't support
+        // reopening a file for writing and don't require reopening and
+        // syncing the file. Ignore the NotSupported error in that case.
+        if (!s.IsNotSupported()) {
+          status = s;
+          if (status.ok()) {
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+            status = SyncIngestedFile(file_to_sync.get());
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+            if (!status.ok()) {
+              ROCKS_LOG_WARN(db_options_.info_log,
+                             "Failed to sync ingested file %s: %s",
+                             path_inside_db.c_str(), status.ToString().c_str());
+            }
           }
         }
       } else if (status.IsNotSupported() &&

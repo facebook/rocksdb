@@ -38,8 +38,11 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
-ColumnFamilyOptions BuildColumnFamilyOptions(const ImmutableCFOptions& ioptions,
-                                             const MutableCFOptions& moptions);
+
+void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
+                               ColumnFamilyOptions* cf_opts);
+void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
+                               ColumnFamilyOptions* cf_opts);
 
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(
@@ -51,23 +54,6 @@ std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const ColumnFamilyOptions& opts,
     const std::unordered_map<std::string, std::string>* opt_map = nullptr);
 
-Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
-                                     const MutableCFOptions& mutable_opts,
-                                     std::string* opt_string);
-
-Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
-                                     const MutableDBOptions& mutable_opts,
-                                     std::string* opt_string);
-
-Status GetMutableOptionsFromStrings(
-    const MutableCFOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    Logger* info_log, MutableCFOptions* new_options);
-
-Status GetMutableDBOptionsFromStrings(
-    const MutableDBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    MutableDBOptions* new_options);
 
 bool ParseSliceTransform(
     const std::string& value,

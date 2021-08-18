@@ -9,11 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stdlib.h>
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
+#include <cstdlib>
 #include <functional>
 #include <future>
 #include <limits>
@@ -50,7 +49,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+using ShareFilesNaming = BackupEngineOptions::ShareFilesNaming;
 
 constexpr BackupID kLatestBackupIDMarker = static_cast<BackupID>(-2);
 
@@ -100,7 +99,7 @@ std::string BackupStatistics::ToString() const {
   return result;
 }
 
-void BackupableDBOptions::Dump(Logger* logger) const {
+void BackupEngineOptions::Dump(Logger* logger) const {
   ROCKS_LOG_INFO(logger, "               Options.backup_dir: %s",
                  backup_dir.c_str());
   ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env);
@@ -124,7 +123,7 @@ void BackupableDBOptions::Dump(Logger* logger) const {
 // -------- BackupEngineImpl class ---------
 class BackupEngineImpl {
  public:
-  BackupEngineImpl(const BackupableDBOptions& options, Env* db_env,
+  BackupEngineImpl(const BackupEngineOptions& options, Env* db_env,
                    bool read_only = false);
   ~BackupEngineImpl();
 
@@ -168,11 +167,11 @@ class BackupEngineImpl {
 
   ShareFilesNaming GetNamingNoFlags() const {
     return options_.share_files_with_checksum_naming &
-           BackupableDBOptions::kMaskNoNamingFlags;
+           BackupEngineOptions::kMaskNoNamingFlags;
   }
   ShareFilesNaming GetNamingFlags() const {
     return options_.share_files_with_checksum_naming &
-           BackupableDBOptions::kMaskNamingFlags;
+           BackupEngineOptions::kMaskNamingFlags;
   }
 
  private:
@@ -494,7 +493,7 @@ class BackupEngineImpl {
   }
   inline bool UseLegacyNaming(const std::string& sid) const {
     return GetNamingNoFlags() ==
-               BackupableDBOptions::kLegacyCrc32cAndFileSize ||
+               BackupEngineOptions::kLegacyCrc32cAndFileSize ||
            sid.empty();
   }
   inline std::string GetSharedFileWithChecksum(
@@ -509,7 +508,7 @@ class BackupEngineImpl {
                            ToString(file_size));
     } else {
       file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
-      if (GetNamingFlags() & BackupableDBOptions::kFlagIncludeFileSize) {
+      if (GetNamingFlags() & BackupEngineOptions::kFlagIncludeFileSize) {
         file_copy.insert(file_copy.find_last_of('.'),
                          "_" + ToString(file_size));
       }
@@ -775,7 +774,7 @@ class BackupEngineImpl {
   std::atomic<bool> stop_backup_;
 
   // options data
-  BackupableDBOptions options_;
+  BackupEngineOptions options_;
   Env* db_env_;
   Env* backup_env_;
 
@@ -803,7 +802,7 @@ class BackupEngineImpl {
 class BackupEngineImplThreadSafe : public BackupEngine,
                                    public BackupEngineReadOnly {
  public:
-  BackupEngineImplThreadSafe(const BackupableDBOptions& options, Env* db_env,
+  BackupEngineImplThreadSafe(const BackupEngineOptions& options, Env* db_env,
                              bool read_only = false)
       : impl_(options, db_env, read_only) {}
   ~BackupEngineImplThreadSafe() override {}
@@ -902,7 +901,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   BackupEngineImpl impl_;
 };
 
-Status BackupEngine::Open(const BackupableDBOptions& options, Env* env,
+Status BackupEngine::Open(const BackupEngineOptions& options, Env* env,
                           BackupEngine** backup_engine_ptr) {
   std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
       new BackupEngineImplThreadSafe(options, env));
@@ -915,7 +914,7 @@ Status BackupEngine::Open(const BackupableDBOptions& options, Env* env,
   return Status::OK();
 }
 
-BackupEngineImpl::BackupEngineImpl(const BackupableDBOptions& options,
+BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
                                    Env* db_env, bool read_only)
     : initialized_(false),
       threads_cpu_priority_(),
@@ -1256,7 +1255,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (options_.share_table_files && !options_.share_files_with_checksum) {
     ROCKS_LOG_WARN(options_.info_log,
-                   "BackupableDBOptions::share_files_with_checksum=false is "
+                   "BackupEngineOptions::share_files_with_checksum=false is "
                    "DEPRECATED and could lead to data loss.");
   }
 
@@ -1708,6 +1707,11 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
   }
   Status s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
+  std::string temporary_current_file;
+  std::string final_current_file;
+  std::unique_ptr<Directory> db_dir_for_fsync;
+  std::unique_ptr<Directory> wal_dir_for_fsync;
+
   for (const auto& file_info : backup->GetFiles()) {
     const std::string& file = file_info->filename;
     // 1. get DB filename
@@ -1723,13 +1727,36 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     }
     // 3. Construct the final path
     // kWalFile lives in wal_dir and all the rest live in db_dir
-    dst = ((type == kWalFile) ? wal_dir : db_dir) + "/" + dst;
+    if (type == kWalFile) {
+      dst = wal_dir + "/" + dst;
+      if (options_.sync && !wal_dir_for_fsync) {
+        s = db_env_->NewDirectory(wal_dir, &wal_dir_for_fsync);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    } else {
+      dst = db_dir + "/" + dst;
+      if (options_.sync && !db_dir_for_fsync) {
+        s = db_env_->NewDirectory(db_dir, &db_dir_for_fsync);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    }
+    // For atomicity, initially restore CURRENT file to a temporary name.
+    // This is useful even without options_.sync e.g. in case the restore
+    // process is interrupted.
+    if (type == kCurrentFile) {
+      final_current_file = dst;
+      dst = temporary_current_file = dst + ".tmp";
+    }
 
     ROCKS_LOG_INFO(options_.info_log, "Restoring %s to %s\n", file.c_str(),
                    dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        EnvOptions() /* src_env_options */, false, rate_limiter,
+        EnvOptions() /* src_env_options */, options_.sync, rate_limiter,
         0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
@@ -1756,6 +1783,31 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
           " while computed checksum is " + result.checksum_hex);
       break;
     }
+  }
+
+  // When enabled, the first Fsync is to ensure all files are fully persisted
+  // before renaming CURRENT.tmp
+  if (s.ok() && db_dir_for_fsync) {
+    ROCKS_LOG_INFO(options_.info_log, "Restore: fsync\n");
+    s = db_dir_for_fsync->Fsync();
+  }
+
+  if (s.ok() && wal_dir_for_fsync) {
+    s = wal_dir_for_fsync->Fsync();
+  }
+
+  if (s.ok() && !temporary_current_file.empty()) {
+    ROCKS_LOG_INFO(options_.info_log, "Restore: atomic rename CURRENT.tmp\n");
+    assert(!final_current_file.empty());
+    s = db_env_->RenameFile(temporary_current_file, final_current_file);
+  }
+
+  if (s.ok() && db_dir_for_fsync && !temporary_current_file.empty()) {
+    // Second Fsync is to ensure the final atomic rename of DB restore is
+    // fully persisted even if power goes out right after restore operation
+    // returns success
+    assert(db_dir_for_fsync);
+    s = db_dir_for_fsync->Fsync();
   }
 
   ROCKS_LOG_INFO(options_.info_log, "Restoring done -- %s\n",
@@ -1971,7 +2023,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize &&
+    if (GetNamingNoFlags() != BackupEngineOptions::kLegacyCrc32cAndFileSize &&
         file_type != kBlobFile) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
@@ -2834,7 +2886,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
   return s;
 }
 
-Status BackupEngineReadOnly::Open(const BackupableDBOptions& options, Env* env,
+Status BackupEngineReadOnly::Open(const BackupEngineOptions& options, Env* env,
                                   BackupEngineReadOnly** backup_engine_ptr) {
   if (options.destroy_old_data) {
     return Status::InvalidArgument(

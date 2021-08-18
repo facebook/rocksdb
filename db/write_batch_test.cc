@@ -33,7 +33,7 @@ static std::string PrintContents(WriteBatch* b,
   if (merge_operator_supported) {
     options.merge_operator.reset(new TestPutOperator());
   }
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);

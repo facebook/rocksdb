@@ -10,31 +10,6 @@
 #include "rocksdb/env_encryption.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// Implements a BlockCipher using ROT13.
-//
-// Note: This is a sample implementation of BlockCipher,
-// it is NOT considered safe and should NOT be used in production.
-class ROT13BlockCipher : public BlockCipher {
- private:
-  size_t blockSize_;
-
- public:
-  ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {}
-  virtual ~ROT13BlockCipher(){};
-  const char* Name() const override;
-  // BlockSize returns the size of each block supported by this cipher stream.
-  size_t BlockSize() override { return blockSize_; }
-
-  // Encrypt a block of data.
-  // Length of data is equal to BlockSize().
-  Status Encrypt(char* data) override;
-
-  // Decrypt a block of data.
-  // Length of data is equal to BlockSize().
-  Status Decrypt(char* data) override;
-};
-
 // CTRCipherStream implements BlockAccessCipherStream using an
 // Counter operations mode.
 // See https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation
@@ -86,11 +61,11 @@ class CTREncryptionProvider : public EncryptionProvider {
 
  public:
   explicit CTREncryptionProvider(
-      const std::shared_ptr<BlockCipher>& c = nullptr)
-      : cipher_(c){};
+      const std::shared_ptr<BlockCipher>& c = nullptr);
   virtual ~CTREncryptionProvider() {}
 
-  const char* Name() const override;
+  static const char* kClassName() { return "CTR"; }
+  const char* Name() const override { return kClassName(); }
 
   // GetPrefixLength returns the length of the prefix that is added to every
   // file
@@ -112,9 +87,7 @@ class CTREncryptionProvider : public EncryptionProvider {
 
   Status AddCipher(const std::string& descriptor, const char* /*cipher*/,
                    size_t /*len*/, bool /*for_write*/) override;
-
  protected:
-  Status TEST_Initialize() override;
 
   // PopulateSecretPrefixPart initializes the data into a new prefix block
   // that will be encrypted. This function will store the data in plain text.

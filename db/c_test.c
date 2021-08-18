@@ -1043,7 +1043,7 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 2; run++) {
+  for (run = 0; run <= 3; run++) {
     // First run uses custom filter
     // Second run uses old block-based bloom filter
     // Third run uses full bloom filter
@@ -1054,8 +1054,10 @@ int main(int argc, char** argv) {
                                            FilterKeyMatch, NULL, FilterName);
     } else if (run == 1) {
       policy = rocksdb_filterpolicy_create_bloom(8);
-    } else {
+    } else if (run == 2) {
       policy = rocksdb_filterpolicy_create_bloom_full(8);
+    } else {
+      policy = rocksdb_filterpolicy_create_ribbon(8);
     }
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
 
@@ -1121,9 +1123,12 @@ int main(int argc, char** argv) {
       } else if (run == 1) {
         // Essentially a fingerprint of the block-based Bloom schema
         CheckCondition(hits == 241);
-      } else {
+      } else if (run == 2) {
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
+      } else {
+        // Essentially a fingerprint of Ribbon schema
+        CheckCondition(hits == 226);
       }
       CheckCondition(
           (keys_to_query - hits) ==
@@ -2537,6 +2542,28 @@ int main(int argc, char** argv) {
                  bdo));
 
     rocksdb_backupable_db_options_destroy(bdo);
+  }
+
+  StartPhase("compression_options");
+  {
+    rocksdb_options_t* co;
+    co = rocksdb_options_create();
+
+    rocksdb_options_set_compression_options_zstd_max_train_bytes(co, 100);
+    CheckCondition(
+        100 ==
+        rocksdb_options_get_compression_options_zstd_max_train_bytes(co));
+
+    rocksdb_options_set_compression_options_parallel_threads(co, 2);
+    CheckCondition(
+        2 == rocksdb_options_get_compression_options_parallel_threads(co));
+
+    rocksdb_options_set_compression_options_max_dict_buffer_bytes(co, 200);
+    CheckCondition(
+        200 ==
+        rocksdb_options_get_compression_options_max_dict_buffer_bytes(co));
+
+    rocksdb_options_destroy(co);
   }
 
   StartPhase("iterate_upper_bound");

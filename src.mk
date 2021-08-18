@@ -1,16 +1,19 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
+  cache/cache_entry_roles.cc                                    \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_cache.cc                                    \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_file_reader.cc                                   \
+  db/blob/blob_garbage_meter.cc                                 \
   db/blob/blob_log_format.cc                                    \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
@@ -195,6 +198,8 @@ LIB_SOURCES =                                                   \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
+  trace_replay/trace_record_handler.cc                          \
+  trace_replay/trace_record.cc                                  \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
@@ -229,6 +234,7 @@ LIB_SOURCES =                                                   \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
   utilities/checkpoint/checkpoint_impl.cc                       \
+  utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/debug.cc                                            \
@@ -238,6 +244,7 @@ LIB_SOURCES =                                                   \
   utilities/fault_injection_fs.cc                               \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
+  utilities/merge_operators.cc                                  \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
   utilities/merge_operators/sortlist.cc                         \
@@ -257,6 +264,7 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
+  utilities/trace/replayer_impl.cc                              \
   utilities/transactions/lock/lock_manager.cc                   \
   utilities/transactions/lock/point/point_lock_tracker.cc       \
   utilities/transactions/lock/point/point_lock_manager.cc       \
@@ -321,6 +329,9 @@ BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
   tools/simulated_hybrid_file_system.cc                         \
 
+CACHE_BENCH_LIB_SOURCES =					\
+  cache/cache_bench_tool.cc                                     \
+
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
@@ -374,21 +385,25 @@ BENCH_MAIN_SOURCES =                                                    \
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/lru_cache_test.cc                                               \
+  db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
   db/blob/blob_file_cache_test.cc                                       \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/blob_file_reader_test.cc                                      \
+  db/blob/blob_garbage_meter_test.cc                                    \
   db/blob/db_blob_basic_test.cc                                         \
   db/blob/db_blob_compaction_test.cc                                    \
   db/blob/db_blob_corruption_test.cc                                    \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
+  db/compaction/clipping_iterator_test.cc                               \
   db/compaction/compaction_iterator_test.cc                             \
   db/compaction/compaction_job_test.cc                                  \
   db/compaction/compaction_job_stats_test.cc                            \
   db/compaction/compaction_picker_test.cc                               \
+  db/compaction/compaction_service_test.cc                              \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -557,6 +572,8 @@ TEST_MAIN_SOURCES =                                                     \
 TEST_MAIN_SOURCES_C = \
   db/c_test.c                                                           \
 
+MICROBENCH_SOURCES =                                          \
+  microbench/ribbon_bench.cc                                  \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

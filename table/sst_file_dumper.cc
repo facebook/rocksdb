@@ -145,7 +145,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 }
 
 Status SstFileDumper::NewTableReader(
-    const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
+    const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
   auto t_opt =
@@ -264,12 +264,11 @@ Status SstFileDumper::ShowCompressionSize(
   Options opts;
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
-  const ImmutableCFOptions imoptions(opts);
+  const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      block_based_table_factories;
+  IntTblPropCollectorFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;

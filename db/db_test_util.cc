@@ -59,16 +59,8 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-  const char* test_env_uri = getenv("TEST_ENV_URI");
-  if (test_env_uri) {
-    Env* test_env = nullptr;
-    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-    base_env = test_env;
-    EXPECT_OK(s);
-    EXPECT_NE(Env::Default(), base_env);
-  }
-#endif  // !ROCKSDB_LITE
+  ConfigOptions config_options;
+  EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
     mem_env_ = new MockEnv(base_env);
@@ -76,9 +68,13 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
-    Status s = EncryptionProvider::CreateFromString(
-        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
-        &provider);
+    std::string provider_id = getenv("ENCRYPTED_ENV");
+    if (provider_id.find("=") == std::string::npos &&
+        !EndsWith(provider_id, "://test")) {
+      provider_id = provider_id + "://test";
+    }
+    EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
+                                                   &provider));
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE

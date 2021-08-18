@@ -11,6 +11,7 @@
 #include "db/merge_context.h"
 #include "logging/auto_roll_logger.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/configurable.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,6 +41,9 @@ Status DBImplSecondary::Recover(
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
                     &manifest_reader_status_);
   if (!s.ok()) {
+    if (manifest_reader_status_) {
+      manifest_reader_status_->PermitUncheckedError();
+    }
     return s;
   }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -96,10 +100,10 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   assert(logs != nullptr);
   std::vector<std::string> filenames;
   Status s;
-  s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+  s = env_->GetChildren(immutable_db_options_.GetWalDir(), &filenames);
   if (s.IsNotFound()) {
     return Status::InvalidArgument("Failed to open wal_dir",
-                                   immutable_db_options_.wal_dir);
+                                   immutable_db_options_.GetWalDir());
   } else if (!s.ok()) {
     return s;
   }
@@ -139,7 +143,8 @@ Status DBImplSecondary::MaybeInitLogReader(
     // initialize log reader from log_number
     // TODO: min_log_number_to_keep_2pc check needed?
     // Open the log file
-    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    std::string fname =
+        LogFileName(immutable_db_options_.GetWalDir(), log_number);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
                    static_cast<int>(immutable_db_options_.wal_recovery_mode));
@@ -626,7 +631,7 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_, impl->io_tracer_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
-  impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+  impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
@@ -726,11 +731,11 @@ Status DBImplSecondary::CompactWithoutInstallation(
   const int job_id = next_job_id_.fetch_add(1);
 
   CompactionServiceCompactionJob compaction_job(
-      job_id, c.get(), immutable_db_options_, file_options_for_compaction_,
-      versions_.get(), &shutting_down_, &log_buffer, output_dir.get(), stats_,
-      &mutex_, &error_handler_, input.snapshots, table_cache_, &event_logger_,
-      dbname_, io_tracer_, db_id_, db_session_id_, secondary_path_, input,
-      result);
+      job_id, c.get(), immutable_db_options_, mutable_db_options_,
+      file_options_for_compaction_, versions_.get(), &shutting_down_,
+      &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
+      input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
+      db_id_, db_session_id_, secondary_path_, input, result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
@@ -742,6 +747,80 @@ Status DBImplSecondary::CompactWithoutInstallation(
   c->ReleaseCompactionFiles(s);
   c.reset();
 
+  TEST_SYNC_POINT_CALLBACK("DBImplSecondary::CompactWithoutInstallation::End",
+                           &s);
+  result->status = s;
+  return s;
+}
+
+Status DB::OpenAndCompact(
+    const std::string& name, const std::string& output_directory,
+    const std::string& input, std::string* result,
+    const CompactionServiceOptionsOverride& override_options) {
+  CompactionServiceInput compaction_input;
+  Status s = CompactionServiceInput::Read(input, &compaction_input);
+  if (!s.ok()) {
+    return s;
+  }
+
+  compaction_input.db_options.max_open_files = -1;
+  compaction_input.db_options.compaction_service = nullptr;
+  if (compaction_input.db_options.statistics) {
+    compaction_input.db_options.statistics.reset();
+  }
+  compaction_input.db_options.env = override_options.env;
+  compaction_input.db_options.file_checksum_gen_factory =
+      override_options.file_checksum_gen_factory;
+  compaction_input.db_options.statistics = override_options.statistics;
+  compaction_input.column_family.options.comparator =
+      override_options.comparator;
+  compaction_input.column_family.options.merge_operator =
+      override_options.merge_operator;
+  compaction_input.column_family.options.compaction_filter =
+      override_options.compaction_filter;
+  compaction_input.column_family.options.compaction_filter_factory =
+      override_options.compaction_filter_factory;
+  compaction_input.column_family.options.prefix_extractor =
+      override_options.prefix_extractor;
+  compaction_input.column_family.options.table_factory =
+      override_options.table_factory;
+  compaction_input.column_family.options.sst_partitioner_factory =
+      override_options.sst_partitioner_factory;
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(compaction_input.column_family);
+  // TODO: we have to open default CF, because of an implementation limitation,
+  // currently we just use the same CF option from input, which is not collect
+  // and open may fail.
+  if (compaction_input.column_family.name != kDefaultColumnFamilyName) {
+    column_families.emplace_back(kDefaultColumnFamilyName,
+                                 compaction_input.column_family.options);
+  }
+
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+
+  s = DB::OpenAsSecondary(compaction_input.db_options, name, output_directory,
+                          column_families, &handles, &db);
+  if (!s.ok()) {
+    return s;
+  }
+
+  CompactionServiceResult compaction_result;
+  DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
+  assert(handles.size() > 0);
+  s = db_secondary->CompactWithoutInstallation(handles[0], compaction_input,
+                                               &compaction_result);
+
+  Status serialization_status = compaction_result.Write(result);
+
+  for (auto& handle : handles) {
+    delete handle;
+  }
+  delete db;
+  if (s.ok()) {
+    return serialization_status;
+  }
   return s;
 }
 

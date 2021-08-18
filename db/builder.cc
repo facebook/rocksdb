@@ -69,7 +69,8 @@ Status BuildTable(
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback) {
+    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
+    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -88,7 +89,13 @@ Status BuildTable(
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots));
+  uint64_t num_unfragmented_tombstones = 0;
+  uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
+    num_unfragmented_tombstones +=
+        range_del_iter->num_unfragmented_tombstones();
+    total_tombstone_payload_bytes +=
+        range_del_iter->total_tombstone_payload_bytes();
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
@@ -109,6 +116,26 @@ Status BuildTable(
 
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions.compaction_filter_factory != nullptr &&
+        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
+            tboptions.reason)) {
+      CompactionFilter::Context context;
+      context.is_full_compaction = false;
+      context.is_manual_compaction = false;
+      context.column_family_id = tboptions.column_family_id;
+      context.reason = tboptions.reason;
+      compaction_filter =
+          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s.PermitUncheckedError();
+        return Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+      }
+    }
+
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
     {
@@ -138,16 +165,16 @@ Status BuildTable(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.stats, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
-          tmp_set.Contains(FileType::kTableFile)));
+          tmp_set.Contains(FileType::kTableFile), false));
 
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
-    MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
-                      ioptions.merge_operator.get(), nullptr, ioptions.logger,
-                      true /* internal key corruption is not ok */,
-                      snapshots.empty() ? 0 : snapshots.back(),
-                      snapshot_checker);
+    MergeHelper merge(
+        env, tboptions.internal_comparator.user_comparator(),
+        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
+        true /* internal key corruption is not ok */,
+        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
@@ -165,10 +192,11 @@ Status BuildTable(
         snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
-        /*compaction=*/nullptr,
-        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-        db_options.info_log, full_history_ts_low);
+        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
+        full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -176,6 +204,8 @@ Status BuildTable(
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
       // Generate a rolling 64-bit hash of the key and values
+      // Note :
+      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
       s = output_validator.Add(key, value);
       if (!s.ok()) {
         break;
@@ -211,6 +241,10 @@ Status BuildTable(
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
+    if (num_input_entries != nullptr) {
+      *num_input_entries =
+          c_iter.num_input_entry_scanned() + num_unfragmented_tombstones;
+    }
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
@@ -226,6 +260,25 @@ Status BuildTable(
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
+      if (memtable_payload_bytes != nullptr &&
+          memtable_garbage_bytes != nullptr) {
+        const CompactionIterationStats& ci_stats = c_iter.iter_stats();
+        uint64_t total_payload_bytes = ci_stats.total_input_raw_key_bytes +
+                                       ci_stats.total_input_raw_value_bytes +
+                                       total_tombstone_payload_bytes;
+        uint64_t total_payload_bytes_written =
+            (tp.raw_key_size + tp.raw_value_size);
+        // Prevent underflow, which may still happen at this point
+        // since we only support inserts, deletes, and deleteRanges.
+        if (total_payload_bytes_written <= total_payload_bytes) {
+          *memtable_payload_bytes = total_payload_bytes;
+          *memtable_garbage_bytes =
+              total_payload_bytes - total_payload_bytes_written;
+        } else {
+          *memtable_payload_bytes = 0;
+          *memtable_garbage_bytes = 0;
+        }
+      }
       if (table_properties) {
         *table_properties = tp;
       }

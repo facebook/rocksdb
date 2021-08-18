@@ -303,6 +303,9 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      size_t GetUniqueId(char* id, size_t max_size) const override {
+        return base_->GetUniqueId(id, max_size);
+      }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -672,6 +675,14 @@ class SpecialEnv : public EnvWrapper {
     }
   }
 
+  Status RenameFile(const std::string& src, const std::string& dest) override {
+    rename_count_.fetch_add(1);
+    if (rename_error_.load(std::memory_order_acquire)) {
+      return Status::NotSupported("Simulated `RenameFile()` error.");
+    }
+    return target()->RenameFile(src, dest);
+  }
+
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
 
@@ -698,6 +709,9 @@ class SpecialEnv : public EnvWrapper {
 
   // Force write to log files to fail while this pointer is non-nullptr
   std::atomic<bool> log_write_error_;
+
+  // Force `RenameFile()` to fail while this pointer is non-nullptr
+  std::atomic<bool> rename_error_{false};
 
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
@@ -742,6 +756,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> delete_count_;
 
+  std::atomic<int> rename_count_{0};
+
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
@@ -761,6 +777,8 @@ class SpecialEnv : public EnvWrapper {
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "OnFileDeletionListener"; }
 
   void SetExpectedFileName(const std::string file_name) {
     expected_file_name_ = file_name;
@@ -785,6 +803,8 @@ class OnFileDeletionListener : public EventListener {
 
 class FlushCounterListener : public EventListener {
  public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "FlushCounterListener"; }
   std::atomic<int> count{0};
   std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
 
@@ -826,6 +846,7 @@ class CacheWrapper : public Cache {
 
   const char* Name() const override { return target_->Name(); }
 
+  using Cache::Insert;
   Status Insert(const Slice& key, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value),
                 Handle** handle = nullptr,
@@ -833,12 +854,14 @@ class CacheWrapper : public Cache {
     return target_->Insert(key, value, charge, deleter, handle, priority);
   }
 
+  using Cache::Lookup;
   Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
     return target_->Lookup(key, stats);
   }
 
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
+  using Cache::Release;
   bool Release(Handle* handle, bool force_erase = false) override {
     return target_->Release(handle, force_erase);
   }
@@ -872,9 +895,20 @@ class CacheWrapper : public Cache {
     return target_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return target_->GetDeleter(handle);
+  }
+
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override {
     target_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override {
+    target_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }

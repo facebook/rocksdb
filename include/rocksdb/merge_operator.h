@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,10 +44,13 @@ class Logger;
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
-class MergeOperator {
+class MergeOperator : public Customizable {
  public:
   virtual ~MergeOperator() {}
   static const char* Type() { return "MergeOperator"; }
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& id,
+                                 std::shared_ptr<MergeOperator>* result);
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:      (IN)    The key that's associated with this merge operation.

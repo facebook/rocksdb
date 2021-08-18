@@ -542,7 +542,7 @@ class WritePreparedTransactionTest
             std::get<2>(GetParam()), std::get<3>(GetParam())){};
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
       virtual public ::testing::WithParamInterface<std::tuple<
@@ -561,7 +561,7 @@ class SnapshotConcurrentAccessTest
   size_t split_id_;
   size_t split_cnt_;
 };
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class SeqAdvanceConcurrentTest
     : public WritePreparedTransactionTestBase,
@@ -591,7 +591,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SnapshotConcurrentAccessTest,
     ::testing::Values(
@@ -698,7 +698,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(WritePreparedTransactionTest, CommitMap) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -1171,7 +1171,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
 
 // This test is too slow for travis
 #ifndef TRAVIS
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
 TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
@@ -1251,7 +1251,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   }
   printf("\n");
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 #endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
@@ -1580,7 +1580,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicates) {
   delete txn0;
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
 // delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
 // which moves prepared txns from prepared_txns_ to delayed_prepared_.
@@ -1642,7 +1642,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
     delete txn;
   }
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
   // Given the sequential run of txns, with this timeout we should never see a
@@ -2587,6 +2587,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
@@ -2606,7 +2607,13 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
   VerifyKeys({{"key1", "value1_1"}}, snapshot2);
   // Add a flush to avoid compaction to fallback to trivial move.
 
+  // The callback might be called twice, record the calling state to
+  // prevent double calling.
+  bool callback_finished = false;
   auto callback = [&](void*) {
+    if (callback_finished) {
+      return;
+    }
     // Release snapshot1 after CompactionIterator init.
     // CompactionIterator need to figure out the earliest snapshot
     // that can see key1:value1_2 is kMaxSequenceNumber, not
@@ -2615,6 +2622,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction) {
     // Add some keys to advance max_evicted_seq.
     ASSERT_OK(db->Put(WriteOptions(), "key3", "value3"));
     ASSERT_OK(db->Put(WriteOptions(), "key4", "value4"));
+    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
@@ -2636,6 +2644,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
@@ -2686,6 +2695,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // commit cache size = 2
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   // Add a dummy key to evict v2 commit cache, but keep v1 commit cache.
@@ -2715,11 +2725,18 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction3) {
   add_dummy();
   auto* s2 = db->GetSnapshot();
 
+  // The callback might be called twice, record the calling state to
+  // prevent double calling.
+  bool callback_finished = false;
   auto callback = [&](void*) {
+    if (callback_finished) {
+      return;
+    }
     db->ReleaseSnapshot(s1);
     // Add some dummy entries to trigger s1 being cleanup from old_commit_map.
     add_dummy();
     add_dummy();
+    callback_finished = true;
   };
   SyncPoint::GetInstance()->SetCallBack("CompactionIterator:AfterInit",
                                         callback);
@@ -2737,6 +2754,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // minimum commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));

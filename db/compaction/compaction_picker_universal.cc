@@ -32,7 +32,7 @@ namespace {
 class UniversalCompactionBuilder {
  public:
   UniversalCompactionBuilder(
-      const ImmutableCFOptions& ioptions, const InternalKeyComparator* icmp,
+      const ImmutableOptions& ioptions, const InternalKeyComparator* icmp,
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       UniversalCompactionPicker* picker, LogBuffer* log_buffer)
@@ -108,7 +108,7 @@ class UniversalCompactionBuilder {
   // overlapping.
   bool IsInputFilesNonOverlapping(Compaction* c);
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const InternalKeyComparator* icmp_;
   double score_;
   std::vector<SortedRun> sorted_runs_;
@@ -728,6 +728,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                          1, enable_compression),
       GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
                             enable_compression),
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
 }
@@ -955,6 +956,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
@@ -1029,6 +1031,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
                          output_level, 1, true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
 }

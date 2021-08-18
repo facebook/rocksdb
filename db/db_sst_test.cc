@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBSSTTest : public DBTestBase {
  public:
-  DBSSTTest() : DBTestBase("/db_sst_test", /*env_do_fsync=*/true) {}
+  DBSSTTest() : DBTestBase("db_sst_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -757,7 +757,7 @@ class DBWALTestWithParam
       public testing::WithParamInterface<std::tuple<std::string, bool>> {
  public:
   explicit DBWALTestWithParam()
-      : DBTestBase("/db_wal_test_with_params", /*env_do_fsync=*/true) {
+      : DBTestBase("db_wal_test_with_params", /*env_do_fsync=*/true) {
     wal_dir_ = std::get<0>(GetParam());
     wal_dir_same_as_dbname_ = std::get<1>(GetParam());
   }

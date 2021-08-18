@@ -17,6 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Configurable::Configurable() : is_prepared_(false) {}
+
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
@@ -38,6 +40,8 @@ void Configurable::RegisterOptions(
 //*************************************************************************
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
+  // We ignore the invoke_prepare_options here intentionally,
+  // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
 #ifndef ROCKSDB_LITE
   for (auto opt_iter : options_) {
@@ -53,6 +57,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
             if (!status.ok()) {
               return status;
             }
+          } else if (!opt_info.CanBeNull()) {
+            status =
+                Status::NotFound("Missing configurable object", map_iter.first);
           }
         }
       }
@@ -62,7 +69,7 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   (void)opts;
 #endif  // ROCKSDB_LITE
   if (status.ok()) {
-    prepared_ = true;
+    is_prepared_ = true;
   }
   return status;
 }
@@ -158,17 +165,26 @@ Status Configurable::ConfigureOptions(
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
-#ifndef ROCKSDB_LITE
-  if (!config_options.ignore_unknown_options) {
-    // If we are not ignoring unused, get the defaults in case we need to reset
+  Status s;
+  if (!opts_map.empty()) {
+    // There are options in the map.
+    // Save the current configuration in curr_opts and then configure the
+    // options, but do not prepare them now.  We will do all the prepare when
+    // the configuration is complete.
     ConfigOptions copy = config_options;
-    copy.depth = ConfigOptions::kDepthDetailed;
-    copy.delimiter = "; ";
-    GetOptionString(copy, &curr_opts).PermitUncheckedError();
-  }
+    copy.invoke_prepare_options = false;
+#ifndef ROCKSDB_LITE
+    if (!config_options.ignore_unknown_options) {
+      // If we are not ignoring unused, get the defaults in case we need to
+      // reset
+      copy.depth = ConfigOptions::kDepthDetailed;
+      copy.delimiter = "; ";
+      GetOptionString(copy, &curr_opts).PermitUncheckedError();
+    }
 #endif  // ROCKSDB_LITE
-  Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
-                                                  opts_map, unused);
+
+    s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
+  }
   if (config_options.invoke_prepare_options && s.ok()) {
     s = PrepareOptions(config_options);
   }
@@ -177,6 +193,7 @@ Status Configurable::ConfigureOptions(
     ConfigOptions reset = config_options;
     reset.ignore_unknown_options = true;
     reset.invoke_prepare_options = true;
+    reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
     ConfigureFromString(reset, curr_opts).PermitUncheckedError();
   }
@@ -398,10 +415,9 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
 
   if (opt_info.IsMutable() || !config_options.mutable_options_only) {
     // Either the option is mutable, or we are processing all of the options
-    if (opt_name == name ||
-        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
-        name == ConfigurableHelper::kIdPropName) {
-      return configurable.ParseOption(copy, opt_info, opt_name, value, opt_ptr);
+    if (opt_name == name || name == ConfigurableHelper::kIdPropName ||
+        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
+      return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.empty()) {
       return Status::OK();
     } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
@@ -479,32 +495,6 @@ Status ConfigurableHelper::ConfigureOption(
   }
 }
 #endif  // ROCKSDB_LITE
-
-Status ConfigurableHelper::ConfigureNewObject(
-    const ConfigOptions& config_options_in, Configurable* object,
-    const std::string& id, const std::string& base_opts,
-    const std::unordered_map<std::string, std::string>& opts) {
-  if (object != nullptr) {
-    ConfigOptions config_options = config_options_in;
-    config_options.invoke_prepare_options = false;
-    if (!base_opts.empty()) {
-#ifndef ROCKSDB_LITE
-      // Don't run prepare options on the base, as we would do that on the
-      // overlay opts instead
-      Status status = object->ConfigureFromString(config_options, base_opts);
-      if (!status.ok()) {
-        return status;
-      }
-#endif  // ROCKSDB_LITE
-    }
-    if (!opts.empty()) {
-      return object->ConfigureFromMap(config_options, opts);
-    }
-  } else if (!opts.empty()) {  // No object but no map.  This is OK
-    return Status::InvalidArgument("Cannot configure null object ", id);
-  }
-  return Status::OK();
-}
 
 //*******************************************************************************
 //
@@ -745,16 +735,6 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
 #endif  // ROCKSDB_LITE
 
 Status ConfigurableHelper::GetOptionsMap(
-    const std::string& value, const Customizable* customizable, std::string* id,
-    std::unordered_map<std::string, std::string>* props) {
-  if (customizable != nullptr) {
-    return GetOptionsMap(value, customizable->GetId(), id, props);
-  } else {
-    return GetOptionsMap(value, "", id, props);
-  }
-}
-
-Status ConfigurableHelper::GetOptionsMap(
     const std::string& value, const std::string& default_id, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
   assert(id);
@@ -767,15 +747,20 @@ Status ConfigurableHelper::GetOptionsMap(
 #ifndef ROCKSDB_LITE
   } else {
     status = StringToMap(value, props);
-    if (status.ok()) {
+    if (!status.ok()) {       // There was an error creating the map.
+      *id = value;            // Treat the value as id
+      props->clear();         // Clear the properties
+      status = Status::OK();  // and ignore the error
+    } else {
       auto iter = props->find(ConfigurableHelper::kIdPropName);
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);
-      } else if (default_id.empty()) {  // Should this be an error??
-        status = Status::InvalidArgument("Name property is missing");
-      } else {
+      } else if (!default_id.empty()) {
         *id = default_id;
+      } else {           // No id property and no default
+        *id = value;     // Treat the value as id
+        props->clear();  // Clear the properties
       }
     }
 #else

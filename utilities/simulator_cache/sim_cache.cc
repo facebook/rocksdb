@@ -167,6 +167,7 @@ class SimCacheImpl : public SimCache {
     cache_->SetStrictCapacityLimit(strict_capacity_limit);
   }
 
+  using Cache::Insert;
   Status Insert(const Slice& key, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value), Handle** handle,
                 Priority priority) override {
@@ -193,6 +194,7 @@ class SimCacheImpl : public SimCache {
     return cache_->Insert(key, value, charge, deleter, handle, priority);
   }
 
+  using Cache::Lookup;
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     Handle* h = key_only_cache_->Lookup(key);
     if (h != nullptr) {
@@ -213,6 +215,7 @@ class SimCacheImpl : public SimCache {
 
   bool Ref(Handle* handle) override { return cache_->Ref(handle); }
 
+  using Cache::Release;
   bool Release(Handle* handle, bool force_erase = false) override {
     return cache_->Release(handle, force_erase);
   }
@@ -242,6 +245,10 @@ class SimCacheImpl : public SimCache {
     return cache_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return cache_->GetDeleter(handle);
+  }
+
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
   void DisownData() override {
@@ -253,6 +260,13 @@ class SimCacheImpl : public SimCache {
                               bool thread_safe) override {
     // only apply to _cache since key_only_cache doesn't hold value
     cache_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override {
+    cache_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override {

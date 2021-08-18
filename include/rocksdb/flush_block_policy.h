@@ -6,12 +6,15 @@
 #pragma once
 
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class BlockBuilder;
+struct ConfigOptions;
 struct Options;
 
 // FlushBlockPolicy provides a configurable way to determine when to flush a
@@ -25,10 +28,16 @@ class FlushBlockPolicy {
   virtual ~FlushBlockPolicy() {}
 };
 
-class FlushBlockPolicyFactory {
+class FlushBlockPolicyFactory : public Customizable {
  public:
-  // Return the name of the flush block policy.
-  virtual const char* Name() const = 0;
+  static const char* Type() { return "FlushBlockPolicyFactory"; }
+
+  // Creates a FlushBlockPolicyFactory based on the input value.
+  // By default, this method can create EveryKey or BySize PolicyFactory,
+  // which take now config_options.
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& value,
+      std::shared_ptr<FlushBlockPolicyFactory>* result);
 
   // Return a new block flush policy that flushes data blocks by data size.
   // FlushBlockPolicy may need to access the metadata of the data block
@@ -45,9 +54,10 @@ class FlushBlockPolicyFactory {
 
 class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
  public:
-  FlushBlockBySizePolicyFactory() {}
+  FlushBlockBySizePolicyFactory();
 
-  const char* Name() const override { return "FlushBlockBySizePolicyFactory"; }
+  static const char* kClassName() { return "FlushBlockBySizePolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& table_options,

@@ -49,6 +49,9 @@ commands:
             echo "export GTEST_OUTPUT=\"xml:/tmp/test-results/\"" >> $BASH_ENV
             echo "export SKIP_FORMAT_BUCK_CHECKS=1" >> $BASH_ENV
             echo "export PRINT_PARALLEL_OUTPUTS=1" >> $BASH_ENV
+            echo "export GTEST_COLOR=1" >> $BASH_ENV
+            echo "export CTEST_OUTPUT_ON_FAILURE=1" >> $BASH_ENV
+            echo "export CTEST_TEST_TIMEOUT=300" >> $BASH_ENV
 
   pre-steps-macos:
       steps:
@@ -88,6 +91,21 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
 
+  install-benchmark:
+    steps:
+      - run: # currently doesn't support ubuntu-1604 which doesn't have libbenchmark package, user can still install by building it youself
+          name: Install benchmark
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
+
+  upgrade-cmake:
+    steps:
+      - run:
+          name: Upgrade cmake
+          command: |
+            sudo apt remove --purge cmake
+            sudo snap install cmake --classic
+
   install-gflags-on-macos:
     steps:
       - run:
@@ -121,6 +139,7 @@ jobs:
   build-macos:
     macos:
       xcode: 11.3.0
+    resource_class: large
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -132,18 +151,19 @@ jobs:
   build-macos-cmake:
     macos:
       xcode: 11.3.0
+    resource_class: large
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -153,7 +173,7 @@ jobs:
 
   build-linux-mem-env:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -163,7 +183,7 @@ jobs:
 
   build-linux-encrypted-env:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -173,7 +193,7 @@ jobs:
 
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -183,7 +203,7 @@ jobs:
 
   build-linux-release:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
@@ -210,7 +230,7 @@ jobs:
 
   build-linux-lite:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -220,7 +240,7 @@ jobs:
 
   build-linux-lite-release:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
@@ -233,17 +253,17 @@ jobs:
 
   build-linux-clang-no_test_run:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev
+      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
       - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-clang10-asan:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -254,7 +274,7 @@ jobs:
 
   build-linux-clang10-mini-tsan:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -265,7 +285,7 @@ jobs:
 
   build-linux-clang10-ubsan:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -276,7 +296,7 @@ jobs:
 
   build-linux-clang10-clang-analyze:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -286,13 +306,26 @@ jobs:
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
 
-  build-linux-cmake-no_test_run:
+  build-linux-cmake:
     machine:
-      image: ubuntu-1604:202007-01
-    resource_class: large
+      image: ubuntu-1604:202104-01
+    resource_class: 2xlarge
     steps:
-      - checkout # check out the code in the project directory
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j8) | .circleci/cat_ignore_eagain
+      - pre-steps
+      - install-gflags
+      - upgrade-cmake
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-cmake-ubuntu-20:
+    machine:
+      image: ubuntu-2004:202104-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-benchmark
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity:
@@ -307,7 +340,7 @@ jobs:
 
   build-linux-gcc-4_8-no_test_run:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     steps:
       - pre-steps
@@ -343,6 +376,17 @@ jobs:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
       - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
+  build-linux-microbench:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: xlarge
+    steps:
+      - pre-steps
+      - install-benchmark
+      - run: DEBUG_LEVEL=0 make microbench | .circleci/cat_ignore_eagain
       - post-steps
 
   build-windows:
@@ -415,7 +459,7 @@ jobs:
 
   build-linux-java:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
@@ -439,7 +483,7 @@ jobs:
 
   build-linux-java-static:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
@@ -510,7 +554,7 @@ jobs:
 
   build-examples:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: large
     steps:
       - pre-steps
@@ -523,7 +567,7 @@ jobs:
 
   build-cmake-mingw:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -546,7 +590,7 @@ jobs:
 
   build-linux-non-shm:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     parameters:
       start_test:
@@ -602,6 +646,7 @@ jobs:
       JAVA_HOME: /usr/lib/jvm/java-8-openjdk-arm64
     steps:
       - pre-steps
+      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -614,7 +659,7 @@ jobs:
           command: |
             mkdir build
             cd build
-            cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 ..
+            cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=1 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 ..
             make -j4
       - run:
           name: "Build Java with cmake"
@@ -622,13 +667,13 @@ jobs:
             rm -rf build
             mkdir build
             cd build
-            cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=0 ..
+            cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 ..
             make -j4 rocksdb rocksdbjni
       - post-steps
 
   build-format-compatible:
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -648,6 +693,10 @@ workflows:
   build-linux:
     jobs:
       - build-linux
+  build-linux-cmake:
+    jobs:
+      - build-linux-cmake
+      - build-linux-cmake-ubuntu-20
   build-linux-mem-env:
     jobs:
       - build-linux-mem-env
@@ -699,12 +748,6 @@ workflows:
           name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
-#  build-windows-vs2015:
-#    jobs:
-#      - build-windows:
-#          name: "build-windows-vs2015"
-#          vs_year: "2015"
-#          cmake_generator: "Visual Studio 14 Win64"
   build-java:
     jobs:
       - build-linux-java
@@ -731,7 +774,6 @@ workflows:
   build-linux-compilers-no_test_run:
     jobs:
       - build-linux-clang-no_test_run
-      - build-linux-cmake-no_test_run
       - build-linux-gcc-4_8-no_test_run
       - build-linux-gcc-8-no_test_run
       - build-linux-gcc-9-no_test_run
@@ -749,6 +791,9 @@ workflows:
   build-linux-arm:
     jobs:
       - build-linux-arm
+  build-microbench:
+    jobs:
+      - build-linux-microbench
   nightly:
     triggers:
       - schedule:
