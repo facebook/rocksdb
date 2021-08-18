@@ -7,6 +7,7 @@
 * Removed a call to `RenameFile()` on a non-existent info log file ("LOG") when opening a new DB. Such a call was guaranteed to fail though did not impact applications since we swallowed the error. Now we also stopped swallowing errors in renaming "LOG" file.
 * Fixed an issue where `OnFlushCompleted` was not called for atomic flush.
 * Fixed a bug affecting the batched `MultiGet` API when used with keys spanning multiple column families and `sorted_input == false`.
+* Fixed a potential incorrect result in opt mode and assertion failures caused by releasing snapshot(s) during compaction.
 
 ### New Features
 * Made the EventListener extend the Customizable class.
