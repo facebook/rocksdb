@@ -9,7 +9,6 @@
 
 #pragma once
 #include "memory/memory_allocator.h"
-#include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 

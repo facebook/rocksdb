@@ -42,7 +42,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
 
  private:
   BinarySearchIndexReader(const BlockBasedTable* t,
-                          CachableEntry<Block>&& index_block)
+                          CachableEntry<IndexBlock>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 };
 }  // namespace ROCKSDB_NAMESPACE

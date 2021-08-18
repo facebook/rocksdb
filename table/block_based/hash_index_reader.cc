@@ -26,7 +26,7 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   const BlockBasedTable::Rep* rep = table->get_rep();
   assert(rep != nullptr);
 
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   if (prefetch || !use_cache) {
     const Status s =
         ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
@@ -115,7 +115,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
     BlockCacheLookupContext* lookup_context) {
   const BlockBasedTable::Rep* rep = table()->get_rep();
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   const Status s =
       GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
   if (!s.ok()) {
@@ -132,7 +132,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
       read_options.total_order_seek || disable_prefix_seek;
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
-  auto it = index_block.GetValue()->NewIndexIterator(
+  auto it = index_block.GetValue()->NewIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
       total_order_seek, index_has_first_key(), index_key_includes_seq(),

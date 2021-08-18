@@ -115,15 +115,18 @@ class DataBlockHashIndexBuilder {
 
 class DataBlockHashIndex {
  public:
-  DataBlockHashIndex() : num_buckets_(0) {}
+  static size_t Create(const char* data, size_t size,
+                       std::unique_ptr<DataBlockHashIndex>* result);
 
-  void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
-
-  uint8_t Lookup(const char* data, uint32_t map_offset, const Slice& key) const;
+  uint8_t Lookup(const Slice& key) const;
 
   inline bool Valid() { return num_buckets_ != 0; }
 
  private:
+  DataBlockHashIndex(const char* data, uint16_t num_buckets)
+      : map_data_(data), num_buckets_(num_buckets) {}
+
+  const char* map_data_;
   // To make the serialized hash index compact and to save the space overhead,
   // here all the data fields persisted in the block are in uint16 format.
   // We find that a uint16 is large enough to index every offset of a 64KiB

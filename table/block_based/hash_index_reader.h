@@ -41,7 +41,8 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
   }
 
  private:
-  HashIndexReader(const BlockBasedTable* t, CachableEntry<Block>&& index_block)
+  HashIndexReader(const BlockBasedTable* t,
+                  CachableEntry<IndexBlock>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 
   std::unique_ptr<BlockPrefixIndex> prefix_index_;

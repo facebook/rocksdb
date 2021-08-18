@@ -13,6 +13,14 @@
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct BlockLikeOptions {
+ public:
+  virtual ~BlockLikeOptions() {}
+  virtual Statistics* GetStatistics() const = 0;
+  virtual bool UsingZstd() const = 0;
+  virtual const FilterPolicy* GetFilterPolicy() const = 0;
+  virtual size_t GetReadAmpBytesPerBit() const = 0;
+};
 
 template <typename TBlocklike>
 class BlocklikeTraits;
@@ -21,18 +29,15 @@ template <typename T, CacheEntryRole R>
 Cache::CacheItemHelper* GetCacheItemHelperForRole();
 
 template <typename TBlocklike>
-Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
-                                        Statistics* statistics, bool using_zstd,
-                                        const FilterPolicy* filter_policy) {
-  return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
-             void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+Cache::CreateCallback GetCreateCallback(const BlockLikeOptions* options) {
+  return [options](void* buf, size_t size, void** out_obj,
+                   size_t* charge) -> Status {
     assert(buf != nullptr);
     std::unique_ptr<char[]> buf_data(new char[size]());
     memcpy(buf_data.get(), buf, size);
     BlockContents bc = BlockContents(std::move(buf_data), size);
-    TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
-        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
-        filter_policy);
+    TBlocklike* ucd_ptr =
+        BlocklikeTraits<TBlocklike>::Create(std::move(bc), options);
     *out_obj = reinterpret_cast<void*>(ucd_ptr);
     *charge = size;
     return Status::OK();
@@ -43,10 +48,7 @@ template <>
 class BlocklikeTraits<BlockContents> {
  public:
   static BlockContents* Create(BlockContents&& contents,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */,
-                               bool /* using_zstd */,
-                               const FilterPolicy* /* filter_policy */) {
+                               const BlockLikeOptions* /* options*/) {
     return new BlockContents(std::move(contents));
   }
 
@@ -87,11 +89,9 @@ template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       size_t /* read_amp_bytes_per_bit */,
-                                       Statistics* /* statistics */,
-                                       bool /* using_zstd */,
-                                       const FilterPolicy* filter_policy) {
-    return new ParsedFullFilterBlock(filter_policy, std::move(contents));
+                                       const BlockLikeOptions* options) {
+    return new ParsedFullFilterBlock(options->GetFilterPolicy(),
+                                     std::move(contents));
   }
 
   static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {
@@ -124,22 +124,22 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 };
 
 template <>
-class BlocklikeTraits<Block> {
+class BlocklikeTraits<DataBlock> {
  public:
-  static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
-                       Statistics* statistics, bool /* using_zstd */,
-                       const FilterPolicy* /* filter_policy */) {
-    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
+  static DataBlock* Create(BlockContents&& contents,
+                           const BlockLikeOptions* options) {
+    return new DataBlock(std::move(contents), options->GetReadAmpBytesPerBit(),
+                         options->GetStatistics());
   }
 
-  static uint32_t GetNumRestarts(const Block& block) {
+  static uint32_t GetNumRestarts(const DataBlock& block) {
     return block.NumRestarts();
   }
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    Block* ptr = static_cast<Block*>(obj);
-    return ptr->size();
+    DataBlock* ptr = static_cast<DataBlock*>(obj);
+    return ptr->block_size();
   }
 
   static Status SaveToCallback(void* from_obj, size_t from_offset,
@@ -147,7 +147,7 @@ class BlocklikeTraits<Block> {
     assert(from_obj != nullptr);
     Block* ptr = static_cast<Block*>(from_obj);
     const char* buf = ptr->data();
-    assert(length == ptr->size());
+    assert(length == ptr->block_size());
     (void)from_offset;
     memcpy(out, buf, length);
     return Status::OK();
@@ -156,18 +156,115 @@ class BlocklikeTraits<Block> {
   static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
     switch (block_type) {
       case BlockType::kData:
-        return GetCacheItemHelperForRole<Block, CacheEntryRole::kDataBlock>();
-      case BlockType::kIndex:
-        return GetCacheItemHelperForRole<Block, CacheEntryRole::kIndexBlock>();
+        return GetCacheItemHelperForRole<DataBlock,
+                                         CacheEntryRole::kDataBlock>();
       case BlockType::kFilter:
-        return GetCacheItemHelperForRole<Block,
+        return GetCacheItemHelperForRole<DataBlock,
                                          CacheEntryRole::kFilterMetaBlock>();
       default:
         // Not a recognized combination
         assert(false);
         FALLTHROUGH_INTENDED;
       case BlockType::kRangeDeletion:
-        return GetCacheItemHelperForRole<Block, CacheEntryRole::kOtherBlock>();
+        return GetCacheItemHelperForRole<DataBlock,
+                                         CacheEntryRole::kOtherBlock>();
+    }
+  }
+};
+
+template <>
+class BlocklikeTraits<IndexBlock> {
+ public:
+  static IndexBlock* Create(BlockContents&& contents,
+                            const BlockLikeOptions* /*options*/) {
+    return new IndexBlock(std::move(contents));
+  }
+
+  static uint32_t GetNumRestarts(const IndexBlock& block) {
+    return block.NumRestarts();
+  }
+
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    IndexBlock* ptr = static_cast<IndexBlock*>(obj);
+    return ptr->block_size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    IndexBlock* ptr = static_cast<IndexBlock*>(from_obj);
+    const char* buf = ptr->data();
+    assert(length == ptr->block_size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
+    switch (block_type) {
+      case BlockType::kIndex:
+        return GetCacheItemHelperForRole<IndexBlock,
+                                         CacheEntryRole::kIndexBlock>();
+      case BlockType::kFilter:
+        return GetCacheItemHelperForRole<IndexBlock,
+                                         CacheEntryRole::kFilterMetaBlock>();
+      default:
+        // Not a recognized combination
+        assert(false);
+        FALLTHROUGH_INTENDED;
+      case BlockType::kRangeDeletion:
+        return GetCacheItemHelperForRole<IndexBlock,
+                                         CacheEntryRole::kOtherBlock>();
+    }
+  }
+};
+
+template <>
+class BlocklikeTraits<MetaBlock> {
+ public:
+  static MetaBlock* Create(BlockContents&& contents,
+                           const BlockLikeOptions* /*options*/) {
+    auto block = new MetaBlock(std::move(contents));
+    return block;
+  }
+
+  static uint32_t GetNumRestarts(const MetaBlock& block) {
+    return block.NumRestarts();
+  }
+
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    MetaBlock* ptr = static_cast<MetaBlock*>(obj);
+    return ptr->block_size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    MetaBlock* ptr = static_cast<MetaBlock*>(from_obj);
+    const char* buf = ptr->data();
+    assert(length == ptr->block_size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
+    switch (block_type) {
+      case BlockType::kData:
+        return GetCacheItemHelperForRole<MetaBlock,
+                                         CacheEntryRole::kDataBlock>();
+      case BlockType::kFilter:
+        return GetCacheItemHelperForRole<MetaBlock,
+                                         CacheEntryRole::kFilterMetaBlock>();
+      default:
+        // Not a recognized combination
+        assert(false);
+        FALLTHROUGH_INTENDED;
+      case BlockType::kRangeDeletion:
+        return GetCacheItemHelperForRole<MetaBlock,
+                                         CacheEntryRole::kOtherBlock>();
     }
   }
 };
@@ -176,12 +273,9 @@ template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
   static UncompressionDict* Create(BlockContents&& contents,
-                                   size_t /* read_amp_bytes_per_bit */,
-                                   Statistics* /* statistics */,
-                                   bool using_zstd,
-                                   const FilterPolicy* /* filter_policy */) {
+                                   const BlockLikeOptions* options) {
     return new UncompressionDict(contents.data, std::move(contents.allocation),
-                                 using_zstd);
+                                 options->UsingZstd());
   }
 
   static uint32_t GetNumRestarts(const UncompressionDict& /* dict */) {

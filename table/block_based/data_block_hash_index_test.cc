@@ -22,10 +22,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool SearchForOffset(DataBlockHashIndex& index, const char* data,
-                     uint16_t map_offset, const Slice& key,
+bool SearchForOffset(DataBlockHashIndex* index, const Slice& key,
                      uint8_t& restart_point) {
-  uint8_t entry = index.Lookup(data, map_offset, key);
+  uint8_t entry = index->Lookup(key);
   if (entry == kCollision) {
     return true;
   }
@@ -94,17 +93,17 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
     buffer2 = buffer;  // test for the correctness of relative offset
 
     Slice s(buffer2);
-    DataBlockHashIndex index;
-    uint16_t map_offset;
-    index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
+    std::unique_ptr<DataBlockHashIndex> index;
+    auto map_size = DataBlockHashIndex::Create(s.data(), s.size(), &index);
+    ASSERT_NE(index.get(), nullptr);
+    ASSERT_GT(map_size, 0);
 
     // the additional hash map should start at the end of the buffer
-    ASSERT_EQ(original_size, map_offset);
+    ASSERT_EQ(original_size, buffer.size() - map_size);
     for (uint8_t i = 0; i < 2; i++) {
       std::string key("key" + std::to_string(i));
       uint8_t restart_point = i;
-      ASSERT_TRUE(
-          SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(SearchForOffset(index.get(), key, restart_point));
     }
     builder.Reset();
   }
@@ -133,17 +132,17 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index;
-  uint16_t map_offset;
-  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
+  std::unique_ptr<DataBlockHashIndex> index;
+  auto map_size = DataBlockHashIndex::Create(s.data(), s.size(), &index);
+  ASSERT_NE(index.get(), nullptr);
+  ASSERT_GT(map_size, 0);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, map_offset);
+  ASSERT_EQ(original_size, s.size() - map_size);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(
-        SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(SearchForOffset(index.get(), key, restart_point));
   }
 }
 
@@ -170,17 +169,17 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index;
-  uint16_t map_offset;
-  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
+  std::unique_ptr<DataBlockHashIndex> index;
+  auto map_size = DataBlockHashIndex::Create(s.data(), s.size(), &index);
+  ASSERT_NE(index.get(), nullptr);
+  ASSERT_GT(map_size, 0);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, map_offset);
+  ASSERT_EQ(original_size, s.size() - map_size);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(
-        SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(SearchForOffset(index.get(), key, restart_point));
   }
 }
 
@@ -211,19 +210,20 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index;
-  uint16_t map_offset;
-  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
+
+  std::unique_ptr<DataBlockHashIndex> index;
+  auto map_size = DataBlockHashIndex::Create(s.data(), s.size(), &index);
+  ASSERT_NE(index.get(), nullptr);
+  ASSERT_GT(map_size, 0);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, map_offset);
+  ASSERT_EQ(original_size, s.size() - map_size);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key = "key" + std::to_string(i);
     uint8_t restart_point = i;
     if (m.count(key)) {
       ASSERT_TRUE(m[key] == restart_point);
-      ASSERT_TRUE(
-          SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(SearchForOffset(index.get(), key, restart_point));
     } else {
       // we allow false positve, so don't test the nonexisting keys.
       // when false positive happens, the search will continue to the
@@ -280,7 +280,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents));
+    DataBlock reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -302,7 +302,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents));
+    DataBlock reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinarySearch);
@@ -333,7 +333,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents));
+    DataBlock reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -357,7 +357,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents));
+    DataBlock reader(std::move(contents));
 
     // the index type have fallen back to binary when build finish.
     ASSERT_EQ(reader.IndexType(),
@@ -384,7 +384,7 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  DataBlock reader(std::move(contents));
 
   const InternalKeyComparator icmp(BytewiseComparator());
   auto iter = reader.NewDataIterator(icmp.user_comparator(),
@@ -466,7 +466,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  DataBlock reader(std::move(contents));
   const InternalKeyComparator icmp(BytewiseComparator());
 
   // random seek existent keys

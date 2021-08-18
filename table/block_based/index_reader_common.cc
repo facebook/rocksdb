@@ -13,7 +13,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<Block>* index_block) {
+    CachableEntry<IndexBlock>* index_block) {
   PERF_TIMER_GUARD(read_index_block_nanos);
 
   assert(table != nullptr);
@@ -35,7 +35,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<Block>* index_block) const {
+    CachableEntry<IndexBlock>* index_block) const {
   assert(index_block != nullptr);
 
   if (!index_block_.IsEmpty()) {

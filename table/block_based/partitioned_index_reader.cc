@@ -22,7 +22,7 @@ Status PartitionIndexReader::Create(
   assert(!pin || prefetch);
   assert(index_reader != nullptr);
 
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   if (prefetch || !use_cache) {
     const Status s =
         ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
@@ -46,7 +46,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   const Status s =
       GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
   if (!s.ok()) {
@@ -69,7 +69,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     it = NewTwoLevelIterator(
         new BlockBasedTable::PartitionedIndexIteratorState(table(),
                                                            &partition_map_),
-        index_block.GetValue()->NewIndexIterator(
+        index_block.GetValue()->NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
@@ -82,7 +82,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
-        index_block.GetValue()->NewIndexIterator(
+        index_block.GetValue()->NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
@@ -113,7 +113,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   BlockHandle handle;
   Statistics* kNullStats = nullptr;
 
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
                                  &lookup_context, &index_block);
   if (!s.ok()) {
@@ -122,7 +122,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
-  index_block.GetValue()->NewIndexIterator(
+  index_block.GetValue()->NewIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full());
@@ -162,7 +162,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
-    CachableEntry<Block> block;
+    CachableEntry<IndexBlock> block;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(

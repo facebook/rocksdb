@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/binary_search_index_reader.h"
 
+#include "table/block_based/block.h"
+
 namespace ROCKSDB_NAMESPACE {
 Status BinarySearchIndexReader::Create(
     const BlockBasedTable* table, const ReadOptions& ro,
@@ -19,7 +21,7 @@ Status BinarySearchIndexReader::Create(
   assert(!pin || prefetch);
   assert(index_reader != nullptr);
 
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   if (prefetch || !use_cache) {
     const Status s =
         ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
@@ -45,7 +47,7 @@ InternalIteratorBase<IndexValue>* BinarySearchIndexReader::NewIterator(
     BlockCacheLookupContext* lookup_context) {
   const BlockBasedTable::Rep* rep = table()->get_rep();
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
-  CachableEntry<Block> index_block;
+  CachableEntry<IndexBlock> index_block;
   const Status s =
       GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
   if (!s.ok()) {
@@ -60,7 +62,7 @@ InternalIteratorBase<IndexValue>* BinarySearchIndexReader::NewIterator(
   Statistics* kNullStats = nullptr;
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
-  auto it = index_block.GetValue()->NewIndexIterator(
+  auto it = index_block.GetValue()->NewIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full());

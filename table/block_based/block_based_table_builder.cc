@@ -23,7 +23,6 @@
 
 #include "db/dbformat.h"
 #include "index_builder.h"
-#include "memory/memory_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -42,6 +41,7 @@
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -247,7 +247,16 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
   bool prefix_filtering_;
 };
 
-struct BlockBasedTableBuilder::Rep {
+struct BlockBasedTableBuilder::Rep : public BlockLikeOptions {
+  Statistics* GetStatistics() const override { return ioptions.stats; }
+  bool UsingZstd() const override { return false; }
+  const FilterPolicy* GetFilterPolicy() const override {
+    return table_options.filter_policy.get();
+  }
+  size_t GetReadAmpBytesPerBit() const override {
+    return table_options.read_amp_bytes_per_bit;
+  }
+
   const ImmutableOptions ioptions;
   const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
@@ -1463,11 +1472,13 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
     BlockType block_type) {
   Status s;
-  if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
-    s = InsertBlockInCache<Block>(block_contents, handle, block_type);
+  if (block_type == BlockType::kData) {
+    s = InsertBlockInCache<DataBlock>(block_contents, handle, block_type);
+  } else if (block_type == BlockType::kIndex) {
+    s = InsertBlockInCache<IndexBlock>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
     if (rep_->filter_builder->IsBlockBased()) {
-      s = InsertBlockInCache<Block>(block_contents, handle, block_type);
+      s = InsertBlockInCache<DataBlock>(block_contents, handle, block_type);
     } else {
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
@@ -1498,17 +1509,11 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
                                              rep_->cache_key_prefix_size,
                                              *handle, cache_key);
 
-    const size_t read_amp_bytes_per_bit =
-        rep_->table_options.read_amp_bytes_per_bit;
 
     // TODO akanksha:: Dedup below code by calling
     // BlockBasedTable::PutDataBlockToCache.
     std::unique_ptr<TBlocklike> block_holder(
-        BlocklikeTraits<TBlocklike>::Create(
-            std::move(results), read_amp_bytes_per_bit,
-            rep_->ioptions.statistics.get(),
-            false /*rep_->blocks_definitely_zstd_compressed*/,
-            rep_->table_options.filter_policy.get()));
+        BlocklikeTraits<TBlocklike>::Create(std::move(results), rep_));
 
     assert(block_holder->own_bytes());
     size_t charge = block_holder->ApproximateMemoryUsage();
@@ -1853,12 +1858,13 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       dict, r->compression_type == kZSTD ||
                 r->compression_type == kZSTDNotFinalCompression));
 
-  auto get_iterator_for_block = [&r](size_t i) {
+  auto get_iterator_for_block = [&r](size_t i,
+                                     std::unique_ptr<DataBlock>* reader) {
     auto& data_block = r->data_block_buffers[i];
     assert(!data_block.empty());
 
-    Block reader{BlockContents{data_block}};
-    DataBlockIter* iter = reader.NewDataIterator(
+    reader->reset(new DataBlock(BlockContents(data_block)));
+    DataBlockIter* iter = reader->get()->NewDataIterator(
         r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber);
 
     iter->SeekToFirst();
@@ -1866,19 +1872,20 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     return std::unique_ptr<DataBlockIter>(iter);
   };
 
+  std::unique_ptr<DataBlock> block = nullptr, next_block = nullptr;
   std::unique_ptr<DataBlockIter> iter = nullptr, next_block_iter = nullptr;
 
   for (size_t i = 0; ok() && i < r->data_block_buffers.size(); ++i) {
     if (iter == nullptr) {
-      iter = get_iterator_for_block(i);
+      iter = get_iterator_for_block(i, &block);
       assert(iter != nullptr);
     };
 
     if (i + 1 < r->data_block_buffers.size()) {
-      next_block_iter = get_iterator_for_block(i + 1);
+      next_block_iter = get_iterator_for_block(i + 1, &next_block);
     }
 
-    auto& data_block = r->data_block_buffers[i];
+    auto& data_buffer = r->data_block_buffers[i];
 
     if (r->IsParallelCompressionEnabled()) {
       Slice first_key_in_next_block;
@@ -1896,7 +1903,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       }
 
       ParallelCompressionRep::BlockRep* block_rep = r->pc_rep->PrepareBlock(
-          r->compression_type, first_key_in_next_block_ptr, &data_block, &keys);
+          r->compression_type, first_key_in_next_block_ptr, &data_buffer,
+          &keys);
 
       assert(block_rep != nullptr);
       r->pc_rep->file_size_estimator.EmitBlock(block_rep->data->size(),
@@ -1912,7 +1920,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
         }
         r->index_builder->OnKeyAdded(key);
       }
-      WriteBlock(Slice(data_block), &r->pending_handle, BlockType::kData);
+      WriteBlock(Slice(data_buffer), &r->pending_handle, BlockType::kData);
       if (ok() && i + 1 < r->data_block_buffers.size()) {
         assert(next_block_iter != nullptr);
         Slice first_key_in_next_block = next_block_iter->key();
@@ -1927,6 +1935,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     }
 
     std::swap(iter, next_block_iter);
+    std::swap(block, next_block);
   }
   r->data_block_buffers.clear();
 }

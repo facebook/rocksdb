@@ -70,10 +70,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   BlockHandle last_encoded_handle_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
+class PartitionedFilterBlockReader
+    : public FilterBlockReaderCommon<IndexBlock> {
  public:
   PartitionedFilterBlockReader(const BlockBasedTable* t,
-                               CachableEntry<Block>&& filter_block);
+                               CachableEntry<IndexBlock>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, const ReadOptions& ro,
@@ -104,8 +105,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   size_t ApproximateMemoryUsage() const override;
 
  private:
-  BlockHandle GetFilterPartitionHandle(const CachableEntry<Block>& filter_block,
-                                       const Slice& entry) const;
+  BlockHandle GetFilterPartitionHandle(
+      const CachableEntry<IndexBlock>& filter_block, const Slice& entry) const;
   Status GetFilterPartitionBlock(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       bool no_io, GetContext* get_context,

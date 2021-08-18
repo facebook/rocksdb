@@ -72,22 +72,28 @@ void DataBlockHashIndexBuilder::Reset() {
   hash_and_restart_pairs_.clear();
 }
 
-void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
-                                    uint16_t* map_offset) {
-  assert(size >= sizeof(uint16_t));  // NUM_BUCKETS
-  num_buckets_ = DecodeFixed16(data + size - sizeof(uint16_t));
-  assert(num_buckets_ > 0);
-  assert(size > num_buckets_ * sizeof(uint8_t));
-  *map_offset = static_cast<uint16_t>(size - sizeof(uint16_t) -
-                                      num_buckets_ * sizeof(uint8_t));
+size_t DataBlockHashIndex::Create(const char* data, size_t size,
+                                  std::unique_ptr<DataBlockHashIndex>* index) {
+  if (size >= sizeof(uint16_t)) {  // NUM_BUCKETS
+    const char* end = data + size;
+    uint16_t num_buckets = DecodeFixed16(end - sizeof(uint16_t));
+    if (num_buckets > 0) {
+      size_t map_size = sizeof(uint16_t) + num_buckets * sizeof(uint8_t);
+      const char* map = end - map_size;
+      if (map >= data) {
+        index->reset(new DataBlockHashIndex(map, num_buckets));
+        return map_size;
+      }
+    }
+  }
+  index->reset();
+  return 0;
 }
 
-uint8_t DataBlockHashIndex::Lookup(const char* data, uint32_t map_offset,
-                                   const Slice& key) const {
+uint8_t DataBlockHashIndex::Lookup(const Slice& key) const {
   uint32_t hash_value = GetSliceHash(key);
   uint16_t idx = static_cast<uint16_t>(hash_value % num_buckets_);
-  const char* bucket_table = data + map_offset;
-  return static_cast<uint8_t>(*(bucket_table + idx * sizeof(uint8_t)));
+  return static_cast<uint8_t>(*(map_data_ + idx * sizeof(uint8_t)));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

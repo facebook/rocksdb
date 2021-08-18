@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
  public:
   IndexReaderCommon(const BlockBasedTable* t,
-                    CachableEntry<Block>&& index_block)
+                    CachableEntry<IndexBlock>&& index_block)
       : table_(t), index_block_(std::move(index_block)) {
     assert(table_ != nullptr);
   }
@@ -31,7 +31,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
                                const ReadOptions& read_options, bool use_cache,
                                GetContext* get_context,
                                BlockCacheLookupContext* lookup_context,
-                               CachableEntry<Block>* index_block);
+                               CachableEntry<IndexBlock>* index_block);
 
   const BlockBasedTable* table() const { return table_; }
 
@@ -68,7 +68,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
 
   Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             CachableEntry<Block>* index_block) const;
+                             CachableEntry<IndexBlock>* index_block) const;
 
   size_t ApproximateIndexBlockMemoryUsage() const {
     assert(!index_block_.GetOwnValue() || index_block_.GetValue() != nullptr);
@@ -79,7 +79,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
 
  private:
   const BlockBasedTable* table_;
-  CachableEntry<Block> index_block_;
+  CachableEntry<IndexBlock> index_block_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

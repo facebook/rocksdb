@@ -10,6 +10,7 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
+#include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
@@ -18,7 +19,6 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
-#include "table/block_based/block_based_table_reader.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
