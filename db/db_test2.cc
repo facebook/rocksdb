@@ -4445,12 +4445,12 @@ TEST_F(DBTest2, TraceAndReplay) {
       };
 
   // Unprepared replay should fail with Status::Incomplete()
-  ASSERT_TRUE(replayer->Replay().IsIncomplete());
+  ASSERT_TRUE(replayer->Replay(ReplayOptions(), nullptr).IsIncomplete());
   ASSERT_OK(replayer->Prepare());
   // Ok to repeatedly Prepare().
   ASSERT_OK(replayer->Prepare());
   // Replay using 1 thread, 1x speed.
-  ASSERT_OK(replayer->Replay(res_cb));
+  ASSERT_OK(replayer->Replay(ReplayOptions(1, 1.0), res_cb));
   ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
@@ -4472,7 +4472,7 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   // Re-replay should fail with Status::Incomplete() if Prepare() was not
   // called. Currently we don't distinguish between unprepared and trace end.
-  ASSERT_TRUE(replayer->Replay().IsIncomplete());
+  ASSERT_TRUE(replayer->Replay(ReplayOptions(), nullptr).IsIncomplete());
 
   // Re-replay using 2 threads, 2x speed.
   ASSERT_OK(replayer->Prepare());
@@ -4610,7 +4610,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
         continue;
       }
       if (s.ok()) {
-        ASSERT_OK(replayer->Execute(std::move(record), &result));
+        ASSERT_OK(replayer->Execute(record, &result));
         if (result != nullptr) {
           ASSERT_OK(result->Accept(&res_handler));
           result.reset();
@@ -4648,7 +4648,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_OK(batch.Put("trace-record-write1", "write1"));
   ASSERT_OK(batch.Put("trace-record-write2", "write2"));
   record.reset(new WriteQueryTraceRecord(batch.Data(), fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   ASSERT_OK(result->Accept(&res_handler));  // Write x 1
   ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write1", &value));
@@ -4666,19 +4666,19 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   // Get an existing key.
   record.reset(new GetQueryTraceRecord(handles[0]->GetID(),
                                        "trace-record-write1", fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   ASSERT_OK(result->Accept(&res_handler));  // Get x 1
   // Get an non-existing key, should still return Status::OK().
   record.reset(new GetQueryTraceRecord(handles[0]->GetID(), "trace-record-get",
                                        fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   ASSERT_OK(result->Accept(&res_handler));  // Get x 2
   // Get from an invalid (non-existing) cf_id.
   uint32_t invalid_cf_id = handles[1]->GetID() + 1;
   record.reset(new GetQueryTraceRecord(invalid_cf_id, "whatever", fake_ts++));
-  ASSERT_TRUE(replayer->Execute(std::move(record), &result).IsCorruption());
+  ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
   ASSERT_TRUE(result == nullptr);
   ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
@@ -4694,19 +4694,19 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     // Seek to an existing key.
     record.reset(new IteratorSeekQueryTraceRecord(
         seekType, handles[0]->GetID(), "trace-record-write1", fake_ts++));
-    ASSERT_OK(replayer->Execute(std::move(record), &result));
+    ASSERT_OK(replayer->Execute(record, &result));
     ASSERT_TRUE(result != nullptr);
     ASSERT_OK(result->Accept(&res_handler));  // Seek x 1 in one iteration
     // Seek to an non-existing key, should still return Status::OK().
     record.reset(new IteratorSeekQueryTraceRecord(
         seekType, handles[0]->GetID(), "trace-record-get", fake_ts++));
-    ASSERT_OK(replayer->Execute(std::move(record), &result));
+    ASSERT_OK(replayer->Execute(record, &result));
     ASSERT_TRUE(result != nullptr);
     ASSERT_OK(result->Accept(&res_handler));  // Seek x 2 in one iteration
     // Seek from an invalid cf_id.
     record.reset(new IteratorSeekQueryTraceRecord(seekType, invalid_cf_id,
                                                   "whatever", fake_ts++));
-    ASSERT_TRUE(replayer->Execute(std::move(record), &result).IsCorruption());
+    ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
     ASSERT_TRUE(result == nullptr);
   }
   ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
@@ -4721,14 +4721,14 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
       std::vector<std::string>({"a", "foo"}), fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   ASSERT_OK(result->Accept(&res_handler));  // MultiGet x 1
   // Get all non-existing keys, should still return Status::OK().
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
       std::vector<std::string>({"no1", "no2"}), fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   ASSERT_OK(result->Accept(&res_handler));  // MultiGet x 2
   // Get mixed of existing and non-existing keys, should still return
@@ -4736,37 +4736,33 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
       std::vector<std::string>({"a", "no2"}), fake_ts++));
-  ASSERT_OK(replayer->Execute(std::move(record), &result));
+  ASSERT_OK(replayer->Execute(record, &result));
   ASSERT_TRUE(result != nullptr);
   MultiValuesTraceExecutionResult* mvr =
       dynamic_cast<MultiValuesTraceExecutionResult*>(result.get());
   ASSERT_TRUE(mvr != nullptr);
-  std::vector<Status> ss = mvr->GetMultiStatus();
-  ASSERT_OK(ss[0]);
-  ASSERT_TRUE(ss[1].IsNotFound());
-  std::vector<std::string> values = mvr->GetValues();
-  ASSERT_EQ(values[0], "1");
-  ASSERT_EQ(values[1], "");
+  ASSERT_OK(mvr->GetMultiStatus()[0]);
+  ASSERT_TRUE(mvr->GetMultiStatus()[1].IsNotFound());
+  ASSERT_EQ(mvr->GetValues()[0], "1");
+  ASSERT_EQ(mvr->GetValues()[1], "");
   ASSERT_OK(result->Accept(&res_handler));  // MultiGet x 3
   // Get from an invalid (non-existing) cf_id.
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>(
           {handles[0]->GetID(), handles[1]->GetID(), invalid_cf_id}),
       std::vector<std::string>({"a", "foo", "whatever"}), fake_ts++));
-  ASSERT_TRUE(replayer->Execute(std::move(record), &result).IsCorruption());
+  ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
   ASSERT_TRUE(result == nullptr);
   // Empty MultiGet
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>(), std::vector<std::string>(), fake_ts++));
-  ASSERT_TRUE(
-      replayer->Execute(std::move(record), &result).IsInvalidArgument());
+  ASSERT_TRUE(replayer->Execute(record, &result).IsInvalidArgument());
   ASSERT_TRUE(result == nullptr);
   // MultiGet size mismatch
   record.reset(new MultiGetQueryTraceRecord(
       std::vector<uint32_t>({handles[0]->GetID(), handles[1]->GetID()}),
       std::vector<std::string>({"a"}), fake_ts++));
-  ASSERT_TRUE(
-      replayer->Execute(std::move(record), &result).IsInvalidArgument());
+  ASSERT_TRUE(replayer->Execute(record, &result).IsInvalidArgument());
   ASSERT_TRUE(result == nullptr);
   ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
@@ -4844,7 +4840,7 @@ TEST_F(DBTest2, TraceWithLimit) {
   ASSERT_OK(
       db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
   ASSERT_OK(replayer->Prepare());
-  ASSERT_OK(replayer->Replay());
+  ASSERT_OK(replayer->Replay(ReplayOptions(), nullptr));
   replayer.reset();
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
@@ -4919,7 +4915,7 @@ TEST_F(DBTest2, TraceWithSampling) {
   ASSERT_OK(
       db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
   ASSERT_OK(replayer->Prepare());
-  ASSERT_OK(replayer->Replay());
+  ASSERT_OK(replayer->Replay(ReplayOptions(), nullptr));
   replayer.reset();
 
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
@@ -5023,7 +5019,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_OK(
       db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
   ASSERT_OK(replayer->Prepare());
-  ASSERT_OK(replayer->Replay());
+  ASSERT_OK(replayer->Replay(ReplayOptions(), nullptr));
   replayer.reset();
 
   // All the key-values should not present since we filter out the WRITE ops.

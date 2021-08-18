@@ -38,8 +38,6 @@ class ReplayerImpl : public Replayer {
   using Replayer::Execute;
   Status Execute(const std::unique_ptr<TraceRecord>& record,
                  std::unique_ptr<TraceRecordResult>* result) override;
-  Status Execute(std::unique_ptr<TraceRecord>&& record,
-                 std::unique_ptr<TraceRecordResult>* result) override;
 
   using Replayer::Replay;
   Status Replay(

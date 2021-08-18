@@ -68,18 +68,9 @@ class Replayer {
   //
   // The actual operation execution status and result(s) will be saved in
   // result. For example, a GetQueryTraceRecord will have its DB::Get() status
-  // and the returned value save in a SingleValueTraceExecutionResult.
+  // and the returned value saved in a SingleValueTraceExecutionResult.
   virtual Status Execute(const std::unique_ptr<TraceRecord>& record,
                          std::unique_ptr<TraceRecordResult>* result) = 0;
-  inline Status Execute(const std::unique_ptr<TraceRecord>& record) {
-    return Execute(record, nullptr);
-  }
-
-  virtual Status Execute(std::unique_ptr<TraceRecord>&& record,
-                         std::unique_ptr<TraceRecordResult>* result) = 0;
-  inline Status Execute(std::unique_ptr<TraceRecord>&& record) {
-    return Execute(std::move(record), nullptr);
-  }
 
   // Replay all the traces from the provided trace stream, taking the delay
   // between the traces into consideration.
@@ -90,15 +81,6 @@ class Replayer {
       const ReplayOptions& options,
       const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
           result_callback) = 0;
-  inline Status Replay(const ReplayOptions& options) {
-    return Replay(options, nullptr);
-  }
-  inline Status Replay(
-      const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
-          result_callback) {
-    return Replay(ReplayOptions(), result_callback);
-  }
-  inline Status Replay() { return Replay(ReplayOptions(), nullptr); }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

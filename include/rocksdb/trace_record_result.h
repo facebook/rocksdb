@@ -33,22 +33,13 @@ class TraceRecordResult {
     virtual ~Handler() = default;
 
     // Handle StatusOnlyTraceExecutionResult
-    virtual Status Handle(const StatusOnlyTraceExecutionResult& /*result*/) {
-      return Status::NotSupported(
-          "StatusOnlyTraceExecutionResult is not supported.");
-    }
+    virtual Status Handle(const StatusOnlyTraceExecutionResult& result) = 0;
 
     // Handle SingleValueTraceExecutionResult
-    virtual Status Handle(const SingleValueTraceExecutionResult& /*result*/) {
-      return Status::NotSupported(
-          "SingleValueTraceExecutionResult is not supported.");
-    }
+    virtual Status Handle(const SingleValueTraceExecutionResult& result) = 0;
 
     // Handle MultiValuesTraceExecutionResult
-    virtual Status Handle(const MultiValuesTraceExecutionResult& /*result*/) {
-      return Status::NotSupported(
-          "MultiValuesTraceExecutionResult is not supported.");
-    }
+    virtual Status Handle(const MultiValuesTraceExecutionResult& result) = 0;
   };
 
   virtual Status Accept(Handler* handler) = 0;
@@ -86,7 +77,7 @@ class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
   virtual ~StatusOnlyTraceExecutionResult() override = default;
 
   // Return value of DB::Write(), etc.
-  virtual Status GetStatus() const;
+  virtual const Status& GetStatus() const;
 
   virtual Status Accept(Handler* handler) override;
 
@@ -109,10 +100,10 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
   virtual ~SingleValueTraceExecutionResult() override;
 
   // Return status of DB::Get(), etc.
-  virtual Status GetStatus() const;
+  virtual const Status& GetStatus() const;
 
   // Value for the searched key.
-  virtual std::string GetValue() const;
+  virtual const std::string& GetValue() const;
 
   virtual Status Accept(Handler* handler) override;
 
@@ -125,23 +116,18 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
 // Example operation: DB::MultiGet()
 class MultiValuesTraceExecutionResult : public TraceExecutionResult {
  public:
-  MultiValuesTraceExecutionResult(const std::vector<Status>& multi_status,
-                                  const std::vector<std::string>& values,
-                                  uint64_t start_timestamp,
-                                  uint64_t end_timestamp, TraceType trace_type);
-
-  MultiValuesTraceExecutionResult(std::vector<Status>&& multi_status,
-                                  std::vector<std::string>&& values,
+  MultiValuesTraceExecutionResult(std::vector<Status> multi_status,
+                                  std::vector<std::string> values,
                                   uint64_t start_timestamp,
                                   uint64_t end_timestamp, TraceType trace_type);
 
   virtual ~MultiValuesTraceExecutionResult() override;
 
   // Return status of DB::MultiGet(), etc.
-  virtual std::vector<Status> GetMultiStatus() const;
+  virtual const std::vector<Status>& GetMultiStatus() const;
 
   // Values for the searched keys.
-  virtual std::vector<std::string> GetValues() const;
+  virtual const std::vector<std::string>& GetValues() const;
 
   virtual Status Accept(Handler* handler) override;
 

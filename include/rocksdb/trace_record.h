@@ -66,46 +66,24 @@ class TraceRecord {
     virtual ~Handler() = default;
 
     // Handle WriteQueryTraceRecord
-    virtual Status Handle(const WriteQueryTraceRecord& /*record*/,
-                          std::unique_ptr<TraceRecordResult>* /*result*/) {
-      return Status::NotSupported("WriteQueryTraceRecord is not supported.");
-    }
-    inline Status Handle(const WriteQueryTraceRecord& record) {
-      return Handle(record, nullptr);
-    }
+    virtual Status Handle(const WriteQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
 
     // Handle GetQueryTraceRecord
-    virtual Status Handle(const GetQueryTraceRecord& /*record*/,
-                          std::unique_ptr<TraceRecordResult>* /*result*/) {
-      return Status::NotSupported("GetQueryTraceRecord is not supported.");
-    }
-    inline Status Handle(const GetQueryTraceRecord& record) {
-      return Handle(record, nullptr);
-    }
+    virtual Status Handle(const GetQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
 
     // Handle IteratorSeekQueryTraceRecord
-    virtual Status Handle(const IteratorSeekQueryTraceRecord& /*record*/,
-                          std::unique_ptr<TraceRecordResult>* /*result*/) {
-      return Status::NotSupported(
-          "IteratorSeekQueryTraceRecord is not supported.");
-    }
-    inline Status Handle(const IteratorSeekQueryTraceRecord& record) {
-      return Handle(record, nullptr);
-    }
+    virtual Status Handle(const IteratorSeekQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
 
     // Handle MultiGetQueryTraceRecord
-    virtual Status Handle(const MultiGetQueryTraceRecord& /*record*/,
-                          std::unique_ptr<TraceRecordResult>* /*result*/) {
-      return Status::NotSupported("MultiGetQueryTraceRecord is not supported.");
-    }
-    inline Status Handle(const MultiGetQueryTraceRecord& record) {
-      return Handle(record, nullptr);
-    }
+    virtual Status Handle(const MultiGetQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
   };
 
   virtual Status Accept(Handler* handler,
                         std::unique_ptr<TraceRecordResult>* result) = 0;
-  inline Status Accept(Handler* handler) { return Accept(handler, nullptr); }
 
   // Create a handler for the exeution of TraceRecord.
   static Handler* NewExecutionHandler(

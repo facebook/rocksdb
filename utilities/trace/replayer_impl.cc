@@ -78,13 +78,6 @@ Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record,
   return record->Accept(exec_handler_.get(), result);
 }
 
-Status ReplayerImpl::Execute(std::unique_ptr<TraceRecord>&& record,
-                             std::unique_ptr<TraceRecordResult>* result) {
-  Status s = record->Accept(exec_handler_.get(), result);
-  record.reset();
-  return s;
-}
-
 Status ReplayerImpl::Replay(
     const ReplayOptions& options,
     const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
@@ -139,7 +132,7 @@ Status ReplayerImpl::Replay(
 
       // Skip unsupported traces, stop for other errors.
       if (s.IsNotSupported()) {
-        if (result_callback == nullptr) {
+        if (result_callback != nullptr) {
           result_callback(s, nullptr);
         }
         s = Status::OK();
@@ -147,10 +140,10 @@ Status ReplayerImpl::Replay(
       }
 
       if (result_callback == nullptr) {
-        s = Execute(std::move(record));
+        s = Execute(record, nullptr);
       } else {
         std::unique_ptr<TraceRecordResult> res;
-        s = Execute(std::move(record), &res);
+        s = Execute(record, &res);
         result_callback(s, std::move(res));
       }
     }

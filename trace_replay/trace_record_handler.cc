@@ -77,7 +77,7 @@ Status TraceExecutionHandler::Handle(
   if (result != nullptr) {
     // Report the actual opetation status in TraceExecutionResult
     result->reset(new SingleValueTraceExecutionResult(
-        s, std::move(value), start, end, record.GetTraceType()));
+        std::move(s), std::move(value), start, end, record.GetTraceType()));
   }
   return Status::OK();
 }
@@ -93,9 +93,10 @@ Status TraceExecutionHandler::Handle(
     return Status::Corruption("Invalid Column Family ID.");
   }
 
+  Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
+
   uint64_t start = clock_->NowMicros();
 
-  Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
   switch (record.GetSeekType()) {
     case IteratorSeekQueryTraceRecord::kSeekForPrev: {
       single_iter->SeekForPrev(record.GetKey());
@@ -106,10 +107,11 @@ Status TraceExecutionHandler::Handle(
       break;
     }
   }
-  Status s = single_iter->status();
-  delete single_iter;
 
   uint64_t end = clock_->NowMicros();
+
+  Status s = single_iter->status();
+  delete single_iter;
 
   if (s.ok() && result != nullptr) {
     result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
@@ -152,7 +154,7 @@ Status TraceExecutionHandler::Handle(
   uint64_t end = clock_->NowMicros();
 
   // Treat not found as ok, return other errors.
-  for (Status s : ss) {
+  for (const Status& s : ss) {
     if (!s.ok() && !s.IsNotFound()) {
       return s;
     }

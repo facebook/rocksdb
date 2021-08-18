@@ -34,7 +34,9 @@ StatusOnlyTraceExecutionResult::StatusOnlyTraceExecutionResult(
     : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       status_(std::move(status)) {}
 
-Status StatusOnlyTraceExecutionResult::GetStatus() const { return status_; }
+const Status& StatusOnlyTraceExecutionResult::GetStatus() const {
+  return status_;
+}
 
 Status StatusOnlyTraceExecutionResult::Accept(Handler* handler) {
   assert(handler != nullptr);
@@ -60,9 +62,13 @@ SingleValueTraceExecutionResult::~SingleValueTraceExecutionResult() {
   value_.clear();
 }
 
-Status SingleValueTraceExecutionResult::GetStatus() const { return status_; }
+const Status& SingleValueTraceExecutionResult::GetStatus() const {
+  return status_;
+}
 
-std::string SingleValueTraceExecutionResult::GetValue() const { return value_; }
+const std::string& SingleValueTraceExecutionResult::GetValue() const {
+  return value_;
+}
 
 Status SingleValueTraceExecutionResult::Accept(Handler* handler) {
   assert(handler != nullptr);
@@ -71,15 +77,7 @@ Status SingleValueTraceExecutionResult::Accept(Handler* handler) {
 
 // MultiValuesTraceExecutionResult
 MultiValuesTraceExecutionResult::MultiValuesTraceExecutionResult(
-    const std::vector<Status>& multi_status,
-    const std::vector<std::string>& values, uint64_t start_timestamp,
-    uint64_t end_timestamp, TraceType trace_type)
-    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
-      multi_status_(multi_status),
-      values_(values) {}
-
-MultiValuesTraceExecutionResult::MultiValuesTraceExecutionResult(
-    std::vector<Status>&& multi_status, std::vector<std::string>&& values,
+    std::vector<Status> multi_status, std::vector<std::string> values,
     uint64_t start_timestamp, uint64_t end_timestamp, TraceType trace_type)
     : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
       multi_status_(std::move(multi_status)),
@@ -90,11 +88,13 @@ MultiValuesTraceExecutionResult::~MultiValuesTraceExecutionResult() {
   values_.clear();
 }
 
-std::vector<Status> MultiValuesTraceExecutionResult::GetMultiStatus() const {
+const std::vector<Status>& MultiValuesTraceExecutionResult::GetMultiStatus()
+    const {
   return multi_status_;
 }
 
-std::vector<std::string> MultiValuesTraceExecutionResult::GetValues() const {
+const std::vector<std::string>& MultiValuesTraceExecutionResult::GetValues()
+    const {
   return values_;
 }
 
