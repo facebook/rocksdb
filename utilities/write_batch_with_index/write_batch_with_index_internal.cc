@@ -681,7 +681,6 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
     if (deleted_ranges.IsInInterval(cf_id, key)) {
       result = WBWIIteratorImpl::Result::kDeleted;
     }
-    return result;
   } else if (result == WBWIIteratorImpl::Result::kFound) {  // PUT
     Slice entry_value = iter->Entry().value;
     if (context->GetNumOperands() > 0) {
