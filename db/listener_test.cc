@@ -1000,12 +1000,21 @@ class TestFileOperationListener : public EventListener {
     file_syncs_success_.store(0);
     file_truncates_.store(0);
     file_truncates_success_.store(0);
+    blob_file_reads_.store(0);
+    blob_file_writes_.store(0);
+    blob_file_flushes_.store(0);
+    blob_file_closes_.store(0);
+    blob_file_syncs_.store(0);
+    blob_file_truncates_.store(0);
   }
 
   void OnFileReadFinish(const FileOperationInfo& info) override {
     ++file_reads_;
     if (info.status.ok()) {
       ++file_reads_success_;
+    }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_reads_;
     }
     ReportDuration(info);
   }
@@ -1015,6 +1024,9 @@ class TestFileOperationListener : public EventListener {
     if (info.status.ok()) {
       ++file_writes_success_;
     }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_writes_;
+    }
     ReportDuration(info);
   }
 
@@ -1022,6 +1034,9 @@ class TestFileOperationListener : public EventListener {
     ++file_flushes_;
     if (info.status.ok()) {
       ++file_flushes_success_;
+    }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_flushes_;
     }
     ReportDuration(info);
   }
@@ -1031,6 +1046,9 @@ class TestFileOperationListener : public EventListener {
     if (info.status.ok()) {
       ++file_closes_success_;
     }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_closes_;
+    }
     ReportDuration(info);
   }
 
@@ -1039,6 +1057,9 @@ class TestFileOperationListener : public EventListener {
     if (info.status.ok()) {
       ++file_syncs_success_;
     }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_syncs_;
+    }
     ReportDuration(info);
   }
 
@@ -1046,6 +1067,9 @@ class TestFileOperationListener : public EventListener {
     ++file_truncates_;
     if (info.status.ok()) {
       ++file_truncates_success_;
+    }
+    if (EndsWith(info.path, ".blob")) {
+      ++blob_file_reads_;
     }
     ReportDuration(info);
   }
@@ -1064,6 +1088,12 @@ class TestFileOperationListener : public EventListener {
   std::atomic<size_t> file_syncs_success_;
   std::atomic<size_t> file_truncates_;
   std::atomic<size_t> file_truncates_success_;
+  std::atomic<size_t> blob_file_reads_;
+  std::atomic<size_t> blob_file_writes_;
+  std::atomic<size_t> blob_file_flushes_;
+  std::atomic<size_t> blob_file_closes_;
+  std::atomic<size_t> blob_file_syncs_;
+  std::atomic<size_t> blob_file_truncates_;
 
  private:
   void ReportDuration(const FileOperationInfo& info) const {
@@ -1110,6 +1140,56 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
     ASSERT_GE(listener->file_truncates_.load(),
               listener->file_truncates_success_.load());
     ASSERT_GT(listener->file_truncates_.load(), 0);
+  }
+}
+
+TEST_F(EventListenerTest, OnBlobFileOperationTest) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+  TestFileOperationListener* listener = new TestFileOperationListener();
+  options.listeners.emplace_back(listener);
+
+  options.use_direct_io_for_flush_and_compaction = false;
+  Status s = TryReopen(options);
+  if (s.IsInvalidArgument()) {
+    options.use_direct_io_for_flush_and_compaction = false;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("Key1", "blob_value1"));
+  ASSERT_OK(Put("Key2", "blob_value2"));
+  ASSERT_OK(Put("Key3", "blob_value3"));
+  ASSERT_OK(Put("Key4", "blob_value4"));
+  ASSERT_OK(Flush());
+
+  // This will generate garbage because of overwriting keys values.
+  ASSERT_OK(Put("Key3", "new_blob_value3"));
+  ASSERT_OK(Put("Key4", "new_blob_value4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key5", "blob_value5"));
+  ASSERT_OK(Put("Key6", "blob_value6"));
+  ASSERT_OK(Flush());
+
+  ASSERT_GT(listener->blob_file_writes_.load(), 0);
+  ASSERT_GT(listener->blob_file_flushes_.load(), 0);
+  Close();
+
+  Reopen(options);
+  ASSERT_GT(listener->blob_file_closes_.load(), 0);
+  ASSERT_GT(listener->blob_file_syncs_.load(), 0);
+  if (true == options.use_direct_io_for_flush_and_compaction) {
+    ASSERT_GT(listener->blob_file_truncates_.load(), 0);
   }
 }
 
@@ -1236,7 +1316,7 @@ TEST_F(EventListenerTest, BlobDBOnFlushCompleted) {
   ASSERT_EQ(Get("Key2"), "blob_value2");
   ASSERT_EQ(Get("Key3"), "blob_value3");
 
-  ASSERT_GT(blob_event_listener->call_count_, 0);
+  ASSERT_GT(blob_event_listener->call_count_, 0U);
 }
 
 // Test OnCompactionCompleted EventListener called for blob files
@@ -1280,7 +1360,7 @@ TEST_F(EventListenerTest, BlobDBOnCompactionCmpleted) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   // Make sure, OnCompactionCompleted is called.
-  ASSERT_GT(blob_event_listener->call_count_, 0);
+  ASSERT_GT(blob_event_listener->call_count_, 0U);
 }
 
 // Test CompactFiles calls OnCompactionCompleted EventListener for blob files
