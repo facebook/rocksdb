@@ -672,7 +672,7 @@ class TestFlushListener : public EventListener {
     db_closed = false;
   }
 
-  virtual ~TestFlushListener() {
+  ~TestFlushListener() {
     prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
   }
   void OnTableFileCreated(const TableFileCreationInfo& info) override {
