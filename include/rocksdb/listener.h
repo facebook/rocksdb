@@ -30,7 +30,7 @@ class Status;
 struct CompactionJobStats;
 
 struct FileCreationBriefInfo {
-  // the name of the database where the file was created
+  // the name of the database where the file was created.
   std::string db_name;
   // the name of the column family where the file was created.
   std::string cf_name;
@@ -67,15 +67,15 @@ struct BlobFileCreationBriefInfo : public FileCreationBriefInfo {};
 struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
   BlobFileCreationInfo() = default;
 
-  // the size of the blob file.
+  // the number of blob in a file.
   uint64_t total_blob_count;
+  // the total bytes in a file.
   uint64_t total_blob_bytes;
-
   // The status indicating whether the creation was successful or not.
   Status status;
-  // The checksum of the blob file being created
+  // The checksum of the blob file being created.
   std::string file_checksum;
-  // The checksum function name of checksum generator used for this blob file
+  // The checksum function name of checksum generator used for this blob file.
   std::string file_checksum_func_name;
 };
 
@@ -601,11 +601,32 @@ class EventListener : public Customizable {
   // initiate any further recovery actions needed
   virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
 
+  // A callback function for RocksDB which will be called before
+  // a blob file is being created. It will follow by OnBlobFileCreated after
+  // the creation finishes.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
   virtual void OnBlobFileCreationStarted(
       const BlobFileCreationBriefInfo& /*info*/) {}
 
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is created.
+  // It will be called whether the file is successfully created or not. User can
+  // check info.status to see if it succeeded or not.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
   virtual void OnBlobFileCreated(const BlobFileCreationInfo& /*info*/) {}
 
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is deleted.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
   virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
 
   virtual ~EventListener() {}
