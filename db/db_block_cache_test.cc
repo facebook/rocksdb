@@ -18,6 +18,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "util/compression.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -1310,7 +1311,7 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
     SetFailGetUniqueId(true);
   }
 
-  virtual ~StableCacheKeyTestFS() {}
+  virtual ~StableCacheKeyTestFS() override {}
 
   IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
                     IODebugContext*) override {
@@ -1342,16 +1343,17 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
       table_options.no_block_cache = true;
       table_options.block_cache_compressed = NewLRUCache(1 << 25, 0, false);
       verify_stats = [&options] {
+        // One for ordinary SST file and one for external SST file
         ASSERT_EQ(
-            1, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_ADD));
+            2, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_ADD));
       };
     } else {
       table_options.cache_index_and_filter_blocks = true;
       table_options.block_cache = NewLRUCache(1 << 25, 0, false);
       verify_stats = [&options] {
-        ASSERT_EQ(1, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
-        ASSERT_EQ(1, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
-        ASSERT_EQ(1,
+        ASSERT_EQ(2, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+        ASSERT_EQ(2, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
+        ASSERT_EQ(2,
                   options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
       };
     }
@@ -1360,18 +1362,41 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
+    // Ordinary SST file
     ASSERT_OK(Put("key1", "abc"));
     std::string something_compressible(500U, 'x');
-    ASSERT_OK(Put("key2", something_compressible));
+    ASSERT_OK(Put("key1a", something_compressible));
     ASSERT_OK(Flush());
 
+#ifndef ROCKSDB_LITE
+    // External SST file
+    std::string external = dbname_ + "/external.sst";
+    {
+      SstFileWriter sst_file_writer(EnvOptions(), options);
+      ASSERT_OK(sst_file_writer.Open(external));
+      ASSERT_OK(sst_file_writer.Put("key2", "abc"));
+      ASSERT_OK(sst_file_writer.Put("key2a", something_compressible));
+      ExternalSstFileInfo external_info;
+      ASSERT_OK(sst_file_writer.Finish(&external_info));
+      IngestExternalFileOptions ingest_opts;
+      ASSERT_OK(db_->IngestExternalFile({external}, ingest_opts));
+    }
+#else
+    // Another ordinary SST file
+    ASSERT_OK(Put("key2", "abc"));
+    ASSERT_OK(Put("key2a", something_compressible));
+    ASSERT_OK(Flush());
+#endif
+
     ASSERT_EQ(Get("key1"), std::string("abc"));
+    ASSERT_EQ(Get("key2"), std::string("abc"));
     verify_stats();
 
     // Make sure we can cache hit after re-open
     Reopen(options);
 
     ASSERT_EQ(Get("key1"), std::string("abc"));
+    ASSERT_EQ(Get("key2"), std::string("abc"));
     verify_stats();
 
     // Make sure we can cache hit even on a full copy of the DB. Using
@@ -1386,14 +1411,26 @@ TEST_F(DBBlockCacheTest, StableCacheKeys) {
 
     Close();
     Destroy(options);
-    dbname_ = db_copy_name;
+    SaveAndRestore<std::string> save_dbname(&dbname_, db_copy_name);
     Reopen(options);
 
     ASSERT_EQ(Get("key1"), std::string("abc"));
+    ASSERT_EQ(Get("key2"), std::string("abc"));
+    verify_stats();
+
+    // And ensure that re-ingesting the same external file into a different DB
+    // uses same cache keys
+    DestroyAndReopen(options);
+
+    IngestExternalFileOptions ingest_opts;
+    ASSERT_OK(db_->IngestExternalFile({external}, ingest_opts));
+
+    ASSERT_EQ(Get("key2"), std::string("abc"));
     verify_stats();
 #endif  // !ROCKSDB_LITE
 
     Close();
+    Destroy(options);
   }
 }
 
