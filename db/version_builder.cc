@@ -390,6 +390,30 @@ class VersionBuilder::Rep {
     return true;
   }
 
+  MutableBlobFileMetaData* GetOrCreateMutableBlobFileMetaData(
+      uint64_t blob_file_number) {
+    auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
+    if (mutable_it != mutable_blob_file_metas_.end()) {
+      return &mutable_it->second;
+    }
+
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+
+    auto base_it = base_blob_files.find(blob_file_number);
+    if (base_it != base_blob_files.end()) {
+      assert(base_it->second);
+
+      mutable_it =
+          mutable_blob_file_metas_.emplace(blob_file_number, base_it->second)
+              .first;
+      return &mutable_it->second;
+    }
+
+    return nullptr;
+  }
+
   Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
     const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
 
@@ -432,29 +456,18 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
-    if (!IsBlobFileInVersion(blob_file_number)) {
+    MutableBlobFileMetaData* mutable_meta =
+        GetOrCreateMutableBlobFileMetaData(blob_file_number);
+
+    if (!mutable_meta) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " not found";
 
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
-    if (mutable_it == mutable_blob_file_metas_.end()) {
-      assert(base_vstorage_);
-
-      const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-      auto base_it = base_blob_files.find(blob_file_number);
-      assert(base_it != base_blob_files.end());
-
-      mutable_it =
-          mutable_blob_file_metas_.emplace(blob_file_number, base_it->second)
-              .first;
-    }
-
-    mutable_it->second.AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
-                                  blob_file_garbage.GetGarbageBlobBytes());
+    mutable_meta->AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
+                             blob_file_garbage.GetGarbageBlobBytes());
 
     return Status::OK();
   }
@@ -549,23 +562,12 @@ class VersionBuilder::Rep {
     const uint64_t blob_file_number =
         GetOldestBlobFileNumberForTableFile(level, file_number);
 
-    if (blob_file_number != kInvalidBlobFileNumber &&
-        IsBlobFileInVersion(blob_file_number)) {
-      auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
-      if (mutable_it == mutable_blob_file_metas_.end()) {
-        assert(base_vstorage_);
-
-        const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-        auto base_it = base_blob_files.find(blob_file_number);
-        assert(base_it != base_blob_files.end());
-
-        mutable_it =
-            mutable_blob_file_metas_.emplace(blob_file_number, base_it->second)
-                .first;
+    if (blob_file_number != kInvalidBlobFileNumber) {
+      MutableBlobFileMetaData* mutable_meta =
+          GetOrCreateMutableBlobFileMetaData(blob_file_number);
+      if (mutable_meta) {
+        mutable_meta->UnlinkSst(file_number);
       }
-
-      mutable_it->second.UnlinkSst(file_number);
     }
 
     auto& level_state = levels_[level];
@@ -630,23 +632,12 @@ class VersionBuilder::Rep {
 
     const uint64_t blob_file_number = f->oldest_blob_file_number;
 
-    if (blob_file_number != kInvalidBlobFileNumber &&
-        IsBlobFileInVersion(blob_file_number)) {
-      auto mutable_it = mutable_blob_file_metas_.find(blob_file_number);
-      if (mutable_it == mutable_blob_file_metas_.end()) {
-        assert(base_vstorage_);
-
-        const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-        auto base_it = base_blob_files.find(blob_file_number);
-        assert(base_it != base_blob_files.end());
-
-        mutable_it =
-            mutable_blob_file_metas_.emplace(blob_file_number, base_it->second)
-                .first;
+    if (blob_file_number != kInvalidBlobFileNumber) {
+      MutableBlobFileMetaData* mutable_meta =
+          GetOrCreateMutableBlobFileMetaData(blob_file_number);
+      if (mutable_meta) {
+        mutable_meta->LinkSst(file_number);
       }
-
-      mutable_it->second.LinkSst(file_number);
     }
 
     table_file_levels_[file_number] = level;
