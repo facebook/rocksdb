@@ -1369,6 +1369,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   RecordTick(stats_, FILTER_OPERATION_TOTAL_TIME,
              c_iter_stats.total_filter_time);
+
+  if (c_iter_stats.num_blobs_relocated > 0) {
+    RecordTick(stats_, BLOB_DB_GC_NUM_KEYS_RELOCATED,
+               c_iter_stats.num_blobs_relocated);
+  }
+  if (c_iter_stats.total_blob_bytes_relocated > 0) {
+    RecordTick(stats_, BLOB_DB_GC_BYTES_RELOCATED,
+               c_iter_stats.total_blob_bytes_relocated);
+  }
+
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 
