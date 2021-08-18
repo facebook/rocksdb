@@ -496,7 +496,8 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, rep->deleted_range_map, value, &s);
+  auto result =
+      wbwii.GetFromBatch(this, key, rep->deleted_range_map, value, &s);
 
   switch (result) {
     case WBWIIteratorImpl::kFound:
@@ -575,8 +576,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   // transaction we cannot pin it as otherwise the returned value will not be
   // available after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
-  auto result = wbwii.GetFromBatch(this, key, rep->deleted_range_map,
-                                   &batch_value, &s);
+  auto result =
+      wbwii.GetFromBatch(this, key, rep->deleted_range_map, &batch_value, &s);
 
   if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
@@ -650,8 +651,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     Status* s = &statuses[i];
     PinnableSlice* pinnable_val = &values[i];
     pinnable_val->Reset();
-    auto result =
-        wbwii.GetFromBatch(this, keys[i], rep->deleted_range_map, &merge_context, &batch_value, s);
+    auto result = wbwii.GetFromBatch(this, keys[i], rep->deleted_range_map,
+                                     &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
       *pinnable_val->GetSelf() = std::move(batch_value);
