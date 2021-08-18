@@ -456,7 +456,7 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
-    MutableBlobFileMetaData* mutable_meta =
+    MutableBlobFileMetaData* const mutable_meta =
         GetOrCreateMutableBlobFileMetaData(blob_file_number);
 
     if (!mutable_meta) {
@@ -563,7 +563,7 @@ class VersionBuilder::Rep {
         GetOldestBlobFileNumberForTableFile(level, file_number);
 
     if (blob_file_number != kInvalidBlobFileNumber) {
-      MutableBlobFileMetaData* mutable_meta =
+      MutableBlobFileMetaData* const mutable_meta =
           GetOrCreateMutableBlobFileMetaData(blob_file_number);
       if (mutable_meta) {
         mutable_meta->UnlinkSst(file_number);
@@ -633,7 +633,7 @@ class VersionBuilder::Rep {
     const uint64_t blob_file_number = f->oldest_blob_file_number;
 
     if (blob_file_number != kInvalidBlobFileNumber) {
-      MutableBlobFileMetaData* mutable_meta =
+      MutableBlobFileMetaData* const mutable_meta =
           GetOrCreateMutableBlobFileMetaData(blob_file_number);
       if (mutable_meta) {
         mutable_meta->LinkSst(file_number);
