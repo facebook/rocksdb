@@ -329,6 +329,13 @@ class CloudEnvOptions {
   // Default: false.
   bool skip_cloud_files_in_getchildren;
 
+  // If true, the files from S3 will be downloaded using direct IO. It is
+  // recommended to set this to true, the only reason the default is false is to
+  // avoid behavior changes with default configuration.
+  // The options is ignored if use_aws_transfer_manager = true.
+  // Default: false
+  bool use_direct_io_for_cloud_download;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -344,6 +351,7 @@ class CloudEnvOptions {
       int _number_objects_listed_in_one_iteration = 5000,
       int _constant_sst_file_size_in_sst_file_manager = -1,
       bool _skip_cloud_files_in_getchildren = false,
+      bool _use_direct_io_for_cloud_download = false,
       std::shared_ptr<Cache> _sst_file_cache = nullptr)
       : log_type(_log_type),
         sst_file_cache(_sst_file_cache),
@@ -364,7 +372,8 @@ class CloudEnvOptions {
             _number_objects_listed_in_one_iteration),
         constant_sst_file_size_in_sst_file_manager(
             _constant_sst_file_size_in_sst_file_manager),
-        skip_cloud_files_in_getchildren(_skip_cloud_files_in_getchildren) {
+        skip_cloud_files_in_getchildren(_skip_cloud_files_in_getchildren),
+        use_direct_io_for_cloud_download(_use_direct_io_for_cloud_download) {
     (void) _cloud_type;
   }
 

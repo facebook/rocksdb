@@ -255,6 +255,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"skip_cloud_children_files",
          {offset_of(&CloudEnvOptions::skip_cloud_files_in_getchildren),
           OptionType::kBoolean}},
+        {"use_direct_io_for_cloud_download",
+         {offset_of(&CloudEnvOptions::use_direct_io_for_cloud_download),
+          OptionType::kBoolean}},
         {"constant_sst_file_size_in_manager",
          {offset_of(
               &CloudEnvOptions::constant_sst_file_size_in_sst_file_manager),

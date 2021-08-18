@@ -656,33 +656,38 @@ TEST_F(CloudTest, DbidRegistry) {
 
 TEST_F(CloudTest, KeepLocalFiles) {
   cloud_env_options_.keep_local_sst_files = true;
-  // Create two files
-  OpenDB();
-  std::string value;
-  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "World2"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  for (int iter = 0; iter < 4; ++iter) {
+    cloud_env_options_.use_direct_io_for_cloud_download =
+        iter == 0 || iter == 1;
+    cloud_env_options_.use_aws_transfer_manager = iter == 0 || iter == 3;
+    // Create two files
+    OpenDB();
+    std::string value;
+    ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "World2"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
 
-  CloseDB();
-  DestroyDir(dbname_);
-  OpenDB();
+    CloseDB();
+    DestroyDir(dbname_);
+    OpenDB();
 
-  std::vector<std::string> files;
-  ASSERT_OK(Env::Default()->GetChildren(dbname_, &files));
-  long sst_files =
-      std::count_if(files.begin(), files.end(), [](const std::string& file) {
-        return file.find("sst") != std::string::npos;
-      });
-  ASSERT_EQ(sst_files, 2);
+    std::vector<std::string> files;
+    ASSERT_OK(Env::Default()->GetChildren(dbname_, &files));
+    long sst_files =
+        std::count_if(files.begin(), files.end(), [](const std::string& file) {
+          return file.find("sst") != std::string::npos;
+        });
+    ASSERT_EQ(sst_files, 2);
 
-  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
-  ASSERT_EQ(value, "World");
-  ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
-  ASSERT_EQ(value, "World2");
+    ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+    ASSERT_EQ(value, "World");
+    ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
+    ASSERT_EQ(value, "World2");
 
-  CloseDB();
-  ValidateCloudLiveFilesSrcSize();
+    CloseDB();
+    ValidateCloudLiveFilesSrcSize();
+  }
 }
 
 TEST_F(CloudTest, CopyToFromS3) {
