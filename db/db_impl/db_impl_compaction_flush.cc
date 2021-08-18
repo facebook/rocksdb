@@ -415,6 +415,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
+  // Use of deque<bool> because vector<bool>
+  // is specific and doesn't allow &v[i].
   std::deque<bool> switched_to_mempurge(num_cfs, false);
   Status s;
   IOStatus log_io_s = IOStatus::OK();
@@ -483,10 +485,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
     assert(exec_status.size() > 0);
     assert(!file_meta.empty());
-    assert(!switched_to_mempurge.empty());
-    exec_status[0].second =
-        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0],
-                     &(switched_to_mempurge.front()));
+    exec_status[0].second = jobs[0]->Run(
+        &logs_with_prep_tracker_, &file_meta[0],
+        switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
     io_status[0] = jobs[0]->io_status();
 
