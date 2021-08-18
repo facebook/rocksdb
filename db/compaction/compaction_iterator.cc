@@ -898,6 +898,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     ++iter_stats_.num_blobs_read;
     iter_stats_.total_blob_bytes_read += bytes_read;
 
+    ++iter_stats_.num_blobs_relocated;
+    iter_stats_.total_blob_bytes_relocated += blob_index.size();
+
     value_ = blob_value_;
 
     if (ExtractLargeValueIfNeededImpl()) {
