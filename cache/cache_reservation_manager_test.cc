@@ -289,8 +289,9 @@ TEST(CacheReservationManagerDestructorTest,
   {
     std::unique_ptr<CacheReservationManager> test_cache_rev_mng(
         new CacheReservationManager(cache));
+    std::size_t new_mem_used = 1 * kSizeDummyEntry;
     Status s = test_cache_rev_mng->UpdateCacheReservation<
-        ROCKSDB_NAMESPACE::CacheEntryRole::kWriteBuffer>(kSizeDummyEntry);
+        ROCKSDB_NAMESPACE::CacheEntryRole::kWriteBuffer>(new_mem_used);
     ASSERT_EQ(s, Status::OK());
     ASSERT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
   }
