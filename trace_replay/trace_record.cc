@@ -11,14 +11,13 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_record_result.h"
 #include "trace_replay/trace_record_handler.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // TraceRecord
 TraceRecord::TraceRecord(uint64_t timestamp) : timestamp_(timestamp) {}
-
-TraceRecord::~TraceRecord() {}
 
 uint64_t TraceRecord::GetTimestamp() const { return timestamp_; }
 
@@ -31,8 +30,6 @@ TraceRecord::Handler* TraceRecord::NewExecutionHandler(
 QueryTraceRecord::QueryTraceRecord(uint64_t timestamp)
     : TraceRecord(timestamp) {}
 
-QueryTraceRecord::~QueryTraceRecord() {}
-
 // WriteQueryTraceRecord
 WriteQueryTraceRecord::WriteQueryTraceRecord(PinnableSlice&& write_batch_rep,
                                              uint64_t timestamp)
@@ -44,13 +41,14 @@ WriteQueryTraceRecord::WriteQueryTraceRecord(const std::string& write_batch_rep,
   rep_.PinSelf(write_batch_rep);
 }
 
-WriteQueryTraceRecord::~WriteQueryTraceRecord() {}
+WriteQueryTraceRecord::~WriteQueryTraceRecord() { rep_.clear(); }
 
 Slice WriteQueryTraceRecord::GetWriteBatchRep() const { return Slice(rep_); }
 
-Status WriteQueryTraceRecord::Accept(Handler* handler) {
+Status WriteQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // GetQueryTraceRecord
@@ -68,22 +66,21 @@ GetQueryTraceRecord::GetQueryTraceRecord(uint32_t column_family_id,
   key_.PinSelf(key);
 }
 
-GetQueryTraceRecord::~GetQueryTraceRecord() {}
+GetQueryTraceRecord::~GetQueryTraceRecord() { key_.clear(); }
 
 uint32_t GetQueryTraceRecord::GetColumnFamilyID() const { return cf_id_; }
 
 Slice GetQueryTraceRecord::GetKey() const { return Slice(key_); }
 
-Status GetQueryTraceRecord::Accept(Handler* handler) {
+Status GetQueryTraceRecord::Accept(Handler* handler,
+                                   std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // IteratorQueryTraceRecord
 IteratorQueryTraceRecord::IteratorQueryTraceRecord(uint64_t timestamp)
     : QueryTraceRecord(timestamp) {}
-
-IteratorQueryTraceRecord::~IteratorQueryTraceRecord() {}
 
 // IteratorSeekQueryTraceRecord
 IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
@@ -103,7 +100,7 @@ IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
   key_.PinSelf(key);
 }
 
-IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() {}
+IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() { key_.clear(); }
 
 TraceType IteratorSeekQueryTraceRecord::GetTraceType() const {
   return static_cast<TraceType>(type_);
@@ -120,9 +117,10 @@ uint32_t IteratorSeekQueryTraceRecord::GetColumnFamilyID() const {
 
 Slice IteratorSeekQueryTraceRecord::GetKey() const { return Slice(key_); }
 
-Status IteratorSeekQueryTraceRecord::Accept(Handler* handler) {
+Status IteratorSeekQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 // MultiGetQueryTraceRecord
@@ -145,7 +143,10 @@ MultiGetQueryTraceRecord::MultiGetQueryTraceRecord(
   }
 }
 
-MultiGetQueryTraceRecord::~MultiGetQueryTraceRecord() {}
+MultiGetQueryTraceRecord::~MultiGetQueryTraceRecord() {
+  cf_ids_.clear();
+  keys_.clear();
+}
 
 std::vector<uint32_t> MultiGetQueryTraceRecord::GetColumnFamilyIDs() const {
   return cf_ids_;
@@ -155,9 +156,10 @@ std::vector<Slice> MultiGetQueryTraceRecord::GetKeys() const {
   return std::vector<Slice>(keys_.begin(), keys_.end());
 }
 
-Status MultiGetQueryTraceRecord::Accept(Handler* handler) {
+Status MultiGetQueryTraceRecord::Accept(
+    Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
   assert(handler != nullptr);
-  return handler->Handle(*this);
+  return handler->Handle(*this, result);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

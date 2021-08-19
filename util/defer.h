@@ -57,6 +57,14 @@ class SaveAndRestore {
  public:
   // obj is non-null pointer to value to be saved and later restored.
   explicit SaveAndRestore(T* obj) : obj_(obj), saved_(*obj) {}
+  // new_value is stored in *obj
+  SaveAndRestore(T* obj, const T& new_value)
+      : obj_(obj), saved_(std::move(*obj)) {
+    *obj = new_value;
+  }
+  SaveAndRestore(T* obj, T&& new_value) : obj_(obj), saved_(std::move(*obj)) {
+    *obj = std::move(new_value);
+  }
   ~SaveAndRestore() { *obj_ = std::move(saved_); }
 
   // No copies

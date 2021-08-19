@@ -5,17 +5,18 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 class DB;
-class Status;
 
 // Supported trace record types.
 enum TraceType : char {
@@ -41,40 +42,55 @@ enum TraceType : char {
   kTraceMax,
 };
 
-class WriteQueryTraceRecord;
 class GetQueryTraceRecord;
 class IteratorSeekQueryTraceRecord;
 class MultiGetQueryTraceRecord;
+class TraceRecordResult;
+class WriteQueryTraceRecord;
 
 // Base class for all types of trace records.
 class TraceRecord {
  public:
-  TraceRecord();
   explicit TraceRecord(uint64_t timestamp);
-  virtual ~TraceRecord();
 
+  virtual ~TraceRecord() = default;
+
+  // Type of the trace record.
   virtual TraceType GetTraceType() const = 0;
 
+  // Timestamp (in microseconds) of this trace.
   virtual uint64_t GetTimestamp() const;
 
   class Handler {
    public:
-    virtual ~Handler() {}
+    virtual ~Handler() = default;
 
-    virtual Status Handle(const WriteQueryTraceRecord& record) = 0;
-    virtual Status Handle(const GetQueryTraceRecord& record) = 0;
-    virtual Status Handle(const IteratorSeekQueryTraceRecord& record) = 0;
-    virtual Status Handle(const MultiGetQueryTraceRecord& record) = 0;
+    // Handle WriteQueryTraceRecord
+    virtual Status Handle(const WriteQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
+
+    // Handle GetQueryTraceRecord
+    virtual Status Handle(const GetQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
+
+    // Handle IteratorSeekQueryTraceRecord
+    virtual Status Handle(const IteratorSeekQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
+
+    // Handle MultiGetQueryTraceRecord
+    virtual Status Handle(const MultiGetQueryTraceRecord& record,
+                          std::unique_ptr<TraceRecordResult>* result) = 0;
   };
 
-  virtual Status Accept(Handler* handler) = 0;
+  // Accept the handler and report the corresponding result in `result`.
+  virtual Status Accept(Handler* handler,
+                        std::unique_ptr<TraceRecordResult>* result) = 0;
 
   // Create a handler for the exeution of TraceRecord.
   static Handler* NewExecutionHandler(
       DB* db, const std::vector<ColumnFamilyHandle*>& handles);
 
  private:
-  // Timestamp (in microseconds) of this trace.
   uint64_t timestamp_;
 };
 
@@ -82,8 +98,6 @@ class TraceRecord {
 class QueryTraceRecord : public TraceRecord {
  public:
   explicit QueryTraceRecord(uint64_t timestamp);
-
-  virtual ~QueryTraceRecord() override;
 };
 
 // Trace record for DB::Write() operation.
@@ -97,9 +111,11 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   TraceType GetTraceType() const override { return kTraceWrite; }
 
+  // rep string for the WriteBatch.
   virtual Slice GetWriteBatchRep() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   PinnableSlice rep_;
@@ -118,16 +134,17 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 
   TraceType GetTraceType() const override { return kTraceGet; }
 
+  // Column family ID.
   virtual uint32_t GetColumnFamilyID() const;
 
+  // Key to get.
   virtual Slice GetKey() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
-  // Column family ID.
   uint32_t cf_id_;
-  // Key to get.
   PinnableSlice key_;
 };
 
@@ -135,8 +152,6 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit IteratorQueryTraceRecord(uint64_t timestamp);
-
-  virtual ~IteratorQueryTraceRecord() override;
 };
 
 // Trace record for Iterator::Seek() and Iterator::SeekForPrev() operation.
@@ -156,21 +171,24 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
 
   virtual ~IteratorSeekQueryTraceRecord() override;
 
+  // Trace type matches the seek type.
   TraceType GetTraceType() const override;
 
+  // Type of seek, Seek or SeekForPrev.
   virtual SeekType GetSeekType() const;
 
+  // Column family ID.
   virtual uint32_t GetColumnFamilyID() const;
 
+  // Key to seek to.
   virtual Slice GetKey() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   SeekType type_;
-  // Column family ID.
   uint32_t cf_id_;
-  // Key to seek to.
   PinnableSlice key_;
 };
 
@@ -189,16 +207,17 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
 
   TraceType GetTraceType() const override { return kTraceMultiGet; }
 
+  // Column familiy IDs.
   virtual std::vector<uint32_t> GetColumnFamilyIDs() const;
 
+  // Keys to get.
   virtual std::vector<Slice> GetKeys() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
-  // Column familiy IDs.
   std::vector<uint32_t> cf_ids_;
-  // Keys to get.
   std::vector<PinnableSlice> keys_;
 };
 

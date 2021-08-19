@@ -649,8 +649,6 @@ Status BlockBasedTable::Open(
       // under these portable/stable keys.
       // Note: For now, each external SST file gets its own unique session id,
       // so we can use a fixed file number under than session id.
-      // ... except FIXME (peterd): sst_file_writer currently uses wrong
-      // format for db_session_ids so this approach doesn't work yet.
       db_session_id = rep->table_properties->db_session_id;
       file_num = 1;
     }
