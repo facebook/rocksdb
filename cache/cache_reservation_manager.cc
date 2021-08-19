@@ -77,6 +77,9 @@ Status CacheReservationManager::UpdateCacheReservation(
 // This makes it possible to keep the template definitions in the .cc file.
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kWriteBuffer>(std::size_t new_mem_used);
+// For cache reservation manager unit tests
+template Status CacheReservationManager::UpdateCacheReservation<
+    CacheEntryRole::kMisc>(std::size_t new_mem_used);
 
 template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
