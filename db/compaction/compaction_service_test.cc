@@ -10,22 +10,54 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class MyTestCompactionService : public CompactionService {
+class TestCompactionServiceBase {
  public:
-  MyTestCompactionService(const std::string& db_path, Options& options,
-                          std::shared_ptr<Statistics> statistics = nullptr)
-                          : db_path_(db_path), options_(options), statistics_(statistics) {}
+  virtual int GetCompactionNum() = 0;
 
-                          static const char* kClassName() { return "MyTestCompactionService"; }
+  void OverrideStartStatus(CompactionServiceJobStatus s) {
+    is_override_start_status = true;
+    override_start_status = std::move(s);
+  }
 
-                          const char* Name() const override { return kClassName(); }
+  void OverrideWaitResult(std::string str) {
+    is_override_wait_result = true;
+    override_wait_result = std::move(str);
+  }
 
-                          CompactionServiceJobStatus Start(const std::string& compaction_service_input,
-                                                           uint64_t job_id) override {
+  void ResetOverride() {
+    is_override_wait_result = false;
+    is_override_start_status = false;
+  }
+
+  virtual ~TestCompactionServiceBase(){};
+
+ protected:
+  bool is_override_start_status = false;
+  CompactionServiceJobStatus override_start_status;
+  bool is_override_wait_result = false;
+  std::string override_wait_result;
+};
+
+class MyTestCompactionServiceLegacy : public CompactionService,
+                                      public TestCompactionServiceBase {
+ public:
+  MyTestCompactionServiceLegacy(
+      const std::string& db_path, Options& options,
+      std::shared_ptr<Statistics> statistics = nullptr)
+      : db_path_(db_path), options_(options), statistics_(statistics) {}
+
+  static const char* kClassName() { return "MyTestCompactionServiceLegacy"; }
+
+  const char* Name() const override { return kClassName(); }
+
+  CompactionServiceJobStatus Start(const std::string& compaction_service_input,
+                                   uint64_t job_id) override {
     InstrumentedMutexLock l(&mutex_);
     jobs_.emplace(job_id, compaction_service_input);
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
-    TEST_SYNC_POINT_CALLBACK("MyTestCompactionService::Start::End", &s);
+    if (is_override_start_status) {
+      return override_start_status;
+    }
     return s;
   }
 
@@ -59,8 +91,9 @@ class MyTestCompactionService : public CompactionService {
     Status s = DB::OpenAndCompact(
         db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
         compaction_input, compaction_service_result, options_override);
-    TEST_SYNC_POINT_CALLBACK("MyTestCompactionService::WaitForComplete::End",
-                             compaction_service_result);
+    if (is_override_wait_result) {
+      *compaction_service_result = override_wait_result;
+    }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
       return CompactionServiceJobStatus::kSuccess;
@@ -69,7 +102,7 @@ class MyTestCompactionService : public CompactionService {
     }
   }
 
-  int GetCompactionNum() { return compaction_num_.load(); }
+  int GetCompactionNum() override { return compaction_num_.load(); }
 
  private:
   InstrumentedMutex mutex_;
@@ -80,32 +113,98 @@ class MyTestCompactionService : public CompactionService {
   std::shared_ptr<Statistics> statistics_;
 };
 
-//class MyTestCompactionServiceLegacy : public CompactionService {
-//};
-//
-//template <class T>
-//class CCTest : public DBTestBase {
-// public:
-//  explicit CCTest()
-//  : DBTestBase("compaction_service_test", true) {}
-//
-//};
-//
-//TYPED_TEST_CASE_P(CCTest);
-//
-//TYPED_TEST_P(CCTest, Test1) {
-//  std::cout << "HI" << std::endl;
-//}
-//
-//REGISTER_TYPED_TEST_CASE_P(
-//    CCTest,  // The first argument is the test case name.
-//    // The rest of the arguments are the test names.
-//    Test1);
-//
-//typedef testing::Types<MyTestCompactionService> MyTest;
-//INSTANTIATE_TYPED_TEST_CASE_P(CCTestName,    // Instance name
-//                               CCTest,             // Test case name
-//                               MyTest);  // Type list
+class MyTestCompactionService : public CompactionService,
+                                public TestCompactionServiceBase {
+ public:
+  MyTestCompactionService(const std::string& db_path, Options& options,
+                          std::shared_ptr<Statistics> statistics = nullptr)
+      : db_path_(db_path), options_(options), statistics_(statistics) {}
+
+  static const char* kClassName() { return "MyTestCompactionService"; }
+
+  const char* Name() const override { return kClassName(); }
+
+  CompactionServiceJobStatus Start(const CompactionServiceJobInfo& info,
+                                   const std::string& compaction_service_input,
+                                   uint64_t job_id) override {
+    InstrumentedMutexLock l(&mutex_);
+    assert(info.db_name.compare(db_path_) == 0);
+    jobs_.emplace(job_id, compaction_service_input);
+    CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
+    if (is_override_start_status) {
+      return override_start_status;
+    }
+    return s;
+  }
+
+  CompactionServiceJobStatus WaitForComplete(
+      const CompactionServiceJobInfo& info, uint64_t job_id,
+      std::string* compaction_service_result) override {
+    std::string compaction_input;
+    assert(info.db_name.compare(db_path_) == 0);
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto i = jobs_.find(job_id);
+      if (i == jobs_.end()) {
+        return CompactionServiceJobStatus::kFailure;
+      }
+      compaction_input = std::move(i->second);
+      jobs_.erase(i);
+    }
+
+    CompactionServiceOptionsOverride options_override;
+    options_override.env = options_.env;
+    options_override.file_checksum_gen_factory =
+        options_.file_checksum_gen_factory;
+    options_override.comparator = options_.comparator;
+    options_override.merge_operator = options_.merge_operator;
+    options_override.compaction_filter = options_.compaction_filter;
+    options_override.compaction_filter_factory =
+        options_.compaction_filter_factory;
+    options_override.prefix_extractor = options_.prefix_extractor;
+    options_override.table_factory = options_.table_factory;
+    options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
+    options_override.statistics = statistics_;
+
+    Status s = DB::OpenAndCompact(
+        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
+        compaction_input, compaction_service_result, options_override);
+    if (is_override_wait_result) {
+      *compaction_service_result = override_wait_result;
+    }
+    compaction_num_.fetch_add(1);
+    if (s.ok()) {
+      return CompactionServiceJobStatus::kSuccess;
+    } else {
+      return CompactionServiceJobStatus::kFailure;
+    }
+  }
+
+  int GetCompactionNum() override { return compaction_num_.load(); }
+
+ private:
+  InstrumentedMutex mutex_;
+  std::atomic_int compaction_num_{0};
+  std::map<uint64_t, std::string> jobs_;
+  const std::string db_path_;
+  Options options_;
+  std::shared_ptr<Statistics> statistics_;
+};
+
+template <class T>
+class CCTest : public DBTestBase {
+ public:
+  explicit CCTest() : DBTestBase("compaction_service_test", true) {}
+
+  T GetCS() {}
+};
+
+typedef testing::Types<MyTestCompactionService, MyTestCompactionServiceLegacy>
+    MyTest;
+TYPED_TEST_CASE(CCTest,  // Instance name
+                MyTest);
+
+TYPED_TEST(CCTest, Test1) { std::cout << "HI" << std::endl; }
 
 class CompactionServiceTest : public DBTestBase {
  public:
@@ -277,13 +376,9 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   DestroyAndReopen(options);
   GenerateTestData();
 
-  SyncPoint::GetInstance()->SetCallBack(
-      "MyTestCompactionService::Start::End", [&](void* status) {
-        // override job status
-        auto s = static_cast<CompactionServiceJobStatus*>(status);
-        *s = CompactionServiceJobStatus::kFailure;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
+  auto my_cs = dynamic_cast<TestCompactionServiceBase*>(
+      options.compaction_service.get());
+  my_cs->OverrideStartStatus(CompactionServiceJobStatus::kFailure);
 
   std::string start_str = Key(15);
   std::string end_str = Key(45);
@@ -302,13 +397,9 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   DestroyAndReopen(options);
   GenerateTestData();
 
-  SyncPoint::GetInstance()->SetCallBack(
-      "MyTestCompactionService::WaitForComplete::End", [&](void* result) {
-        // override job status
-        auto result_str = static_cast<std::string*>(result);
-        *result_str = "Invalid Str";
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
+  auto my_cs = dynamic_cast<TestCompactionServiceBase*>(
+      options.compaction_service.get());
+  my_cs->OverrideWaitResult("Invalid Str");
 
   std::string start_str = Key(15);
   std::string end_str = Key(45);

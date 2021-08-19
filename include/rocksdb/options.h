@@ -410,7 +410,9 @@ class CompactionService : public Customizable {
   // Wait compaction to be finish.
   // Warning: deprecated, please use the new interface `WaitForComplete(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t job_id, std::string* compaction_service_result);
+      uint64_t job_id, std::string* compaction_service_result) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
 
   // doc
   virtual CompactionServiceJobStatus WaitForComplete(const CompactionServiceJobInfo& info,

@@ -996,7 +996,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   std::string compaction_result_binary;
   compaction_status = db_options_.compaction_service->WaitForComplete(
-      GetCompactionId(sub_compact), &compaction_result_binary);
+      info, GetCompactionId(sub_compact), &compaction_result_binary);
 
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
