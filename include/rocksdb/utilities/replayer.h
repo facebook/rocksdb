@@ -6,13 +6,16 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <functional>
 #include <memory>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
-#include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class TraceRecord;
+class TraceRecordResult;
 
 struct ReplayOptions {
   // Number of threads used for replaying. If 0 or 1, replay using
@@ -27,6 +30,7 @@ struct ReplayOptions {
   double fast_forward;
 
   ReplayOptions() : num_threads(1), fast_forward(1.0) {}
+
   ReplayOptions(uint32_t num_of_threads, double fast_forward_ratio)
       : num_threads(num_of_threads), fast_forward(fast_forward_ratio) {}
 };
@@ -36,7 +40,7 @@ struct ReplayOptions {
 // instantiated via db_bench today, on using "replay" benchmark.
 class Replayer {
  public:
-  virtual ~Replayer() {}
+  virtual ~Replayer() = default;
 
   // Make some preparation before replaying the trace. This will also reset the
   // replayer in order to restart replaying.
@@ -61,13 +65,22 @@ class Replayer {
   // trace;
   // Status::NotSupported() if the operation is not supported;
   // Otherwise, return the corresponding error status.
-  virtual Status Execute(const std::unique_ptr<TraceRecord>& record) = 0;
-  virtual Status Execute(std::unique_ptr<TraceRecord>&& record) = 0;
+  //
+  // The actual operation execution status and result(s) will be saved in
+  // result. For example, a GetQueryTraceRecord will have its DB::Get() status
+  // and the returned value saved in a SingleValueTraceExecutionResult.
+  virtual Status Execute(const std::unique_ptr<TraceRecord>& record,
+                         std::unique_ptr<TraceRecordResult>* result) = 0;
 
   // Replay all the traces from the provided trace stream, taking the delay
   // between the traces into consideration.
-  virtual Status Replay(const ReplayOptions& options) = 0;
-  virtual Status Replay() { return Replay(ReplayOptions()); }
+  //
+  // result_callback reports the status of executing a trace record, and the
+  // actual operation execution result (See the description for Execute()).
+  virtual Status Replay(
+      const ReplayOptions& options,
+      const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
+          result_callback) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

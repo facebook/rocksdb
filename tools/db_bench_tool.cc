@@ -8027,7 +8027,8 @@ class Benchmark {
     }
     s = replayer->Replay(
         ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
-                      FLAGS_trace_replay_fast_forward));
+                      FLAGS_trace_replay_fast_forward),
+        nullptr);
     replayer.reset();
     if (s.ok()) {
       fprintf(stdout, "Replay completed from trace_file: %s\n",

@@ -131,6 +131,10 @@ Status TracerHelper::DecodeWriteRecord(Trace* trace, int trace_file_version,
   assert(trace != nullptr);
   assert(trace->type == kTraceWrite);
 
+  if (record != nullptr) {
+    record->reset(nullptr);
+  }
+
   PinnableSlice rep;
   if (trace_file_version < 2) {
     rep.PinSelf(trace->payload);
@@ -167,6 +171,10 @@ Status TracerHelper::DecodeGetRecord(Trace* trace, int trace_file_version,
                                      std::unique_ptr<TraceRecord>* record) {
   assert(trace != nullptr);
   assert(trace->type == kTraceGet);
+
+  if (record != nullptr) {
+    record->reset(nullptr);
+  }
 
   uint32_t cf_id = 0;
   Slice get_key;
@@ -210,6 +218,10 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   assert(trace != nullptr);
   assert(trace->type == kTraceIteratorSeek ||
          trace->type == kTraceIteratorSeekForPrev);
+
+  if (record != nullptr) {
+    record->reset(nullptr);
+  }
 
   uint32_t cf_id = 0;
   Slice iter_key;
@@ -265,6 +277,11 @@ Status TracerHelper::DecodeMultiGetRecord(
     std::unique_ptr<TraceRecord>* record) {
   assert(trace != nullptr);
   assert(trace->type == kTraceMultiGet);
+
+  if (record != nullptr) {
+    record->reset(nullptr);
+  }
+
   if (trace_file_version < 2) {
     return Status::Corruption("MultiGet is not supported.");
   }

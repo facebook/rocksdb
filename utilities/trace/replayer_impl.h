@@ -12,21 +12,16 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
+#include "rocksdb/trace_record_result.h"
 #include "rocksdb/utilities/replayer.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-class ColumnFamilyHandle;
-class DB;
-class Env;
-class TraceReader;
-class TraceRecord;
-class Status;
-
-struct ReplayOptions;
 
 class ReplayerImpl : public Replayer {
  public:
@@ -41,11 +36,14 @@ class ReplayerImpl : public Replayer {
   Status Next(std::unique_ptr<TraceRecord>* record) override;
 
   using Replayer::Execute;
-  Status Execute(const std::unique_ptr<TraceRecord>& record) override;
-  Status Execute(std::unique_ptr<TraceRecord>&& record) override;
+  Status Execute(const std::unique_ptr<TraceRecord>& record,
+                 std::unique_ptr<TraceRecordResult>* result) override;
 
   using Replayer::Replay;
-  Status Replay(const ReplayOptions& options) override;
+  Status Replay(
+      const ReplayOptions& options,
+      const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&
+          result_callback) override;
 
   using Replayer::GetHeaderTimestamp;
   uint64_t GetHeaderTimestamp() const override;
@@ -84,6 +82,9 @@ struct ReplayerWorkerArg {
   // Callback function to report the error status and the timestamp of the
   // TraceRecord.
   std::function<void(Status, uint64_t)> error_cb;
+  // Callback function to report the trace execution status and operation
+  // execution status/result(s).
+  std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)> result_cb;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
