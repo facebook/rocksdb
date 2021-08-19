@@ -1503,7 +1503,7 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
 }
 
 TEST_F(DBBloomFilterTest, MemtableSelfTuningBloomFilter) {
-  const int kMemtableSize = 64 << 20;             // 1MB
+  const int kMemtableSize = 1 << 20;              // 1MB
   const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
   const int kPrefixLen = 4;
   Options options = CurrentOptions();
@@ -1521,16 +1521,16 @@ TEST_F(DBBloomFilterTest, MemtableSelfTuningBloomFilter) {
                             options.memtable_prefix_bloom_size_ratio) *
       8u;
 
-  uint32_t updated_bf_bits = 0;
+  double updated_bf_bits = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SelfTuningBloom:NewBFSize", [&updated_bf_bits](void* arg) {
+      "DBImpl::SelfTuningBloom:NewBFBits", [&updated_bf_bits](void* arg) {
         ASSERT_TRUE(arg != nullptr);
         updated_bf_bits = *(static_cast<uint32_t*>(arg));
       });
 
   uint32_t memtable_bf_bits = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "Memtable::BloomFilterSize", [&memtable_bf_bits](void* arg) {
+      "Memtable::BloomFilterBits", [&memtable_bf_bits](void* arg) {
         ASSERT_TRUE(arg != nullptr);
         memtable_bf_bits = *(static_cast<uint32_t*>(arg));
       });

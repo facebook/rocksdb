@@ -68,8 +68,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq, uint32_t column_family_id,
-                   const uint32_t* filter_bits)
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -119,12 +118,12 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   // use bloom_filter_ for both whole key and prefix bloom filter
   if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
       moptions_.memtable_prefix_bloom_bits > 0) {
-    uint32_t bf_bits =
-        filter_bits ? *filter_bits : moptions_.memtable_prefix_bloom_bits;
     bloom_filter_.reset(
-        new DynamicBloom(&arena_, bf_bits, 6 /* hard coded 6 probes */,
+        new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
+                         6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.logger));
-    TEST_SYNC_POINT_CALLBACK("Memtable::BloomFilterSize", &bf_bits);
+    uint32_t memtable_bloom_bits = moptions_.memtable_prefix_bloom_bits;
+    TEST_SYNC_POINT_CALLBACK("Memtable::BloomFilterBits", &memtable_bloom_bits);
   }
 }
 

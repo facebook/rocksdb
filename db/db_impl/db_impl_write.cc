@@ -6,10 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-// Used to import M_LN2 from <cmath>
-#define _USE_MATH_DEFINES
 #include <cinttypes>
-#include <cmath>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -1849,24 +1846,50 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
-    std::unique_ptr<uint32_t> new_filterbits;
 
     if (mutable_cf_options.memtable_self_tuning_bloom) {
-      const uint64_t pastentries = cfd->mem()->BFUniqueEntryEstimate();
-      new_filterbits.reset(new uint32_t);
-      // Calculate new BF size by assuming the number of unique keys
-      // will be similar to the mutable memtable being switched,
-      // (for 6 probes (hash functions) and a target FPR of 1%)
-      // m = - n_approx * ln(0.01)/[ln(2)**2]
-      *new_filterbits = static_cast<uint32_t>(
-          (pastentries * (-1.0) * (-2.0 * M_LN10 /* ln(0.01) */)) /
-          (M_LN2 * M_LN2));
-      TEST_SYNC_POINT_CALLBACK("DBImpl::SelfTuningBloom:NewBFSize",
-                               new_filterbits.get());
+      const uint64_t bf_entries_estimate = cfd->mem()->BFUniqueEntryEstimate();
+
+      // If estimate greater than num entries, update with # of entries.
+      // Could potentially be replaced by num_entries - num_deletes
+      // since deletes not included in memtable Bloom filter.
+      uint64_t pastentries = bf_entries_estimate < memtable_info.num_entries
+                                 ? bf_entries_estimate
+                                 : memtable_info.num_entries;
+
+      // For a 1% FP rate target, 10 bits per key and 6 probes
+      // is usually a good combination, see:
+      // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter#the-math
+      // Note mutable_cf_options.write_buffer_size is in bytes.
+      double new_bloom_size_ratio =
+          (10.0 * pastentries /* total # of bits */) /
+          (8.0 * mutable_cf_options.write_buffer_size);
+      // The approximation of unique entries in the memtable being
+      // made immutable can lead to errors. In the most extreme
+      // situation, there are 13 bytes per entry in the memtable (1 byte len,
+      // 8 bytes seqno + insert type, 2 bytes for the key,
+      // 1 byte for value, 1 byte value len), with bpk of 10 we need 1.25
+      // bytes => ratio ~ 10% memtable size.
+      if (new_bloom_size_ratio > 0.1) {
+        new_bloom_size_ratio = 0.1;
+      }
+
+      // Updating the CFD options requires the mutex.
+      mutex_.Lock();
+      bool bloom_ratio_updated =
+          cfd->UpdateBloomRatioInMutableCFOptions(new_bloom_size_ratio);
+      mutex_.Unlock();
+      if (bloom_ratio_updated) {
+        uint32_t newsize =
+            static_cast<uint32_t>(
+                static_cast<double>(mutable_cf_options.write_buffer_size) *
+                new_bloom_size_ratio) *
+            8u;
+        TEST_SYNC_POINT_CALLBACK("DBImpl::SelfTuningBloom:NewBFBits", &newsize);
+      }
     }
 
-    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq,
-                                        new_filterbits.get());
+    new_mem = cfd->ConstructNewMemtable(seq);
     context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,

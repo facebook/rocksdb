@@ -326,6 +326,19 @@ class ColumnFamilyData {
   }
 
   // REQUIRES: DB mutex held
+  // This updates bloom filter ratio in the latest MutableCFOptions,
+  // provided the memtable self tuning bloom option is set to true.
+  bool UpdateBloomRatioInMutableCFOptions(const double update_ratio) {
+    if (mutable_cf_options_.memtable_self_tuning_bloom &&
+        (update_ratio > 0.0)) {
+      mutable_cf_options_.memtable_prefix_bloom_size_ratio =
+          update_ratio < 0.1 ? update_ratio : 0.1;
+      return true;
+    }
+    return false;
+  }
+
+  // REQUIRES: DB mutex held
   // Build ColumnFamiliesOptions with immutable options and latest mutable
   // options.
   ColumnFamilyOptions GetLatestCFOptions() const;
@@ -368,11 +381,8 @@ class ColumnFamilyData {
   uint64_t OldestLogToKeep();
 
   // See Memtable constructor for explanation of earliest_seq param.
-  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
-                                 SequenceNumber earliest_seq,
-                                 const uint32_t* filter_bits = nullptr);
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq);
+  MemTable* ConstructNewMemtable(SequenceNumber earliest_seq);
+  void CreateNewMemtable(SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }

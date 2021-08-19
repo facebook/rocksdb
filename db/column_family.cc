@@ -1059,19 +1059,17 @@ uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
   return current_->GetSstFilesSize();
 }
 
-MemTable* ColumnFamilyData::ConstructNewMemtable(
-    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq,
-    const uint32_t* filter_bits) {
-  return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_, filter_bits);
+MemTable* ColumnFamilyData::ConstructNewMemtable(SequenceNumber earliest_seq) {
+  return new MemTable(internal_comparator_, ioptions_,
+                      *(GetLatestMutableCFOptions()), write_buffer_manager_,
+                      earliest_seq, id_);
 }
 
-void ColumnFamilyData::CreateNewMemtable(
-    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
+void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
+  SetMemtable(ConstructNewMemtable(earliest_seq));
   mem_->Ref();
 }
 

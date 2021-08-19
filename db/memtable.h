@@ -107,8 +107,7 @@ class MemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id,
-                    const uint32_t* filter_bits = nullptr);
+                    SequenceNumber earliest_seq, uint32_t column_family_id);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -504,7 +503,10 @@ class MemTable {
   bool ShouldFlushNow();
 
   uint64_t BFUniqueEntryEstimate() const {
-    return bloom_filter_->UniqueEntryEstimate();
+    if (bloom_filter_) {
+      return bloom_filter_->UniqueEntryEstimate();
+    }
+    return 0;
   }
 
  private:
