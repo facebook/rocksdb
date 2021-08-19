@@ -663,6 +663,87 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
+// This simple Listener can only handle one flush at a time.
+class TestFlushListener : public EventListener {
+ public:
+  TestFlushListener(Env* env, DBFlushTest* test)
+      : slowdown_count(0), stop_count(0), db_closed(), env_(env), test_(test) {
+    db_closed = false;
+  }
+
+  ~TestFlushListener() override {
+    prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
+  }
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    ASSERT_GT(info.table_properties.data_size, 0U);
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
+  }
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    flushed_dbs_.push_back(db);
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
+      slowdown_count++;
+    }
+    if (info.triggered_writes_stop) {
+      stop_count++;
+    }
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
+    ASSERT_EQ(TableFileNameToNumber(info.file_path), info.file_number);
+
+    // Note: the following chunk relies on the notification pertaining to the
+    // database pointed to by DBTestBase::db_, and is thus bypassed when
+    // that assumption does not hold (see the test case MultiDBMultiListeners
+    // below).
+    ASSERT_TRUE(test_);
+    if (db == test_->db_) {
+      std::vector<std::vector<FileMetaData>> files_by_level;
+      test_->dbfull()->TEST_GetFilesMetaData(db->DefaultColumnFamily(),
+                                             &files_by_level);
+
+      ASSERT_FALSE(files_by_level.empty());
+      auto it = std::find_if(files_by_level[0].begin(), files_by_level[0].end(),
+                             [&](const FileMetaData& meta) {
+                               return meta.fd.GetNumber() == info.file_number;
+                             });
+      ASSERT_NE(it, files_by_level[0].end());
+      ASSERT_EQ(info.oldest_blob_file_number, it->oldest_blob_file_number);
+    }
+
+    ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
+    ASSERT_GT(info.thread_id, 0U);
+  }
+
+  std::vector<std::string> flushed_column_family_names_;
+  std::vector<DB*> flushed_dbs_;
+  int slowdown_count;
+  int stop_count;
+  bool db_closing;
+  std::atomic_bool db_closed;
+  TableFileCreationInfo prev_fc_info_;
+
+ protected:
+  Env* env_;
+  DBFlushTest* test_;
+};
+#endif  // !ROCKSDB_LITE
+
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
 
@@ -695,8 +776,11 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold =
-      1.0;  // std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold = 1.0;
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -839,12 +923,15 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold =
-      1.0;  // std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1037,7 +1124,10 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   // Create a ConditionalUpdate compaction filter
   // that will update all the values of the KV pairs
   // where the keys are "lower" than KEY4.
@@ -1047,8 +1137,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold =
-      1.0;  // std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1123,8 +1213,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold =
-      1.0;  // std::numeric_limits<double>::max();
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;

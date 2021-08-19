@@ -196,8 +196,8 @@ void FlushJob::PickMemTable() {
   base_->Ref();  // it is likely that we do not need this reference
 }
 
-Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
-                     FileMetaData* file_meta) {
+Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
+                     bool* switched_to_mempurge) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
@@ -243,6 +243,16 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
         // other reasons (eg: new_mem->Add() fails).
         ROCKS_LOG_WARN(db_options_.info_log, "Mempurge process failed: %s\n",
                        mempurge_s.ToString().c_str());
+      }
+    } else {
+      if (switched_to_mempurge) {
+        *switched_to_mempurge = true;
+      } else {
+        // The mempurge process was successful, but no switch_to_mempurge
+        // pointer provided so no way to propagate the state of flush job.
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Mempurge process succeeded"
+                       "but no 'switched_to_mempurge' ptr provided.\n");
       }
     }
   }
@@ -561,6 +571,12 @@ Status FlushJob::MemPurge() {
         // we do not call SchedulePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
         new_mem->Ref();
+#ifndef ROCKSDB_LITE
+        // Piggyback FlushJobInfo on the first flushed memtable.
+        db_mutex_->AssertHeld();
+        meta_.fd.file_size = 0;
+        mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
+#endif  // !ROCKSDB_LITE
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
