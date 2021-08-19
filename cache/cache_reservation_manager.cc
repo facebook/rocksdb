@@ -20,8 +20,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
-
-
 namespace ROCKSDB_NAMESPACE {
 CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
                                                  bool delayed_decrease)
@@ -46,7 +44,8 @@ Status CacheReservationManager::UpdateCacheReservation(
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
   if (new_mem_used == cur_cache_allocated_size ||
-      (cur_cache_allocated_size > 0 && new_mem_used > cur_cache_allocated_size &&
+      (cur_cache_allocated_size > 0 &&
+       new_mem_used > cur_cache_allocated_size &&
        (new_mem_used - cur_cache_allocated_size) < kSizeDummyEntry) ||
       (new_mem_used < cur_cache_allocated_size &&
        (cur_cache_allocated_size - new_mem_used) < kSizeDummyEntry)) {

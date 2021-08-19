@@ -55,8 +55,10 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
       expected_cache_key, static_cast<std::size_t>(end - expected_cache_key));
 
   std::size_t new_mem_used = 1 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   ASSERT_EQ(s, Status::OK());
   ASSERT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
 
@@ -67,25 +69,41 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
 
 TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
   std::size_t new_mem_used = 0 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
-  EXPECT_EQ(s, Status::OK()) << "Failed to keep cache reservation the same when new_mem_used equals to current cache reservation";
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
+  EXPECT_EQ(s, Status::OK())
+      << "Failed to keep cache reservation the same when new_mem_used equals "
+         "to current cache reservation";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            0 * kSizeDummyEntry) << "Failed to bookkeep correctly when new_mem_used equals to current cache reservation";
-  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry) << "Failed to keep underlying dummy entries the same when new_mem_used equals to current cache reservation";
+            0 * kSizeDummyEntry)
+      << "Failed to bookkeep correctly when new_mem_used equals to current "
+         "cache reservation";
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry)
+      << "Failed to keep underlying dummy entries the same when new_mem_used "
+         "equals to current cache reservation";
 
   new_mem_used = kSizeDummyEntry / 2;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
-  EXPECT_EQ(s, Status::OK()) << "Failed to reserve cache for trivial memory increase less than one dummy entry size when cache is empty";
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
+  EXPECT_EQ(s, Status::OK())
+      << "Failed to reserve cache for trivial memory increase less than one "
+         "dummy entry size when cache is empty";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            1 * kSizeDummyEntry) << "Failed to bookkeep correctly for trivial memory increase less than one dummy entry size when cache is empty";
+            1 * kSizeDummyEntry)
+      << "Failed to bookkeep correctly for trivial memory increase less than "
+         "one dummy entry size when cache is empty";
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
-  EXPECT_GE(initial_pinned_usage, 1 * kSizeDummyEntry) << "Failed to increase underlying dummy entries for trivial memory increase less than one dummy entry size when cache is empty";
+  EXPECT_GE(initial_pinned_usage, 1 * kSizeDummyEntry)
+      << "Failed to increase underlying dummy entries for trivial memory "
+         "increase less than one dummy entry size when cache is empty";
 
   new_mem_used = 1 * kSizeDummyEntry + kSizeDummyEntry / 2;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to keep cache reservation the same for trivial memory "
          "increase less than one dummy entry size when cache is not empty";
@@ -98,8 +116,9 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
          "increase less than one dummy entry size when cache is not empty";
 
   new_mem_used = kSizeDummyEntry / 2;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to keep cache reservation the same for trivial memory "
          "decrease less than one dummy entry size";
@@ -115,8 +134,10 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
 TEST_F(CacheReservationManagerTest,
        IncreaseCacheReservationByMultiplesOfDummyEntrySize) {
   std::size_t new_mem_used = 2 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to increase cache reservation correctly";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
@@ -129,8 +150,10 @@ TEST_F(CacheReservationManagerTest,
 TEST_F(CacheReservationManagerTest,
        IncreaseCacheReservationNotByMultiplesOfDummyEntrySize) {
   std::size_t new_mem_used = 2 * kSizeDummyEntry + kSizeDummyEntry / 2;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to increase cache reservation correctly";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
@@ -154,8 +177,10 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
       new CacheReservationManager(cache));
 
   std::size_t new_mem_used = kOneGigabyte + 1;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::Incomplete())
       << "Failed to return status to indicate failure of dummy entry insertion "
          "during cache reservation on full cache";
@@ -168,8 +193,10 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
 TEST_F(CacheReservationManagerTest,
        DecreaseCacheReservationByMultiplesOfDummyEntrySize) {
   std::size_t new_mem_used = 2 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
@@ -177,8 +204,9 @@ TEST_F(CacheReservationManagerTest,
   ASSERT_GE(initial_pinned_usage, 2 * kSizeDummyEntry);
 
   new_mem_used = 1 * kSizeDummyEntry;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to decrease cache reservation correctly";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
@@ -194,16 +222,19 @@ TEST_F(CacheReservationManagerTest,
 TEST_F(CacheReservationManagerTest,
        DecreaseCacheReservationNotByMultiplesOfDummyEntrySize) {
   std::size_t new_mem_used = 2 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
 
   new_mem_used = kSizeDummyEntry / 2;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to decrease cache reservation correctly";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
@@ -226,8 +257,10 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
       new CacheReservationManager(cache, true /* delayed_decrease */));
 
   std::size_t new_mem_used = 8 * kSizeDummyEntry;
-  Status s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  Status s =
+      test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             8 * kSizeDummyEntry);
@@ -235,8 +268,9 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
   ASSERT_GE(initial_pinned_usage, 8 * kSizeDummyEntry);
 
   new_mem_used = 6 * kSizeDummyEntry;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK()) << "Failed to delay decreasing cache reservation";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             8 * kSizeDummyEntry)
@@ -246,8 +280,9 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
       << "Failed to delay decreasing underlying dummy entries in cache";
 
   new_mem_used = 7 * kSizeDummyEntry;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK()) << "Failed to delay decreasing cache reservation";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             8 * kSizeDummyEntry)
@@ -257,8 +292,9 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
       << "Failed to delay decreasing underlying dummy entries in cache";
 
   new_mem_used = 6 * kSizeDummyEntry - 1;
-  s = test_cache_rev_mng->UpdateCacheReservation<
-      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to decrease cache reservation correctly when new_mem_used < "
          "GetTotalReservedCacheSize() * 3 / 4 on delayed decrease mode";
@@ -290,8 +326,10 @@ TEST(CacheReservationManagerDestructorTest,
     std::unique_ptr<CacheReservationManager> test_cache_rev_mng(
         new CacheReservationManager(cache));
     std::size_t new_mem_used = 1 * kSizeDummyEntry;
-    Status s = test_cache_rev_mng->UpdateCacheReservation<
-        ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+    Status s =
+        test_cache_rev_mng
+            ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+                new_mem_used);
     ASSERT_EQ(s, Status::OK());
     ASSERT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
   }
