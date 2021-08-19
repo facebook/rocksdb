@@ -1819,14 +1819,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
-
+  const uint64_t memtable_num_entries = cfd->mem()->num_entries();
   // Set memtable_info for memtable sealed callback
 #ifndef ROCKSDB_LITE
   MemTableInfo memtable_info;
   memtable_info.cf_name = cfd->GetName();
   memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
-  memtable_info.num_entries = cfd->mem()->num_entries();
+  memtable_info.num_entries = memtable_num_entries;
   memtable_info.num_deletes = cfd->mem()->num_deletes();
 #endif  // ROCKSDB_LITE
   // Log this later after lock release. It may be outdated, e.g., if background
@@ -1851,11 +1851,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       const uint64_t bf_entries_estimate = cfd->mem()->BFUniqueEntryEstimate();
 
       // If estimate greater than num entries, update with # of entries.
-      // Could potentially be replaced by num_entries - num_deletes
+      // This can be useful if, let's say, all the bits are set to 1
+      // in the Bloom filter of the current mutable memtable.
+      // Could potentially be replaced by "num_entries - num_deletes"
       // since deletes not included in memtable Bloom filter.
-      uint64_t pastentries = bf_entries_estimate < memtable_info.num_entries
+      uint64_t pastentries = bf_entries_estimate < memtable_num_entries
                                  ? bf_entries_estimate
-                                 : memtable_info.num_entries;
+                                 : memtable_num_entries;
 
       // For a 1% FP rate target, 10 bits per key and 6 probes
       // is usually a good combination, see:
