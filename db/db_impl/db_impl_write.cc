@@ -1887,6 +1887,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                 static_cast<double>(mutable_cf_options.write_buffer_size) *
                 new_bloom_size_ratio) *
             8u;
+        // Used for situations where TEST_SYNC_POINT_CALLBACK undefined,
+        // so that there is no error about newsize being unused.
+        (void)newsize;
         TEST_SYNC_POINT_CALLBACK("DBImpl::SelfTuningBloom:NewBFBits", &newsize);
       }
     }
