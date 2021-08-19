@@ -66,28 +66,36 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
 }
 
 TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
-  std::size_t new_mem_used = 1 * kSizeDummyEntry;
+  std::size_t new_mem_used = 0 * kSizeDummyEntry;
   Status s = test_cache_rev_mng->UpdateCacheReservation<
       ROCKSDB_NAMESPACE::CacheEntryRole::kWriteBuffer>(new_mem_used);
-  ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            1 * kSizeDummyEntry);
+  EXPECT_EQ(s, Status::OK()) << "Failed to keep cache reservation the same when new_mem_used equals to current cache reservation";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            0 * kSizeDummyEntry) << "Failed to bookkeep correctly when new_mem_used equals to current cache reservation";
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry) << "Failed to keep underlying dummy entries the same when new_mem_used equals to current cache reservation";
+
+  new_mem_used = 0.5 * kSizeDummyEntry;
+  s = test_cache_rev_mng->UpdateCacheReservation<
+      ROCKSDB_NAMESPACE::CacheEntryRole::kWriteBuffer>(new_mem_used);
+  EXPECT_EQ(s, Status::OK()) << "Failed to reserve cache for trivial memory increase less than one dummy entry size when cache is empty";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            1 * kSizeDummyEntry) << "Failed to bookkeep correctly for trivial memory increase less than one dummy entry size when cache is empty";
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
-  ASSERT_GE(initial_pinned_usage, 1 * kSizeDummyEntry);
+  EXPECT_GE(initial_pinned_usage, 1 * kSizeDummyEntry) << "Failed to increase underlying dummy entries for trivial memory increase less than one dummy entry size when cache is empty";
 
   new_mem_used = 1.5 * kSizeDummyEntry;
   s = test_cache_rev_mng->UpdateCacheReservation<
       ROCKSDB_NAMESPACE::CacheEntryRole::kWriteBuffer>(new_mem_used);
   EXPECT_EQ(s, Status::OK())
       << "Failed to keep cache reservation the same for trivial memory "
-         "increase less than one dummy entry size";
+         "increase less than one dummy entry size when cache is not empty";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
       << "Failed to bookkeep correctly for trivial memory increase less than "
-         "one dummy entry size";
+         "one dummy entry size when cache is not empty";
   EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
       << "Failed to keep underlying dummy entries the same for trivial memory "
-         "increase less than one dummy entry size";
+         "increase less than one dummy entry size when cache is not empty";
 
   new_mem_used = 0.5 * kSizeDummyEntry;
   s = test_cache_rev_mng->UpdateCacheReservation<
