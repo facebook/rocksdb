@@ -225,14 +225,12 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
 
   uint32_t cf_id = 0;
   Slice iter_key;
+  Slice lower_bound;
+  Slice upper_bound;
 
   if (trace_file_version < 2) {
     DecodeCFAndKey(trace->payload, &cf_id, &iter_key);
   } else {
-    // Are these two used anywhere?
-    Slice lower_bound;
-    Slice upper_bound;
-
     Slice buf(trace->payload);
     GetFixed64(&buf, &trace->payload_map);
     int64_t payload_map = static_cast<int64_t>(trace->payload_map);
@@ -264,9 +262,14 @@ Status TracerHelper::DecodeIterRecord(Trace* trace, int trace_file_version,
   if (record != nullptr) {
     PinnableSlice ps_key;
     ps_key.PinSelf(iter_key);
+    PinnableSlice ps_lower;
+    ps_lower.PinSelf(lower_bound);
+    PinnableSlice ps_upper;
+    ps_upper.PinSelf(upper_bound);
     record->reset(new IteratorSeekQueryTraceRecord(
         static_cast<IteratorSeekQueryTraceRecord::SeekType>(trace->type), cf_id,
-        std::move(ps_key), trace->ts));
+        std::move(ps_key), std::move(ps_lower), std::move(ps_upper),
+        trace->ts));
   }
 
   return Status::OK();

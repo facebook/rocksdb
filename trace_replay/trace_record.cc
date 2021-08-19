@@ -100,6 +100,29 @@ IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
   key_.PinSelf(key);
 }
 
+IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
+    SeekType seek_type, uint32_t column_family_id, PinnableSlice&& key,
+    PinnableSlice&& lower_bound, PinnableSlice&& upper_bound,
+    uint64_t timestamp)
+    : IteratorQueryTraceRecord(timestamp),
+      type_(seek_type),
+      cf_id_(column_family_id),
+      key_(std::move(key)),
+      lower_(std::move(lower_bound)),
+      upper_(std::move(upper_bound)) {}
+
+IteratorSeekQueryTraceRecord::IteratorSeekQueryTraceRecord(
+    SeekType seek_type, uint32_t column_family_id, const std::string& key,
+    const std::string& lower_bound, const std::string& upper_bound,
+    uint64_t timestamp)
+    : IteratorQueryTraceRecord(timestamp),
+      type_(seek_type),
+      cf_id_(column_family_id) {
+  key_.PinSelf(key);
+  lower_.PinSelf(lower_bound);
+  upper_.PinSelf(upper_bound);
+}
+
 IteratorSeekQueryTraceRecord::~IteratorSeekQueryTraceRecord() { key_.clear(); }
 
 TraceType IteratorSeekQueryTraceRecord::GetTraceType() const {
@@ -116,6 +139,14 @@ uint32_t IteratorSeekQueryTraceRecord::GetColumnFamilyID() const {
 }
 
 Slice IteratorSeekQueryTraceRecord::GetKey() const { return Slice(key_); }
+
+Slice IteratorSeekQueryTraceRecord::GetLowerBound() const {
+  return Slice(lower_);
+}
+
+Slice IteratorSeekQueryTraceRecord::GetUpperBound() const {
+  return Slice(upper_);
+}
 
 Status IteratorSeekQueryTraceRecord::Accept(
     Handler* handler, std::unique_ptr<TraceRecordResult>* result) {
