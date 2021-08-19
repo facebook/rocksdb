@@ -206,12 +206,26 @@ TYPED_TEST_CASE(CCTest,  // Instance name
 
 TYPED_TEST(CCTest, Test1) { std::cout << "HI" << std::endl; }
 
+template <class T>
 class CompactionServiceTest : public DBTestBase {
  public:
   explicit CompactionServiceTest()
       : DBTestBase("compaction_service_test", true) {}
 
  protected:
+  void ReopenWithCompactionService() {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.statistics = CreateDBStatistics();
+    compactor_statistics_ = CreateDBStatistics();
+    options.compaction_service = std::make_shared<T>(dbname_, options, compactor_statistics_);
+    DestroyAndReopen(options);
+  }
+
+  Statistics* GetCompactorStatistics() {
+    return compactor_statistics_.get();
+  }
+
   void GenerateTestData() {
     // Generate 20 files @ L2
     for (int i = 0; i < 20; i++) {
@@ -245,9 +259,15 @@ class CompactionServiceTest : public DBTestBase {
       }
     }
   }
+
+ private:
+  std::shared_ptr<Statistics> compactor_statistics_;
 };
 
-TEST_F(CompactionServiceTest, BasicCompactions) {
+typedef testing::Types<MyTestCompactionService, MyTestCompactionServiceLegacy> MyTestCompactionServiceTypes;
+TYPED_TEST_CASE(CompactionServiceTest, MyTestCompactionServiceTypes);
+
+TYPED_TEST(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
   options.env = env_;
   options.statistics = CreateDBStatistics();
@@ -326,7 +346,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ASSERT_TRUE(s.IsAborted());
 }
 
-TEST_F(CompactionServiceTest, ManualCompaction) {
+TYPED_TEST(CompactionServiceTest, ManualCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
@@ -367,7 +387,7 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   VerifyTestData();
 }
 
-TEST_F(CompactionServiceTest, FailedToStart) {
+TYPED_TEST(CompactionServiceTest, FailedToStart) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
@@ -388,7 +408,7 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   ASSERT_TRUE(s.IsIncomplete());
 }
 
-TEST_F(CompactionServiceTest, InvalidResult) {
+TYPED_TEST(CompactionServiceTest, InvalidResult) {
   Options options = CurrentOptions();
   options.env = env_;
   options.disable_auto_compactions = true;
@@ -409,7 +429,7 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   ASSERT_FALSE(s.ok());
 }
 
-TEST_F(CompactionServiceTest, SubCompaction) {
+TYPED_TEST(CompactionServiceTest, SubCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
   options.max_subcompactions = 10;
@@ -452,7 +472,7 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
   const char* Name() const override { return "PartialDeleteCompactionFilter"; }
 };
 
-TEST_F(CompactionServiceTest, CompactionFilter) {
+TYPED_TEST(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
   options.env = env_;
   std::unique_ptr<CompactionFilter> delete_comp_filter(
@@ -498,7 +518,7 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 }
 
-TEST_F(CompactionServiceTest, Snapshot) {
+TYPED_TEST(CompactionServiceTest, Snapshot) {
   Options options = CurrentOptions();
   options.env = env_;
   options.compaction_service =
@@ -524,7 +544,7 @@ TEST_F(CompactionServiceTest, Snapshot) {
   db_->ReleaseSnapshot(s1);
 }
 
-TEST_F(CompactionServiceTest, ConcurrentCompaction) {
+TYPED_TEST(CompactionServiceTest, ConcurrentCompaction) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 100;
   options.env = env_;
