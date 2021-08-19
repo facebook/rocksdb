@@ -110,6 +110,36 @@ Status ReadBlockFromFile(
   return s;
 }
 
+template <typename TBlocklike>
+async_result<Status> AsyncReadBlockFromFile(
+    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
+    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
+    std::unique_ptr<TBlocklike>* result, const ImmutableOptions& ioptions,
+    bool do_uncompress, bool maybe_compressed, BlockType block_type,
+    const UncompressionDict& uncompression_dict,
+    const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
+    MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
+    const FilterPolicy* filter_policy) {
+  assert(result);
+
+  BlockContents contents;
+  BlockFetcher block_fetcher(
+      file, prefetch_buffer, footer, options, handle, &contents, ioptions,
+      do_uncompress, maybe_compressed, block_type, uncompression_dict,
+      cache_options, memory_allocator, nullptr, for_compaction);
+  auto a_result = block_fetcher.AsyncReadBlockContents();
+  co_await a_result;
+  auto s = a_result.result();
+  if (s.ok()) {
+    result->reset(BlocklikeTraits<TBlocklike>::Create(
+        std::move(contents), read_amp_bytes_per_bit, ioptions.stats, using_zstd,
+        filter_policy));
+  }
+
+  co_return s;
+}
+
+
 // Release the cached entry and decrement its ref count.
 // Do not force erase
 void ReleaseCachedEntry(void* arg, void* h) {
@@ -1649,6 +1679,7 @@ async_result<Status> BlockBasedTable::AsyncMaybeReadBlockAndLoadToCache(
             GetMemoryAllocator(rep_->table_options),
             GetMemoryAllocatorForCompressedBlock(rep_->table_options));
         auto a_result = block_fetcher.AsyncReadBlockContents();
+        co_await a_result;
         s = a_result.result();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
@@ -2133,6 +2164,7 @@ async_result<Status> BlockBasedTable::AsyncRetrieveBlock(
         prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
         block_entry, block_type, get_context, lookup_context,
         /*contents=*/nullptr);
+    co_await a_result;
     s = a_result.result();
 
     if (!s.ok()) {
@@ -2163,7 +2195,7 @@ async_result<Status> BlockBasedTable::AsyncRetrieveBlock(
   {
     StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats,
                  READ_BLOCK_GET_MICROS);
-    s = ReadBlockFromFile(
+    auto a_result = AsyncReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
         uncompression_dict, rep_->persistent_cache_options,
@@ -2173,6 +2205,8 @@ async_result<Status> BlockBasedTable::AsyncRetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+    co_await a_result;
+    s = a_result.result();
 
     if (get_context) {
       switch (block_type) {
@@ -2781,11 +2815,11 @@ async_result<Status> BlockBasedTable::AsyncGet(const ReadOptions& read_options, 
       bool does_referenced_key_exist = false;
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
-      DataBlockIter** result_biter = nullptr;
-      AsyncNewDataBlockIterator<DataBlockIter>(
+      DataBlockIter* result_biter = nullptr;
+      co_await AsyncNewDataBlockIterator<DataBlockIter>(
           read_options, v.handle, &biter, BlockType::kData, get_context,
           &lookup_data_block_context,
-          /*s=*/Status(), result_biter, /*prefetch_buffer*/ nullptr);
+          /*s=*/Status(), &result_biter, /*prefetch_buffer*/ nullptr);
 
       if (no_io && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache

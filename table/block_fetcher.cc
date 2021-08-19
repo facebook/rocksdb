@@ -321,13 +321,13 @@ IOStatus BlockFetcher::ReadBlockContents() {
   return io_status_;
 }
 
-async_result<IOStatus> BlockFetcher::AsyncReadBlockContents() {
+async_result<Status> BlockFetcher::AsyncReadBlockContents() {
     if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
     contents_->is_raw_block = true;
 #endif  // NDEBUG
-    co_return IOStatus::OK();
+    co_return Status::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
     if (!io_status_.ok()) {
@@ -335,7 +335,7 @@ async_result<IOStatus> BlockFetcher::AsyncReadBlockContents() {
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     IOOptions opts;
-    async_result<IOStatus> a_result;
+    async_result<Status> a_result;
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
     // Actual file read
     if (io_status_.ok()) {
@@ -344,7 +344,8 @@ async_result<IOStatus> BlockFetcher::AsyncReadBlockContents() {
         a_result =
             file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
-        io_status_ = a_result.result();
+        co_await a_result;
+        //io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
@@ -353,7 +354,8 @@ async_result<IOStatus> BlockFetcher::AsyncReadBlockContents() {
         a_result =
             file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr, for_compaction_);
-        io_status_ = a_result.result();
+        co_await a_result;
+        //io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {

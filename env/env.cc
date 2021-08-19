@@ -106,7 +106,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
     return status_to_io_status(target_->Read(offset, n, result, scratch));
   }
 
-  async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& /*options*/,
+  async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& /*options*/,
                 Slice* result, char* scratch,
                 IODebugContext* /*dbg*/) const override {
     (void)offset;

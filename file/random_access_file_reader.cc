@@ -182,14 +182,14 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   return io_s;
 }
 
-async_result<IOStatus> RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t offset,
+async_result<Status> RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t offset,
                                       size_t n, Slice* result, char* scratch,
                                       AlignedBuf* aligned_buf,
                                       bool for_compaction) const {
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
-  IOStatus io_s;
+  Status io_s;
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
@@ -234,8 +234,10 @@ async_result<IOStatus> RandomAccessFileReader::AsyncRead(const IOOptions& opts, 
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
-          io_s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
+          auto a_result = file_->AsyncRead(aligned_offset + buf.CurrentSize(), allowed, opts,
                              &tmp, buf.Destination(), nullptr);
+          co_await a_result;
+          io_s = a_result.result();
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
@@ -296,6 +298,7 @@ async_result<IOStatus> RandomAccessFileReader::AsyncRead(const IOOptions& opts, 
           assert(!opts.timeout.count() || allowed == n);
           auto a_result = file_->AsyncRead(offset + pos, allowed, opts, &tmp_result,
                              scratch + pos, nullptr);
+          co_await a_result;
           io_s = a_result.result();
         }
 #ifndef ROCKSDB_LITE

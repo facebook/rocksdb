@@ -2103,7 +2103,9 @@ async_result<Status> Version::AsyncGet(const ReadOptions& read_options, const Lo
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
         fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
+    co_await a_result;
     *status = a_result.result();
+    
     // TODO: examine the behavior for corrupted key
     if (timer_enabled) {
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),

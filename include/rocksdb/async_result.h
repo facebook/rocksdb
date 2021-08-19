@@ -5,6 +5,7 @@
 
 #pragma once
 #include <coroutine>
+#include <iostream>
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,17 +33,25 @@ struct async_result {
 
     void unhandled_exception() { std::exit(1); }
 
-    void return_value(T result) { result_ = result; }
+    void return_value(T result) { 
+      result_ = result; 
+      result_set_ = true;
+    }
 
     promise_type* prev_ = nullptr;
     T result_;
+    bool result_set_ = false;
   };
 
   async_result(bool async = false) : async_(async) {}
 
   async_result(std::coroutine_handle<promise_type> h) : h_{h} {}
 
-  constexpr bool await_ready() const noexcept { return false; }
+  constexpr bool await_ready() const noexcept { 
+    std::cout<<"h_.done():"<<h_.done()<<"\n";
+    std::cout<<"result_set_:"<<h_.promise().result_set_<<"\n";
+    return h_.promise().result_set_;
+  }
 
   void await_suspend(std::coroutine_handle<promise_type> h) {
     if (!async_) 

@@ -537,6 +537,7 @@ async_result<Status> TableCache::AsyncGet(const ReadOptions& options,
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
       auto a_result = t->AsyncGet(options, k, get_context, prefix_extractor, skip_filters);
+      co_await a_result;
       s = a_result.result();
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {

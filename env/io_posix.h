@@ -35,6 +35,16 @@
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+
+struct file_read_page {
+    file_read_page(int pages) {
+      iov = (iovec*)calloc(pages, sizeof(struct iovec));
+    }
+
+    async_result<IOStatus>::promise_type* promise;
+    struct iovec *iov;
+};
+
 std::string IOErrorMsg(const std::string& context,
                        const std::string& file_name);
 // file_name can be left empty if it is not unkown.
@@ -194,7 +204,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const override;
 
-  virtual async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& opts,
+  virtual async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& opts,
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const override;
 
@@ -301,7 +311,7 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const override;
 
-    async_result<IOStatus> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+    async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override {
     (void)offset;

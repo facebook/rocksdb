@@ -2034,6 +2034,7 @@ async_result<Status> DBImpl::AsyncGetImpl(const ReadOptions& read_options, const
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+  skip_memtable = true;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -2077,7 +2078,7 @@ async_result<Status> DBImpl::AsyncGetImpl(const ReadOptions& read_options, const
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->AsyncGet(
+    co_await sv->current->AsyncGet(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,

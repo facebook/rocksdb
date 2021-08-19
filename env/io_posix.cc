@@ -8,10 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef ROCKSDB_LIB_IO_POSIX
+#include <cmath>
 #include "env/io_posix.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <algorithm>
+#include <iostream>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #ifndef FALLOC_FL_KEEP_SIZE
@@ -41,6 +43,8 @@
 #define F_LINUX_SPECIFIC_BASE 1024
 #define F_SET_RW_HINT (F_LINUX_SPECIFIC_BASE + 12)
 #endif
+
+extern struct io_uring *ioring;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -603,7 +607,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-async_result<IOStatus> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
+async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
                                      const IOOptions& /*opts*/, Slice* result,
                                      char* scratch,
                                      IODebugContext* /*dbg*/) const {
@@ -612,36 +616,43 @@ async_result<IOStatus> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t 
     assert(IsSectorAligned(n, GetRequiredBufferAlignment()));
     assert(IsSectorAligned(scratch, GetRequiredBufferAlignment()));
   }
+  
+  std::cout<<"I am in PosixRandomAccessFile::AsyncRead offset:"<<offset<<" size:"<<n<<"\n";
+  static const int PageSize = 4096;
   IOStatus s;
-  ssize_t r = -1;
-  size_t left = n;
-  char* ptr = scratch;
-  while (left > 0) {
-    r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-    if (r <= 0) {
-      if (r == -1 && errno == EINTR) {
-        continue;
-      }
-      break;
-    }
-    ptr += r;
-    offset += r;
-    left -= r;
-    if (use_direct_io() &&
-        r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
-      // Bytes reads don't fill sectors. Should only happen at the end
-      // of the file.
-      break;
-    }
+  int pages = (int)std::ceil((float)n / PageSize);
+  int last_page_size = n % PageSize;
+  int page_size = PageSize;
+
+  std::cout<<"pages:"<<pages<<" last_page_size:"<<last_page_size<<"\n";
+
+  file_read_page* data = new file_read_page(pages);
+
+  for  (int i = 0; i < pages; i++) { 
+    data->iov[i].iov_base = scratch + i * page_size;
+    if (i == pages - 1 && last_page_size != 0)
+      page_size = last_page_size;
+    data->iov[i].iov_len = page_size;
   }
-  if (r < 0) {
-    // An error: return a non-ok status
-    s = IOError(
-        "While pread offset " + ToString(offset) + " len " + ToString(n),
-        filename_, errno);
-  }
-  *result = Slice(scratch, (r < 0) ? 0 : n - left);
-  co_return  s;
+
+  auto sqe = io_uring_get_sqe(ioring);
+  io_uring_prep_readv(sqe, fd_, data->iov, pages, offset);
+  io_uring_sqe_set_data(sqe, data);
+  io_uring_submit_and_wait(ioring, 1);
+
+  struct io_uring_cqe* cqe = nullptr;
+  auto ret = io_uring_wait_cqe(ioring, &cqe);
+  if (ret != 0) 
+   co_return IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+
+  if (cqe != nullptr)
+    io_uring_cqe_seen(ioring, cqe);
+  
+  std::cout<<"scratch:"<<(void*)scratch<<"\n";
+        
+  *result = Slice(scratch, n);
+  std::cout<<"Result"<<result->data()<<"\n";
+  co_return IOStatus::OK();
 }
 
 IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
