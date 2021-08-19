@@ -375,6 +375,15 @@ enum class CompactionServiceJobStatus : char {
   kUseLocal,  // TODO: Add support for use local compaction
 };
 
+struct CompactionServiceJobInfo {
+  std::string db_name;
+  std::string db_id;
+  std::string db_session_id;
+  //TODO: Add priority information
+
+  CompactionServiceJobInfo(std::string db_name_, std::string db_id_, std::string db_session_id_) : db_name(std::move(db_name_)), db_id(std::move(db_id_)), db_session_id(std::move(db_session_id_)) {}
+};
+
 class CompactionService : public Customizable {
  public:
   static const char* Type() { return "CompactionService"; }
@@ -385,15 +394,30 @@ class CompactionService : public Customizable {
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.
-  // TODO: sub-compaction is not supported, as they will have the same job_id, a
-  // sub-compaction id might be added
+  // Warning: deprecated, please use the new interface `Start(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, uint64_t job_id) = 0;
+      const std::string& compaction_service_input, uint64_t job_id) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // doc
+  virtual CompactionServiceJobStatus Start(
+      const CompactionServiceJobInfo& info, const std::string& compaction_service_input, uint64_t job_id) {
+    // Default implementation to call legacy interface, please override and replace the legacy implementation
+    return Start(compaction_service_input, job_id);
+  }
 
   // Wait compaction to be finish.
-  // TODO: Add output path override
+  // Warning: deprecated, please use the new interface `WaitForComplete(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t job_id, std::string* compaction_service_result) = 0;
+      uint64_t job_id, std::string* compaction_service_result);
+
+  // doc
+  virtual CompactionServiceJobStatus WaitForComplete(const CompactionServiceJobInfo& info,
+      uint64_t job_id, std::string* compaction_service_result) {
+    // Default implementation to call legacy interface, please override and replace the legacy implementation
+    return WaitForComplete(job_id, compaction_service_result);
+  }
 
   virtual ~CompactionService() {}
 };

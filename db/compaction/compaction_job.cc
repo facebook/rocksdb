@@ -984,8 +984,9 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
       compaction_input.column_family.name.c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
+  CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_);
   CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->Start(compaction_input_binary,
+      db_options_.compaction_service->Start(info, compaction_input_binary,
                                             GetCompactionId(sub_compact));
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     sub_compact->status =

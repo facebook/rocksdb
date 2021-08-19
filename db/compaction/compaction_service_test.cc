@@ -14,14 +14,14 @@ class MyTestCompactionService : public CompactionService {
  public:
   MyTestCompactionService(const std::string& db_path, Options& options,
                           std::shared_ptr<Statistics> statistics = nullptr)
-      : db_path_(db_path), options_(options), statistics_(statistics) {}
+                          : db_path_(db_path), options_(options), statistics_(statistics) {}
 
-  static const char* kClassName() { return "MyTestCompactionService"; }
+                          static const char* kClassName() { return "MyTestCompactionService"; }
 
-  const char* Name() const override { return kClassName(); }
+                          const char* Name() const override { return kClassName(); }
 
-  CompactionServiceJobStatus Start(const std::string& compaction_service_input,
-                                   uint64_t job_id) override {
+                          CompactionServiceJobStatus Start(const std::string& compaction_service_input,
+                                                           uint64_t job_id) override {
     InstrumentedMutexLock l(&mutex_);
     jobs_.emplace(job_id, compaction_service_input);
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
@@ -79,6 +79,33 @@ class MyTestCompactionService : public CompactionService {
   Options options_;
   std::shared_ptr<Statistics> statistics_;
 };
+
+//class MyTestCompactionServiceLegacy : public CompactionService {
+//};
+//
+//template <class T>
+//class CCTest : public DBTestBase {
+// public:
+//  explicit CCTest()
+//  : DBTestBase("compaction_service_test", true) {}
+//
+//};
+//
+//TYPED_TEST_CASE_P(CCTest);
+//
+//TYPED_TEST_P(CCTest, Test1) {
+//  std::cout << "HI" << std::endl;
+//}
+//
+//REGISTER_TYPED_TEST_CASE_P(
+//    CCTest,  // The first argument is the test case name.
+//    // The rest of the arguments are the test names.
+//    Test1);
+//
+//typedef testing::Types<MyTestCompactionService> MyTest;
+//INSTANTIATE_TYPED_TEST_CASE_P(CCTestName,    // Instance name
+//                               CCTest,             // Test case name
+//                               MyTest);  // Type list
 
 class CompactionServiceTest : public DBTestBase {
  public:
