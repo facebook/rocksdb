@@ -1859,6 +1859,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                                  ? bf_entries_estimate
                                  : memtable_num_entries;
 
+      // This situation can happen if there was no BF in the current
+      // mutable memtable. In this situation, we use memtable_num_entries
+      // as an approximation for the number of unique keys inserted in the
+      // old mutable memtable.
+      if ((pastentries == 0) && (memtable_num_entries != 0)) {
+        pastentries = memtable_num_entries;
+      }
       // For a 1% FP rate target, 10 bits per key and 6 probes
       // is usually a good combination, see:
       // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter#the-math
