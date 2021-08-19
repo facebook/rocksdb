@@ -92,7 +92,7 @@ uint64_t DynamicBloom::UniqueEntryEstimate() const {
 
   // Handle specific case where all bits sampled are set to 1.
   if (static_cast<uint32_t>(one_bits) == sample_bit_size)
-    return rocksdb::port::kMaxUint64;
+    return port::kMaxUint64;
 
   // Else, from Samidass & Baldi (2007): # of items in a Bloom Filter
   // can be approximated with:
