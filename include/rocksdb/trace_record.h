@@ -157,10 +157,9 @@ class IteratorQueryTraceRecord : public QueryTraceRecord {
 
   virtual ~IteratorQueryTraceRecord() override;
 
-  // Iterate lower bound.
+  // Get the iterator's lower/upper bound. They may be used in ReadOptions to
+  // create an Iterator instance.
   virtual Slice GetLowerBound() const;
-
-  // Iterate upper bound.
   virtual Slice GetUpperBound() const;
 
  private:

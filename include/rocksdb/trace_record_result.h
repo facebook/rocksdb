@@ -45,47 +45,6 @@ class TraceRecordResult {
     virtual Status Handle(const IteratorTraceExecutionResult& result) = 0;
   };
 
-  /*
-   * Example handler to just print the trace record execution results.
-   *
-   * class ResultPrintHandler : public TraceRecordResult::Handler {
-   *  public:
-   *   ResultPrintHandler();
-   *   ~ResultPrintHandler() override {}
-   *
-   *   Status Handle(const StatusOnlyTraceExecutionResult& result) override {
-   *     std::cout << "Status: " << result.GetStatus().ToString() << std::endl;
-   *   }
-   *
-   *   Status Handle(const SingleValueTraceExecutionResult& result) override {
-   *     std::cout << "Status: " << result.GetStatus().ToString()
-   *               << ", value: " << result.GetValue() << std::endl;
-   *   }
-   *
-   *   Status Handle(const MultiValuesTraceExecutionResult& result) override {
-   *     size_t size = result.GetMultiStatus().size();
-   *     for (size_t i = 0; i < size; i++) {
-   *       std::cout << "Status: " << result.GetMultiStatus()[i].ToString()
-   *                 << ", value: " << result.GetValues()[i] << std::endl;
-   *     }
-   *   }
-   *
-   *   Status Handle(const IteratorTraceExecutionResult& result) override {
-   *     if (result.GetValid()) {
-   *       std::cout << "Valid: true"
-   *                 << ", status: " << result.GetStatus().ToString()
-   *                 << ", key: " << result.GetKey().ToString()
-   *                 << ", value: " << result.GetValue().ToString()
-   *                 << std::endl;
-   *     } else {
-   *       std::cout << "Valid: false"
-   *                 << ", status: " << result.GetStatus().ToString()
-   *                 << std::endl;
-   *     }
-   *   }
-   * };
-   * */
-
   // Accept the handler.
   virtual Status Accept(Handler* handler) = 0;
 
