@@ -33,7 +33,8 @@ class TestCompactionServiceBase {
 
  protected:
   bool is_override_start_status = false;
-  CompactionServiceJobStatus override_start_status = CompactionServiceJobStatus::kFailure;
+  CompactionServiceJobStatus override_start_status =
+      CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result = false;
   std::string override_wait_result;
 };
@@ -41,10 +42,11 @@ class TestCompactionServiceBase {
 class MyTestCompactionServiceLegacy : public CompactionService,
                                       public TestCompactionServiceBase {
  public:
-  MyTestCompactionServiceLegacy(
-      std::string db_path, Options& options,
-      std::shared_ptr<Statistics>& statistics)
-      : db_path_(std::move(db_path)), options_(options), statistics_(statistics) {}
+  MyTestCompactionServiceLegacy(std::string db_path, Options& options,
+                                std::shared_ptr<Statistics>& statistics)
+      : db_path_(std::move(db_path)),
+        options_(options),
+        statistics_(statistics) {}
 
   static const char* kClassName() { return "MyTestCompactionServiceLegacy"; }
 
@@ -118,18 +120,20 @@ class MyTestCompactionService : public CompactionService,
  public:
   MyTestCompactionService(std::string db_path, Options& options,
                           std::shared_ptr<Statistics>& statistics)
-      : db_path_(std::move(db_path)), options_(options), statistics_(statistics) {}
+      : db_path_(std::move(db_path)),
+        options_(options),
+        statistics_(statistics) {}
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
   const char* Name() const override { return kClassName(); }
 
-  CompactionServiceJobStatus Start(const CompactionServiceJobInfo& info,
-                                   const std::string& compaction_service_input,
-                                   uint64_t job_id) override {
+  CompactionServiceJobStatus Start(
+      const CompactionServiceJobInfo& info,
+      const std::string& compaction_service_input) override {
     InstrumentedMutexLock l(&mutex_);
     assert(info.db_name == db_path_);
-    jobs_.emplace(job_id, compaction_service_input);
+    jobs_.emplace(info.job_id, compaction_service_input);
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
     if (is_override_start_status) {
       return override_start_status;
@@ -138,13 +142,13 @@ class MyTestCompactionService : public CompactionService,
   }
 
   CompactionServiceJobStatus WaitForComplete(
-      const CompactionServiceJobInfo& info, uint64_t job_id,
+      const CompactionServiceJobInfo& info,
       std::string* compaction_service_result) override {
     std::string compaction_input;
     assert(info.db_name == db_path_);
     {
       InstrumentedMutexLock l(&mutex_);
-      auto i = jobs_.find(job_id);
+      auto i = jobs_.find(info.job_id);
       if (i == jobs_.end()) {
         return CompactionServiceJobStatus::kFailure;
       }
@@ -167,7 +171,7 @@ class MyTestCompactionService : public CompactionService,
     options_override.statistics = statistics_;
 
     Status s = DB::OpenAndCompact(
-        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(job_id),
+        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
         compaction_input, compaction_service_result, options_override);
     if (is_override_wait_result) {
       *compaction_service_result = override_wait_result;
@@ -213,9 +217,7 @@ class CompactionServiceTest : public DBTestBase {
 
   Statistics* GetPrimaryStatistics() { return primary_statistics_.get(); }
 
-  T* GetCompactionService() {
-    return compaction_service_.get();
-  }
+  T* GetCompactionService() { return compaction_service_.get(); }
 
   void GenerateTestData() {
     // Generate 20 files @ L2
@@ -257,7 +259,8 @@ class CompactionServiceTest : public DBTestBase {
   std::shared_ptr<T> compaction_service_;
 };
 
-typedef testing::Types<MyTestCompactionService, MyTestCompactionServiceLegacy> MyTestCompactionServiceTypes;
+typedef testing::Types<MyTestCompactionService, MyTestCompactionServiceLegacy>
+    MyTestCompactionServiceTypes;
 TYPED_TEST_CASE(CompactionServiceTest, MyTestCompactionServiceTypes);
 
 TYPED_TEST(CompactionServiceTest, BasicCompactions) {
@@ -267,7 +270,9 @@ TYPED_TEST(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(CompactionServiceTest<TypeParam>::Put(CompactionServiceTest<TypeParam>::Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(CompactionServiceTest<TypeParam>::Put(
+          CompactionServiceTest<TypeParam>::Key(key_id),
+          "value" + ToString(key_id)));
     }
     ASSERT_OK(CompactionServiceTest<TypeParam>::Flush());
   }
@@ -275,7 +280,9 @@ TYPED_TEST(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(CompactionServiceTest<TypeParam>::Put(CompactionServiceTest<TypeParam>::Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(CompactionServiceTest<TypeParam>::Put(
+          CompactionServiceTest<TypeParam>::Key(key_id),
+          "value_new" + ToString(key_id)));
     }
     ASSERT_OK(CompactionServiceTest<TypeParam>::Flush());
   }
@@ -283,7 +290,8 @@ TYPED_TEST(CompactionServiceTest, BasicCompactions) {
 
   // verify result
   for (int i = 0; i < 200; i++) {
-    auto result = CompactionServiceTest<TypeParam>::Get(CompactionServiceTest<TypeParam>::Key(i));
+    auto result = CompactionServiceTest<TypeParam>::Get(
+        CompactionServiceTest<TypeParam>::Key(i));
     if (i % 2) {
       ASSERT_EQ(result, "value" + ToString(i));
     } else {
@@ -291,13 +299,15 @@ TYPED_TEST(CompactionServiceTest, BasicCompactions) {
     }
   }
   auto my_cs = CompactionServiceTest<TypeParam>::GetCompactionService();
-  Statistics* compactor_statistics = CompactionServiceTest<TypeParam>::GetCompactorStatistics();
+  Statistics* compactor_statistics =
+      CompactionServiceTest<TypeParam>::GetCompactorStatistics();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 
   // make sure the compaction statistics is only recorded on remote side
   ASSERT_GE(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY), 1);
-  Statistics* primary_statistics = CompactionServiceTest<TypeParam>::GetPrimaryStatistics();
+  Statistics* primary_statistics =
+      CompactionServiceTest<TypeParam>::GetPrimaryStatistics();
   ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
             0);
 
@@ -314,7 +324,9 @@ TYPED_TEST(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      s = CompactionServiceTest<TypeParam>::Put(CompactionServiceTest<TypeParam>::Key(key_id), "value_new" + ToString(key_id));
+      s = CompactionServiceTest<TypeParam>::Put(
+          CompactionServiceTest<TypeParam>::Key(key_id),
+          "value_new" + ToString(key_id));
       if (s.IsAborted()) {
         break;
       }
@@ -347,26 +359,30 @@ TYPED_TEST(CompactionServiceTest, ManualCompaction) {
   Slice start(start_str);
   Slice end(end_str);
   uint64_t comp_num = my_cs->GetCompactionNum();
-  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(
+      CompactRangeOptions(), &start, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   CompactionServiceTest<TypeParam>::VerifyTestData();
 
   start_str = CompactionServiceTest<TypeParam>::Key(120);
   start = start_str;
   comp_num = my_cs->GetCompactionNum();
-  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(CompactRangeOptions(), &start, nullptr));
+  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(
+      CompactRangeOptions(), &start, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   CompactionServiceTest<TypeParam>::VerifyTestData();
 
   end_str = CompactionServiceTest<TypeParam>::Key(92);
   end = end_str;
   comp_num = my_cs->GetCompactionNum();
-  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(CompactRangeOptions(), nullptr, &end));
+  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(
+      CompactRangeOptions(), nullptr, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   CompactionServiceTest<TypeParam>::VerifyTestData();
 
   comp_num = my_cs->GetCompactionNum();
-  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(CompactionServiceTest<TypeParam>::db_->CompactRange(
+      CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   CompactionServiceTest<TypeParam>::VerifyTestData();
 }

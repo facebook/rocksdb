@@ -984,10 +984,10 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
       compaction_input.column_family.name.c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
-  CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_);
+  CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_,
+                                GetCompactionId(sub_compact));
   CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->Start(info, compaction_input_binary,
-                                            GetCompactionId(sub_compact));
+      db_options_.compaction_service->Start(info, compaction_input_binary);
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     sub_compact->status =
         Status::Incomplete("CompactionService failed to start compaction job.");
@@ -996,7 +996,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   std::string compaction_result_binary;
   compaction_status = db_options_.compaction_service->WaitForComplete(
-      info, GetCompactionId(sub_compact), &compaction_result_binary);
+      info, &compaction_result_binary);
 
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
