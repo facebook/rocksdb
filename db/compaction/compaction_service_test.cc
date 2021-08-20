@@ -128,7 +128,7 @@ class MyTestCompactionService : public CompactionService,
 
   const char* Name() const override { return kClassName(); }
 
-  CompactionServiceJobStatus Start(
+  CompactionServiceJobStatus StartV2(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
     InstrumentedMutexLock l(&mutex_);
@@ -141,7 +141,7 @@ class MyTestCompactionService : public CompactionService,
     return s;
   }
 
-  CompactionServiceJobStatus WaitForComplete(
+  CompactionServiceJobStatus WaitForCompleteV2(
       const CompactionServiceJobInfo& info,
       std::string* compaction_service_result) override {
     std::string compaction_input;

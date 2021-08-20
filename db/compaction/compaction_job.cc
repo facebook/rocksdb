@@ -987,7 +987,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_,
                                 GetCompactionId(sub_compact));
   CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->Start(info, compaction_input_binary);
+      db_options_.compaction_service->StartV2(info, compaction_input_binary);
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     sub_compact->status =
         Status::Incomplete("CompactionService failed to start compaction job.");
@@ -995,7 +995,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   }
 
   std::string compaction_result_binary;
-  compaction_status = db_options_.compaction_service->WaitForComplete(
+  compaction_status = db_options_.compaction_service->WaitForCompleteV2(
       info, &compaction_result_binary);
 
   CompactionServiceResult compaction_result;
