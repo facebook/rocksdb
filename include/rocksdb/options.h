@@ -389,7 +389,7 @@ class CompactionService : public Customizable {
   static const char* Type() { return "CompactionService"; }
 
   // Returns the name of this compaction service.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
@@ -421,7 +421,7 @@ class CompactionService : public Customizable {
     return WaitForComplete(job_id, compaction_service_result);
   }
 
-  virtual ~CompactionService() {}
+  ~CompactionService() override = default;
 };
 
 struct DBOptions {
