@@ -400,7 +400,9 @@ class CompactionService : public Customizable {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
-  // doc
+  // Start the remote compaction with `compaction_service_input`, which can be passed to `DB::OpenAndCompact()` on the remote side.
+  // `info` provides the information the user might want to know.
+  // `job_id` is pre-assigned, it will be reset after DB re-open.
   virtual CompactionServiceJobStatus Start(
       const CompactionServiceJobInfo& info, const std::string& compaction_service_input, uint64_t job_id) {
     // Default implementation to call legacy interface, please override and replace the legacy implementation
@@ -414,7 +416,7 @@ class CompactionService : public Customizable {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
-  // doc
+  // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForComplete(const CompactionServiceJobInfo& info,
       uint64_t job_id, std::string* compaction_service_result) {
     // Default implementation to call legacy interface, please override and replace the legacy implementation
