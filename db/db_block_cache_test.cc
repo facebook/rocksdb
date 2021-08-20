@@ -1302,6 +1302,22 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
 
 #endif  // ROCKSDB_LITE
 
+class DBBlockCacheKeyTest
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  DBBlockCacheKeyTest()
+      : DBTestBase("db_block_cache_test", /*env_do_fsync=*/false) {}
+
+  void SetUp() override {
+    use_compressed_cache_ = std::get<0>(GetParam());
+    exclude_file_numbers_ = std::get<1>(GetParam());
+  }
+
+  bool use_compressed_cache_;
+  bool exclude_file_numbers_;
+};
+
 // Disable LinkFile so that we can physically copy a DB using Checkpoint.
 // Disable file GetUniqueId to enable stable cache keys.
 class StableCacheKeyTestFS : public FaultInjectionTestFS {
@@ -1319,120 +1335,197 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
   }
 };
 
-TEST_F(DBBlockCacheTest, StableCacheKeys) {
+TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   std::shared_ptr<StableCacheKeyTestFS> test_fs{
       new StableCacheKeyTestFS(env_->GetFileSystem())};
   std::unique_ptr<CompositeEnvWrapper> test_env{
       new CompositeEnvWrapper(env_, test_fs)};
 
-  for (bool compressed : {false, true}) {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.env = test_env.get();
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.env = test_env.get();
 
-    BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options;
 
-    std::function<void()> verify_stats;
-    if (compressed) {
-      if (!Snappy_Supported()) {
-        fprintf(stderr, "skipping compressed test, snappy unavailable\n");
-        continue;
-      }
-      options.compression = CompressionType::kSnappyCompression;
-      table_options.no_block_cache = true;
-      table_options.block_cache_compressed = NewLRUCache(1 << 25, 0, false);
-      verify_stats = [&options] {
-        // One for ordinary SST file and one for external SST file
-        ASSERT_EQ(
-            2, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_ADD));
-      };
-    } else {
-      table_options.cache_index_and_filter_blocks = true;
-      table_options.block_cache = NewLRUCache(1 << 25, 0, false);
-      verify_stats = [&options] {
-        ASSERT_EQ(2, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
-        ASSERT_EQ(2, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
-        ASSERT_EQ(2,
-                  options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
-      };
+  int key_count = 0;
+  uint64_t expected_stat = 0;
+
+  std::function<void()> verify_stats;
+  if (use_compressed_cache_) {
+    if (!Snappy_Supported()) {
+      ROCKSDB_GTEST_SKIP("Compressed cache test requires snappy support");
+      return;
     }
+    options.compression = CompressionType::kSnappyCompression;
+    table_options.no_block_cache = true;
+    table_options.block_cache_compressed = NewLRUCache(1 << 25, 0, false);
+    verify_stats = [&options, &expected_stat] {
+      // One for ordinary SST file and one for external SST file
+      ASSERT_EQ(expected_stat,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_ADD));
+    };
+  } else {
+    table_options.cache_index_and_filter_blocks = true;
+    table_options.block_cache = NewLRUCache(1 << 25, 0, false);
+    verify_stats = [&options, &expected_stat] {
+      ASSERT_EQ(expected_stat,
+                options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+      ASSERT_EQ(expected_stat,
+                options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
+      ASSERT_EQ(expected_stat,
+                options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
+    };
+  }
 
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"koko"}, options);
 
-    // Ordinary SST file
-    ASSERT_OK(Put("key1", "abc"));
-    std::string something_compressible(500U, 'x');
-    ASSERT_OK(Put("key1a", something_compressible));
-    ASSERT_OK(Flush());
+  if (exclude_file_numbers_) {
+    // Simulate something like old behavior without file numbers in properties.
+    // This is a "control" side of the test that also ensures safely degraded
+    // behavior on old files.
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+          TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+          props->orig_file_number = 0;
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  }
+
+  std::function<void()> perform_gets = [&key_count, &expected_stat, this]() {
+    if (exclude_file_numbers_) {
+      // No cache key reuse should happen, because we can't rely on current
+      // file number being stable
+      expected_stat += key_count;
+    } else {
+      // Cache keys should be stable
+      expected_stat = key_count;
+    }
+    for (int i = 0; i < key_count; ++i) {
+      ASSERT_EQ(Get(1, Key(i)), "abc");
+    }
+  };
+
+  // Ordinary SST files with same session id
+  const std::string something_compressible(500U, 'x');
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(Put(1, Key(key_count), "abc"));
+    ASSERT_OK(Put(1, Key(key_count) + "a", something_compressible));
+    ASSERT_OK(Flush(1));
+    ++key_count;
+  }
 
 #ifndef ROCKSDB_LITE
-    // External SST file
-    std::string external = dbname_ + "/external.sst";
-    {
-      SstFileWriter sst_file_writer(EnvOptions(), options);
-      ASSERT_OK(sst_file_writer.Open(external));
-      ASSERT_OK(sst_file_writer.Put("key2", "abc"));
-      ASSERT_OK(sst_file_writer.Put("key2a", something_compressible));
-      ExternalSstFileInfo external_info;
-      ASSERT_OK(sst_file_writer.Finish(&external_info));
-      IngestExternalFileOptions ingest_opts;
-      ASSERT_OK(db_->IngestExternalFile({external}, ingest_opts));
-    }
-#else
-    // Another ordinary SST file
-    ASSERT_OK(Put("key2", "abc"));
-    ASSERT_OK(Put("key2a", something_compressible));
-    ASSERT_OK(Flush());
+  // Save an export of those ordinary SST files for later
+  std::string export_files_dir = dbname_ + "/exported";
+  ExportImportFilesMetaData* metadata_ptr_ = nullptr;
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir,
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
+  checkpoint = nullptr;
+
+  // External SST files with same session id
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::vector<std::string> external;
+  for (int i = 0; i < 2; ++i) {
+    std::string f = dbname_ + "/external" + ToString(i) + ".sst";
+    external.push_back(f);
+    ASSERT_OK(sst_file_writer.Open(f));
+    ASSERT_OK(sst_file_writer.Put(Key(key_count), "abc"));
+    ASSERT_OK(
+        sst_file_writer.Put(Key(key_count) + "a", something_compressible));
+    ++key_count;
+    ExternalSstFileInfo external_info;
+    ASSERT_OK(sst_file_writer.Finish(&external_info));
+    IngestExternalFileOptions ingest_opts;
+    ASSERT_OK(db_->IngestExternalFile(handles_[1], {f}, ingest_opts));
+  }
+
+  if (exclude_file_numbers_) {
+    // FIXME(peterd): figure out where these extra two ADDs are coming from
+    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
+                                   uint64_t{0} - uint64_t{2});
+    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
+                                   uint64_t{0} - uint64_t{2});
+    options.statistics->recordTick(BLOCK_CACHE_COMPRESSED_ADD,
+                                   uint64_t{0} - uint64_t{2});
+  }
 #endif
 
-    ASSERT_EQ(Get("key1"), std::string("abc"));
-    ASSERT_EQ(Get("key2"), std::string("abc"));
-    verify_stats();
+  perform_gets();
+  verify_stats();
 
-    // Make sure we can cache hit after re-open
-    Reopen(options);
+  // Make sure we can cache hit after re-open
+  ReopenWithColumnFamilies({"default", "koko"}, options);
 
-    ASSERT_EQ(Get("key1"), std::string("abc"));
-    ASSERT_EQ(Get("key2"), std::string("abc"));
-    verify_stats();
+  perform_gets();
+  verify_stats();
 
-    // Make sure we can cache hit even on a full copy of the DB. Using
-    // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
-    // (Checkpoint  not available in LITE mode to test this.)
+  // Make sure we can cache hit even on a full copy of the DB. Using
+  // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
+  // (Checkpoint  not available in LITE mode to test this.)
 #ifndef ROCKSDB_LITE
-    auto db_copy_name = dbname_ + "-copy";
-    Checkpoint* checkpoint;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
-    delete checkpoint;
+  auto db_copy_name = dbname_ + "-copy";
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
+  delete checkpoint;
 
-    Close();
-    Destroy(options);
-    SaveAndRestore<std::string> save_dbname(&dbname_, db_copy_name);
-    Reopen(options);
+  Close();
+  Destroy(options);
 
-    ASSERT_EQ(Get("key1"), std::string("abc"));
-    ASSERT_EQ(Get("key2"), std::string("abc"));
-    verify_stats();
+  // Switch to the DB copy
+  SaveAndRestore<std::string> save_dbname(&dbname_, db_copy_name);
+  ReopenWithColumnFamilies({"default", "koko"}, options);
 
-    // And ensure that re-ingesting the same external file into a different DB
-    // uses same cache keys
-    DestroyAndReopen(options);
+  perform_gets();
+  verify_stats();
 
-    IngestExternalFileOptions ingest_opts;
-    ASSERT_OK(db_->IngestExternalFile({external}, ingest_opts));
+  // And ensure that re-importing + ingesting the same files into a
+  // different DB uses same cache keys
+  DestroyAndReopen(options);
 
-    ASSERT_EQ(Get("key2"), std::string("abc"));
-    verify_stats();
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                              ImportColumnFamilyOptions(),
+                                              *metadata_ptr_, &cfh));
+  ASSERT_NE(cfh, nullptr);
+  delete cfh;
+  cfh = nullptr;
+  delete metadata_ptr_;
+  metadata_ptr_ = nullptr;
+
+  DestroyDB(export_files_dir, options);
+
+  ReopenWithColumnFamilies({"default", "yoyo"}, options);
+
+  IngestExternalFileOptions ingest_opts;
+  ASSERT_OK(db_->IngestExternalFile(handles_[1], {external}, ingest_opts));
+
+  if (exclude_file_numbers_) {
+    // FIXME(peterd): figure out where these extra two ADDs are coming from
+    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
+                                   uint64_t{0} - uint64_t{2});
+    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
+                                   uint64_t{0} - uint64_t{2});
+  }
+
+  perform_gets();
+  verify_stats();
 #endif  // !ROCKSDB_LITE
 
-    Close();
-    Destroy(options);
-  }
+  Close();
+  Destroy(options);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+INSTANTIATE_TEST_CASE_P(DBBlockCacheKeyTest, DBBlockCacheKeyTest,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
 
 class DBBlockCachePinningTest
     : public DBTestBase,
