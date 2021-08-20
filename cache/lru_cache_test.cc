@@ -481,6 +481,7 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
   ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
                           str2.length()));
 
+  get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
       cache->Lookup("k2", &LRUSecondaryCacheTest::helper_, test_item_creator,
@@ -497,6 +498,8 @@ TEST_F(LRUSecondaryCacheTest, BasicTest) {
   ASSERT_EQ(secondary_cache->num_lookups(), 1u);
   ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_HITS),
             secondary_cache->num_lookups());
+  PerfContext perf_ctx = *get_perf_context();
+  ASSERT_EQ(perf_ctx.secondary_cache_hit_count, secondary_cache->num_lookups());
 
   cache.reset();
   secondary_cache.reset();

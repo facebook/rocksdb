@@ -4256,13 +4256,6 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
         writes_++;
         break;
       }
-      case kTraceIteratorSeek:
-      case kTraceIteratorSeekForPrev: {
-        total_latency_ += result.GetLatency();
-        cnt_++;
-        seeks_++;
-        break;
-      }
       default:
         return Status::Corruption("Type mismatch.");
     }
@@ -4301,6 +4294,25 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
         total_latency_ += result.GetLatency();
         cnt_++;
         multigets_++;
+        break;
+      }
+      default:
+        return Status::Corruption("Type mismatch.");
+    }
+    return Status::OK();
+  }
+
+  virtual Status Handle(const IteratorTraceExecutionResult& result) override {
+    if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
+      return Status::InvalidArgument("Invalid timestamps.");
+    }
+    result.GetStatus().PermitUncheckedError();
+    switch (result.GetTraceType()) {
+      case kTraceIteratorSeek:
+      case kTraceIteratorSeekForPrev: {
+        total_latency_ += result.GetLatency();
+        cnt_++;
+        seeks_++;
         break;
       }
       default:
@@ -4538,6 +4550,37 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   single_iter = db_->NewIterator(ro);
   single_iter->Seek("f");
   single_iter->SeekForPrev("g");
+  ASSERT_OK(single_iter->status());
+  delete single_iter;
+
+  // Write some sequenced keys for testing lower/upper bounds of iterator.
+  batch.Clear();
+  ASSERT_OK(batch.Put("iter-0", "iter-0"));
+  ASSERT_OK(batch.Put("iter-1", "iter-1"));
+  ASSERT_OK(batch.Put("iter-2", "iter-2"));
+  ASSERT_OK(batch.Put("iter-3", "iter-3"));
+  ASSERT_OK(batch.Put("iter-4", "iter-4"));
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  ReadOptions bounded_ro = ro;
+  Slice lower_bound("iter-1");
+  Slice upper_bound("iter-3");
+  bounded_ro.iterate_lower_bound = &lower_bound;
+  bounded_ro.iterate_upper_bound = &upper_bound;
+  single_iter = db_->NewIterator(bounded_ro);
+  single_iter->Seek("iter-0");
+  ASSERT_EQ(single_iter->key().ToString(), "iter-1");
+  single_iter->Seek("iter-2");
+  ASSERT_EQ(single_iter->key().ToString(), "iter-2");
+  single_iter->Seek("iter-4");
+  ASSERT_FALSE(single_iter->Valid());
+  single_iter->SeekForPrev("iter-0");
+  ASSERT_FALSE(single_iter->Valid());
+  single_iter->SeekForPrev("iter-2");
+  ASSERT_EQ(single_iter->key().ToString(), "iter-2");
+  single_iter->SeekForPrev("iter-4");
+  ASSERT_EQ(single_iter->key().ToString(), "iter-2");
+  ASSERT_OK(single_iter->status());
   delete single_iter;
 
   ASSERT_EQ("1", Get(0, "a"));
@@ -4548,6 +4591,9 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
 
   // Same as TraceAndReplay, Write x 8, Get x 3, Seek x 2.
+  // Plus 1 WriteBatch for iterator with lower/upper bounds, and 6
+  // Seek(ForPrev)s.
+  // Total Write x 9, Get x 3, Seek x 8
   ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
   ASSERT_OK(Put("hello", "world"));
@@ -4613,6 +4659,36 @@ TEST_F(DBTest2, TraceAndManualReplay) {
         ASSERT_OK(replayer->Execute(record, &result));
         if (result != nullptr) {
           ASSERT_OK(result->Accept(&res_handler));
+          if (record->GetTraceType() == kTraceIteratorSeek ||
+              record->GetTraceType() == kTraceIteratorSeekForPrev) {
+            IteratorSeekQueryTraceRecord* iter_rec =
+                dynamic_cast<IteratorSeekQueryTraceRecord*>(record.get());
+            IteratorTraceExecutionResult* iter_res =
+                dynamic_cast<IteratorTraceExecutionResult*>(result.get());
+            // Check if lower/upper bounds are correctly saved and decoded.
+            std::string lower_str = iter_rec->GetLowerBound().ToString();
+            std::string upper_str = iter_rec->GetUpperBound().ToString();
+            std::string iter_key = iter_res->GetKey().ToString();
+            std::string iter_value = iter_res->GetValue().ToString();
+            if (!lower_str.empty() && !upper_str.empty()) {
+              ASSERT_EQ(lower_str, "iter-1");
+              ASSERT_EQ(upper_str, "iter-3");
+              if (iter_res->GetValid()) {
+                // If iterator is valid, then lower_bound <= key < upper_bound.
+                ASSERT_GE(iter_key, lower_str);
+                ASSERT_LT(iter_key, upper_str);
+              } else {
+                // If iterator is invalid, then
+                //   key < lower_bound or key >= upper_bound.
+                ASSERT_TRUE(iter_key < lower_str || iter_key >= upper_str);
+              }
+            }
+            // If iterator is invalid, the key and value should be empty.
+            if (!iter_res->GetValid()) {
+              ASSERT_TRUE(iter_key.empty());
+              ASSERT_TRUE(iter_value.empty());
+            }
+          }
           result.reset();
         }
       }
@@ -4622,9 +4698,9 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     ASSERT_TRUE(s.IsIncomplete());
     ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
     ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
-    ASSERT_EQ(res_handler.GetNumWrites(), 8);
+    ASSERT_EQ(res_handler.GetNumWrites(), 9);
     ASSERT_EQ(res_handler.GetNumGets(), 3);
-    ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
+    ASSERT_EQ(res_handler.GetNumIterSeeks(), 8);
     ASSERT_EQ(res_handler.GetNumMultiGets(), 0);
     res_handler.Reset();
   }

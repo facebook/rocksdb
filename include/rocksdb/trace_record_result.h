@@ -9,11 +9,13 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+class IteratorTraceExecutionResult;
 class MultiValuesTraceExecutionResult;
 class SingleValueTraceExecutionResult;
 class StatusOnlyTraceExecutionResult;
@@ -34,42 +36,14 @@ class TraceRecordResult {
    public:
     virtual ~Handler() = default;
 
-    // Handle StatusOnlyTraceExecutionResult
     virtual Status Handle(const StatusOnlyTraceExecutionResult& result) = 0;
 
-    // Handle SingleValueTraceExecutionResult
     virtual Status Handle(const SingleValueTraceExecutionResult& result) = 0;
 
-    // Handle MultiValuesTraceExecutionResult
     virtual Status Handle(const MultiValuesTraceExecutionResult& result) = 0;
-  };
 
-  /*
-   * Example handler to just print the trace record execution results.
-   *
-   * class ResultPrintHandler : public TraceRecordResult::Handler {
-   *  public:
-   *   ResultPrintHandler();
-   *   ~ResultPrintHandler() override {}
-   *
-   *   Status Handle(const StatusOnlyTraceExecutionResult& result) override {
-   *     std::cout << "Status: " << result.GetStatus().ToString() << std::endl;
-   *   }
-   *
-   *   Status Handle(const SingleValueTraceExecutionResult& result) override {
-   *     std::cout << "Status: " << result.GetStatus().ToString()
-   *               << ", value: " << result.GetValue() << std::endl;
-   *   }
-   *
-   *   Status Handle(const MultiValuesTraceExecutionResult& result) override {
-   *     size_t size = result.GetMultiStatus().size();
-   *     for (size_t i = 0; i < size; i++) {
-   *       std::cout << "Status: " << result.GetMultiStatus()[i].ToString()
-   *                 << ", value: " << result.GetValues()[i] << std::endl;
-   *     }
-   *   }
-   * };
-   * */
+    virtual Status Handle(const IteratorTraceExecutionResult& result) = 0;
+  };
 
   // Accept the handler.
   virtual Status Accept(Handler* handler) = 0;
@@ -106,8 +80,7 @@ class TraceExecutionResult : public TraceRecordResult {
 };
 
 // Result for operations that only return a single Status.
-// Example operations: DB::Write(), Iterator::Seek() and
-// Iterator::SeekForPrev().
+// Example operation: DB::Write()
 class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
  public:
   StatusOnlyTraceExecutionResult(Status status, uint64_t start_timestamp,
@@ -138,7 +111,7 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
 
   virtual ~SingleValueTraceExecutionResult() override;
 
-  // Return status of DB::Get(), etc.
+  // Return status of DB::Get().
   virtual const Status& GetStatus() const;
 
   // Value for the searched key.
@@ -151,7 +124,7 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
   std::string value_;
 };
 
-// Result for operations that return multiple Status(es) and values.
+// Result for operations that return multiple Status(es) and values as vectors.
 // Example operation: DB::MultiGet()
 class MultiValuesTraceExecutionResult : public TraceExecutionResult {
  public:
@@ -162,7 +135,7 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
 
   virtual ~MultiValuesTraceExecutionResult() override;
 
-  // Returned Status(es) of DB::MultiGet(), etc.
+  // Returned Status(es) of DB::MultiGet().
   virtual const std::vector<Status>& GetMultiStatus() const;
 
   // Returned values for the searched keys.
@@ -173,6 +146,42 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
  private:
   std::vector<Status> multi_status_;
   std::vector<std::string> values_;
+};
+
+// Result for Iterator operations.
+// Example operations: Iterator::Seek(), Iterator::SeekForPrev()
+class IteratorTraceExecutionResult : public TraceExecutionResult {
+ public:
+  IteratorTraceExecutionResult(bool valid, Status status, PinnableSlice&& key,
+                               PinnableSlice&& value, uint64_t start_timestamp,
+                               uint64_t end_timestamp, TraceType trace_type);
+
+  IteratorTraceExecutionResult(bool valid, Status status,
+                               const std::string& key, const std::string& value,
+                               uint64_t start_timestamp, uint64_t end_timestamp,
+                               TraceType trace_type);
+
+  virtual ~IteratorTraceExecutionResult() override;
+
+  // Return if the Iterator is valid.
+  virtual bool GetValid() const;
+
+  // Return the status of the Iterator.
+  virtual const Status& GetStatus() const;
+
+  // Key of the current iterating entry, empty if GetValid() is false.
+  virtual Slice GetKey() const;
+
+  // Value of the current iterating entry, empty if GetValid() is false.
+  virtual Slice GetValue() const;
+
+  virtual Status Accept(Handler* handler) override;
+
+ private:
+  bool valid_;
+  Status status_;
+  PinnableSlice key_;
+  PinnableSlice value_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
