@@ -39,7 +39,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
 #endif  // ROCKSDB_LITE
 }
 
-WriteBufferManager::~WriteBufferManager() {}
+WriteBufferManager::~WriteBufferManager() = default;
 
 std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
   if (cache_rev_mng_ != nullptr) {
