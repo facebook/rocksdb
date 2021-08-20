@@ -103,4 +103,44 @@ Status MultiValuesTraceExecutionResult::Accept(Handler* handler) {
   return handler->Handle(*this);
 }
 
+// IteratorTraceExecutionResult
+IteratorTraceExecutionResult::IteratorTraceExecutionResult(
+    bool valid, Status status, PinnableSlice&& key, PinnableSlice&& value,
+    uint64_t start_timestamp, uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
+      valid_(valid),
+      status_(std::move(status)),
+      key_(std::move(key)),
+      value_(std::move(value)) {}
+
+IteratorTraceExecutionResult::IteratorTraceExecutionResult(
+    bool valid, Status status, const std::string& key, const std::string& value,
+    uint64_t start_timestamp, uint64_t end_timestamp, TraceType trace_type)
+    : TraceExecutionResult(start_timestamp, end_timestamp, trace_type),
+      valid_(valid),
+      status_(std::move(status)) {
+  key_.PinSelf(key);
+  value_.PinSelf(value);
+}
+
+IteratorTraceExecutionResult::~IteratorTraceExecutionResult() {
+  key_.clear();
+  value_.clear();
+}
+
+bool IteratorTraceExecutionResult::GetValid() const { return valid_; }
+
+const Status& IteratorTraceExecutionResult::GetStatus() const {
+  return status_;
+}
+
+Slice IteratorTraceExecutionResult::GetKey() const { return Slice(key_); }
+
+Slice IteratorTraceExecutionResult::GetValue() const { return Slice(value_); }
+
+Status IteratorTraceExecutionResult::Accept(Handler* handler) {
+  assert(handler != nullptr);
+  return handler->Handle(*this);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

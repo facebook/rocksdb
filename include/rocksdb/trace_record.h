@@ -65,19 +65,15 @@ class TraceRecord {
    public:
     virtual ~Handler() = default;
 
-    // Handle WriteQueryTraceRecord
     virtual Status Handle(const WriteQueryTraceRecord& record,
                           std::unique_ptr<TraceRecordResult>* result) = 0;
 
-    // Handle GetQueryTraceRecord
     virtual Status Handle(const GetQueryTraceRecord& record,
                           std::unique_ptr<TraceRecordResult>* result) = 0;
 
-    // Handle IteratorSeekQueryTraceRecord
     virtual Status Handle(const IteratorSeekQueryTraceRecord& record,
                           std::unique_ptr<TraceRecordResult>* result) = 0;
 
-    // Handle MultiGetQueryTraceRecord
     virtual Status Handle(const MultiGetQueryTraceRecord& record,
                           std::unique_ptr<TraceRecordResult>* result) = 0;
   };
@@ -152,6 +148,23 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 class IteratorQueryTraceRecord : public QueryTraceRecord {
  public:
   explicit IteratorQueryTraceRecord(uint64_t timestamp);
+
+  IteratorQueryTraceRecord(PinnableSlice&& lower_bound,
+                           PinnableSlice&& upper_bound, uint64_t timestamp);
+
+  IteratorQueryTraceRecord(const std::string& lower_bound,
+                           const std::string& upper_bound, uint64_t timestamp);
+
+  virtual ~IteratorQueryTraceRecord() override;
+
+  // Get the iterator's lower/upper bound. They may be used in ReadOptions to
+  // create an Iterator instance.
+  virtual Slice GetLowerBound() const;
+  virtual Slice GetUpperBound() const;
+
+ private:
+  PinnableSlice lower_;
+  PinnableSlice upper_;
 };
 
 // Trace record for Iterator::Seek() and Iterator::SeekForPrev() operation.
@@ -193,12 +206,6 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   // Key to seek to.
   virtual Slice GetKey() const;
 
-  // Iterate lower bound.
-  virtual Slice GetLowerBound() const;
-
-  // Iterate upper bound.
-  virtual Slice GetUpperBound() const;
-
   Status Accept(Handler* handler,
                 std::unique_ptr<TraceRecordResult>* result) override;
 
@@ -206,8 +213,6 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   SeekType type_;
   uint32_t cf_id_;
   PinnableSlice key_;
-  PinnableSlice lower_;
-  PinnableSlice upper_;
 };
 
 // Trace record for DB::MultiGet() operation.

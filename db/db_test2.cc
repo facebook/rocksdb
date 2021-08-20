@@ -4256,13 +4256,6 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
         writes_++;
         break;
       }
-      case kTraceIteratorSeek:
-      case kTraceIteratorSeekForPrev: {
-        total_latency_ += result.GetLatency();
-        cnt_++;
-        seeks_++;
-        break;
-      }
       default:
         return Status::Corruption("Type mismatch.");
     }
@@ -4301,6 +4294,25 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
         total_latency_ += result.GetLatency();
         cnt_++;
         multigets_++;
+        break;
+      }
+      default:
+        return Status::Corruption("Type mismatch.");
+    }
+    return Status::OK();
+  }
+
+  virtual Status Handle(const IteratorTraceExecutionResult& result) override {
+    if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
+      return Status::InvalidArgument("Invalid timestamps.");
+    }
+    result.GetStatus().PermitUncheckedError();
+    switch (result.GetTraceType()) {
+      case kTraceIteratorSeek:
+      case kTraceIteratorSeekForPrev: {
+        total_latency_ += result.GetLatency();
+        cnt_++;
+        seeks_++;
         break;
       }
       default:
@@ -4644,23 +4656,39 @@ TEST_F(DBTest2, TraceAndManualReplay) {
         continue;
       }
       if (s.ok()) {
-        if (record->GetTraceType() == kTraceIteratorSeek ||
-            record->GetTraceType() == kTraceIteratorSeekForPrev) {
-          IteratorSeekQueryTraceRecord* iter_r =
-              dynamic_cast<IteratorSeekQueryTraceRecord*>(record.get());
-          // Check if lower/upper bounds are correctly saved and decoded.
-          lower_bound = iter_r->GetLowerBound();
-          if (!lower_bound.empty()) {
-            ASSERT_EQ(lower_bound.ToString(), "iter-1");
-          }
-          upper_bound = iter_r->GetUpperBound();
-          if (!upper_bound.empty()) {
-            ASSERT_EQ(upper_bound.ToString(), "iter-3");
-          }
-        }
         ASSERT_OK(replayer->Execute(record, &result));
         if (result != nullptr) {
           ASSERT_OK(result->Accept(&res_handler));
+          if (record->GetTraceType() == kTraceIteratorSeek ||
+              record->GetTraceType() == kTraceIteratorSeekForPrev) {
+            IteratorSeekQueryTraceRecord* iter_rec =
+                dynamic_cast<IteratorSeekQueryTraceRecord*>(record.get());
+            IteratorTraceExecutionResult* iter_res =
+                dynamic_cast<IteratorTraceExecutionResult*>(result.get());
+            // Check if lower/upper bounds are correctly saved and decoded.
+            std::string lower_str = iter_rec->GetLowerBound().ToString();
+            std::string upper_str = iter_rec->GetUpperBound().ToString();
+            std::string iter_key = iter_res->GetKey().ToString();
+            std::string iter_value = iter_res->GetValue().ToString();
+            if (!lower_str.empty() && !upper_str.empty()) {
+              ASSERT_EQ(lower_str, "iter-1");
+              ASSERT_EQ(upper_str, "iter-3");
+              if (iter_res->GetValid()) {
+                // If iterator is valid, then lower_bound <= key < upper_bound.
+                ASSERT_GE(iter_key, lower_str);
+                ASSERT_LT(iter_key, upper_str);
+              } else {
+                // If iterator is invalid, then
+                //   key < lower_bound or key >= upper_bound.
+                ASSERT_TRUE(iter_key < lower_str || iter_key >= upper_str);
+              }
+            }
+            // If iterator is invalid, the key and value should be empty.
+            if (!iter_res->GetValid()) {
+              ASSERT_TRUE(iter_key.empty());
+              ASSERT_TRUE(iter_value.empty());
+            }
+          }
           result.reset();
         }
       }
