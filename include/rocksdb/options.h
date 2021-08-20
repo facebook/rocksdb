@@ -407,7 +407,7 @@ class CompactionService : public Customizable {
   // Warning: deprecated, please use the new interface
   // `Start(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, uint64_t job_id) {
+      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
@@ -426,7 +426,7 @@ class CompactionService : public Customizable {
   // Warning: deprecated, please use the new interface
   // `WaitForComplete(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t job_id, std::string* compaction_service_result) {
+      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
