@@ -53,10 +53,6 @@ class ReplayerImpl : public Replayer {
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
-  // Generic function to convert a Trace to TraceRecord.
-  static Status DecodeTraceRecord(Trace* trace, int trace_file_version,
-                                  std::unique_ptr<TraceRecord>* record);
-
   // Generic function to execute a Trace in a thread pool.
   static void BackgroundWork(void* arg);
 

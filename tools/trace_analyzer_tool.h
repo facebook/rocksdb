@@ -254,6 +254,7 @@ class TraceAnalyzer : private TraceRecord::Handler,
   uint64_t total_access_keys_;
   uint64_t total_gets_;
   uint64_t total_writes_;
+  // To do: why no counters for seeks and multigets?
   uint64_t trace_create_time_;
   uint64_t begin_time_;
   uint64_t end_time_;
@@ -294,21 +295,7 @@ class TraceAnalyzer : private TraceRecord::Handler,
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);
   Status MakeStatisticQPS();
-  // Set the default trace file version as version 0.2
-  int trace_file_version_;
   int db_version_;
-};
-
-// write bach handler to be used for WriteBache iterator
-// when processing the write trace
-class TraceWriteHandler : public WriteBatch::Handler {
- public:
-  TraceWriteHandler() { ta_ptr = nullptr; }
-  explicit TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
-  ~TraceWriteHandler() {}
-
- private:
-  TraceAnalyzer* ta_ptr;
 };
 
 int trace_analyzer_tool(int argc, char** argv);

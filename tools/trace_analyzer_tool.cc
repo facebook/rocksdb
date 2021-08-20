@@ -132,7 +132,7 @@ DEFINE_bool(analyze_single_delete, false, "Analyze the SingleDelete query.");
 DEFINE_bool(analyze_range_delete, false, "Analyze the DeleteRange query.");
 DEFINE_bool(analyze_merge, false, "Analyze the Merge query.");
 DEFINE_bool(analyze_iterator, false,
-            " Analyze the iterate query like seek() and seekForPrev().");
+            " Analyze the iterate query like Seek() and SeekForPrev().");
 DEFINE_bool(analyze_multiget, false,
             " Analyze the MultiGet query. NOTE: for"
             " MultiGet, we analyze each KV-pair read in one MultiGet query. "
@@ -285,8 +285,6 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   end_time_ = 0;
   time_series_start_ = 0;
   cur_time_sec_ = 0;
-  // Set the default trace file version as version 0.2
-  trace_file_version_ = 2;
   if (FLAGS_sample_ratio > 1.0 || FLAGS_sample_ratio <= 0) {
     sample_max_ = 1;
   } else {
@@ -360,7 +358,11 @@ TraceAnalyzer::~TraceAnalyzer() {}
 Status TraceAnalyzer::PrepareProcessing() {
   Status s;
   // Prepare the trace reader
-  s = NewFileTraceReader(env_, env_options_, trace_name_, &trace_reader_);
+  if (trace_reader_ == nullptr) {
+    s = NewFileTraceReader(env_, env_options_, trace_name_, &trace_reader_);
+  } else {
+    s = trace_reader_->Reset();
+  }
   if (!s.ok()) {
     return s;
   }
@@ -451,8 +453,9 @@ Status TraceAnalyzer::StartProcessing() {
     fprintf(stderr, "Cannot read the header\n");
     return s;
   }
-  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_,
-                                     &db_version_);
+  // Set the default trace file version as version 0.2
+  int trace_file_version = 2;
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version, &db_version_);
   if (!s.ok()) {
     return s;
   }
@@ -469,6 +472,7 @@ Status TraceAnalyzer::StartProcessing() {
       break;
     }
 
+    // To do: why increment total_requests_ for trace end?
     total_requests_++;
     end_time_ = trace.ts;
     if (trace.type == kTraceEnd) {
@@ -476,70 +480,21 @@ Status TraceAnalyzer::StartProcessing() {
     }
 
     std::unique_ptr<TraceRecord> record;
-    switch (trace.type) {
-      case kTraceWrite: {
-        s = TracerHelper::DecodeWriteRecord(&trace, trace_file_version_,
-                                            &record);
-        if (!s.ok()) {
-          return s;
-        }
-        total_writes_++;
-        s = record->Accept(this, nullptr);
-        if (!s.ok()) {
-          fprintf(stderr, "Cannot process the write batch in the trace\n");
-          return s;
-        }
-        break;
-      }
-      case kTraceGet: {
-        s = TracerHelper::DecodeGetRecord(&trace, trace_file_version_, &record);
-        if (!s.ok()) {
-          return s;
-        }
-        total_gets_++;
-        s = record->Accept(this, nullptr);
-        if (!s.ok()) {
-          fprintf(stderr, "Cannot process the get in the trace\n");
-          return s;
-        }
-        break;
-      }
-      case kTraceIteratorSeek:
-      case kTraceIteratorSeekForPrev: {
-        s = TracerHelper::DecodeIterRecord(&trace, trace_file_version_,
-                                           &record);
-        if (!s.ok()) {
-          return s;
-        }
-        s = record->Accept(this, nullptr);
-        if (!s.ok()) {
-          fprintf(stderr, "Cannot process the iterator in the trace\n");
-          return s;
-        }
-        break;
-      }
-      case kTraceMultiGet: {
-        s = TracerHelper::DecodeMultiGetRecord(&trace, trace_file_version_,
-                                               &record);
-        if (!s.ok()) {
-          return s;
-        }
-        s = record->Accept(this, nullptr);
-        if (!s.ok()) {
-          fprintf(stderr, "Cannot process the iterator in the trace\n");
-          return s;
-        }
-        break;
-      }
-      default: {
-        // Skip unsupported types
-        break;
-      }
+    s = TracerHelper::DecodeTraceRecord(&trace, trace_file_version, &record);
+    if (s.IsNotSupported()) {
+      continue;
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    s = record->Accept(this, nullptr);
+    if (!s.ok()) {
+      fprintf(stderr, "Cannot process the write batch in the trace\n");
+      return s;
     }
   }
   if (s.IsIncomplete()) {
     // Fix it: Reaching eof returns Incomplete status at the moment.
-    //
     return Status::OK();
   }
   return s;
@@ -1538,6 +1493,7 @@ Status TraceAnalyzer::CloseOutputFiles() {
 
 Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* /*result*/) {
+  total_writes_++;
   // Note that, if the write happens in a transaction,
   // 'Write' will be called twice, one for Prepare, one for
   // Commit. Thus, in the trace, for the same WriteBatch, there
@@ -1559,6 +1515,7 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
 
 Status TraceAnalyzer::Handle(const GetQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* /*result*/) {
+  total_gets_++;
   Status s;
   size_t value_size = 0;
   if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
