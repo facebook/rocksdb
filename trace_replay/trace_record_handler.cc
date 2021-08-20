@@ -93,7 +93,16 @@ Status TraceExecutionHandler::Handle(
     return Status::Corruption("Invalid Column Family ID.");
   }
 
-  Iterator* single_iter = db_->NewIterator(read_opts_, it->second);
+  ReadOptions r_opts = read_opts_;
+  Slice lower = record.GetLowerBound();
+  if (!lower.empty()) {
+    r_opts.iterate_lower_bound = &lower;
+  }
+  Slice upper = record.GetUpperBound();
+  if (!upper.empty()) {
+    r_opts.iterate_upper_bound = &upper;
+  }
+  Iterator* single_iter = db_->NewIterator(r_opts, it->second);
 
   uint64_t start = clock_->NowMicros();
 
