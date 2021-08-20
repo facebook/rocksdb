@@ -120,12 +120,21 @@ Status TraceExecutionHandler::Handle(
   uint64_t end = clock_->NowMicros();
 
   Status s = single_iter->status();
-  delete single_iter;
-
   if (s.ok() && result != nullptr) {
-    result->reset(new StatusOnlyTraceExecutionResult(s, start, end,
-                                                     record.GetTraceType()));
+    if (single_iter->Valid()) {
+      PinnableSlice ps_key;
+      ps_key.PinSelf(single_iter->key());
+      PinnableSlice ps_value;
+      ps_value.PinSelf(single_iter->value());
+      result->reset(new IteratorTraceExecutionResult(
+          true, s, std::move(ps_key), std::move(ps_value), start, end,
+          record.GetTraceType()));
+    } else {
+      result->reset(new IteratorTraceExecutionResult(
+          false, s, "", "", start, end, record.GetTraceType()));
+    }
   }
+  delete single_iter;
 
   return s;
 }

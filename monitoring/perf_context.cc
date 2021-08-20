@@ -47,6 +47,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -144,6 +145,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -243,6 +245,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -339,6 +342,7 @@ void PerfContext::Reset() {
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
+  secondary_cache_hit_count = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
@@ -459,6 +463,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
+  PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);
