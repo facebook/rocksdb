@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// CacheReservationManager is for reserving cache space through
-// inserting/removing dummy entries based on the memory used.
+// CacheReservationManager is for reserving cache space for the memory used 
+// through inserting/releasing dummy entries in the cache. 
 // This class is not thread-safe.
 #pragma once
 
@@ -29,6 +29,11 @@ namespace ROCKSDB_NAMESPACE {
 
 class CacheReservationManager {
  public:
+  // Construct a CacheReservationManager 
+  // @param cache The cache where dummy entries are inserted and released for reserving cache space
+  // @param delayed_decrease If set true, then dummy entries won't be released immediately when memory usage decreases. 
+  //                         Instead, it will be released when the memory usage decreases to 3/4 of what we have reserved so far.
+  //                         This is for saving some future dummy entry insertion when memory usage increases are likely to happen in the near future.
   explicit CacheReservationManager(std::shared_ptr<Cache> cache,
                                    bool delayed_decrease = false);
 
@@ -42,19 +47,25 @@ class CacheReservationManager {
 
   template <CacheEntryRole R>
 
-  // Insert and remove dummy entries in the cache based on latest used memory.
+  // Insert and release dummy entries in the cache to 
+  // match the size of total dummy entries with the new_memory_used 
+  // as close as possible.
   //
   // Insert dummy entries into cache_ if new_memory_used > cache_allocated_size_
-  // and the difference is greater than one dummy entry size;
+  // and the difference is greater than or equal to one dummy entry size. 
+  // (If new_memory_used > cache_allocated_size_ = 0, then the difference won't 
+  // be taken into consideration and insertion is triggered).
+  // 
   // Release dummy entries from cache_ if new_memory_used <
-  // cache_allocated_size_ and the difference is greater that one dummy entry
-  // size (and new_memory_used < cache_allocated_size_ * 3 / 4 if
+  // cache_allocated_size_ and the difference is greater than or equal to one 
+  // dummy entry size (and new_memory_used < cache_allocated_size_ * 3 / 4 if
   // delayed_decrease = true);
+  // 
   // Otherwise, keep dummy entries in the cache_ the same.
   //
-  // For dummy entry insertion, it returns Status::OK() if all dummy entry
-  // insertion succeed. Otherwise, it returns the first non-ok status;
-  // For dummy entry release, it always return Status::OK().
+  // On inserting dummy entries, it returns Status::OK() if all dummy entry
+  // insertions succeed. Otherwise, it returns the first non-ok status;
+  // On releasing dummy entries, it always return Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);
   std::size_t GetTotalReservedCacheSize();
 
