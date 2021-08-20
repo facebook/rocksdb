@@ -70,13 +70,15 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  Status s = cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
-      new_mem_used);
+  Status s =
+      cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+          new_mem_used);
 
   // We absorb the error since WriteBufferManager is not able to handle
-  // this failure properly. Ideallly we should prevent this allocation 
-  // from happening if this cache reservation fails.  
-  // [TODO] We'll need to improve it in the future and figure out what to do on error
+  // this failure properly. Ideallly we should prevent this allocation
+  // from happening if this cache reservation fails.
+  // [TODO] We'll need to improve it in the future and figure out what to do on
+  // error
   s.PermitUncheckedError();
 #else
   (void)mem;
@@ -109,12 +111,14 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   std::lock_guard<std::mutex> lock(cache_rev_mng_mu_);
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  Status s = cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
-      new_mem_used);
-      
+  Status s =
+      cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+          new_mem_used);
+
   // We absorb the error since WriteBufferManager is not able to handle
-  // this failure properly. 
-  // [TODO] We'll need to improve it in the future and figure out what to do on error
+  // this failure properly.
+  // [TODO] We'll need to improve it in the future and figure out what to do on
+  // error
   s.PermitUncheckedError();
 #else
   (void)mem;

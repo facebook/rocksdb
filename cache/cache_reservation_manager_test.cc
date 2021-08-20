@@ -65,7 +65,7 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
   Cache::Handle* handle = cache->Lookup(expected_cache_key_slice);
   EXPECT_NE(handle, nullptr)
       << "Failed to generate the cache key for the dummy entry correctly";
-  // Clean up the returned handle from Lookup() to prevent memory leak   
+  // Clean up the returned handle from Lookup() to prevent memory leak
   cache->Release(handle);
 }
 

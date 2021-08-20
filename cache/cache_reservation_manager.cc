@@ -103,7 +103,7 @@ Status CacheReservationManager::IncreaseCacheReservation(
       return_status = s;
     }
 
-    // We absorb the error here since s is conditionally checked 
+    // We absorb the error here since s is conditionally checked
     // when return_status == Status::OK()
     s.PermitUncheckedError();
 
