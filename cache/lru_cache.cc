@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "util/mutexlock.h"
 
@@ -473,6 +474,7 @@ Cache::Handle* LRUCacheShard::Lookup(
           e->Free();
           e = nullptr;
         } else {
+          PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
           RecordTick(stats, SECONDARY_CACHE_HITS);
         }
       } else {
@@ -481,6 +483,7 @@ Cache::Handle* LRUCacheShard::Lookup(
         e->SetIncomplete(true);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
+        PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
         RecordTick(stats, SECONDARY_CACHE_HITS);
       }
     }
