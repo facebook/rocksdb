@@ -106,7 +106,10 @@ class TracerHelper {
   static bool SetPayloadMap(uint64_t& payload_map,
                             const TracePayloadType payload_type);
 
-  // Decode a Trace object into the corresponding TraceRecord
+  // Decode a Trace object into the corresponding TraceRecord.
+  // Return Status::OK() if nothing is wrong, record will be set accordingly.
+  // Return Status::NotSupported() if the trace type is not support, or the
+  // corresponding error status, record will be set to nullptr.
   static Status DecodeTraceRecord(Trace* trace, int trace_file_version,
                                   std::unique_ptr<TraceRecord>* record);
 };
