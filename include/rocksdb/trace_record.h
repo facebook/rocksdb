@@ -169,6 +169,16 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   IteratorSeekQueryTraceRecord(SeekType seekType, uint32_t column_family_id,
                                const std::string& key, uint64_t timestamp);
 
+  IteratorSeekQueryTraceRecord(SeekType seekType, uint32_t column_family_id,
+                               PinnableSlice&& key, PinnableSlice&& lower_bound,
+                               PinnableSlice&& upper_bound, uint64_t timestamp);
+
+  IteratorSeekQueryTraceRecord(SeekType seekType, uint32_t column_family_id,
+                               const std::string& key,
+                               const std::string& lower_bound,
+                               const std::string& upper_bound,
+                               uint64_t timestamp);
+
   virtual ~IteratorSeekQueryTraceRecord() override;
 
   // Trace type matches the seek type.
@@ -183,6 +193,12 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   // Key to seek to.
   virtual Slice GetKey() const;
 
+  // Iterate lower bound.
+  virtual Slice GetLowerBound() const;
+
+  // Iterate upper bound.
+  virtual Slice GetUpperBound() const;
+
   Status Accept(Handler* handler,
                 std::unique_ptr<TraceRecordResult>* result) override;
 
@@ -190,6 +206,8 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
   SeekType type_;
   uint32_t cf_id_;
   PinnableSlice key_;
+  PinnableSlice lower_;
+  PinnableSlice upper_;
 };
 
 // Trace record for DB::MultiGet() operation.
