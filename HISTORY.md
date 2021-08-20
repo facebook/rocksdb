@@ -9,6 +9,7 @@
 * Fixed a bug affecting the batched `MultiGet` API when used with keys spanning multiple column families and `sorted_input == false`.
 * Fixed a potential incorrect result in opt mode and assertion failures caused by releasing snapshot(s) during compaction.
 * Fixed passing of BlobFileCompletionCallback to Compaction job and Atomic flush job which was default paramter (nullptr). BlobFileCompletitionCallback is internal callback that manages addition of blob files to SSTFileManager.
+* Fixed MultiGet not updating the block_read_count and block_read_byte PerfContext counters
 
 ### New Features
 * Made the EventListener extend the Customizable class.
