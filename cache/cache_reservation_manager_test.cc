@@ -28,6 +28,9 @@ class CacheReservationManagerTest : public ::testing::Test {
   static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   static const std::size_t kCacheKeyPrefixSize =
       BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length;
+  // Calculated manually by substracting cache->GetUsage(handle) 
+  // from cache->GetPinnedUsage() after inserting 1 dummy entry
+  static constexpr std::size_t kMetaDataChargeOverheadPerDummyEntry = 128;
 
   std::shared_ptr<Cache> cache = NewLRUCache(kOneGigabyte, kNumShardBits);
   std::unique_ptr<CacheReservationManager> test_cache_rev_mng;
@@ -101,6 +104,9 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
   EXPECT_GE(initial_pinned_usage, 1 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries for trivial memory "
          "increase less than one dummy entry size when cache is empty";
+  EXPECT_LE(initial_pinned_usage, 1 * kSizeDummyEntry + 1 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Increased too many underlying dummy entries for trivial memory "
+         "increase less than one dummy entry size when cache is empty";
 
   new_mem_used = 1 * kSizeDummyEntry + kSizeDummyEntry / 2;
   s = test_cache_rev_mng
@@ -147,6 +153,8 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation increase correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
+  EXPECT_LE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry + 2 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Increased too many underlying dummy entries in cache";
 }
 
 TEST_F(CacheReservationManagerTest,
@@ -163,6 +171,8 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation increase correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 3 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
+  EXPECT_LE(cache->GetPinnedUsage(), 3 * kSizeDummyEntry + 3 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Increased too many underlying dummy entries in cache";
 }
 
 TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
@@ -217,6 +227,8 @@ TEST_F(CacheReservationManagerTest,
   std::size_t cur_pinned_usage = cache->GetPinnedUsage();
   EXPECT_GE(cur_pinned_usage, 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
+  EXPECT_LE(cur_pinned_usage, 1 * kSizeDummyEntry + 1 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Decreased too little underlying dummy entries in cache";
   EXPECT_LT(cur_pinned_usage, initial_pinned_usage)
       << "Failed to decrease underlying dummy entries in cache correctly";
 }
@@ -250,6 +262,7 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
      DecreaseCacheReservationWithDelayedDecrease) {
   constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverheadPerDummyEntry = 128;
 
   LRUCacheOptions lo;
   lo.capacity = kOneGigabyte;
@@ -307,6 +320,10 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
   std::size_t cur_pinned_usage = cache->GetPinnedUsage();
   EXPECT_GE(cur_pinned_usage, 5 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache when "
+         "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
+         "decrease mode";
+  EXPECT_LE(cur_pinned_usage, 5 * kSizeDummyEntry + 5 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Decreased too little underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
          "decrease mode";
   EXPECT_LT(cur_pinned_usage, initial_pinned_usage)
