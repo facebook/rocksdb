@@ -114,7 +114,7 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
-    kFailInsertCache = 15,
+    kNotInsertCache = 15,
     kMaxSubCode
   };
 
@@ -163,7 +163,7 @@ class Status {
   // changing public APIs.
   static Status OKNotInsertToCache(const Slice& msg,
                                    const Slice& msg2 = Slice()) {
-    return Status(kOk, kFailInsertCache, msg, msg2);
+    return Status(kOk, kNotInsertCache, msg, msg2);
   }
 
   // Return error status of an appropriate type.
@@ -306,6 +306,13 @@ class Status {
   bool IsOkOverwritten() const {
     MarkChecked();
     return code() == kOk && subcode() == kOverwritten;
+  }
+
+  // Returns true iff the status indicates success *without*
+  // inserting to cache
+  bool IsOkNotInsertToCache() const {
+    MarkChecked();
+    return code() == kOk && subcode() == kNotInsertCache;
   }
 
   // Returns true iff the status indicates a NotFound error.
