@@ -31,19 +31,21 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
     return BlockBasedTableOptions().filter_policy;
   }
   const FilterPolicy* new_policy;
-  if (FLAGS_use_ribbon_filter) {
-    // Old and new API should be same
-    if (std::random_device()() & 1) {
-      new_policy = NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits);
+  if (FLAGS_use_block_based_filter) {
+    if (FLAGS_ribbon_starting_level < 999) {
+      fprintf(
+          stderr,
+          "Cannot combine use_block_based_filter and ribbon_starting_level\n");
+      exit(1);
     } else {
-      new_policy = NewRibbonFilterPolicy(FLAGS_bloom_bits);
-    }
-  } else {
-    if (FLAGS_use_block_based_filter) {
       new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
-    } else {
-      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
     }
+  } else if (FLAGS_ribbon_starting_level >= 999) {
+    // Use Bloom API
+    new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
+  } else {
+    new_policy = NewRibbonFilterPolicy(
+        FLAGS_bloom_bits, /* bloom_before_level */ FLAGS_ribbon_starting_level);
   }
   return std::shared_ptr<const FilterPolicy>(new_policy);
 }
