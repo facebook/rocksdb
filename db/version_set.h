@@ -713,6 +713,8 @@ class Version {
                  const BlobIndex& blob_index, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
+  Status MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range);
+
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
   void PrepareApply(const MutableCFOptions& mutable_cf_options,

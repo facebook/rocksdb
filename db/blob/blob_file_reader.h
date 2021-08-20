@@ -11,6 +11,7 @@
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -43,6 +44,14 @@ class BlobFileReader {
                  CompressionType compression_type, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
+  Status MultiGetBlob(
+      const ReadOptions& read_options,
+      const autovector<std::reference_wrapper<Slice>>& user_keys,
+      const autovector<uint64_t>& offsets,
+      const autovector<uint64_t>& value_sizes,
+      const autovector<CompressionType>& compression_types,
+      autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
+
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
@@ -69,6 +78,11 @@ class BlobFileReader {
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
                              AlignedBuf* aligned_buf);
+
+  static Status MultiReadFromFile(const RandomAccessFileReader* file_reader,
+                                  const autovector<uint64_t>& read_offsets,
+                                  const autovector<size_t>& read_sizes,
+                                  Statistics* statistics);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                            uint64_t value_size);

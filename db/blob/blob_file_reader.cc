@@ -264,6 +264,17 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
   return Status::OK();
 }
 
+Status BlobFileReader::MultiReadFromFile(
+    const RandomAccessFileReader* file_reader,
+    const autovector<uint64_t>& read_offsets,
+    const autovector<size_t>& read_sizes, Statistics* statistics) {
+  assert(file_reader);
+  (void)read_offsets;
+  (void)read_sizes;
+  (void)statistics;
+  return Status::OK();
+}
+
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
     CompressionType compression_type, SystemClock* clock,
@@ -348,6 +359,23 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     *bytes_read = record_size;
   }
 
+  return Status::OK();
+}
+
+Status BlobFileReader::MultiGetBlob(
+    const ReadOptions& read_options,
+    const autovector<std::reference_wrapper<Slice>>& user_keys,
+    const autovector<uint64_t>& offsets,
+    const autovector<uint64_t>& value_sizes,
+    const autovector<CompressionType>& compression_types,
+    autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
+  (void)read_options;
+  (void)user_keys;
+  (void)offsets;
+  (void)value_sizes;
+  (void)compression_types;
+  (void)values;
+  (void)bytes_read;
   return Status::OK();
 }
 

@@ -1863,6 +1863,73 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   return s;
 }
 
+Status Version::MultiGetBlob(const ReadOptions& read_options,
+                             MultiGetRange& range) {
+  Status rc;
+  if (!range.NeedsAnyBlobRead()) {
+    return rc;
+  }
+  using BlobIterator = MultiGetRange::BlobIterator;
+  std::unordered_map<uint64_t, std::vector<std::pair<BlobIndex, BlobIterator>>>
+      blob_rqs;
+  for (auto it = range.blob_begin(); it != range.blob_end(); ++it) {
+    assert(it->is_blob_index);
+    assert(it->value);
+    const Slice& blob_index_slice = *(it->value);
+    BlobIndex blob_index;
+    Status s = blob_index.DecodeFrom(blob_index_slice);
+    if (!s.ok()) {
+      *(it->s) = s;
+      continue;
+    }
+    uint64_t file_number = blob_index.file_number();
+    blob_rqs[file_number].emplace_back(std::make_pair(blob_index, it));
+  }
+  assert(blob_rqs.size() > 0);
+  for (auto& elem : blob_rqs) {
+    uint64_t blob_file_number = elem.first;
+    CacheHandleGuard<BlobFileReader> blob_file_reader;
+    assert(blob_file_cache_);
+    Status status = blob_file_cache_->GetBlobFileReader(blob_file_number,
+                                                        &blob_file_reader);
+    auto& blobs_in_file = elem.second;
+    std::sort(blobs_in_file.begin(), blobs_in_file.end(),
+              [](std::pair<BlobIndex, BlobIterator>& lhs,
+                 std::pair<BlobIndex, BlobIterator>& rhs) -> bool {
+                return lhs.first.offset() < rhs.first.offset();
+              });
+    for (const auto& blob : blobs_in_file) {
+      const auto& blob_index = blob.first;
+      (void)blob_index;
+      auto blob_it = blob.second;
+      Status* s = blob_it->s;
+      if (!status.ok()) {
+        *s = status;
+        continue;
+      }
+      *s = GetBlob(read_options, blob_it->ukey_with_ts, *blob_it->value,
+                   blob_it->value, nullptr);
+      if (!s->ok()) {
+        if (s->IsIncomplete()) {
+          auto& get_context = *blob_it->get_context;
+          get_context.MarkKeyMayExist();
+        }
+        continue;
+      }
+      assert(s->ok());
+      range.AddValueSize(blob_it->value->size());
+      if (range.GetValueSize() > read_options.value_size_soft_limit) {
+        rc = Status::Aborted();
+        break;
+      }
+    }
+    if (!rc.ok()) {
+      break;
+    }
+  }
+  return rc;
+}
+
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -2085,6 +2152,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
 
+  MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
+
   while (f != nullptr) {
     MultiGetRange file_range = fp.CurrentFileRange();
     bool timer_enabled =
@@ -2170,24 +2239,15 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
-              constexpr uint64_t* bytes_read = nullptr;
-
-              *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
-                                iter->value, bytes_read);
-              if (!status->ok()) {
-                if (status->IsIncomplete()) {
-                  get_context.MarkKeyMayExist();
-                }
-
-                continue;
-              }
+              keys_with_blobs_range.MarkBlobReadNeeded(iter);
             }
-          }
-
-          file_range.AddValueSize(iter->value->size());
-          if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
-            s = Status::Aborted();
-            break;
+          } else {
+            file_range.AddValueSize(iter->value->size());
+            if (file_range.GetValueSize() >
+                read_options.value_size_soft_limit) {
+              s = Status::Aborted();
+              break;
+            }
           }
           continue;
         case GetContext::kDeleted:
@@ -2231,6 +2291,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       break;
     }
     f = fp.GetNextFile();
+  }
+
+  if (s.ok() && keys_with_blobs_range.NeedsAnyBlobRead()) {
+    s = MultiGetBlob(read_options, keys_with_blobs_range);
   }
 
   // Process any left over keys
