@@ -228,6 +228,8 @@ Status ReadProperties(const ReadOptions& read_options,
 
   BlockContents block_contents;
   Status s;
+  // FIXME: should be a parameter for reading table properties to use persistent
+  // cache
   PersistentCacheOptions cache_options;
   ReadOptions ro = read_options;
   ro.verify_checksums = verify_checksum;

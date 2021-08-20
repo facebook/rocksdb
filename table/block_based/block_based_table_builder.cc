@@ -1398,6 +1398,7 @@ void DeleteEntryCached(const Slice& /*key*/, void* value) {
 // Helper function to setup the cache key's prefix for the Table.
 void BlockBasedTableBuilder::SetupCacheKeyPrefix(
     const TableBuilderOptions& tbo) {
+  // FIXME: Unify with BlockBasedTable::SetupCacheKeyPrefix
   if (rep_->table_options.block_cache.get() != nullptr) {
     BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
         rep_->table_options.block_cache.get(), rep_->file->writable_file(),

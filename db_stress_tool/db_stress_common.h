@@ -141,8 +141,7 @@ DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
-DECLARE_bool(experimental_allow_mempurge);
-DECLARE_string(experimental_mempurge_policy);
+DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
@@ -339,18 +338,6 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     ret_compression_type = ROCKSDB_NAMESPACE::kSnappyCompression;
   }
   return ret_compression_type;
-}
-
-inline enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
-    const char* mpolicy) {
-  assert(mpolicy);
-  if (!strcasecmp(mpolicy, "kAlways")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
-  } else if (!strcasecmp(mpolicy, "kAlternate")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
-  }
-  fprintf(stderr, "Cannot parse mempurge policy: '%s'\n", mpolicy);
-  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
 }
 
 inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(

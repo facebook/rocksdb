@@ -93,6 +93,7 @@ class Repairer {
            const ColumnFamilyOptions& default_cf_opts,
            const ColumnFamilyOptions& unknown_cf_opts, bool create_unknown_cfs)
       : dbname_(dbname),
+        db_session_id_(DBImpl::GenerateDbSessionId(db_options.env)),
         env_(db_options.env),
         file_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
@@ -109,21 +110,16 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(
-            // TODO: db_session_id for TableCache should be initialized after
-            // db_session_id_ is set.
-            new TableCache(default_iopts_, &file_options_,
-                           raw_table_cache_.get(),
-                           /*block_cache_tracer=*/nullptr,
-                           /*io_tracer=*/nullptr, /*db_session_id*/ "")),
+        table_cache_(new TableCache(default_iopts_, &file_options_,
+                                    raw_table_cache_.get(),
+                                    /*block_cache_tracer=*/nullptr,
+                                    /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        // TODO: db_session_id for VersionSet should be initialized after
-        // db_session_id_ is set and use it for initialization.
         vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-              /*db_session_id*/ ""),
+              db_session_id_),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -198,10 +194,6 @@ class Repairer {
       }
       // Just create a DBImpl temporarily so we can reuse NewDB()
       db_impl = new DBImpl(db_options_, dbname_);
-      // Also use this temp DBImpl to get a session id
-      status = db_impl->GetDbSessionId(db_session_id_);
-    }
-    if (status.ok()) {
       status = db_impl->NewDB(/*new_filenames=*/nullptr);
     }
     delete db_impl;

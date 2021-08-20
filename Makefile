@@ -525,7 +525,6 @@ ifdef ASSERT_STATUS_CHECKED
 	TESTS_FAILING_ASC = \
 		c_test \
 		db_test \
-		db_test2 \
 		env_test \
 		range_locking_test \
 		testutil_test \

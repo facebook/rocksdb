@@ -1366,7 +1366,6 @@ Status StressTest::TestBackupRestore(
   BackupableDBOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
-  assert(backup_opts.info_log);
   if (thread->rand.OneIn(10)) {
     backup_opts.share_table_files = false;
   } else {
@@ -1744,6 +1743,9 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   std::unordered_set<std::string> unknownPropertyNames = {
       DB::Properties::kEstimateOldestKeyTime,
       DB::Properties::kOptionsStatistics,
+      DB::Properties::
+          kLiveSstFilesSizeAtTemperature,  // similar to levelPropertyNames, it
+                                           // requires a number suffix
   };
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
@@ -2267,9 +2269,8 @@ void StressTest::Open() {
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options_.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
-    options_.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
-    options_.experimental_mempurge_policy =
-        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
+    options_.experimental_mempurge_threshold =
+        FLAGS_experimental_mempurge_threshold;
     options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options_.ttl = FLAGS_compaction_ttl;
     options_.enable_pipelined_write = FLAGS_enable_pipelined_write;

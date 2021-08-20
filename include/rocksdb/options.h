@@ -369,11 +369,6 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
-enum class MemPurgePolicy : char {
-  kAlternate = 0x00,
-  kAlways = 0x01,
-};
-
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
@@ -745,7 +740,15 @@ struct DBOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
 
-  // If false, fallocate() calls are bypassed
+  // If false, fallocate() calls are bypassed, which disables file
+  // preallocation. The file space preallocation is used to increase the file
+  // write/append performance. By default, RocksDB preallocates space for WAL,
+  // SST, Manifest files, the extra space is truncated when the file is written.
+  // Warning: if you're using btrfs, we would recommend setting
+  // `allow_fallocate=false` to disable preallocation. As on btrfs, the extra
+  // allocated space cannot be freed, which could be significant if you have
+  // lots of files. More details about this limitation:
+  // https://github.com/btrfs/btrfs-dev-docs/blob/471c5699336e043114d4bca02adcd57d9dab9c44/data-extent-reference-counts.md
   bool allow_fallocate = true;
 
   // Disable child process inherit open files. Default: true
@@ -787,14 +790,22 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
-  // If true, allows for memtable purge instead of flush to storage.
-  // (experimental).
-  bool experimental_allow_mempurge = false;
-  // If experimental_allow_mempurge is true, will dictate MemPurge
-  // policy.
-  // Default: kAlternate
-  // (experimental).
-  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::kAlternate;
+  // [experimental]
+  // Used to activate or deactive the Mempurge feature (memtable garbage
+  // collection). (deactivated by default). At every flush, the total useful
+  // payload (total entries minus garbage entries) is estimated as a ratio
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
+  // compared to this `threshold` value:
+  //     - if ratio<threshold: the flush is replaced by a mempurge operation
+  //     - else: a regular flush operation takes place.
+  // Threshold values:
+  //   0.0: mempurge deactivated (default).
+  //   1.0: recommended threshold value.
+  //   >1.0 : aggressive mempurge.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
+  //   ratios.
+  // [experimental]
+  double experimental_mempurge_threshold = 0.0;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.

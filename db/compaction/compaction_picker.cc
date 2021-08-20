@@ -358,7 +358,7 @@ Compaction* CompactionPicker::CompactFiles(
       output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      compact_options.max_subcompactions,
+      Temperature::kUnknown, compact_options.max_subcompactions,
       /* grandparents */ {}, true);
   RegisterCompaction(c);
   return c;
@@ -634,7 +634,8 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-        compact_range_options.max_subcompactions, /* grandparents */ {},
+        Temperature::kUnknown, compact_range_options.max_subcompactions,
+        /* grandparents */ {},
         /* is manual */ true);
     RegisterCompaction(c);
     vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
@@ -812,7 +813,8 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      compact_range_options.max_subcompactions, std::move(grandparents),
+      Temperature::kUnknown, compact_range_options.max_subcompactions,
+      std::move(grandparents),
       /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
