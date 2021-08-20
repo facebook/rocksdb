@@ -12,6 +12,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/db_impl/db_impl.h"
+#include "rocksdb/status.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -69,8 +70,14 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+  Status s = cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
       new_mem_used);
+
+  // We absorb the error since WriteBufferManager is not able to handle
+  // this failure properly. Ideallly we should prevent this allocation 
+  // from happening if this cache reservation fails.  
+  // [TODO] We'll need to improve it in the future and figure out what to do on error
+  s.PermitUncheckedError();
 #else
   (void)mem;
 #endif  // ROCKSDB_LITE
@@ -102,8 +109,13 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   std::lock_guard<std::mutex> lock(cache_rev_mng_mu_);
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+  Status s = cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
       new_mem_used);
+      
+  // We absorb the error since WriteBufferManager is not able to handle
+  // this failure properly. 
+  // [TODO] We'll need to improve it in the future and figure out what to do on error
+  s.PermitUncheckedError();
 #else
   (void)mem;
 #endif  // ROCKSDB_LITE

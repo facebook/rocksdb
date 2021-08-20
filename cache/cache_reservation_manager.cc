@@ -94,20 +94,18 @@ Status CacheReservationManager::IncreaseCacheReservation(
     // still account those dummy entries that fail insertion in
     // cache_allocation_size_. As a consequence, there will exist null dummy
     // handles in dummy_handles_ if insertion error occurs.
-
-    // Ideallly we should prevent this allocation from happening if
-    // this insertion fails. However, the callers to this code path
-    // might not be able to handle failures properly. [TODO] We'll need to
-    // improve it in the future and figure out what to do on error
-    s.PermitUncheckedError();
-
-    // We do not overwrite any non-OK status from dummy entry insertion.
+    //
+    // Also, We do not overwrite any non-OK status from dummy entry insertion.
     // This is to prevent possible subsequent successful dummy entry insertion
     // (due to newly available cache space resulting from manipulation in other
     // threads) from overriding the non-OK status
     if (return_status == Status::OK()) {
       return_status = s;
     }
+
+    // We absorb the error here since s is conditionally checked 
+    // when return_status == Status::OK()
+    s.PermitUncheckedError();
 
     dummy_handles_.push_back(handle);
     cache_allocated_size_ += kSizeDummyEntry;
