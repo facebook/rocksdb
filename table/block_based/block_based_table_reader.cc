@@ -639,7 +639,11 @@ Status BlockBasedTable::Open(
       // Normal (non-external) SST file - can only use embedded db_session_id
       // if original or current file number are known (which should be same)
       if (rep->table_properties->orig_file_number > 0) {
-        file_num = rep->table_properties->orig_file_number;
+        if (file_num != rep->table_properties->orig_file_number) {
+          // When both are known for normal SST files, they should agree
+          assert(file_num == 0);
+          file_num = rep->table_properties->orig_file_number;
+        }
         db_session_id = rep->table_properties->db_session_id;
       } else if (file_num > 0) {
         // Old SST file, but current number should be same as original.
