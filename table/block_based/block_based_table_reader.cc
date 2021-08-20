@@ -1713,6 +1713,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       req_offset_for_block.emplace_back(0);
     }
     req_idx_for_block.emplace_back(read_reqs.size());
+
+    PERF_COUNTER_ADD(block_read_count, 1);
+    PERF_COUNTER_ADD(block_read_byte, block_size(handle));
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
