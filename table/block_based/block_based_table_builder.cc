@@ -324,16 +324,6 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
-  uint32_t column_family_id;
-  std::string column_family_name;
-  uint64_t creation_time = 0;
-  uint64_t oldest_key_time = 0;
-  uint64_t file_creation_time = 0;
-
-  // DB IDs
-  const std::string db_id;
-  const std::string db_session_id;
-  std::string db_host_id;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -444,14 +434,6 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        column_family_id(tbo.column_family_id),
-        column_family_name(tbo.column_family_name),
-        creation_time(tbo.creation_time),
-        oldest_key_time(tbo.oldest_key_time),
-        file_creation_time(tbo.file_creation_time),
-        db_id(tbo.db_id),
-        db_session_id(tbo.db_session_id),
-        db_host_id(ioptions.db_host_id),
         status_ok(true),
         io_status_ok(true) {
     if (tbo.target_file_size == 0) {
@@ -514,7 +496,7 @@ struct BlockBasedTableBuilder::Rep {
       assert(factory);
 
       table_properties_collectors.emplace_back(
-          factory->CreateIntTblPropCollector(column_family_id));
+          factory->CreateIntTblPropCollector(tbo.column_family_id));
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -526,7 +508,17 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    if (!ReifyDbHostIdProperty(ioptions.env, &db_host_id).ok()) {
+    // These are only needed for populating table properties
+    props.column_family_id = tbo.column_family_id;
+    props.column_family_name = tbo.column_family_name;
+    props.creation_time = tbo.creation_time;
+    props.oldest_key_time = tbo.oldest_key_time;
+    props.file_creation_time = tbo.file_creation_time;
+    props.orig_file_number = tbo.cur_file_num;
+    props.db_id = tbo.db_id;
+    props.db_session_id = tbo.db_session_id;
+    props.db_host_id = ioptions.db_host_id;
+    if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
   }
@@ -1622,8 +1614,6 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
   BlockHandle properties_block_handle;
   if (ok()) {
     PropertyBlockBuilder property_block_builder;
-    rep_->props.column_family_id = rep_->column_family_id;
-    rep_->props.column_family_name = rep_->column_family_name;
     rep_->props.filter_policy_name =
         rep_->table_options.filter_policy != nullptr
             ? rep_->table_options.filter_policy->Name()
@@ -1668,9 +1658,6 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         !rep_->index_builder->seperator_is_key_plus_seq();
     rep_->props.index_value_is_delta_encoded =
         rep_->use_delta_encoding_for_index_values;
-    rep_->props.creation_time = rep_->creation_time;
-    rep_->props.oldest_key_time = rep_->oldest_key_time;
-    rep_->props.file_creation_time = rep_->file_creation_time;
     if (rep_->sampled_input_data_bytes > 0) {
       rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
           static_cast<double>(rep_->sampled_output_slow_data_bytes) /
@@ -1692,9 +1679,6 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->compressible_input_data_bytes +
           rep_->uncompressible_input_data_bytes;
     }
-    rep_->props.db_id = rep_->db_id;
-    rep_->props.db_session_id = rep_->db_session_id;
-    rep_->props.db_host_id = rep_->db_host_id;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);

@@ -71,6 +71,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   TEST_SYNC_POINT_CALLBACK("PropertyBlockBuilder::AddTableProperty:Start",
                            const_cast<TableProperties*>(&props));
 
+  Add(TablePropertiesNames::kOriginalFileNumber, props.orig_file_number);
   Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);
   Add(TablePropertiesNames::kRawValueSize, props.raw_value_size);
   Add(TablePropertiesNames::kDataSize, props.data_size);
@@ -255,6 +256,8 @@ Status ReadProperties(const ReadOptions& read_options,
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
+      {TablePropertiesNames::kOriginalFileNumber,
+       &new_table_properties->orig_file_number},
       {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
       {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
       {TablePropertiesNames::kIndexPartitions,
