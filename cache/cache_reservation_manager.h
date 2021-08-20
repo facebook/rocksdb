@@ -6,10 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-//
-// CacheReservationManager is for reserving cache space for the memory used
-// through inserting/releasing dummy entries in the cache.
-// This class is not thread-safe.
+
 #pragma once
 
 #include <atomic>
@@ -27,6 +24,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// CacheReservationManager is for reserving cache space for the memory used
+// through inserting/releasing dummy entries in the cache.
+// This class is not thread-safe.
 class CacheReservationManager {
  public:
   // Construct a CacheReservationManager
