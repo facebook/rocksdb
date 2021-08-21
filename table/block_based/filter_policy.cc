@@ -44,13 +44,13 @@ Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
 
 // Base class for filter builders using the XXH3 preview hash,
 // also known as Hash64 or GetSliceHash64.
-class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
+class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  explicit XXH3pFilterBitsBuilder(
+  explicit XXPH3FilterBitsBuilder(
       std::atomic<int64_t>* aggregate_rounding_balance)
       : aggregate_rounding_balance_(aggregate_rounding_balance) {}
 
-  ~XXH3pFilterBitsBuilder() override {}
+  ~XXPH3FilterBitsBuilder() override {}
 
   virtual void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
@@ -70,8 +70,8 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
  protected:
   static constexpr uint32_t kMetadataLen = 5;
 
-  // For delegating between XXH3pFilterBitsBuilders
-  void SwapEntriesWith(XXH3pFilterBitsBuilder* other) {
+  // For delegating between XXPH3FilterBitsBuilders
+  void SwapEntriesWith(XXPH3FilterBitsBuilder* other) {
     std::swap(hash_entries_, other->hash_entries_);
   }
 
@@ -188,13 +188,13 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
 // ############## also known as format_version=5 Bloom filter ########## //
 
 // See description in FastLocalBloomImpl
-class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
+class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
  public:
   // Non-null aggregate_rounding_balance implies optimize_filters_for_memory
   explicit FastLocalBloomBitsBuilder(
       const int millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance)
-      : XXH3pFilterBitsBuilder(aggregate_rounding_balance),
+      : XXPH3FilterBitsBuilder(aggregate_rounding_balance),
         millibits_per_key_(millibits_per_key) {
     assert(millibits_per_key >= 1000);
   }
@@ -421,12 +421,12 @@ struct Standard128RibbonRehasherTypesAndSettings {
 using Standard128RibbonTypesAndSettings =
     ribbon::StandardRehasherAdapter<Standard128RibbonRehasherTypesAndSettings>;
 
-class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
+class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
  public:
   explicit Standard128RibbonBitsBuilder(
       double desired_one_in_fp_rate, int bloom_millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance, Logger* info_log)
-      : XXH3pFilterBitsBuilder(aggregate_rounding_balance),
+      : XXPH3FilterBitsBuilder(aggregate_rounding_balance),
         desired_one_in_fp_rate_(desired_one_in_fp_rate),
         info_log_(info_log),
         bloom_fallback_(bloom_millibits_per_key, aggregate_rounding_balance) {

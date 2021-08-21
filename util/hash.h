@@ -10,7 +10,7 @@
 // Common hash functions with convenient interfaces. If hashing a
 // statically-sized input in a performance-critical context, consider
 // calling a specific hash implementation directly, such as
-// XXH3p_64bits from xxhash.h.
+// XXH3_64bits from xxhash.h.
 //
 // Since this is a very common header, implementation details are kept
 // out-of-line. Out-of-lining also aids in tracking the time spent in

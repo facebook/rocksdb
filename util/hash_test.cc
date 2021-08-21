@@ -14,15 +14,20 @@
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/hash128.h"
 #include "util/math128.h"
 
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Hash;
+using ROCKSDB_NAMESPACE::Hash128;
 using ROCKSDB_NAMESPACE::Hash64;
 using ROCKSDB_NAMESPACE::Lower32of64;
+using ROCKSDB_NAMESPACE::Lower64of128;
 using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::Unsigned128;
 using ROCKSDB_NAMESPACE::Upper32of64;
+using ROCKSDB_NAMESPACE::Upper64of128;
 
 // The hash algorithm is part of the file format, for example for the Bloom
 // filters. Test that the hash values are stable for a set of random strings of
@@ -93,7 +98,8 @@ TEST(HashTest, Hash64Misc) {
     for (size_t size = 0; size <= max_size; ++size) {
       uint64_t here = Hash64(str.data(), size, kSeed);
 
-      // Must be same as GetSliceHash64
+      // Must be same as unseeded Hash64 and GetSliceHash64
+      EXPECT_EQ(here, Hash64(str.data(), size));
       EXPECT_EQ(here, GetSliceHash64(Slice(str.data(), size)));
 
       // Upper and Lower must reconstruct hash
@@ -234,7 +240,7 @@ std::string Hash64TestDescriptor(const char *repeat, size_t limit) {
   return rv;
 }
 
-// XXH3p changes its algorithm for various sizes up through 250 bytes, so
+// XXPH3 changes its algorithm for various sizes up through 250 bytes, so
 // we need to check the stability of larger sizes also.
 TEST(HashTest, Hash64LargeValueSchema) {
   // Each of these derives a "descriptor" from the hash values for all
@@ -265,6 +271,117 @@ TEST(HashTest, Hash64LargeValueSchema) {
       "cdAMSZgp9JMHxbM23wPSuH6BOFgxejz35PScZfhDPvTOxIy1jc3MZsWrMC3P324zNolO7JdW"
       "CX2I5UDKjjaEJfxbgVgJIXxtQGlmj2xkO5sPpjULQV4X2HlY7FQleJ4QRaJIB4buhCA4vUTF"
       "eMFlxCIYUpTCsal2qsmnGOWa8WCcefrohMjDj1fjzSvSaQwlpyR1GZHF2uPOoQagiCpHpm");
+}
+
+TEST(HashTest, Hash128Misc) {
+  constexpr uint32_t kSeed = 0;  // Same as GetSliceHash128
+
+  for (char fill : {'\0', 'a', '1', '\xff'}) {
+    const size_t max_size = 1000;
+    const std::string str(max_size, fill);
+
+    for (size_t size = 0; size <= max_size; ++size) {
+      Unsigned128 here = Hash128(str.data(), size, kSeed);
+
+      // Must be same as unseeded Hash128 and GetSliceHash128
+      EXPECT_EQ(here, Hash128(str.data(), size));
+      EXPECT_EQ(here, GetSliceHash128(Slice(str.data(), size)));
+
+      // Upper and Lower must reconstruct hash
+      EXPECT_EQ(here,
+                (Unsigned128{Upper64of128(here)} << 64) | Lower64of128(here));
+      EXPECT_EQ(here,
+                (Unsigned128{Upper64of128(here)} << 64) ^ Lower64of128(here));
+
+      // Seed changes hash value (with high probability)
+      for (uint64_t var_seed = 1; var_seed != 0; var_seed <<= 1) {
+        EXPECT_NE(here, Hash128(str.data(), size, var_seed));
+      }
+
+      // Size changes hash value (with high probability)
+      size_t max_smaller_by = std::min(size_t{30}, size);
+      for (size_t smaller_by = 1; smaller_by <= max_smaller_by; ++smaller_by) {
+        EXPECT_NE(here, Hash128(str.data(), size - smaller_by, kSeed));
+      }
+    }
+  }
+}
+
+// Test that hash values are "non-trivial" for "trivial" inputs
+TEST(HashTest, Hash128Trivial) {
+  // Thorough test too slow for regression testing
+  constexpr bool thorough = false;
+
+  // For various seeds, make sure hash of empty string is not zero.
+  constexpr uint64_t max_seed = thorough ? 0x1000000 : 0x10000;
+  for (uint64_t seed = 0; seed < max_seed; ++seed) {
+    Unsigned128 here = Hash128("", 0, seed);
+    EXPECT_NE(Lower64of128(here), 0u);
+    EXPECT_NE(Upper64of128(here), 0u);
+  }
+
+  // For standard seed, make sure hash of small strings are not zero
+  constexpr uint32_t kSeed = 0;  // Same as GetSliceHash128
+  char input[4];
+  constexpr int max_len = thorough ? 3 : 2;
+  for (int len = 1; len <= max_len; ++len) {
+    for (uint32_t i = 0; (i >> (len * 8)) == 0; ++i) {
+      EncodeFixed32(input, i);
+      Unsigned128 here = Hash128(input, len, kSeed);
+      EXPECT_NE(Lower64of128(here), 0u);
+      EXPECT_NE(Upper64of128(here), 0u);
+    }
+  }
+}
+
+std::string Hash128TestDescriptor(const char *repeat, size_t limit) {
+  const char *mod61_encode =
+      "abcdefghijklmnopqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  std::string input;
+  while (input.size() < limit) {
+    input.append(repeat);
+  }
+  std::string rv;
+  for (size_t i = 0; i < limit; ++i) {
+    auto h = GetSliceHash128(Slice(input.data(), i));
+    uint64_t h2 = Upper64of128(h) + Lower64of128(h);
+    rv.append(1, mod61_encode[static_cast<size_t>(h2 % 61)]);
+  }
+  return rv;
+}
+
+// XXH3 changes its algorithm for various sizes up through 250 bytes, so
+// we need to check the stability of larger sizes also.
+TEST(HashTest, Hash128ValueSchema) {
+  // Each of these derives a "descriptor" from the hash values for all
+  // lengths up to 430.
+  // Note that "b" is common for the zero-length string.
+  EXPECT_EQ(
+      Hash128TestDescriptor("foo", 430),
+      "bUMA3As8n9I4vNGhThXlEevxZlyMcbb6TYAlIKJ2f5ponsv99q962rYclQ7u3gfnRdCDQ5JI"
+      "2LrGUaCycbXrvLFe4SjgRb9RQwCfrnmNQ7VSEwSKMnkGCK3bDbXSrnIh5qLXdtvIZklbJpGH"
+      "Dqr93BlqF9ubTnOSYkSdx89XvQqflMIW8bjfQp9BPjQejWOeEQspnN1D3sfgVdFhpaQdHYA5"
+      "pI2XcPlCMFPxvrFuRr7joaDvjNe9IUZaunLPMewuXmC3EL95h52Ju3D7y9RNKhgYxMTrA84B"
+      "yJrMvyjdm3vlBxet4EN7v2GEyjbGuaZW9UL6lrX6PghJDg7ACfLGdxNbH3qXM4zaiG2RKnL5"
+      "S3WXKR78RBB5fRFQ8KDIEQjHFvSNsc3GrAEi6W8P2lv8JMTzjBODO2uN4wadVQFT9wpGfV");
+  // Note that "35D2v" is common for "Rocks"
+  EXPECT_EQ(
+      Hash128TestDescriptor("Rocks", 430),
+      "b35D2vzvklFVDqJmyLRXyApwGGO3EAT3swhe8XJAN3mY2UVPglzdmydxcba6JI2tSvwO6zSu"
+      "ANpjSM7tc9G5iMhsa7R8GfyCXRO1TnLg7HvdWNdgGGBirxZR68BgT7TQsYJt6zyEyISeXI1n"
+      "MXA48Xo7dWfJeYN6Z4KWlqZY7TgFXGbks9AX4ehZNSGtIhdO5i58qlgVX1bEejeOVaCcjC79"
+      "67DrMfOKds7rUQzjBa77sMPcoPW1vu6ljGJPZH3XkRyDMZ1twxXKkNxN3tE8nR7JHwyqBAxE"
+      "fTcjbOWrLZ1irWxRSombD8sGDEmclgF11IxqEhe3Rt7gyofO3nExGckKkS9KfRqsCHbiUyva"
+      "JGkJwUHRXaZnh58b4i1Ei9aQKZjXlvIVDixoZrjcNaH5XJIJlRZce9Z9t82wYapTpckYSg");
+  EXPECT_EQ(
+      Hash128TestDescriptor("RocksDB", 430),
+      "b35D2vFUst3XDZCRlSrhmYYakmqImV97LbBsV6EZlOEQpUPH1d1sD3xMKAPlA5UErHehg5O7"
+      "n966fZqhAf3hRc24kGCLfNAWjyUa7vSNOx3IcPoTyVRFZeFlcCtfl7t1QJumHOCpS33EBmBF"
+      "hvK13QjBbDWYWeHQhJhgV9Mqbx17TIcvUkEnYZxb8IzWNmjVsJG44Z7v52DjGj1ZzS62S2Vv"
+      "qWcDO7apvH5VHg68E9Wl6nXP21vlmUqEH9GeWRehfWVvY7mUpsAg5drHHQyDSdiMceiUuUxJ"
+      "XJqHFcDdzbbPk7xDvbLgWCKvH8k3MpQNWOmbSSRDdAP6nGlDjoTToYkcqVREHJzztSWAAq5h"
+      "GHSUNJ6OxsMHhf8EhXfHtKyUzRmPtjYyeckQcGmrQfFFLidc6cjMDKCdBG6c6HVBrS7H2R");
 }
 
 TEST(FastRange32Test, Values) {
