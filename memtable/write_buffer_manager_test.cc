@@ -143,44 +143,43 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   ASSERT_TRUE(wbf->ShouldFlush());
 
   // Free 20MB, memory_used_ = 31565KB
-  // It will releae 81 dummy entries from cache since
+  // It will releae 80 dummy entries from cache since
   // since memory_used_ < dummy_entries_in_cache_usage * (3/4)
-  // and ceil((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
-  // 81
+  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
+  // 80
   wbf->FreeMem(20 * 1024 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 123 * kSizeDummyEntry);
-  ASSERT_GE(cache->GetPinnedUsage(), 123 * 256 * 1024);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 124 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 124 * 256 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(),
-            123 * 256 * 1024 + kMetaDataChargeOverhead);
+            124 * 256 * 1024 + kMetaDataChargeOverhead);
 
   ASSERT_FALSE(wbf->ShouldFlush());
 
   // Free 16KB, memory_used_ = 31549KB
-  // It will not release any dummy entry since it is a trivial memory decrease
-  // less than one dummy entry size (i.e, 256KB)
+  // It will not release any dummy entry since memory_used_ >= dummy_entries_in_cache_usage * (3/4)
   wbf->FreeMem(16 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 123 * kSizeDummyEntry);
-  ASSERT_GE(cache->GetPinnedUsage(), 123 * 256 * 1024);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 124 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 124 * 256 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(),
-            123 * 256 * 1024 + kMetaDataChargeOverhead);
+            124 * 256 * 1024 + kMetaDataChargeOverhead);
 
   // Free 20MB, memory_used_ = 11069KB
   // It will releae 80 dummy entries from cache
   // since memory_used_ < dummy_entries_in_cache_usage * (3/4)
-  // and ceil((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
+  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
   // 80
   wbf->FreeMem(20 * 1024 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 43 * kSizeDummyEntry);
-  ASSERT_GE(cache->GetPinnedUsage(), 43 * 256 * 1024);
-  ASSERT_LT(cache->GetPinnedUsage(), 43 * 256 * 1024 + kMetaDataChargeOverhead);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 44 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
+  ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
   // Free 1MB, memory_used_ = 10045KB
   // It will not cause any change in cache cost
   // since memory_used_ > dummy_entries_in_cache_usage * (3/4)
   wbf->FreeMem(1 * 1024 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 43 * kSizeDummyEntry);
-  ASSERT_GE(cache->GetPinnedUsage(), 43 * 256 * 1024);
-  ASSERT_LT(cache->GetPinnedUsage(), 43 * 256 * 1024 + kMetaDataChargeOverhead);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 44 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
+  ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
   // Reserve 512KB, memory_used_ = 10557KB
   // It will not casue any change in cache cost
@@ -188,9 +187,9 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   // which reflects the benefit of saving dummy entry insertion on memory
   // reservation after delay decrease
   wbf->ReserveMem(512 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 43 * kSizeDummyEntry);
-  ASSERT_GE(cache->GetPinnedUsage(), 43 * 256 * 1024);
-  ASSERT_LT(cache->GetPinnedUsage(), 43 * 256 * 1024 + kMetaDataChargeOverhead);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 44 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
+  ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
   // Destory write buffer manger should free everything
   wbf.reset();

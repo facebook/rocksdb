@@ -43,12 +43,7 @@ Status CacheReservationManager::UpdateCacheReservation(
     std::size_t new_mem_used) {
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
-  if (new_mem_used == cur_cache_allocated_size ||
-      (cur_cache_allocated_size > 0 &&
-       new_mem_used > cur_cache_allocated_size &&
-       (new_mem_used - cur_cache_allocated_size) < kSizeDummyEntry) ||
-      (new_mem_used < cur_cache_allocated_size &&
-       (cur_cache_allocated_size - new_mem_used) < kSizeDummyEntry)) {
+  if (new_mem_used == cur_cache_allocated_size) {
     return Status::OK();
   } else if (new_mem_used > cur_cache_allocated_size) {
     Status s = IncreaseCacheReservation<R>(new_mem_used);
@@ -116,7 +111,10 @@ Status CacheReservationManager::IncreaseCacheReservation(
 Status CacheReservationManager::DecreaseCacheReservation(
     std::size_t new_mem_used) {
   Status return_status = Status::OK();
-  while (new_mem_used < cache_allocated_size_.load(std::memory_order_relaxed)) {
+
+  // Decrease to the smallest multiple of kSizeDummyEntry that is greater than or equal to new_mem_used
+  // We do addition instead of new_mem_used <= cache_allocated_size_.load(std::memory_order_relaxed) - kSizeDummyEntry to avoid underflow of size_t when cache_allocated_size_ = 0
+  while (new_mem_used + kSizeDummyEntry <= cache_allocated_size_.load(std::memory_order_relaxed)) {
     assert(!dummy_handles_.empty());
     auto* handle = dummy_handles_.back();
     // If insert failed, handle is null so we should not release.

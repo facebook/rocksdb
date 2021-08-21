@@ -73,70 +73,24 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
 }
 
 TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
-  std::size_t new_mem_used = 0 * kSizeDummyEntry;
-  Status s =
+    std::size_t new_mem_used = 1 * kSizeDummyEntry;
+    Status s =
       test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
               new_mem_used);
-  EXPECT_EQ(s, Status::OK())
-      << "Failed to keep cache reservation the same when new_mem_used equals "
-         "to current cache reservation";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            0 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly when new_mem_used equals to current "
-         "cache reservation";
-  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry)
-      << "Failed to keep underlying dummy entries the same when new_mem_used "
-         "equals to current cache reservation";
+    ASSERT_EQ(s, Status::OK());
+    ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), 1 * kSizeDummyEntry);
+    std::size_t cur_pinned_usage = cache->GetPinnedUsage();
+    ASSERT_GE(cur_pinned_usage, 1 * kSizeDummyEntry);
+    ASSERT_LE(cur_pinned_usage, 1 * kSizeDummyEntry + 1 * kMetaDataChargeOverheadPerDummyEntry);
 
-  new_mem_used = kSizeDummyEntry / 2;
-  s = test_cache_rev_mng
+    s =
+      test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
               new_mem_used);
-  EXPECT_EQ(s, Status::OK())
-      << "Failed to reserve cache for trivial memory increase less than one "
-         "dummy entry size when cache is empty";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly for trivial memory increase less than "
-         "one dummy entry size when cache is empty";
-  std::size_t initial_pinned_usage = cache->GetPinnedUsage();
-  EXPECT_GE(initial_pinned_usage, 1 * kSizeDummyEntry)
-      << "Failed to increase underlying dummy entries for trivial memory "
-         "increase less than one dummy entry size when cache is empty";
-  EXPECT_LE(initial_pinned_usage, 1 * kSizeDummyEntry + 1 * kMetaDataChargeOverheadPerDummyEntry)
-      << "Increased too many underlying dummy entries for trivial memory "
-         "increase less than one dummy entry size when cache is empty";
-
-  new_mem_used = 1 * kSizeDummyEntry + kSizeDummyEntry / 2;
-  s = test_cache_rev_mng
-          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
-              new_mem_used);
-  EXPECT_EQ(s, Status::OK())
-      << "Failed to keep cache reservation the same for trivial memory "
-         "increase less than one dummy entry size when cache is not empty";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly for trivial memory increase less than "
-         "one dummy entry size when cache is not empty";
-  EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
-      << "Failed to keep underlying dummy entries the same for trivial memory "
-         "increase less than one dummy entry size when cache is not empty";
-
-  new_mem_used = kSizeDummyEntry / 2;
-  s = test_cache_rev_mng
-          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
-              new_mem_used);
-  EXPECT_EQ(s, Status::OK())
-      << "Failed to keep cache reservation the same for trivial memory "
-         "decrease less than one dummy entry size";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly for trivial memory decrease less than "
-         "one dummy entry size";
-  EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
-      << "Failed to keep underlying dummy entries the same for trivial memory "
-         "decrease less than one dummy entry size";
+    EXPECT_EQ(s, Status::OK()) << "Failed to keep cache reservation the same when new_mem_used equals to current cache reservation";
+    EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), 1 * kSizeDummyEntry) << "Failed to bookkeep correctly when new_mem_used equals to current cache reservation";
+    EXPECT_EQ(cache->GetPinnedUsage(), cur_pinned_usage) << "Failed to keep underlying dummy entries the same when new_mem_used equals to current cache reservation";
 }
 
 TEST_F(CacheReservationManagerTest,
@@ -252,10 +206,12 @@ TEST_F(CacheReservationManagerTest,
   EXPECT_EQ(s, Status::OK())
       << "Failed to decrease cache reservation correctly";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            0 * kSizeDummyEntry)
+            1 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation decrease correctly";
-  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry)
+  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
+  EXPECT_LE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry + 1 * kMetaDataChargeOverheadPerDummyEntry)
+      << "Decreased too little underlying dummy entries in cache";
 }
 
 TEST(CacheReservationManagerWithDelayedDecreaseTest,
@@ -314,15 +270,15 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
       << "Failed to decrease cache reservation correctly when new_mem_used < "
          "GetTotalReservedCacheSize() * 3 / 4 on delayed decrease mode";
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            5 * kSizeDummyEntry)
+            6 * kSizeDummyEntry)
       << "Failed to bookkeep correctly when new_mem_used < "
          "GetTotalReservedCacheSize() * 3 / 4 on delayed decrease mode";
   std::size_t cur_pinned_usage = cache->GetPinnedUsage();
-  EXPECT_GE(cur_pinned_usage, 5 * kSizeDummyEntry)
+  EXPECT_GE(cur_pinned_usage, 6 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
          "decrease mode";
-  EXPECT_LE(cur_pinned_usage, 5 * kSizeDummyEntry + 5 * kMetaDataChargeOverheadPerDummyEntry)
+  EXPECT_LE(cur_pinned_usage, 6 * kSizeDummyEntry + 6 * kMetaDataChargeOverheadPerDummyEntry)
       << "Decreased too little underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
          "decrease mode";

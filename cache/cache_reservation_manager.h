@@ -53,24 +53,20 @@ class CacheReservationManager {
   template <CacheEntryRole R>
 
   // Insert and release dummy entries in the cache to
-  // match the size of total dummy entries with the new_memory_used
-  // as close as possible.
+  // match the size of total dummy entries to the smallest multiple of 
+  // kSizeDummyEntry that is greater than or equal to new_mem_used
   //
   // Insert dummy entries into cache_ if new_memory_used > cache_allocated_size_
-  // and the difference is greater than or equal to one dummy entry size.
-  // (If new_memory_used > cache_allocated_size_ = 0, then the difference won't
-  // be taken into consideration and insertion is triggered).
-  //
   // Release dummy entries from cache_ if new_memory_used <
-  // cache_allocated_size_ and the difference is greater than or equal to one
-  // dummy entry size (and new_memory_used < cache_allocated_size_ * 3 / 4 if
-  // delayed_decrease = true);
-  //
-  // Otherwise, keep dummy entries in the cache_ the same.
-  //
+  // cache_allocated_size_ (and new_memory_used < cache_allocated_size_ * 3 / 4 when
+  // delayed_decrease is set true);
+  // Keey dummy entries in the cache the same if (1) new_memory_used == cache_allocated_size_
+  // or (2) cache_allocated_size_ * 3 / 4 <= new_memory_used < cache_allocated_size_ 
+  // when delayed_decrease is set true
+  // 
   // On inserting dummy entries, it returns Status::OK() if all dummy entry
   // insertions succeed. Otherwise, it returns the first non-ok status;
-  // On releasing dummy entries, it always return Status::OK().
+  // On releasing dummy entries, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);
   std::size_t GetTotalReservedCacheSize();
 
