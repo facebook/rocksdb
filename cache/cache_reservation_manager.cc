@@ -112,9 +112,12 @@ Status CacheReservationManager::DecreaseCacheReservation(
     std::size_t new_mem_used) {
   Status return_status = Status::OK();
 
-  // Decrease to the smallest multiple of kSizeDummyEntry that is greater than or equal to new_mem_used
-  // We do addition instead of new_mem_used <= cache_allocated_size_.load(std::memory_order_relaxed) - kSizeDummyEntry to avoid underflow of size_t when cache_allocated_size_ = 0
-  while (new_mem_used + kSizeDummyEntry <= cache_allocated_size_.load(std::memory_order_relaxed)) {
+  // Decrease to the smallest multiple of kSizeDummyEntry that is greater than
+  // or equal to new_mem_used We do addition instead of new_mem_used <=
+  // cache_allocated_size_.load(std::memory_order_relaxed) - kSizeDummyEntry to
+  // avoid underflow of size_t when cache_allocated_size_ = 0
+  while (new_mem_used + kSizeDummyEntry <=
+         cache_allocated_size_.load(std::memory_order_relaxed)) {
     assert(!dummy_handles_.empty());
     auto* handle = dummy_handles_.back();
     // If insert failed, handle is null so we should not release.

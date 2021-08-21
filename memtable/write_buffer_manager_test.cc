@@ -145,8 +145,8 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   // Free 20MB, memory_used_ = 31565KB
   // It will releae 80 dummy entries from cache since
   // since memory_used_ < dummy_entries_in_cache_usage * (3/4)
-  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
-  // 80
+  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry)
+  // = 80
   wbf->FreeMem(20 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 124 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 124 * 256 * 1024);
@@ -156,7 +156,8 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   ASSERT_FALSE(wbf->ShouldFlush());
 
   // Free 16KB, memory_used_ = 31549KB
-  // It will not release any dummy entry since memory_used_ >= dummy_entries_in_cache_usage * (3/4)
+  // It will not release any dummy entry since memory_used_ >=
+  // dummy_entries_in_cache_usage * (3/4)
   wbf->FreeMem(16 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 124 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 124 * 256 * 1024);
@@ -166,8 +167,8 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   // Free 20MB, memory_used_ = 11069KB
   // It will releae 80 dummy entries from cache
   // since memory_used_ < dummy_entries_in_cache_usage * (3/4)
-  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry) =
-  // 80
+  // and floor((dummy_entries_in_cache_usage - memory_used_) % kSizeDummyEntry)
+  // = 80
   wbf->FreeMem(20 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 44 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
