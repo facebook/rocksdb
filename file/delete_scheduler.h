@@ -17,22 +17,25 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
+class FileSystem;
 class Logger;
 class SstFileManagerImpl;
+class SystemClock;
 
 // DeleteScheduler allows the DB to enforce a rate limit on file deletion,
 // Instead of deleteing files immediately, files are marked as trash
-// and deleted in a background thread that apply sleep penlty between deletes
+// and deleted in a background thread that apply sleep penalty between deletes
 // if they are happening in a rate faster than rate_bytes_per_sec,
 //
 // Rate limiting can be turned off by setting rate_bytes_per_sec = 0, In this
 // case DeleteScheduler will delete files immediately.
 class DeleteScheduler {
  public:
-  DeleteScheduler(Env* env, int64_t rate_bytes_per_sec, Logger* info_log,
+  DeleteScheduler(SystemClock* clock, FileSystem* fs,
+                  int64_t rate_bytes_per_sec, Logger* info_log,
                   SstFileManagerImpl* sst_file_manager,
                   double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
@@ -44,9 +47,10 @@ class DeleteScheduler {
   // Set delete rate limit in bytes per second
   void SetRateBytesPerSecond(int64_t bytes_per_sec) {
     rate_bytes_per_sec_.store(bytes_per_sec);
+    MaybeCreateBackgroundThread();
   }
 
-  // Mark file as trash directory and schedule it's deletion. If force_bg is
+  // Mark file as trash directory and schedule its deletion. If force_bg is
   // set, it forces the file to always be deleted in the background thread,
   // except when rate limiting is disabled
   Status DeleteFile(const std::string& fname, const std::string& dir_to_sync,
@@ -76,10 +80,15 @@ class DeleteScheduler {
   static const std::string kTrashExtension;
   static bool IsTrashFile(const std::string& file_path);
 
-  // Check if there are any .trash filse in path, and schedule their deletion
+  // Check if there are any .trash files in path, and schedule their deletion
   // Or delete immediately if sst_file_manager is nullptr
   static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                  const std::string& path);
+
+  void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) {
+    InstrumentedMutexLock l(&mu_);
+    stats_ = stats;
+  }
 
  private:
   Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
@@ -90,12 +99,16 @@ class DeleteScheduler {
 
   void BackgroundEmptyTrash();
 
-  Env* env_;
+  void MaybeCreateBackgroundThread();
+
+  SystemClock* clock_;
+  FileSystem* fs_;
+
   // total size of trash files
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
-  // Mutex to protect queue_, pending_files_, bg_errors_, closing_
+  // Mutex to protect queue_, pending_files_, bg_errors_, closing_, stats_
   InstrumentedMutex mu_;
 
   struct FileAndDir {
@@ -131,8 +144,9 @@ class DeleteScheduler {
   // immediately
   std::atomic<double> max_trash_db_ratio_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
+  std::shared_ptr<Statistics> stats_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

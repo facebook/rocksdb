@@ -26,7 +26,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -36,13 +36,18 @@ namespace rocksdb {
 class WalManager {
  public:
   WalManager(const ImmutableDBOptions& db_options,
-             const EnvOptions& env_options, const bool seq_per_batch = false)
+             const FileOptions& file_options,
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const bool seq_per_batch = false)
       : db_options_(db_options),
-        env_options_(env_options),
+        file_options_(file_options),
         env_(db_options.env),
+        fs_(db_options.fs, io_tracer),
         purge_wal_files_last_run_(0),
         seq_per_batch_(seq_per_batch),
-        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)) {}
+        wal_dir_(db_options_.GetWalDir()),
+        wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
+        io_tracer_(io_tracer) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
@@ -88,8 +93,9 @@ class WalManager {
 
   // ------- state from DBImpl ------
   const ImmutableDBOptions& db_options_;
-  const EnvOptions& env_options_;
+  const FileOptions file_options_;
   Env* env_;
+  const FileSystemPtr fs_;
 
   // ------- WalManager state -------
   // cache for ReadFirstRecord() calls
@@ -101,12 +107,16 @@ class WalManager {
 
   bool seq_per_batch_;
 
+  const std::string& wal_dir_;
+
   bool wal_in_db_path_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.
   static const uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
+
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -20,7 +20,7 @@
 #include "table/format.h"
 #include "util/kv_map.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder;
 class BlockHandle;
@@ -70,8 +70,8 @@ class PropertyBlockBuilder {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name);
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name);
 
 // Utility functions help table builder to trigger batch events for user
 // defined property collectors.
@@ -86,8 +86,8 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    uint64_t blockRawBytes, uint64_t blockCompressedBytesFast,
-    uint64_t blockCompressedBytesSlow);
+    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_compressed_bytes_slow);
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
@@ -99,9 +99,10 @@ bool NotifyCollectTableCollectorsOnFinish(
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
-Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
+Status ReadProperties(const ReadOptions& ro, const Slice& handle_value,
+                      RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-                      const ImmutableCFOptions& ioptions,
+                      const ImmutableOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,
                       BlockHandle* block_handle,
                       CacheAllocationPtr* verification_buf,
@@ -118,10 +119,11 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 // `ReadProperties`, `FindMetaBlock`, and `ReadMetaBlock`
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions& ioptions,
+                           const ImmutableOptions& ioptions,
                            TableProperties** properties,
                            bool compression_type_missing = false,
-                           MemoryAllocator* memory_allocator = nullptr);
+                           MemoryAllocator* memory_allocator = nullptr,
+                           FilePrefetchBuffer* prefetch_buffer = nullptr);
 
 // Find the meta block from the meta index block.
 Status FindMetaBlock(InternalIterator* meta_index_iter,
@@ -131,7 +133,7 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 // Find the meta block
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
                      bool compression_type_missing = false,
@@ -143,10 +145,10 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents,
                      bool compression_type_missing = false,
                      MemoryAllocator* memory_allocator = nullptr);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

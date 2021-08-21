@@ -12,7 +12,7 @@
 #include "rocksdb/slice.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -67,4 +67,4 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
 }
 
-}  // rocksdb
+}  // namespace ROCKSDB_NAMESPACE

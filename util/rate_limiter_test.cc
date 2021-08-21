@@ -14,20 +14,20 @@
 #include <limits>
 
 #include "db/db_test_util.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // TODO(yhchiang): the rate will not be accurate when we run test in parallel.
 class RateLimiterTest : public testing::Test {};
 
 TEST_F(RateLimiterTest, OverflowRate) {
   GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
-                             RateLimiter::Mode::kWritesOnly, Env::Default(),
-                             false /* auto_tuned */);
+                             RateLimiter::Mode::kWritesOnly,
+                             SystemClock::Default(), false /* auto_tuned */);
   ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
 }
 
@@ -38,9 +38,10 @@ TEST_F(RateLimiterTest, StartStop) {
 TEST_F(RateLimiterTest, Modes) {
   for (auto mode : {RateLimiter::Mode::kWritesOnly,
                     RateLimiter::Mode::kReadsOnly, RateLimiter::Mode::kAllIo}) {
-    GenericRateLimiter limiter(
-        2000 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
-        10 /* fairness */, mode, Env::Default(), false /* auto_tuned */);
+    GenericRateLimiter limiter(2000 /* rate_bytes_per_sec */,
+                               1000 * 1000 /* refill_period_us */,
+                               10 /* fairness */, mode, SystemClock::Default(),
+                               false /* auto_tuned */);
     limiter.Request(1000 /* bytes */, Env::IO_HIGH, nullptr /* stats */,
                     RateLimiter::OpType::kRead);
     if (mode == RateLimiter::Mode::kWritesOnly) {
@@ -59,13 +60,15 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
-#if !(defined(TRAVIS) && defined(OS_MACOSX))
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
-          request_size(_target_rate / 10),
+        : limiter(NewGenericRateLimiter(_target_rate /* rate_bytes_per_sec */,
+                                        100 * 1000 /* refill_period_us */,
+                                        10 /* fairness */)),
+          request_size(_target_rate /
+                       10 /* refill period here is 1/10 second */),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
     int32_t request_size;
@@ -73,13 +76,13 @@ TEST_F(RateLimiterTest, Rate) {
   };
 
   auto writer = [](void* p) {
-    auto* thread_env = Env::Default();
+    const auto& thread_clock = SystemClock::Default();
     auto* arg = static_cast<Arg*>(p);
     // Test for 2 seconds
-    auto until = thread_env->NowMicros() + 2 * 1000000;
-    Random r((uint32_t)(thread_env->NowNanos() %
+    auto until = thread_clock->NowMicros() + 2 * 1000000;
+    Random r((uint32_t)(thread_clock->NowNanos() %
                         std::numeric_limits<uint32_t>::max()));
-    while (thread_env->NowMicros() < until) {
+    while (thread_clock->NowMicros() < until) {
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
                               Env::IO_HIGH, nullptr /* stats */,
@@ -89,6 +92,9 @@ TEST_F(RateLimiterTest, Rate) {
                             nullptr /* stats */, RateLimiter::OpType::kWrite);
     }
   };
+
+  int samples = 0;
+  int samples_at_minimum = 0;
 
   for (int i = 1; i <= 16; i *= 2) {
     int32_t target = i * 1024 * 10;
@@ -117,18 +123,34 @@ TEST_F(RateLimiterTest, Rate) {
               arg.request_size - 1, target / 1024, rate / 1024,
               elapsed / 1000000.0);
 
-      ASSERT_GE(rate / target, 0.80);
+      ++samples;
+      if (rate / target >= 0.80) {
+        ++samples_at_minimum;
+      }
       ASSERT_LE(rate / target, 1.25);
     }
   }
-}
+
+  // This can fail in heavily loaded CI environments
+  bool skip_minimum_rate_check =
+#if (defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX)
+      true;
+#else
+      getenv("SANDCASTLE");
 #endif
+  if (skip_minimum_rate_check) {
+    fprintf(stderr, "Skipped minimum rate check (%d / %d passed)\n",
+            samples_at_minimum, samples);
+  } else {
+    ASSERT_EQ(samples_at_minimum, samples);
+  }
+}
 
 TEST_F(RateLimiterTest, LimitChangeTest) {
   // starvation test when limit changes to a smaller value
   int64_t refill_period = 1000 * 1000;
   auto* env = Env::Default();
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   struct Arg {
     Arg(int32_t _request_size, Env::IOPriority _pri,
         std::shared_ptr<RateLimiter> _limiter)
@@ -151,12 +173,12 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
       std::shared_ptr<RateLimiter> limiter =
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
-              Env::Default(), false /* auto_tuned */);
-      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+              SystemClock::Default(), false /* auto_tuned */);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::Refill"}});
+            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
@@ -180,26 +202,24 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
 
-  SpecialEnv special_env(Env::Default());
-  special_env.no_slowdown_ = true;
-  special_env.time_elapse_only_sleep_ = true;
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
 
   auto stats = CreateDBStatistics();
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
       1000 /* rate_bytes_per_sec */,
       std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, &special_env, true /* auto_tuned */));
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      true /* auto_tuned */));
 
-  // Use callback to advance time because we need to advance (1) after Request()
-  // has determined the bytes are not available; and (2) before Refill()
-  // computes the next refill time (ensuring refill time in the future allows
-  // the next request to drain the rate limiter).
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Refill", [&](void* /*arg*/) {
-        special_env.SleepForMicroseconds(static_cast<int>(
-            std::chrono::microseconds(kTimePerRefill).count()));
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // verify rate limit increases after a sequence of periods where rate limiter
   // is always drained
@@ -214,7 +234,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   int64_t new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
@@ -227,7 +247,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -113,7 +113,7 @@ public class TtlDB extends RocksDB {
       throws RocksDBException {
     if (columnFamilyDescriptors.size() != ttlValues.size()) {
       throw new IllegalArgumentException("There must be a ttl value per column"
-          + "family handle.");
+          + " family handle.");
     }
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
@@ -121,8 +121,8 @@ public class TtlDB extends RocksDB {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor =
           columnFamilyDescriptors.get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final int ttlVals[] = new int[ttlValues.size()];

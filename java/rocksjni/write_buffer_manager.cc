@@ -17,11 +17,14 @@
  */
 jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
         JNIEnv* /*env*/, jclass /*jclazz*/, jlong jbuffer_size, jlong jcache_handle) {
-    auto* cache_ptr =
-            reinterpret_cast<std::shared_ptr<rocksdb::Cache> *>(jcache_handle);
-    auto* write_buffer_manager = new std::shared_ptr<rocksdb::WriteBufferManager>(
-            std::make_shared<rocksdb::WriteBufferManager>(jbuffer_size, *cache_ptr));
-    return reinterpret_cast<jlong>(write_buffer_manager);
+  auto* cache_ptr =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(
+          jcache_handle);
+  auto* write_buffer_manager =
+      new std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(
+          std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(jbuffer_size,
+                                                                  *cache_ptr));
+  return reinterpret_cast<jlong>(write_buffer_manager);
 }
 
 /*
@@ -31,8 +34,9 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
  */
 void Java_org_rocksdb_WriteBufferManager_disposeInternal(
         JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-    auto* write_buffer_manager =
-            reinterpret_cast<std::shared_ptr<rocksdb::WriteBufferManager> *>(jhandle);
-    assert(write_buffer_manager != nullptr);
-    delete write_buffer_manager;
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  delete write_buffer_manager;
 }

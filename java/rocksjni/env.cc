@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::Env methods from Java side.
+// calling c++ ROCKSDB_NAMESPACE::Env methods from Java side.
 
 #include <jni.h>
 #include <vector>
@@ -24,7 +24,7 @@
  */
 jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
     JNIEnv*, jclass) {
-  return reinterpret_cast<jlong>(rocksdb::Env::Default());
+  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::Env::Default());
 }
 
 /*
@@ -34,7 +34,7 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
  */
 void Java_org_rocksdb_RocksEnv_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
-  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* e = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   assert(e != nullptr);
   delete e;
 }
@@ -46,9 +46,10 @@ void Java_org_rocksdb_RocksEnv_disposeInternal(
  */
 void Java_org_rocksdb_Env_setBackgroundThreads(
     JNIEnv*, jobject, jlong jhandle, jint jnum, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
-  rocks_env->SetBackgroundThreads(static_cast<int>(jnum),
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
+  rocks_env->SetBackgroundThreads(
+      static_cast<int>(jnum),
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
 }
 
 /*
@@ -58,9 +59,9 @@ void Java_org_rocksdb_Env_setBackgroundThreads(
  */
 jint Java_org_rocksdb_Env_getBackgroundThreads(
     JNIEnv*, jobject, jlong jhandle, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   const int num = rocks_env->GetBackgroundThreads(
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
   return static_cast<jint>(num);
 }
 
@@ -71,9 +72,9 @@ jint Java_org_rocksdb_Env_getBackgroundThreads(
  */
 jint Java_org_rocksdb_Env_getThreadPoolQueueLen(
     JNIEnv*, jobject, jlong jhandle, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   const int queue_len = rocks_env->GetThreadPoolQueueLen(
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
   return static_cast<jint>(queue_len);
 }
 
@@ -84,9 +85,10 @@ jint Java_org_rocksdb_Env_getThreadPoolQueueLen(
  */
 void Java_org_rocksdb_Env_incBackgroundThreadsIfNeeded(
     JNIEnv*, jobject, jlong jhandle, jint jnum, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
-  rocks_env->IncBackgroundThreadsIfNeeded(static_cast<int>(jnum),
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
+  rocks_env->IncBackgroundThreadsIfNeeded(
+      static_cast<int>(jnum),
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
 }
 
 /*
@@ -96,9 +98,9 @@ void Java_org_rocksdb_Env_incBackgroundThreadsIfNeeded(
  */
 void Java_org_rocksdb_Env_lowerThreadPoolIOPriority(
     JNIEnv*, jobject, jlong jhandle, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   rocks_env->LowerThreadPoolIOPriority(
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
 }
 
 /*
@@ -108,9 +110,9 @@ void Java_org_rocksdb_Env_lowerThreadPoolIOPriority(
  */
 void Java_org_rocksdb_Env_lowerThreadPoolCPUPriority(
     JNIEnv*, jobject, jlong jhandle, jbyte jpriority_value) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   rocks_env->LowerThreadPoolCPUPriority(
-      rocksdb::PriorityJni::toCppPriority(jpriority_value));
+      ROCKSDB_NAMESPACE::PriorityJni::toCppPriority(jpriority_value));
 }
 
 /*
@@ -120,26 +122,26 @@ void Java_org_rocksdb_Env_lowerThreadPoolCPUPriority(
  */
 jobjectArray Java_org_rocksdb_Env_getThreadList(
     JNIEnv* env, jobject, jlong jhandle) {
-  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
-  std::vector<rocksdb::ThreadStatus> thread_status;
-  rocksdb::Status s = rocks_env->GetThreadList(&thread_status);
+  auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
+  std::vector<ROCKSDB_NAMESPACE::ThreadStatus> thread_status;
+  ROCKSDB_NAMESPACE::Status s = rocks_env->GetThreadList(&thread_status);
   if (!s.ok()) {
     // error, throw exception
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return nullptr;
   }
 
   // object[]
   const jsize len = static_cast<jsize>(thread_status.size());
-  jobjectArray jthread_status =
-      env->NewObjectArray(len, rocksdb::ThreadStatusJni::getJClass(env), nullptr);
+  jobjectArray jthread_status = env->NewObjectArray(
+      len, ROCKSDB_NAMESPACE::ThreadStatusJni::getJClass(env), nullptr);
   if (jthread_status == nullptr) {
     // an exception occurred
     return nullptr;
   }
   for (jsize i = 0; i < len; ++i) {
     jobject jts =
-        rocksdb::ThreadStatusJni::construct(env, &(thread_status[i]));
+        ROCKSDB_NAMESPACE::ThreadStatusJni::construct(env, &(thread_status[i]));
     env->SetObjectArrayElement(jthread_status, i, jts);
     if (env->ExceptionCheck()) {
       // exception occurred
@@ -158,8 +160,8 @@ jobjectArray Java_org_rocksdb_Env_getThreadList(
  */
 jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
-  auto* base_env = reinterpret_cast<rocksdb::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(rocksdb::NewMemEnv(base_env));
+  auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
+  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewMemEnv(base_env));
 }
 
 /*
@@ -169,7 +171,7 @@ jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
  */
 void Java_org_rocksdb_RocksMemEnv_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
-  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* e = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   assert(e != nullptr);
   delete e;
 }
@@ -182,16 +184,18 @@ void Java_org_rocksdb_RocksMemEnv_disposeInternal(
 jlong Java_org_rocksdb_HdfsEnv_createHdfsEnv(
     JNIEnv* env, jclass, jstring jfsname) {
   jboolean has_exception = JNI_FALSE;
-  auto fsname = rocksdb::JniUtil::copyStdString(env, jfsname, &has_exception);
+  auto fsname =
+      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jfsname, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
     return 0;
   }
-  rocksdb::Env* hdfs_env;
-  rocksdb::Status s = rocksdb::NewHdfsEnv(&hdfs_env, fsname);
+  ROCKSDB_NAMESPACE::Env* hdfs_env;
+  ROCKSDB_NAMESPACE::Status s =
+      ROCKSDB_NAMESPACE::NewHdfsEnv(&hdfs_env, fsname);
   if (!s.ok()) {
     // error occurred
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
   return reinterpret_cast<jlong>(hdfs_env);
@@ -204,7 +208,7 @@ jlong Java_org_rocksdb_HdfsEnv_createHdfsEnv(
  */
 void Java_org_rocksdb_HdfsEnv_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
-  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* e = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   assert(e != nullptr);
   delete e;
 }
@@ -216,8 +220,8 @@ void Java_org_rocksdb_HdfsEnv_disposeInternal(
  */
 jlong Java_org_rocksdb_TimedEnv_createTimedEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
-  auto* base_env = reinterpret_cast<rocksdb::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(rocksdb::NewTimedEnv(base_env));
+  auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
+  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewTimedEnv(base_env));
 }
 
 /*
@@ -227,7 +231,7 @@ jlong Java_org_rocksdb_TimedEnv_createTimedEnv(
  */
 void Java_org_rocksdb_TimedEnv_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
-  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* e = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
   assert(e != nullptr);
   delete e;
 }

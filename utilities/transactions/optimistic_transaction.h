@@ -24,7 +24,7 @@
 #include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class OptimisticTransaction : public TransactionBaseImpl {
  public:
@@ -74,6 +74,10 @@ class OptimisticTransaction : public TransactionBaseImpl {
                           const Slice& /* unused */) override {
     // Nothing to unlock.
   }
+
+  Status CommitWithSerialValidate();
+
+  Status CommitWithParallelValidate();
 };
 
 // Used at commit time to trigger transaction validation
@@ -92,6 +96,6 @@ class OptimisticTransactionCallback : public WriteCallback {
   OptimisticTransaction* txn_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

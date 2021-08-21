@@ -13,15 +13,15 @@
 #include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/kv_map.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-using std::unique_ptr;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 
-static const Comparator* comparator;
+static const Comparator* kTestComparator = nullptr;
 
 class KVIter : public Iterator {
  public:
@@ -74,7 +74,7 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
 void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
                             Random* rnd, int num_writes, int num_iter_ops,
                             int num_trigger_flush) {
-  stl_wrappers::KVMap map((stl_wrappers::LessOfComparator(comparator)));
+  stl_wrappers::KVMap map((stl_wrappers::LessOfComparator(kTestComparator)));
 
   for (int i = 0; i < num_writes; i++) {
     if (num_trigger_flush > 0 && i != 0 && i % num_trigger_flush == 0) {
@@ -263,19 +263,19 @@ class ComparatorDBTest
 
  public:
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
-    comparator = BytewiseComparator();
+    kTestComparator = BytewiseComparator();
     dbname_ = test::PerThreadDBPath("comparator_db_test");
     BlockBasedTableOptions toptions;
     toptions.format_version = GetParam();
     last_options_.table_factory.reset(
-        rocksdb::NewBlockBasedTableFactory(toptions));
+        ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(toptions));
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   ~ComparatorDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, last_options_));
-    comparator = BytewiseComparator();
+    kTestComparator = BytewiseComparator();
   }
 
   DB* GetDB() { return db_; }
@@ -286,7 +286,7 @@ class ComparatorDBTest
     } else {
       comparator_guard.reset();
     }
-    comparator = cmp;
+    kTestComparator = cmp;
     last_options_.comparator = cmp;
   }
 
@@ -334,7 +334,7 @@ TEST_P(ComparatorDBTest, SimpleSuffixReverseComparator) {
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
-    opt->comparator = comparator;
+    opt->comparator = kTestComparator;
     DestroyAndReopen();
     Random rnd(rnd_seed);
 
@@ -342,12 +342,12 @@ TEST_P(ComparatorDBTest, SimpleSuffixReverseComparator) {
     std::vector<std::string> source_prefixes;
     // Randomly generate 5 prefixes
     for (int i = 0; i < 5; i++) {
-      source_prefixes.push_back(test::RandomHumanReadableString(&rnd, 8));
+      source_prefixes.push_back(rnd.HumanReadableString(8));
     }
     for (int j = 0; j < 20; j++) {
       int prefix_index = rnd.Uniform(static_cast<int>(source_prefixes.size()));
       std::string key = source_prefixes[prefix_index] +
-                        test::RandomHumanReadableString(&rnd, rnd.Uniform(8));
+                        rnd.HumanReadableString(rnd.Uniform(8));
       source_strings.push_back(key);
     }
 
@@ -360,7 +360,7 @@ TEST_P(ComparatorDBTest, Uint64Comparator) {
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
-    opt->comparator = comparator;
+    opt->comparator = kTestComparator;
     DestroyAndReopen();
     Random rnd(rnd_seed);
     Random64 rnd64(rnd_seed);
@@ -384,7 +384,7 @@ TEST_P(ComparatorDBTest, DoubleComparator) {
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
-    opt->comparator = comparator;
+    opt->comparator = kTestComparator;
     DestroyAndReopen();
     Random rnd(rnd_seed);
 
@@ -409,7 +409,7 @@ TEST_P(ComparatorDBTest, HashComparator) {
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
-    opt->comparator = comparator;
+    opt->comparator = kTestComparator;
     DestroyAndReopen();
     Random rnd(rnd_seed);
 
@@ -428,7 +428,7 @@ TEST_P(ComparatorDBTest, TwoStrComparator) {
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
-    opt->comparator = comparator;
+    opt->comparator = kTestComparator;
     DestroyAndReopen();
     Random rnd(rnd_seed);
 
@@ -652,7 +652,7 @@ TEST_P(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

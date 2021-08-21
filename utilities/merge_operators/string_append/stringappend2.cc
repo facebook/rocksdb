@@ -5,19 +5,37 @@
 
 #include "stringappend2.h"
 
-#include <memory>
-#include <string>
 #include <assert.h>
 
-#include "rocksdb/slice.h"
+#include <memory>
+#include <string>
+
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/utilities/options_type.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    stringappend2_merge_type_info = {
+#ifndef ROCKSDB_LITE
+        {"delimiter",
+         {0, OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
 
 // Constructor: also specify the delimiter character.
 StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
-    : delim_(delim_char) {
+    : delim_(1, delim_char) {
+  RegisterOptions("Delimiter", &delim_, &stringappend2_merge_type_info);
+}
+
+StringAppendTESTOperator::StringAppendTESTOperator(const std::string& delim)
+    : delim_(delim) {
+  RegisterOptions("Delimiter", &delim_, &stringappend2_merge_type_info);
 }
 
 // Implementation for the merge operation (concatenates two strings)
@@ -35,9 +53,10 @@ bool StringAppendTESTOperator::FullMergeV2(
 
   // Compute the space needed for the final result.
   size_t numBytes = 0;
+
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
-    numBytes += it->size() + 1;   // Plus 1 for the delimiter
+    numBytes += it->size() + delim_.size();
   }
 
   // Only print the delimiter after the first entry has been printed
@@ -50,15 +69,16 @@ bool StringAppendTESTOperator::FullMergeV2(
                                 merge_in.existing_value->size());
     printDelim = true;
   } else if (numBytes) {
-    merge_out->new_value.reserve(
-        numBytes - 1);  // Minus 1 since we have one less delimiter
+    // Without the existing (initial) value, the delimiter before the first of
+    // subsequent operands becomes redundant.
+    merge_out->new_value.reserve(numBytes - delim_.size());
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
     if (printDelim) {
-      merge_out->new_value.append(1, delim_);
+      merge_out->new_value.append(delim_);
     }
     merge_out->new_value.append(it->data(), it->size());
     printDelim = true;
@@ -89,7 +109,7 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
   for (const auto& operand : operand_list) {
     size += operand.size();
   }
-  size += operand_list.size() - 1;  // Delimiters
+  size += (operand_list.size() - 1) * delim_.length();  // Delimiters
   new_value->reserve(size);
 
   // Apply concatenation
@@ -97,21 +117,16 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
 
   for (std::deque<Slice>::const_iterator it = operand_list.begin() + 1;
        it != operand_list.end(); ++it) {
-    new_value->append(1, delim_);
+    new_value->append(delim_);
     new_value->append(it->data(), it->size());
   }
 
   return true;
 }
 
-const char* StringAppendTESTOperator::Name() const  {
-  return "StringAppendTESTOperator";
-}
-
-
 std::shared_ptr<MergeOperator>
 MergeOperators::CreateStringAppendTESTOperator() {
   return std::make_shared<StringAppendTESTOperator>(',');
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

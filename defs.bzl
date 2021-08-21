@@ -1,5 +1,9 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+#
+# defs.bzl - Definitions for Facebook-specific buck build integration
+# in TARGETS
 
+load("@fbcode_macros//build_defs:coverage.bzl", "coverage")
 load("@fbcode_macros//build_defs:cpp_binary.bzl", "cpp_binary")
 load("@fbcode_macros//build_defs:custom_unittest.bzl", "custom_unittest")
 
@@ -32,8 +36,21 @@ def test_binary(
         external_deps = rocksdb_external_deps,
     )
 
+    binary_path = "$(location :{})".format(test_bin)
+
+    base_path = native.package_name()
+    tags = []
+    if coverage.is_coverage_enabled(base_path):
+        # This tag instructs testpilot to use
+        # the lower-memory coverage runner
+        # (e.g. it tells testpilot that the binary
+        # is actually instrumented with coverage info)
+        tags = ["coverage"]
+
     custom_unittest(
         name = test_name,
-        command = [TEST_RUNNER, "$(location :{})".format(test_bin)],
+        command = [TEST_RUNNER, binary_path],
         type = ttype,
+        env = {"BUCK_BASE_BINARY": binary_path},
+        tags = tags,
     )

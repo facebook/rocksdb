@@ -38,10 +38,12 @@
 #include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
+
 #include <memory>
 #include <stdexcept>
+#include <unordered_set>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class Allocator;
@@ -59,10 +61,10 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef rocksdb::Slice DecodedType;
+    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
 
     virtual DecodedType decode_key(const char* key) const {
-      // The format of key is frozen and can be terated as a part of the API
+      // The format of key is frozen and can be treated as a part of the API
       // contract. Refer to MemTable::Add for details.
       return GetLengthPrefixedSlice(key);
     }
@@ -120,7 +122,7 @@ class MemTableRep {
     return true;
   }
 
-  // Same as ::InsertWithHint, but allow concurrnet write
+  // Same as ::InsertWithHint, but allow concurrent write
   //
   // If hint points to nullptr, a new hint will be allocated on heap, otherwise
   // the hint will be updated to reflect the last insert location. The hint is
@@ -194,6 +196,17 @@ class MemTableRep {
     return 0;
   }
 
+  // Returns a vector of unique random memtable entries of approximate
+  // size 'target_sample_size' (this size is not strictly enforced).
+  virtual void UniqueRandomSample(const uint64_t num_entries,
+                                  const uint64_t target_sample_size,
+                                  std::unordered_set<const char*>* entries) {
+    (void)num_entries;
+    (void)target_sample_size;
+    (void)entries;
+    assert(false);
+  }
+
   // Report an approximation of how much memory has been used other than memory
   // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
@@ -229,6 +242,8 @@ class MemTableRep {
     // retreat to the first entry with a key <= target
     virtual void SeekForPrev(const Slice& internal_key,
                              const char* memtable_key) = 0;
+
+    virtual void RandomSeek() {}
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -382,4 +397,4 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     uint32_t threshold_use_skiplist = 256);
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

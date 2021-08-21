@@ -15,7 +15,7 @@
 #include "util/hash.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 typedef uint64_t Key;
 
@@ -380,7 +380,7 @@ TEST_F(SkipTest, Concurrent3) { RunConcurrent(3); }
 TEST_F(SkipTest, Concurrent4) { RunConcurrent(4); }
 TEST_F(SkipTest, Concurrent5) { RunConcurrent(5); }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

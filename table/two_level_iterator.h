@@ -12,7 +12,7 @@
 #include "rocksdb/env.h"
 #include "table/iterator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct ReadOptions;
 class InternalKeyComparator;
@@ -40,4 +40,4 @@ extern InternalIteratorBase<IndexValue>* NewTwoLevelIterator(
     TwoLevelIteratorState* state,
     InternalIteratorBase<IndexValue>* first_level_iter);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@
 
 #pragma once
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // TODO(jorlow): Many of these belong more in the environment class rather than
@@ -98,4 +98,4 @@ extern bool Snappy_Uncompress(const char* input_data, size_t input_length,
                               char* output);
 
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

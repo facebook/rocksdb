@@ -17,7 +17,7 @@
 #include "util/hash.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // For testing: emit an array with one hash value per key
 class TestHashFilter : public FilterPolicy {
@@ -76,17 +76,26 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
 
 TEST_F(FilterBlockTest, SingleChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
-  ASSERT_EQ(0, builder.NumAdded());
+  ASSERT_TRUE(builder.IsEmpty());
   builder.StartBlock(100);
   builder.Add("foo");
+  ASSERT_FALSE(builder.IsEmpty());
+  builder.Add("bar");
   builder.Add("bar");
   builder.Add("box");
   builder.StartBlock(200);
   builder.Add("box");
   builder.StartBlock(300);
   builder.Add("hello");
-  ASSERT_EQ(5, builder.NumAdded());
-  Slice slice(builder.Finish());
+  // XXX: "bar" should only count once but is counted twice. This actually
+  // indicates a serious space usage bug in old block-based filter. Good
+  // that it is deprecated.
+  // "box" counts twice, because it's in distinct blocks.
+  ASSERT_EQ(6, builder.EstimateEntriesAdded());
+  ASSERT_FALSE(builder.IsEmpty());
+  Status s;
+  Slice slice = builder.Finish(BlockHandle(), &s);
+  ASSERT_OK(s);
 
   CachableEntry<BlockContents> block(
       new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
@@ -240,7 +249,7 @@ class BlockBasedFilterBlockTest : public mock::MockBlockBasedTableTester,
                                   public testing::Test {
  public:
   BlockBasedFilterBlockTest()
-      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10)) {}
+      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10, true)) {}
 };
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
@@ -426,7 +435,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
   delete reader;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

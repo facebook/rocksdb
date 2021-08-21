@@ -10,7 +10,7 @@
 #include "util/coding.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const size_t restart_index) {
@@ -90,4 +90,4 @@ uint8_t DataBlockHashIndex::Lookup(const char* data, uint32_t map_offset,
   return static_cast<uint8_t>(*(bucket_table + idx * sizeof(uint8_t)));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

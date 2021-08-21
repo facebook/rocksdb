@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling C++ rocksdb::EnvOptions methods
+// calling C++ ROCKSDB_NAMESPACE::EnvOptions methods
 // from Java side.
 
 #include <jni.h>
@@ -12,20 +12,20 @@
 #include "include/org_rocksdb_EnvOptions.h"
 #include "rocksdb/env.h"
 
-#define ENV_OPTIONS_SET_BOOL(_jhandle, _opt)                \
-  reinterpret_cast<rocksdb::EnvOptions *>(_jhandle)->_opt = \
+#define ENV_OPTIONS_SET_BOOL(_jhandle, _opt)                          \
+  reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(_jhandle)->_opt = \
       static_cast<bool>(_opt)
 
-#define ENV_OPTIONS_SET_SIZE_T(_jhandle, _opt)              \
-  reinterpret_cast<rocksdb::EnvOptions *>(_jhandle)->_opt = \
+#define ENV_OPTIONS_SET_SIZE_T(_jhandle, _opt)                        \
+  reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(_jhandle)->_opt = \
       static_cast<size_t>(_opt)
 
-#define ENV_OPTIONS_SET_UINT64_T(_jhandle, _opt)            \
-  reinterpret_cast<rocksdb::EnvOptions *>(_jhandle)->_opt = \
+#define ENV_OPTIONS_SET_UINT64_T(_jhandle, _opt)                      \
+  reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(_jhandle)->_opt = \
       static_cast<uint64_t>(_opt)
 
 #define ENV_OPTIONS_GET(_jhandle, _opt) \
-  reinterpret_cast<rocksdb::EnvOptions *>(_jhandle)->_opt
+  reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(_jhandle)->_opt
 
 /*
  * Class:     org_rocksdb_EnvOptions
@@ -34,7 +34,7 @@
  */
 jlong Java_org_rocksdb_EnvOptions_newEnvOptions__(
     JNIEnv*, jclass) {
-  auto *env_opt = new rocksdb::EnvOptions();
+  auto *env_opt = new ROCKSDB_NAMESPACE::EnvOptions();
   return reinterpret_cast<jlong>(env_opt);
 }
 
@@ -45,9 +45,9 @@ jlong Java_org_rocksdb_EnvOptions_newEnvOptions__(
  */
 jlong Java_org_rocksdb_EnvOptions_newEnvOptions__J(
     JNIEnv*, jclass, jlong jdboptions_handle) {
-  auto* db_options =
-      reinterpret_cast<rocksdb::DBOptions*>(jdboptions_handle);
-  auto* env_opt = new rocksdb::EnvOptions(*db_options);
+  auto *db_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions *>(jdboptions_handle);
+  auto *env_opt = new ROCKSDB_NAMESPACE::EnvOptions(*db_options);
   return reinterpret_cast<jlong>(env_opt);
 }
 
@@ -58,7 +58,7 @@ jlong Java_org_rocksdb_EnvOptions_newEnvOptions__J(
  */
 void Java_org_rocksdb_EnvOptions_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
-  auto *eo = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
+  auto *eo = reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(jhandle);
   assert(eo != nullptr);
   delete eo;
 }
@@ -291,7 +291,8 @@ jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(
 void Java_org_rocksdb_EnvOptions_setRateLimiter(
     JNIEnv*, jobject, jlong jhandle, jlong rl_handle) {
   auto *sptr_rate_limiter =
-      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(rl_handle);
-  auto *env_opt = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> *>(
+          rl_handle);
+  auto *env_opt = reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(jhandle);
   env_opt->rate_limiter = sptr_rate_limiter->get();
 }

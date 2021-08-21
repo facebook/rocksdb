@@ -23,6 +23,18 @@ public class SstFileMetaData {
 
   /**
    * Called from JNI C++
+   *
+   * @param fileName the file name
+   * @param path the file path
+   * @param size the size of the file
+   * @param smallestSeqno the smallest sequence number
+   * @param largestSeqno the largest sequence number
+   * @param smallestKey the smallest key
+   * @param largestKey the largest key
+   * @param numReadsSampled the number of reads sampled
+   * @param beingCompacted true if the file is being compacted, false otherwise
+   * @param numEntries the number of entries
+   * @param numDeletions the number of deletions
    */
   protected SstFileMetaData(
       final String fileName,

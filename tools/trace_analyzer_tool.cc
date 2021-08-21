@@ -9,7 +9,6 @@
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
-#include <numaif.h>
 #endif
 #ifndef OS_WIN
 #include <unistd.h>
@@ -26,7 +25,8 @@
 #include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "file/read_write_util.h"
+#include "env/composite_env_wrapper.h"
+#include "file/line_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -39,7 +39,6 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "rocksdb/write_batch.h"
 #include "table/meta_blocks.h"
-#include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "tools/trace_analyzer_tool.h"
 #include "trace_replay/trace_replay.h"
@@ -50,8 +49,6 @@
 #include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
-using GFLAGS_NAMESPACE::RegisterFlagValidator;
-using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(trace_path, "", "The trace file path.");
 DEFINE_string(output_dir, "", "The directory to store the output files.");
@@ -136,6 +133,12 @@ DEFINE_bool(analyze_range_delete, false, "Analyze the DeleteRange query.");
 DEFINE_bool(analyze_merge, false, "Analyze the Merge query.");
 DEFINE_bool(analyze_iterator, false,
             " Analyze the iterate query like seek() and seekForPrev().");
+DEFINE_bool(analyze_multiget, false,
+            " Analyze the MultiGet query. NOTE: for"
+            " MultiGet, we analyze each KV-pair read in one MultiGet query. "
+            "Therefore, the total queries and QPS are calculated based on "
+            "the number of KV-pairs being accessed not the number of MultiGet."
+            "It can be improved in the future if needed");
 DEFINE_bool(no_key, false,
             " Does not output the key to the result files to make smaller.");
 DEFINE_bool(print_overall_stats, true,
@@ -164,19 +167,21 @@ DEFINE_double(sample_ratio, 1.0,
               "If the trace size is extremely huge or user want to sample "
               "the trace when analyzing, sample ratio can be set (0, 1.0]");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::map<std::string, int> taOptToIndex = {
     {"get", 0},           {"put", 1},
     {"delete", 2},        {"single_delete", 3},
     {"range_delete", 4},  {"merge", 5},
-    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7}};
+    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7},
+    {"multiget", 8}};
 
 std::map<int, std::string> taIndexToOpt = {
     {0, "get"},           {1, "put"},
     {2, "delete"},        {3, "single_delete"},
     {4, "range_delete"},  {5, "merge"},
-    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"}};
+    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"},
+    {8, "multiget"}};
 
 namespace {
 
@@ -188,12 +193,6 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
     return op1;
   }
   return (op1 * op2);
-}
-
-void DecodeCFAndKeyFromString(std::string& buffer, uint32_t* cf_id, Slice* key) {
-  Slice buf(buffer);
-  GetFixed32(&buf, cf_id);
-  GetLengthPrefixedSlice(&buf, key);
 }
 
 }  // namespace
@@ -273,8 +272,8 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
     : trace_name_(trace_path),
       output_path_(output_path),
       analyzer_opts_(_analyzer_opts) {
-  rocksdb::EnvOptions env_options;
-  env_ = rocksdb::Env::Default();
+  ROCKSDB_NAMESPACE::EnvOptions env_options;
+  env_ = ROCKSDB_NAMESPACE::Env::Default();
   offset_ = 0;
   c_time_ = 0;
   total_requests_ = 0;
@@ -286,6 +285,8 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   end_time_ = 0;
   time_series_start_ = 0;
   cur_time_sec_ = 0;
+  // Set the default trace file version as version 0.2
+  trace_file_version_ = 2;
   if (FLAGS_sample_ratio > 1.0 || FLAGS_sample_ratio <= 0) {
     sample_max_ = 1;
   } else {
@@ -341,6 +342,12 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   } else {
     ta_[7].enabled = false;
   }
+  ta_[8].type_name = "multiget";
+  if (FLAGS_analyze_multiget) {
+    ta_[8].enabled = true;
+  } else {
+    ta_[8].enabled = false;
+  }
   for (int i = 0; i < kTaTypeNum; i++) {
     ta_[i].sample_count = 0;
   }
@@ -392,10 +399,15 @@ Status TraceAnalyzer::PrepareProcessing() {
 
 Status TraceAnalyzer::ReadTraceHeader(Trace* header) {
   assert(header != nullptr);
-  Status s = ReadTraceRecord(header);
+  std::string encoded_trace;
+  // Read the trace head
+  Status s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
     return s;
   }
+
+  s = TracerHelper::DecodeTrace(encoded_trace, header);
+
   if (header->type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
   }
@@ -425,13 +437,7 @@ Status TraceAnalyzer::ReadTraceRecord(Trace* trace) {
   if (!s.ok()) {
     return s;
   }
-
-  Slice enc_slice = Slice(encoded_trace);
-  GetFixed64(&enc_slice, &trace->ts);
-  trace->type = static_cast<TraceType>(enc_slice[0]);
-  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
-  trace->payload = enc_slice.ToString();
-  return s;
+  return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
 // process the trace itself and redirect the trace content
@@ -443,6 +449,11 @@ Status TraceAnalyzer::StartProcessing() {
   s = ReadTraceHeader(&header);
   if (!s.ok()) {
     fprintf(stderr, "Cannot read the header\n");
+    return s;
+  }
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_,
+                                     &db_version_);
+  if (!s.ok()) {
     return s;
   }
   trace_create_time_ = header.ts;
@@ -460,49 +471,89 @@ Status TraceAnalyzer::StartProcessing() {
 
     total_requests_++;
     end_time_ = trace.ts;
-    if (trace.type == kTraceWrite) {
-      total_writes_++;
-      c_time_ = trace.ts;
-      WriteBatch batch(trace.payload);
-
-      // Note that, if the write happens in a transaction,
-      // 'Write' will be called twice, one for Prepare, one for
-      // Commit. Thus, in the trace, for the same WriteBatch, there
-      // will be two reords if it is in a transaction. Here, we only
-      // process the reord that is committed. If write is non-transaction,
-      // HasBeginPrepare()==false, so we process it normally.
-      if (batch.HasBeginPrepare() && !batch.HasCommit()) {
-        continue;
-      }
-      TraceWriteHandler write_handler(this);
-      s = batch.Iterate(&write_handler);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the write batch in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceGet) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
-      total_gets_++;
-
-      s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the get in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceIteratorSeek ||
-               trace.type == kTraceIteratorSeekForPrev) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
-      s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot process the iterator in the trace\n");
-        return s;
-      }
-    } else if (trace.type == kTraceEnd) {
+    if (trace.type == kTraceEnd) {
       break;
+    }
+
+    std::unique_ptr<TraceRecord> record;
+    switch (trace.type) {
+      case kTraceWrite: {
+        s = TracerHelper::DecodeWriteRecord(&trace, trace_file_version_,
+                                            &record);
+        if (!s.ok()) {
+          return s;
+        }
+        total_writes_++;
+        c_time_ = trace.ts;
+        std::unique_ptr<WriteQueryTraceRecord> r(
+            reinterpret_cast<WriteQueryTraceRecord*>(record.release()));
+        // Note that, if the write happens in a transaction,
+        // 'Write' will be called twice, one for Prepare, one for
+        // Commit. Thus, in the trace, for the same WriteBatch, there
+        // will be two reords if it is in a transaction. Here, we only
+        // process the reord that is committed. If write is non-transaction,
+        // HasBeginPrepare()==false, so we process it normally.
+        WriteBatch batch(r->GetWriteBatchRep().ToString());
+        if (batch.HasBeginPrepare() && !batch.HasCommit()) {
+          continue;
+        }
+        TraceWriteHandler write_handler(this);
+        s = batch.Iterate(&write_handler);
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the write batch in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceGet: {
+        s = TracerHelper::DecodeGetRecord(&trace, trace_file_version_, &record);
+        if (!s.ok()) {
+          return s;
+        }
+        total_gets_++;
+        std::unique_ptr<GetQueryTraceRecord> r(
+            reinterpret_cast<GetQueryTraceRecord*>(record.release()));
+        s = HandleGet(r->GetColumnFamilyID(), r->GetKey(), r->GetTimestamp(),
+                      1);
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the get in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceIteratorSeek:
+      case kTraceIteratorSeekForPrev: {
+        s = TracerHelper::DecodeIterRecord(&trace, trace_file_version_,
+                                           &record);
+        if (!s.ok()) {
+          return s;
+        }
+        std::unique_ptr<IteratorSeekQueryTraceRecord> r(
+            reinterpret_cast<IteratorSeekQueryTraceRecord*>(record.release()));
+        s = HandleIter(r->GetColumnFamilyID(), r->GetKey(), r->GetTimestamp(),
+                       r->GetTraceType());
+        if (!s.ok()) {
+          fprintf(stderr, "Cannot process the iterator in the trace\n");
+          return s;
+        }
+        break;
+      }
+      case kTraceMultiGet: {
+        s = TracerHelper::DecodeMultiGetRecord(&trace, trace_file_version_,
+                                               &record);
+        if (!s.ok()) {
+          return s;
+        }
+        std::unique_ptr<MultiGetQueryTraceRecord> r(
+            reinterpret_cast<MultiGetQueryTraceRecord*>(record.release()));
+        s = HandleMultiGet(r->GetColumnFamilyIDs(), r->GetKeys(),
+                           r->GetTimestamp());
+        break;
+      }
+      default: {
+        // Skip unsupported types
+        break;
+      }
     }
   }
   if (s.IsIncomplete()) {
@@ -694,7 +745,8 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
     // write the prefix cut of the accessed keys
     if (FLAGS_output_prefix_cut > 0 && stats.a_prefix_cut_f) {
       if (record.first.compare(0, FLAGS_output_prefix_cut, prefix) != 0) {
-        std::string prefix_out = rocksdb::LDBCommand::StringToHex(prefix);
+        std::string prefix_out =
+            ROCKSDB_NAMESPACE::LDBCommand::StringToHex(prefix);
         if (prefix_count == 0) {
           prefix_ave_access = 0.0;
         } else {
@@ -782,7 +834,7 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
 // Process the statistics of QPS
 Status TraceAnalyzer::MakeStatisticQPS() {
-  if(begin_time_ == 0) {
+  if (begin_time_ == 0) {
     begin_time_ = trace_create_time_;
   }
   uint32_t duration =
@@ -911,7 +963,7 @@ Status TraceAnalyzer::MakeStatisticQPS() {
               stat.second.a_qps_prefix_stats.end()) {
             for (auto& qps_prefix : stat.second.a_qps_prefix_stats[qps_time]) {
               std::string qps_prefix_out =
-                  rocksdb::LDBCommand::StringToHex(qps_prefix.first);
+                  ROCKSDB_NAMESPACE::LDBCommand::StringToHex(qps_prefix.first);
               ret = snprintf(buffer_, sizeof(buffer_),
                              "The prefix: %s Access count: %u\n",
                              qps_prefix_out.c_str(), qps_prefix.second);
@@ -1047,24 +1099,24 @@ Status TraceAnalyzer::ReProcessing() {
           FLAGS_key_space_dir + "/" + std::to_string(cf_id) + ".txt";
       std::string input_key, get_key;
       std::vector<std::string> prefix(kTaTypeNum);
-      std::istringstream iss;
-      bool has_data = true;
-      s = env_->NewSequentialFile(whole_key_path, &wkey_input_f_, env_options_);
+      std::unique_ptr<FSSequentialFile> file;
+
+      s = env_->GetFileSystem()->NewSequentialFile(
+          whole_key_path, FileOptions(env_options_), &file, nullptr);
       if (!s.ok()) {
         fprintf(stderr, "Cannot open the whole key space file of CF: %u\n",
                 cf_id);
-        wkey_input_f_.reset();
+        file.reset();
       }
-      if (wkey_input_f_) {
-        for (cfs_[cf_id].w_count = 0;
-             ReadOneLine(&iss, wkey_input_f_.get(), &get_key, &has_data, &s);
-             ++cfs_[cf_id].w_count) {
-          if (!s.ok()) {
-            fprintf(stderr, "Read whole key space file failed\n");
-            return s;
-          }
 
-          input_key = rocksdb::LDBCommand::HexToString(get_key);
+      if (file) {
+        size_t kTraceFileReadaheadSize = 2 * 1024 * 1024;
+        LineFileReader lf_reader(
+            std::move(file), whole_key_path,
+            kTraceFileReadaheadSize /* filereadahead_size */);
+        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(&get_key);
+             ++cfs_[cf_id].w_count) {
+          input_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(get_key);
           for (int type = 0; type < kTaTypeNum; type++) {
             if (!ta_[type].enabled) {
               continue;
@@ -1093,7 +1145,7 @@ Status TraceAnalyzer::ReProcessing() {
                   0) {
                 prefix[type] = input_key.substr(0, FLAGS_output_prefix_cut);
                 std::string prefix_out =
-                    rocksdb::LDBCommand::StringToHex(prefix[type]);
+                    ROCKSDB_NAMESPACE::LDBCommand::StringToHex(prefix[type]);
                 ret = snprintf(buffer_, sizeof(buffer_), "%" PRIu64 " %s\n",
                                cfs_[cf_id].w_count, prefix_out.c_str());
                 if (ret < 0) {
@@ -1119,6 +1171,11 @@ Status TraceAnalyzer::ReProcessing() {
               cfs_[cf_id].w_key_size_stats[input_key.size()]++;
             }
           }
+        }
+        s = lf_reader.GetStatus();
+        if (!s.ok()) {
+          fprintf(stderr, "Read whole key space file failed\n");
+          return s;
         }
       }
     }
@@ -1152,15 +1209,18 @@ Status TraceAnalyzer::ReProcessing() {
 
 // End the processing, print the requested results
 Status TraceAnalyzer::EndProcessing() {
+  Status s;
   if (trace_sequence_f_) {
-    trace_sequence_f_->Close();
+    s = trace_sequence_f_->Close();
   }
   if (FLAGS_no_print) {
-    return Status::OK();
+    return s;
   }
   PrintStatistics();
-  CloseOutputFiles();
-  return Status::OK();
+  if (s.ok()) {
+    s = CloseOutputFiles();
+  }
+  return s;
 }
 
 // Insert the corresponding key statistics to the correct type
@@ -1177,7 +1237,9 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
   unit.value_size = value_size;
   unit.access_count = 1;
   unit.latest_ts = ts;
-  if (type != TraceOperationType::kGet || value_size > 0) {
+  if ((type != TraceOperationType::kGet &&
+       type != TraceOperationType::kMultiGet) ||
+      value_size > 0) {
     unit.succ_count = 1;
   } else {
     unit.succ_count = 0;
@@ -1314,7 +1376,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     ta_[type].stats[cf_id].time_series.push_back(trace_u);
   }
 
-  return Status::OK();
+  return s;
 }
 
 // Update the correlation unit of each key if enabled
@@ -1418,13 +1480,14 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
                          &new_stats.a_qps_f);
   }
 
-  return Status::OK();
+  return s;
 }
 
 // create the output path of the files to be opened
 Status TraceAnalyzer::CreateOutputFile(
     const std::string& type, const std::string& cf_name,
-    const std::string& ending, std::unique_ptr<rocksdb::WritableFile>* f_ptr) {
+    const std::string& ending,
+    std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>* f_ptr) {
   std::string path;
   path = output_path_ + "/" + FLAGS_output_prefix + "-" + type + "-" + cf_name +
          "-" + ending;
@@ -1438,63 +1501,63 @@ Status TraceAnalyzer::CreateOutputFile(
 }
 
 // Close the output files in the TraceStats if they are opened
-void TraceAnalyzer::CloseOutputFiles() {
+Status TraceAnalyzer::CloseOutputFiles() {
+  Status s;
   for (int type = 0; type < kTaTypeNum; type++) {
     if (!ta_[type].enabled) {
       continue;
     }
     for (auto& stat : ta_[type].stats) {
-      if (stat.second.time_series_f) {
-        stat.second.time_series_f->Close();
+      if (s.ok() && stat.second.time_series_f) {
+        s = stat.second.time_series_f->Close();
       }
 
-      if (stat.second.a_key_f) {
-        stat.second.a_key_f->Close();
+      if (s.ok() && stat.second.a_key_f) {
+        s = stat.second.a_key_f->Close();
       }
 
-      if (stat.second.a_key_num_f) {
-        stat.second.a_key_num_f->Close();
+      if (s.ok() && stat.second.a_key_num_f) {
+        s = stat.second.a_key_num_f->Close();
       }
 
-      if (stat.second.a_count_dist_f) {
-        stat.second.a_count_dist_f->Close();
+      if (s.ok() && stat.second.a_count_dist_f) {
+        s = stat.second.a_count_dist_f->Close();
       }
 
-      if (stat.second.a_prefix_cut_f) {
-        stat.second.a_prefix_cut_f->Close();
+      if (s.ok() && stat.second.a_prefix_cut_f) {
+        s = stat.second.a_prefix_cut_f->Close();
       }
 
-      if (stat.second.a_value_size_f) {
-        stat.second.a_value_size_f->Close();
+      if (s.ok() && stat.second.a_value_size_f) {
+        s = stat.second.a_value_size_f->Close();
       }
 
-      if (stat.second.a_key_size_f) {
-        stat.second.a_key_size_f->Close();
+      if (s.ok() && stat.second.a_key_size_f) {
+        s = stat.second.a_key_size_f->Close();
       }
 
-      if (stat.second.a_qps_f) {
-        stat.second.a_qps_f->Close();
+      if (s.ok() && stat.second.a_qps_f) {
+        s = stat.second.a_qps_f->Close();
       }
 
-      if (stat.second.a_top_qps_prefix_f) {
-        stat.second.a_top_qps_prefix_f->Close();
+      if (s.ok() && stat.second.a_top_qps_prefix_f) {
+        s = stat.second.a_top_qps_prefix_f->Close();
       }
 
-      if (stat.second.w_key_f) {
-        stat.second.w_key_f->Close();
+      if (s.ok() && stat.second.w_key_f) {
+        s = stat.second.w_key_f->Close();
       }
-      if (stat.second.w_prefix_cut_f) {
-        stat.second.w_prefix_cut_f->Close();
+      if (s.ok() && stat.second.w_prefix_cut_f) {
+        s = stat.second.w_prefix_cut_f->Close();
       }
     }
   }
-  return;
+  return s;
 }
 
 // Handle the Get request in the trace
-Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
-                                const std::string& key, const uint64_t& ts,
-                                const uint32_t& get_ret) {
+Status TraceAnalyzer::HandleGet(uint32_t column_family_id, const Slice& key,
+                                const uint64_t& ts, const uint32_t& get_ret) {
   Status s;
   size_t value_size = 0;
   if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
@@ -1520,8 +1583,8 @@ Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
   if (get_ret == 1) {
     value_size = 10;
   }
-  s = KeyStatsInsertion(TraceOperationType::kGet, column_family_id, key,
-                        value_size, ts);
+  s = KeyStatsInsertion(TraceOperationType::kGet, column_family_id,
+                        key.ToString(), value_size, ts);
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
@@ -1697,9 +1760,8 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
 }
 
 // Handle the Iterator request in the trace
-Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
-                                 const std::string& key, const uint64_t& ts,
-                                 TraceType& trace_type) {
+Status TraceAnalyzer::HandleIter(uint32_t column_family_id, const Slice& key,
+                                 const uint64_t& ts, TraceType trace_type) {
   Status s;
   size_t value_size = 0;
   int type = -1;
@@ -1733,7 +1795,53 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
   if (!ta_[type].enabled) {
     return Status::OK();
   }
-  s = KeyStatsInsertion(type, column_family_id, key, value_size, ts);
+  s = KeyStatsInsertion(type, column_family_id, key.ToString(), value_size, ts);
+  if (!s.ok()) {
+    return Status::Corruption("Failed to insert key statistics");
+  }
+  return s;
+}
+
+// Handle MultiGet queries in the trace
+Status TraceAnalyzer::HandleMultiGet(
+    const std::vector<uint32_t>& column_family_ids,
+    const std::vector<Slice>& keys, const uint64_t& ts) {
+  Status s;
+  size_t value_size = 0;
+  if (column_family_ids.size() != keys.size()) {
+    // The size does not match is not the error of tracing and anayzing, we just
+    // report it to the user. The analyzing continues.
+    printf("The CF ID vector size does not match the keys vector size!\n");
+  }
+  size_t vector_size = std::min(column_family_ids.size(), keys.size());
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+    for (size_t i = 0; i < vector_size; i++) {
+      assert(i < column_family_ids.size() && i < keys.size());
+      s = WriteTraceSequence(TraceOperationType::kMultiGet,
+                             column_family_ids[i], keys[i], value_size, ts);
+    }
+    if (!s.ok()) {
+      return Status::Corruption("Failed to write the trace sequence to file");
+    }
+  }
+
+  if (ta_[TraceOperationType::kMultiGet].sample_count >= sample_max_) {
+    ta_[TraceOperationType::kMultiGet].sample_count = 0;
+  }
+  if (ta_[TraceOperationType::kMultiGet].sample_count > 0) {
+    ta_[TraceOperationType::kMultiGet].sample_count++;
+    return Status::OK();
+  }
+  ta_[TraceOperationType::kMultiGet].sample_count++;
+
+  if (!ta_[TraceOperationType::kMultiGet].enabled) {
+    return Status::OK();
+  }
+  for (size_t i = 0; i < vector_size; i++) {
+    assert(i < column_family_ids.size() && i < keys.size());
+    s = KeyStatsInsertion(TraceOperationType::kMultiGet, column_family_ids[i],
+                          keys[i].ToString(), value_size, ts);
+  }
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
@@ -1810,8 +1918,8 @@ void TraceAnalyzer::PrintStatistics() {
         printf("The Top %d keys that are accessed:\n",
                FLAGS_print_top_k_access);
         while (!stat.top_k_queue.empty()) {
-          std::string hex_key =
-              rocksdb::LDBCommand::StringToHex(stat.top_k_queue.top().second);
+          std::string hex_key = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(
+              stat.top_k_queue.top().second);
           printf("Access_count: %" PRIu64 " %s\n", stat.top_k_queue.top().first,
                  hex_key.c_str());
           stat.top_k_queue.pop();
@@ -1906,10 +2014,11 @@ void TraceAnalyzer::PrintStatistics() {
 // Write the trace sequence to file
 Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
                                          const uint32_t& cf_id,
-                                         const std::string& key,
+                                         const Slice& key,
                                          const size_t value_size,
                                          const uint64_t ts) {
-  std::string hex_key = rocksdb::LDBCommand::StringToHex(key);
+  std::string hex_key =
+      ROCKSDB_NAMESPACE::LDBCommand::StringToHex(key.ToString());
   int ret;
   ret = snprintf(buffer_, sizeof(buffer_), "%u %u %zu %" PRIu64 "\n", type,
                  cf_id, value_size, ts);
@@ -1944,7 +2053,7 @@ int trace_analyzer_tool(int argc, char** argv) {
     exit(1);
   }
 
-  rocksdb::Status s = analyzer->PrepareProcessing();
+  ROCKSDB_NAMESPACE::Status s = analyzer->PrepareProcessing();
   if (!s.ok()) {
     fprintf(stderr, "%s\n", s.getState());
     fprintf(stderr, "Cannot initiate the trace reader\n");
@@ -1983,7 +2092,7 @@ int trace_analyzer_tool(int argc, char** argv) {
 
   return 0;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // Endif of Gflag
 #endif  // RocksDB LITE

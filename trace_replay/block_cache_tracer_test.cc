@@ -4,13 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "trace_replay/block_cache_tracer.h"
+
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 const uint64_t kBlockSize = 1024;
@@ -27,7 +29,8 @@ class BlockCacheTracerTest : public testing::Test {
  public:
   BlockCacheTracerTest() {
     test_path_ = test::PerThreadDBPath("block_cache_tracer_test");
-    env_ = rocksdb::Env::Default();
+    env_ = ROCKSDB_NAMESPACE::Env::Default();
+    clock_ = env_->GetSystemClock().get();
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
   }
@@ -52,6 +55,7 @@ class BlockCacheTracerTest : public testing::Test {
         return TableReaderCaller::kUserIterator;
     }
     assert(false);
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
@@ -63,7 +67,7 @@ class BlockCacheTracerTest : public testing::Test {
       record.block_type = block_type;
       record.block_size = kBlockSize + key_id;
       record.block_key = (kBlockKeyPrefix + std::to_string(key_id));
-      record.access_timestamp = env_->NowMicros();
+      record.access_timestamp = clock_->NowMicros();
       record.cf_id = kCFId;
       record.cf_name = kDefaultColumnFamilyName;
       record.caller = GetCaller(key_id);
@@ -93,7 +97,7 @@ class BlockCacheTracerTest : public testing::Test {
     record.block_type = TraceType::kBlockTraceDataBlock;
     record.block_size = kBlockSize;
     record.block_key = kBlockKeyPrefix + std::to_string(key_id);
-    record.access_timestamp = env_->NowMicros();
+    record.access_timestamp = clock_->NowMicros();
     record.cf_id = kCFId;
     record.cf_name = kDefaultColumnFamilyName;
     record.caller = GetCaller(key_id);
@@ -150,6 +154,7 @@ class BlockCacheTracerTest : public testing::Test {
   }
 
   Env* env_;
+  SystemClock* clock_;
   EnvOptions env_options_;
   std::string trace_file_path_;
   std::string test_path_;
@@ -187,7 +192,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTracer writer;
-    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
     ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
                                       record.referenced_key));
     ASSERT_OK(env_->FileExists(trace_file_path_));
@@ -200,8 +205,8 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
     ASSERT_NOK(reader.ReadAccess(&record));
   }
@@ -213,8 +218,8 @@ TEST_F(BlockCacheTracerTest, ConsecutiveStartTrace) {
   ASSERT_OK(
       NewFileTraceWriter(env_, env_options_, trace_file_path_, &trace_writer));
   BlockCacheTracer writer;
-  ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
-  ASSERT_NOK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+  ASSERT_OK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
+  ASSERT_NOK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
   ASSERT_OK(env_->FileExists(trace_file_path_));
 }
 
@@ -226,7 +231,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTracer writer;
-    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
     ASSERT_OK(writer.WriteBlockAccess(record, record.block_key, record.cf_name,
                                       record.referenced_key));
     writer.EndTrace();
@@ -244,8 +249,8 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
     ASSERT_NOK(reader.ReadAccess(&record));
   }
@@ -261,7 +266,7 @@ TEST_F(BlockCacheTracerTest, NextGetId) {
     // next get id should always return 0 before we call StartTrace.
     ASSERT_EQ(0, writer.NextGetId());
     ASSERT_EQ(0, writer.NextGetId());
-    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
     ASSERT_EQ(1, writer.NextGetId());
     ASSERT_EQ(2, writer.NextGetId());
     writer.EndTrace();
@@ -275,7 +280,7 @@ TEST_F(BlockCacheTracerTest, NextGetId) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartTrace(clock_, trace_opt, std::move(trace_writer)));
     ASSERT_EQ(1, writer.NextGetId());
   }
 }
@@ -287,7 +292,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    BlockCacheTraceWriter writer(clock_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     // Write blocks of different types.
     WriteBlockAccess(&writer, 0, TraceType::kBlockTraceUncompressionDictBlock,
@@ -307,8 +312,8 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     // Read blocks.
     VerifyAccess(&reader, 0, TraceType::kBlockTraceUncompressionDictBlock, 10);
     VerifyAccess(&reader, 10, TraceType::kBlockTraceDataBlock, 10);
@@ -370,7 +375,7 @@ TEST_F(BlockCacheTracerTest, HumanReadableTrace) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

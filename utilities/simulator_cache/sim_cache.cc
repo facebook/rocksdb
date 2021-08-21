@@ -4,15 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/utilities/sim_cache.h"
+
 #include <atomic>
+
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -25,6 +28,7 @@ class CacheActivityLogger {
     MutexLock l(&mutex_);
 
     StopLoggingInternal();
+    bg_status_.PermitUncheckedError();
   }
 
   Status StartLogging(const std::string& activity_log_file, Env* env,
@@ -33,8 +37,7 @@ class CacheActivityLogger {
     assert(env != nullptr);
 
     Status status;
-    EnvOptions env_opts;
-    std::unique_ptr<WritableFile> log_file;
+    FileOptions file_opts;
 
     MutexLock l(&mutex_);
 
@@ -42,12 +45,11 @@ class CacheActivityLogger {
     StopLoggingInternal();
 
     // Open log file
-    status = env->NewWritableFile(activity_log_file, &log_file, env_opts);
+    status = WritableFileWriter::Create(env->GetFileSystem(), activity_log_file,
+                                        file_opts, &file_writer_, nullptr);
     if (!status.ok()) {
       return status;
     }
-    file_writer_.reset(new WritableFileWriter(std::move(log_file),
-                                              activity_log_file, env_opts));
 
     max_logging_size_ = max_logging_size;
     activity_logging_enabled_.store(true);
@@ -90,8 +92,7 @@ class CacheActivityLogger {
     log_line += key.ToString(true);
     log_line += " - ";
     AppendNumberTo(&log_line, size);
-  // @lint-ignore TXT2 T25377293 Grandfathered in
-		log_line += "\n";
+    log_line += "\n";
 
     // line format: "ADD - <KEY> - <KEY-SIZE>"
     MutexLock l(&mutex_);
@@ -166,6 +167,7 @@ class SimCacheImpl : public SimCache {
     cache_->SetStrictCapacityLimit(strict_capacity_limit);
   }
 
+  using Cache::Insert;
   Status Insert(const Slice& key, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value), Handle** handle,
                 Priority priority) override {
@@ -176,9 +178,11 @@ class SimCacheImpl : public SimCache {
     // *Lambda function without capture can be assgined to a function pointer
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
-      key_only_cache_->Insert(key, nullptr, charge,
-                              [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-                              priority);
+      // TODO: Check for error here?
+      auto s = key_only_cache_->Insert(
+          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
+          priority);
+      s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
     }
@@ -190,6 +194,7 @@ class SimCacheImpl : public SimCache {
     return cache_->Insert(key, value, charge, deleter, handle, priority);
   }
 
+  using Cache::Lookup;
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     Handle* h = key_only_cache_->Lookup(key);
     if (h != nullptr) {
@@ -210,6 +215,7 @@ class SimCacheImpl : public SimCache {
 
   bool Ref(Handle* handle) override { return cache_->Ref(handle); }
 
+  using Cache::Release;
   bool Release(Handle* handle, bool force_erase = false) override {
     return cache_->Release(handle, force_erase);
   }
@@ -239,6 +245,10 @@ class SimCacheImpl : public SimCache {
     return cache_->GetCharge(handle);
   }
 
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return cache_->GetDeleter(handle);
+  }
+
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
   void DisownData() override {
@@ -250,6 +260,13 @@ class SimCacheImpl : public SimCache {
                               bool thread_safe) override {
     // only apply to _cache since key_only_cache doesn't hold value
     cache_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override {
+    cache_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override {
@@ -349,4 +366,4 @@ std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,
   return std::make_shared<SimCacheImpl>(sim_cache, cache);
 }
 
-}  // end namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

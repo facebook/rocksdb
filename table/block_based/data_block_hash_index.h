@@ -10,7 +10,7 @@
 
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // This is an experimental feature aiming to reduce the CPU utilization of
 // point-lookup within a data-block. It is only used in data blocks, and not
 // in meta-data blocks or per-table index blocks.
@@ -133,4 +133,4 @@ class DataBlockHashIndex {
   uint16_t num_buckets_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -16,7 +16,9 @@
 
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
@@ -60,7 +62,7 @@ class SliceTransform {
   virtual bool InRange(const Slice& /*dst*/) const { return false; }
 
   // Some SliceTransform will have a full length which can be used to
-  // determine if two keys are consecuitive. Can be disabled by always
+  // determine if two keys are consecutive. Can be disabled by always
   // returning 0
   virtual bool FullLengthEnabled(size_t* /*len*/) const { return false; }
 
@@ -98,4 +100,4 @@ extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
 extern const SliceTransform* NewNoopTransform();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

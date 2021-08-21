@@ -14,7 +14,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/cleanable.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // CachableEntry is a handle to an object that may or may not be in the block
 // cache. It is used in a variety of ways:
@@ -162,7 +162,6 @@ public:
   }
 
   void SetCachedValue(T* value, Cache* cache, Cache::Handle* cache_handle) {
-    assert(value != nullptr);
     assert(cache != nullptr);
     assert(cache_handle != nullptr);
 
@@ -177,6 +176,22 @@ public:
     cache_ = cache;
     cache_handle_ = cache_handle;
     assert(!own_value_);
+  }
+
+  void UpdateCachedValue() {
+    assert(cache_ != nullptr);
+    assert(cache_handle_ != nullptr);
+
+    value_ = static_cast<T*>(cache_->Value(cache_handle_));
+  }
+
+  bool IsReady() {
+    if (!own_value_) {
+      assert(cache_ != nullptr);
+      assert(cache_handle_ != nullptr);
+      return cache_->IsReady(cache_handle_);
+    }
+    return true;
   }
 
 private:
@@ -217,4 +232,4 @@ private:
   bool own_value_ = false;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

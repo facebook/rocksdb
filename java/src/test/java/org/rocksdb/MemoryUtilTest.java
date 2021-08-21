@@ -25,8 +25,8 @@ public class MemoryUtilTest {
   private final byte[] value = "some-value".getBytes(StandardCharsets.UTF_8);
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder dbFolder1 = new TemporaryFolder();
   @Rule public TemporaryFolder dbFolder2 = new TemporaryFolder();
@@ -58,7 +58,8 @@ public class MemoryUtilTest {
               db.getAggregatedLongProperty(UNFLUSHED_MEMTABLE_SIZE));
       assertThat(usage.get(MemoryUsageType.kTableReadersTotal)).isEqualTo(
               db.getAggregatedLongProperty(TABLE_READERS));
-      assertThat(usage.get(MemoryUsageType.kCacheTotal)).isEqualTo(0);
+      // TODO(peterd): disable block cache entry stats and check for 0
+      assertThat(usage.get(MemoryUsageType.kCacheTotal)).isLessThan(1024);
 
       db.put(key, value);
       db.flush(flushOptions);

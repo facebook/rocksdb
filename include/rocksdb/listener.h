@@ -11,11 +11,15 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/compaction_job_stats.h"
+#include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
     TablePropertiesCollection;
@@ -24,14 +28,6 @@ class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
-enum CompressionType : unsigned char;
-
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
 
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created
@@ -57,6 +53,10 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   TableProperties table_properties;
   // The status indicating whether the creation was successful or not.
   Status status;
+  // The checksum of the table file being created
+  std::string file_checksum;
+  // The checksum function name of checksum generator used for this table file
+  std::string file_checksum_func_name;
 };
 
 enum class CompactionReason : int {
@@ -93,6 +93,8 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // Compaction in order to move files to temperature
+  kChangeTemperature,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -110,13 +112,24 @@ enum class FlushReason : int {
   kAutoCompaction = 0x09,
   kManualFlush = 0x0a,
   kErrorRecovery = 0xb,
+  // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
+  // will not be called to avoid many small immutable memtables.
+  kErrorRecoveryRetryFlush = 0xc,
+  kWalFull = 0xd,
 };
 
+// TODO: In the future, BackgroundErrorReason will only be used to indicate
+// why the BG Error is happening (e.g., flush, compaction). We may introduce
+// other data structure to indicate other essential information such as
+// the file type (e.g., Manifest, SST) and special context.
 enum class BackgroundErrorReason {
   kFlush,
   kCompaction,
   kWriteCallback,
   kMemTable,
+  kManifestWrite,
+  kFlushNoWAL,
+  kManifestWriteNoWAL,
 };
 
 enum class WriteStallCondition {
@@ -148,19 +161,49 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
-struct FileOperationInfo {
-  using TimePoint = std::chrono::time_point<std::chrono::system_clock,
-                                            std::chrono::nanoseconds>;
+enum class FileOperationType {
+  kRead,
+  kWrite,
+  kTruncate,
+  kClose,
+  kFlush,
+  kSync,
+  kFsync,
+  kRangeSync
+};
 
+struct FileOperationInfo {
+  using Duration = std::chrono::nanoseconds;
+  using SteadyTimePoint =
+      std::chrono::time_point<std::chrono::steady_clock, Duration>;
+  using SystemTimePoint =
+      std::chrono::time_point<std::chrono::system_clock, Duration>;
+  using StartTimePoint = std::pair<SystemTimePoint, SteadyTimePoint>;
+  using FinishTimePoint = SteadyTimePoint;
+
+  FileOperationType type;
   const std::string& path;
   uint64_t offset;
   size_t length;
-  const TimePoint& start_timestamp;
-  const TimePoint& finish_timestamp;
+  const Duration duration;
+  const SystemTimePoint& start_ts;
   Status status;
-  FileOperationInfo(const std::string& _path, const TimePoint& start,
-                    const TimePoint& finish)
-      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
+  FileOperationInfo(const FileOperationType _type, const std::string& _path,
+                    const StartTimePoint& _start_ts,
+                    const FinishTimePoint& _finish_ts, const Status& _status)
+      : type(_type),
+        path(_path),
+        duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            _finish_ts - _start_ts.second)),
+        start_ts(_start_ts.first),
+        status(_status) {}
+  static StartTimePoint StartNow() {
+    return std::make_pair<SystemTimePoint, SteadyTimePoint>(
+        std::chrono::system_clock::now(), std::chrono::steady_clock::now());
+  }
+  static FinishTimePoint FinishNow() {
+    return std::chrono::steady_clock::now();
+  }
 };
 
 struct FlushJobInfo {
@@ -170,6 +213,10 @@ struct FlushJobInfo {
   std::string cf_name;
   // the path to the newly created file
   std::string file_path;
+  // the file number of the newly created file
+  uint64_t file_number;
+  // the oldest blob file referenced by the newly created file
+  uint64_t oldest_blob_file_number;
   // the id of the thread that completed this flush job.
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
@@ -194,11 +241,19 @@ struct FlushJobInfo {
   FlushReason flush_reason;
 };
 
-struct CompactionJobInfo {
-  CompactionJobInfo() = default;
-  explicit CompactionJobInfo(const CompactionJobStats& _stats)
-      : stats(_stats) {}
+struct CompactionFileInfo {
+  // The level of the file.
+  int level;
 
+  // The file number of the file.
+  uint64_t file_number;
+
+  // The file number of the oldest blob file this SST file references.
+  uint64_t oldest_blob_file_number;
+};
+
+struct CompactionJobInfo {
+  ~CompactionJobInfo() { status.PermitUncheckedError(); }
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
   // the name of the column family where the compaction happened.
@@ -213,11 +268,25 @@ struct CompactionJobInfo {
   int base_input_level;
   // the output level of the compaction.
   int output_level;
-  // the names of the compaction input files.
+
+  // The following variables contain information about compaction inputs
+  // and outputs. A file may appear in both the input and output lists
+  // if it was simply moved to a different level. The order of elements
+  // is the same across input_files and input_file_infos; similarly, it is
+  // the same across output_files and output_file_infos.
+
+  // The names of the compaction input files.
   std::vector<std::string> input_files;
 
-  // the names of the compaction output files.
+  // Additional information about the compaction input files.
+  std::vector<CompactionFileInfo> input_file_infos;
+
+  // The names of the compaction output files.
   std::vector<std::string> output_files;
+
+  // Additional information about the compaction output files.
+  std::vector<CompactionFileInfo> output_file_infos;
+
   // Table properties for input and output tables.
   // The map is keyed by values from input_files and output_files.
   TablePropertiesCollection table_properties;
@@ -228,8 +297,7 @@ struct CompactionJobInfo {
   // Compression algorithm used for output files
   CompressionType compression;
 
-  // If non-null, this variable stores detailed information
-  // about this compaction.
+  // Statistics and other additional details on the compaction
   CompactionJobStats stats;
 };
 
@@ -268,13 +336,18 @@ struct ExternalFileIngestionInfo {
 // be used as a building block for developing custom features such as
 // stats-collector or external compaction algorithm.
 //
-// Note that callback functions should not run for an extended period of
-// time before the function returns, otherwise RocksDB may be blocked.
-// For example, it is not suggested to do DB::CompactFiles() (as it may
-// run for a long while) or issue many of DB::Put() (as Put may be blocked
-// in certain cases) in the same thread in the EventListener callback.
-// However, doing DB::CompactFiles() and DB::Put() in another thread is
-// considered safe.
+// IMPORTANT
+// Because compaction is needed to resolve a "writes stopped" condition,
+// calling or waiting for any blocking DB write function (no_slowdown=false)
+// from a compaction-related listener callback can hang RocksDB. For DB
+// writes from a callback we recommend a WriteBatch and no_slowdown=true,
+// because the WriteBatch can accumulate writes for later in case DB::Write
+// returns Status::Incomplete. Similarly, calling CompactRange or similar
+// could hang by waiting for a background worker that is occupied until the
+// callback returns.
+//
+// Otherwise, callback functions should not run for an extended period of
+// time before the function returns, because this will slow RocksDB.
 //
 // [Threading] All EventListener callback will be called using the
 // actual thread that involves in that specific event.   For example, it
@@ -285,8 +358,17 @@ struct ExternalFileIngestionInfo {
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
-class EventListener {
+class EventListener : public Customizable {
  public:
+  static const char* Type() { return "EventListener"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& id,
+                                 std::shared_ptr<EventListener>* result);
+  const char* Name() const override {
+    // Since EventListeners did not have a name previously, we will assume
+    // an empty name.  Instances should override this method.
+    return "";
+  }
   // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.
@@ -434,7 +516,27 @@ class EventListener {
   // operation finishes.
   virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
 
-  // If true, the OnFileReadFinish and OnFileWriteFinish will be called. If
+  // A callback function for RocksDB which will be called whenever a file flush
+  // operation finishes.
+  virtual void OnFileFlushFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file sync
+  // operation finishes.
+  virtual void OnFileSyncFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file
+  // rangeSync operation finishes.
+  virtual void OnFileRangeSyncFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file
+  // truncate operation finishes.
+  virtual void OnFileTruncateFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file close
+  // operation finishes.
+  virtual void OnFileCloseFinish(const FileOperationInfo& /* info */) {}
+
+  // If true, the OnFile*Finish functions will be called. If
   // false, then they won't be called.
   virtual bool ShouldBeNotifiedOnFileIO() { return false; }
 
@@ -463,4 +565,4 @@ struct FlushJobInfo {};
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

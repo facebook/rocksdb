@@ -5,7 +5,7 @@
 
 #include "rocksdb/flush_block_policy.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // FlushBlockEveryKeyPolicy currently used only in tests.
 
@@ -27,9 +27,8 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
  public:
   explicit FlushBlockEveryKeyPolicyFactory() {}
 
-  const char* Name() const override {
-    return "FlushBlockEveryKeyPolicyFactory";
-  }
+  static const char* kClassName() { return "FlushBlockEveryKeyPolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
@@ -38,4 +37,4 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

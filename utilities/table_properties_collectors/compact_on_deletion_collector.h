@@ -7,13 +7,12 @@
 
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/table_properties_collectors.h"
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CompactOnDeletionCollector : public TablePropertiesCollector {
  public:
-  CompactOnDeletionCollector(
-      size_t sliding_window_size,
-      size_t deletion_trigger);
+  CompactOnDeletionCollector(size_t sliding_window_size,
+                             size_t deletion_trigger, double deletion_raatio);
 
   // AddUserKey() will be called when a new key/value pair is inserted into the
   // table.
@@ -28,10 +27,7 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   // for writing the properties block.
   // @params properties  User will add their collected statistics to
   // `properties`.
-  virtual Status Finish(UserCollectedProperties* /*properties*/) override {
-    finished_ = true;
-    return Status::OK();
-  }
+  virtual Status Finish(UserCollectedProperties* /*properties*/) override;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
@@ -64,9 +60,13 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   size_t num_keys_in_current_bucket_;
   size_t num_deletions_in_observation_window_;
   size_t deletion_trigger_;
+  const double deletion_ratio_;
+  const bool deletion_ratio_enabled_;
+  size_t total_entries_ = 0;
+  size_t deletion_entries_ = 0;
   // true if the current SST file needs to be compacted.
   bool need_compaction_;
   bool finished_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

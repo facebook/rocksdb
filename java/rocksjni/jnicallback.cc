@@ -10,7 +10,7 @@
 #include "rocksjni/jnicallback.h"
 #include "rocksjni/portal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 JniCallback::JniCallback(JNIEnv* env, jobject jcallback_obj) {
   // Note: jcallback_obj may be accessed by multiple threads,
   // so we ref the jvm not the env
@@ -43,11 +43,10 @@ JniCallback::~JniCallback() {
   JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
-  if(m_jcallback_obj != nullptr) {    
+  if (m_jcallback_obj != nullptr) {
     env->DeleteGlobalRef(m_jcallback_obj);
   }
 
   releaseJniEnv(attached_thread);
 }
-// @lint-ignore TXT4 T25377293 Grandfathered in
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

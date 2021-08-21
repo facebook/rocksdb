@@ -21,6 +21,7 @@
 jlong Java_org_rocksdb_Snapshot_getSequenceNumber(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong jsnapshot_handle) {
-  auto* snapshot = reinterpret_cast<rocksdb::Snapshot*>(jsnapshot_handle);
+  auto* snapshot =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Snapshot*>(jsnapshot_handle);
   return snapshot->GetSequenceNumber();
 }

@@ -10,7 +10,9 @@
 
 #include <cstddef>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class Status;
@@ -122,4 +124,4 @@ class WriteBatchBase {
   virtual void SetMaxBytes(size_t max_bytes) = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

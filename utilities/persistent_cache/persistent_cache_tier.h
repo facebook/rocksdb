@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 
 // Persistent Cache
 //
@@ -52,7 +53,7 @@
 //               |
 //               V
 //              null
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Persistent Cache Config
 //
@@ -86,6 +87,8 @@ struct PersistentCacheConfig {
       const std::shared_ptr<Logger>& _log,
       const uint32_t _write_buffer_size = 1 * 1024 * 1024 /*1MB*/) {
     env = _env;
+    clock = (env != nullptr) ? env->GetSystemClock().get()
+                             : SystemClock::Default().get();
     path = _path;
     log = _log;
     cache_size = _cache_size;
@@ -124,10 +127,10 @@ struct PersistentCacheConfig {
   }
 
   //
-  // Env abstraction to use for systmer level operations
+  // Env abstraction to use for system level operations
   //
   Env* env;
-
+  SystemClock* clock;
   //
   // Path for the block cache where blocks are persisted
   //
@@ -266,6 +269,8 @@ class PersistentCacheTier : public PersistentCache {
 
   virtual std::string GetPrintableOptions() const override = 0;
 
+  virtual uint64_t NewId() override;
+
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }
 
@@ -283,6 +288,7 @@ class PersistentCacheTier : public PersistentCache {
 
  private:
   Tier next_tier_;  // next tier
+  std::atomic<uint64_t> last_id_{1};
 };
 
 // PersistentTieredCache
@@ -331,6 +337,6 @@ class PersistentTieredCache : public PersistentCacheTier {
   std::list<Tier> tiers_;  // list of tiers top-down
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

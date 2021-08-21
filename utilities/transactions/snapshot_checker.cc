@@ -11,7 +11,7 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_LITE
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
@@ -46,4 +46,4 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
 #endif  // ROCKSDB_LITE
 DisableGCSnapshotChecker DisableGCSnapshotChecker::instance_;
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -11,7 +11,7 @@
 #include <vector>
 #include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImplReadOnly : public DBImpl {
  public:
@@ -130,8 +130,17 @@ class DBImplReadOnly : public DBImpl {
   }
 
  private:
+  // A "helper" function for DB::OpenForReadOnly without column families
+  // to reduce unnecessary I/O
+  // It has the same functionality as DB::OpenForReadOnly with column families
+  // but does not check the existence of dbname in the file system
+  static Status OpenForReadOnlyWithoutCheck(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_wal_file_exists = false);
   friend class DB;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

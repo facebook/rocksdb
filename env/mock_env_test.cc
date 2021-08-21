@@ -12,7 +12,7 @@
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MockEnvTest : public testing::Test {
  public:
@@ -77,7 +77,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
   ASSERT_TRUE(delta == 3 || delta == 4);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

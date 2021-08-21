@@ -12,7 +12,7 @@
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Cleanable::Cleanable() {
   cleanup_.function = nullptr;
@@ -207,4 +207,4 @@ template InternalIteratorBase<IndexValue>* NewEmptyInternalIterator(
     Arena* arena);
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

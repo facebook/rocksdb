@@ -8,27 +8,30 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
+
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/stackable_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace blob_db {
 
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
-// It lacks lots of importatant functionalities, e.g. DB restarts,
-// garbage collection, iterators, etc.
 //
 // The factory needs to be moved to include/rocksdb/utilities to allow
 // users to use blob DB.
 
+constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+
 struct BlobDBOptions {
-  // name of the directory under main db, where blobs will be stored.
-  // default is "blob_dir"
+  // Name of the directory under the base DB where blobs will be stored. Using
+  // a directory where the base DB stores its SST files is not supported.
+  // Default is "blob_dir"
   std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
@@ -68,10 +71,14 @@ struct BlobDBOptions {
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
-  // live data in blob files to new files. If garbage collection is not enabled,
-  // blob files will be cleanup based on TTL.
+  // If enabled, BlobDB cleans up stale blobs in non-TTL files during compaction
+  // by rewriting the remaining live blobs to new files.
   bool enable_garbage_collection = false;
+
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N non-TTL blob files will be rewritten when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_non_TTL_files.
+  double garbage_collection_cutoff = 0.25;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
@@ -81,24 +88,24 @@ struct BlobDBOptions {
 
 class BlobDB : public StackableDB {
  public:
-  using rocksdb::StackableDB::Put;
+  using ROCKSDB_NAMESPACE::StackableDB::Put;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) override = 0;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
     return Put(options, key, value);
   }
 
-  using rocksdb::StackableDB::Delete;
+  using ROCKSDB_NAMESPACE::StackableDB::Delete;
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -111,7 +118,7 @@ class BlobDB : public StackableDB {
   virtual Status PutWithTTL(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value, uint64_t ttl) {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -125,14 +132,14 @@ class BlobDB : public StackableDB {
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& value, uint64_t expiration) {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
     return PutUntil(options, key, value, expiration);
   }
 
-  using rocksdb::StackableDB::Get;
+  using ROCKSDB_NAMESPACE::StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override = 0;
@@ -146,7 +153,7 @@ class BlobDB : public StackableDB {
     return Get(options, DefaultColumnFamily(), key, value, expiration);
   }
 
-  using rocksdb::StackableDB::MultiGet;
+  using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<Slice>& keys,
@@ -157,7 +164,7 @@ class BlobDB : public StackableDB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override {
     for (auto column_family : column_families) {
-      if (column_family != DefaultColumnFamily()) {
+      if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
         return std::vector<Status>(
             column_families.size(),
             Status::NotSupported(
@@ -177,14 +184,14 @@ class BlobDB : public StackableDB {
     }
   }
 
-  using rocksdb::StackableDB::SingleDelete;
+  using ROCKSDB_NAMESPACE::StackableDB::SingleDelete;
   virtual Status SingleDelete(const WriteOptions& /*wopts*/,
                               ColumnFamilyHandle* /*column_family*/,
                               const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  using rocksdb::StackableDB::Merge;
+  using ROCKSDB_NAMESPACE::StackableDB::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
                        const Slice& /*key*/, const Slice& /*value*/) override {
@@ -193,18 +200,40 @@ class BlobDB : public StackableDB {
 
   virtual Status Write(const WriteOptions& opts,
                        WriteBatch* updates) override = 0;
-  using rocksdb::StackableDB::NewIterator;
+  using ROCKSDB_NAMESPACE::StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       // Blob DB doesn't support non-default column family.
       return nullptr;
     }
     return NewIterator(options);
   }
 
-  using rocksdb::StackableDB::Close;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override = 0;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+
+    return CompactFiles(compact_options, input_file_names, output_level,
+                        output_path_id, output_file_names, compaction_job_info);
+  }
+
+  using ROCKSDB_NAMESPACE::StackableDB::Close;
   virtual Status Close() override = 0;
 
   // Opening blob db.
@@ -233,5 +262,5 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options);
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

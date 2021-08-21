@@ -11,34 +11,44 @@
 #include <thread>
 #include <vector>
 
-// This is only set from db_stress.cc and for testing only.
-// If non-zero, kill at various points in source code with probability 1/this
-extern int rocksdb_kill_odds;
-// If kill point has a prefix on this list, will skip killing.
-extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+#include "rocksdb/rocksdb_namespace.h"
 
 #ifdef NDEBUG
 // empty in release build
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight)
+#define TEST_KILL_RANDOM(kill_point)
 #else
 
-namespace rocksdb {
-// Kill the process with probability 1/odds for testing.
-extern void TestKillRandom(std::string kill_point, int odds,
-                           const std::string& srcfile, int srcline);
+namespace ROCKSDB_NAMESPACE {
 
 // To avoid crashing always at some frequently executed codepaths (during
 // kill random test), use this factor to reduce odds
 #define REDUCE_ODDS 2
 #define REDUCE_ODDS2 4
 
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)                  \
-  {                                                                      \
-    if (rocksdb_kill_odds > 0) {                                         \
-      TestKillRandom(kill_point, rocksdb_kill_odds, __FILE__, __LINE__); \
-    }                                                                    \
+// A class used to pass when a kill point is reached.
+struct KillPoint {
+ public:
+  // This is only set from db_stress.cc and for testing only.
+  // If non-zero, kill at various points in source code with probability 1/this
+  int rocksdb_kill_odds = 0;
+  // If kill point has a prefix on this list, will skip killing.
+  std::vector<std::string> rocksdb_kill_exclude_prefixes;
+  // Kill the process with probability 1/odds for testing.
+  void TestKillRandom(std::string kill_point, int odds,
+                      const std::string& srcfile, int srcline);
+
+  static KillPoint* GetInstance();
+};
+
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight) \
+  {                                                                        \
+    KillPoint::GetInstance()->TestKillRandom(                              \
+        kill_point, rocksdb_kill_odds_weight, __FILE__, __LINE__);         \
   }
-}  // namespace rocksdb
+#define TEST_KILL_RANDOM(kill_point) TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, 1)
+}  // namespace ROCKSDB_NAMESPACE
+
 #endif
 
 #ifdef NDEBUG
@@ -48,7 +58,7 @@ extern void TestKillRandom(std::string kill_point, int odds,
 #define INIT_SYNC_POINT_SINGLETONS()
 #else
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This class provides facility to reproduce race conditions deterministically
 // in unit tests.
@@ -122,19 +132,38 @@ class SyncPoint {
   Data*  impl_;
 };
 
-}  // namespace rocksdb
+// Sets up sync points to mock direct IO instead of actually issuing direct IO
+// to the file system.
+void SetupSyncPointsToMockDirectIO();
+}  // namespace ROCKSDB_NAMESPACE
 
 // Use TEST_SYNC_POINT to specify sync points inside code base.
-// Sync points can have happens-after depedency on other sync points,
+// Sync points can have happens-after dependency on other sync points,
 // configured at runtime via SyncPoint::LoadDependency. This could be
 // utilized to re-produce race conditions between threads.
 // See TransactionLogIteratorRace in db_test.cc for an example use case.
 // TEST_SYNC_POINT is no op in release build.
-#define TEST_SYNC_POINT(x) rocksdb::SyncPoint::GetInstance()->Process(x)
-#define TEST_IDX_SYNC_POINT(x, index) \
-  rocksdb::SyncPoint::GetInstance()->Process(x + std::to_string(index))
+#define TEST_SYNC_POINT(x) \
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->Process(x)
+#define TEST_IDX_SYNC_POINT(x, index)                      \
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->Process(x + \
+                                                       std::to_string(index))
 #define TEST_SYNC_POINT_CALLBACK(x, y) \
-  rocksdb::SyncPoint::GetInstance()->Process(x, y)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->Process(x, y)
 #define INIT_SYNC_POINT_SINGLETONS() \
-  (void)rocksdb::SyncPoint::GetInstance();
+  (void)ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+#endif  // NDEBUG
+
+// Callback sync point for any read IO errors that should be ignored by
+// the fault injection framework
+// Disable in release mode
+#ifdef NDEBUG
+#define IGNORE_STATUS_IF_ERROR(_status_)
+#else
+#define IGNORE_STATUS_IF_ERROR(_status_)            \
+  {                                                 \
+    if (!_status_.ok()) {                           \
+      TEST_SYNC_POINT("FaultInjectionIgnoreError"); \
+    }                                               \
+  }
 #endif  // NDEBUG

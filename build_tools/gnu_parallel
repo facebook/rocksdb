@@ -5801,7 +5801,7 @@ sub workdir {
 		    . "-" . $self->seq();
 	    } else {
 		$workdir = $opt::workdir;
-		# Rsync treats /./ special. We dont want that
+		# Rsync treats /./ special. We don't want that
 		$workdir =~ s:/\./:/:g; # Remove /./
 		$workdir =~ s:/+$::; # Remove ending / if any
 		$workdir =~ s:^\./::g; # Remove starting ./ if any

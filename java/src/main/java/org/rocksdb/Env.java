@@ -13,6 +13,10 @@ import java.util.List;
  */
 public abstract class Env extends RocksObject {
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
     /**
@@ -39,8 +43,8 @@ public abstract class Env extends RocksObject {
   }
 
   /**
-   * <p>Sets the number of background worker threads of the flush pool
-   * for this environment.</p>
+   * <p>Sets the number of background worker threads of the low priority
+   * pool for this environment.</p>
    * <p>Default number: 1</p>
    *
    * @param number the number of threads
@@ -54,6 +58,8 @@ public abstract class Env extends RocksObject {
   /**
    * <p>Gets the number of background worker threads of the pool
    * for this environment.</p>
+   *
+   * @param priority the priority id of a specified thread pool.
    *
    * @return the number of threads.
    */
@@ -94,6 +100,7 @@ public abstract class Env extends RocksObject {
    * pool.
    *
    * @param number the number of threads.
+   * @param priority the priority id of a specified thread pool.
    *
    * @return current {@link RocksEnv} instance.
    */
@@ -107,6 +114,8 @@ public abstract class Env extends RocksObject {
    * Lower IO priority for threads from the specified pool.
    *
    * @param priority the priority id of a specified thread pool.
+   *
+   * @return current {@link RocksEnv} instance.
    */
   public Env lowerThreadPoolIOPriority(final Priority priority) {
     lowerThreadPoolIOPriority(nativeHandle_, priority.getValue());
@@ -117,6 +126,8 @@ public abstract class Env extends RocksObject {
    * Lower CPU priority for threads from the specified pool.
    *
    * @param priority the priority id of a specified thread pool.
+   *
+   * @return current {@link RocksEnv} instance.
    */
   public Env lowerThreadPoolCPUPriority(final Priority priority) {
     lowerThreadPoolCPUPriority(nativeHandle_, priority.getValue());
@@ -127,6 +138,8 @@ public abstract class Env extends RocksObject {
    * Returns the status of all threads that belong to the current Env.
    *
    * @return the status of all threads belong to this env.
+   *
+   * @throws RocksDBException if the thread list cannot be acquired.
    */
   public List<ThreadStatus> getThreadList() throws RocksDBException {
     return Arrays.asList(getThreadList(nativeHandle_));

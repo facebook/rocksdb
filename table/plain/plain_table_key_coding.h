@@ -17,7 +17,7 @@
 // These classes issue the lowest level of operations of PlainTable.
 // Actual data format of the key is documented in comments of class
 // PlainTableFactory.
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WritableFile;
 struct ParsedInternalKey;
@@ -44,8 +44,9 @@ class PlainTableKeyEncoder {
   // meta_bytes_buf: buffer for extra meta bytes
   // meta_bytes_buf_size: offset to append extra meta bytes. Will be updated
   //                      if meta_bytes_buf is updated.
-  Status AppendKey(const Slice& key, WritableFileWriter* file, uint64_t* offset,
-                   char* meta_bytes_buf, size_t* meta_bytes_buf_size);
+  IOStatus AppendKey(const Slice& key, WritableFileWriter* file,
+                     uint64_t* offset, char* meta_bytes_buf,
+                     size_t* meta_bytes_buf_size);
 
   // Return actual encoding type to be picked
   EncodingType GetEncodingType() { return encoding_type_; }
@@ -67,6 +68,12 @@ class PlainTableFileReader {
  public:
   explicit PlainTableFileReader(const PlainTableReaderFileInfo* _file_info)
       : file_info_(_file_info), num_buf_(0) {}
+
+  ~PlainTableFileReader() {
+    // Should fix.
+    status_.PermitUncheckedError();
+  }
+
   // In mmaped mode, the results point to mmaped area of the file, which
   // means it is always valid before closing the file.
   // In non-mmap mode, the results point to an internal buffer. If the caller
@@ -145,6 +152,7 @@ class PlainTableKeyDecoder {
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
         in_prefix_(false) {}
+
   // Find the next key.
   // start: char array where the key starts.
   // limit: boundary of the char array
@@ -188,6 +196,6 @@ class PlainTableKeyDecoder {
                            uint32_t* bytes_read);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

@@ -11,7 +11,7 @@
 #include "util/coding.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
@@ -98,7 +98,7 @@ Slice PlainTableIndexBuilder::Finish() {
   BucketizeIndexes(&hash_to_offsets, &entries_per_bucket);
 
   keys_per_prefix_hist_.Add(num_keys_per_prefix_);
-  ROCKS_LOG_INFO(ioptions_.info_log, "Number of Keys per prefix Histogram: %s",
+  ROCKS_LOG_INFO(ioptions_.logger, "Number of Keys per prefix Histogram: %s",
                  keys_per_prefix_hist_.ToString().c_str());
 
   // From the temp data structure, populate indexes.
@@ -153,12 +153,12 @@ void PlainTableIndexBuilder::BucketizeIndexes(
 Slice PlainTableIndexBuilder::FillIndexes(
     const std::vector<IndexRecord*>& hash_to_offsets,
     const std::vector<uint32_t>& entries_per_bucket) {
-  ROCKS_LOG_DEBUG(ioptions_.info_log,
+  ROCKS_LOG_DEBUG(ioptions_.logger,
                   "Reserving %" PRIu32 " bytes for plain table's sub_index",
                   sub_index_size_);
   auto total_allocate_size = GetTotalSize();
   char* allocated = arena_->AllocateAligned(
-      total_allocate_size, huge_page_tlb_size_, ioptions_.info_log);
+      total_allocate_size, huge_page_tlb_size_, ioptions_.logger);
 
   auto temp_ptr = EncodeVarint32(allocated, index_size_);
   uint32_t* index =
@@ -198,7 +198,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
   }
   assert(sub_index_offset == sub_index_size_);
 
-  ROCKS_LOG_DEBUG(ioptions_.info_log,
+  ROCKS_LOG_DEBUG(ioptions_.logger,
                   "hash table size: %" PRIu32 ", suffix_map length %" PRIu32,
                   index_size_, sub_index_size_);
   return Slice(allocated, GetTotalSize());
@@ -206,6 +206,6 @@ Slice PlainTableIndexBuilder::FillIndexes(
 
 const std::string PlainTableIndexBuilder::kPlainTableIndexBlock =
     "PlainTableIndexBlock";
-};  // namespace rocksdb
+};  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

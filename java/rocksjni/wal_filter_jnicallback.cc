@@ -4,12 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::WalFilter.
+// ROCKSDB_NAMESPACE::WalFilter.
 
 #include "rocksjni/wal_filter_jnicallback.h"
 #include "rocksjni/portal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 WalFilterJniCallback::WalFilterJniCallback(
     JNIEnv* env, jobject jwal_filter)
     : JniCallback(env, jwal_filter) {
@@ -58,7 +58,7 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
   }
 
   jobject jcf_lognumber_map =
-      rocksdb::HashMapJni::fromCppMap(env, &cf_lognumber_map);
+      ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(env, &cf_lognumber_map);
   if (jcf_lognumber_map == nullptr) {
     // exception occurred
     env->ExceptionDescribe(); // print out exception to stderr
@@ -67,7 +67,7 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
   }
 
   jobject jcf_name_id_map =
-      rocksdb::HashMapJni::fromCppMap(env, &cf_name_id_map);
+      ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(env, &cf_name_id_map);
   if (jcf_name_id_map == nullptr) {
     // exception occurred
     env->ExceptionDescribe(); // print out exception to stderr
@@ -141,4 +141,4 @@ const char* WalFilterJniCallback::Name() const {
   return m_name.get();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

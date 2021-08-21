@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "rocksdb/rocksdb_namespace.h"
+
 struct CompactionIterationStats {
   // Compaction statistics
 
@@ -32,4 +34,10 @@ struct CompactionIterationStats {
   // Single-Delete diagnostics for exceptional situations
   uint64_t num_single_del_fallthru = 0;
   uint64_t num_single_del_mismatch = 0;
+
+  // Blob related statistics
+  uint64_t num_blobs_read = 0;
+  uint64_t total_blob_bytes_read = 0;
+  uint64_t num_blobs_relocated = 0;
+  uint64_t total_blob_bytes_relocated = 0;
 };

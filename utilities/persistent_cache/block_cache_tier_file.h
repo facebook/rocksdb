@@ -46,7 +46,7 @@
 //
 // Write IO code path :
 //
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteableCacheFile;
 struct BlockInfo;
@@ -136,7 +136,7 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
 
  protected:
   port::RWMutex rwlock_;               // synchronization mutex
-  Env* const env_ = nullptr;           // Env for IO
+  Env* const env_ = nullptr;           // Env for OS
   const std::string dir_;              // Directory name
   const uint32_t cache_id_;            // Cache id for the file
   std::list<BlockInfo*> block_infos_;  // List of index entries mapping to the
@@ -291,6 +291,6 @@ class ThreadedWriter : public Writer {
   std::vector<port::Thread> threads_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

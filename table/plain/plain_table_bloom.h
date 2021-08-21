@@ -17,7 +17,7 @@
 
 #include <memory>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Slice;
 class Allocator;
 class Logger;
@@ -132,4 +132,4 @@ class BloomBlockBuilder {
   PlainTableBloomV1 bloom_;
 };
 
-};  // namespace rocksdb
+};  // namespace ROCKSDB_NAMESPACE

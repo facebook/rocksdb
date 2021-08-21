@@ -1374,7 +1374,8 @@ inline std::uintptr_t tryWake(
     // we need release here because of the write to waker_ and also because we
     // are unlocking the mutex, the thread we do the handoff to here should
     // see the modified data
-    new (&waiter->metadata_) Metadata(waker, bit_cast<uintptr_t>(sleepers));
+    new (&waiter->metadata_)
+        Metadata(waker, folly::bit_cast<std::uintptr_t>(sleepers));
     waiter->futex_.store(kWake, std::memory_order_release);
     return 0;
   }
@@ -1527,7 +1528,7 @@ bool tryUnlockClean(Atomic& state, Proxy& proxy, Sleepers sleepers) {
 
 template <template <typename> class Atomic, bool Publish>
 void DistributedMutex<Atomic, Publish>::unlock(
-    DistributedMutex::DistributedMutexStateProxy proxy) {
+    typename DistributedMutex::DistributedMutexStateProxy proxy) {
   // we always wake up ready threads and timed waiters if we saw either
   assert(proxy);
   assert(!proxy.combined_);

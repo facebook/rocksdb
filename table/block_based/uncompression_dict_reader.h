@@ -10,7 +10,7 @@
 #include "table/block_based/cachable_entry.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlockBasedTable;
 struct BlockCacheLookupContext;
@@ -25,9 +25,9 @@ struct UncompressionDict;
 class UncompressionDictReader {
  public:
   static Status Create(
-      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context,
+      const BlockBasedTable* table, const ReadOptions& ro,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context,
       std::unique_ptr<UncompressionDictReader>* uncompression_dict_reader);
 
   Status GetOrReadUncompressionDictionary(
@@ -56,4 +56,4 @@ class UncompressionDictReader {
   CachableEntry<UncompressionDict> uncompression_dict_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

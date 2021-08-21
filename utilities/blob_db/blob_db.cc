@@ -10,7 +10,7 @@
 #include <cinttypes>
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
@@ -38,6 +38,8 @@ Status BlobDB::Open(const DBOptions& db_options,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles,
                     BlobDB** blob_db) {
+  assert(handles);
+
   if (column_families.size() != 1 ||
       column_families[0].name != kDefaultColumnFamilyName) {
     return Status::NotSupported(
@@ -50,6 +52,14 @@ Status BlobDB::Open(const DBOptions& db_options,
   if (s.ok()) {
     *blob_db = static_cast<BlobDB*>(blob_db_impl);
   } else {
+    if (!handles->empty()) {
+      for (ColumnFamilyHandle* cfh : *handles) {
+        blob_db_impl->DestroyColumnFamilyHandle(cfh);
+      }
+
+      handles->clear();
+    }
+
     delete blob_db_impl;
     *blob_db = nullptr;
   }
@@ -90,10 +100,13 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "                 BlobDBOptions.enable_garbage_collection: %d",
       enable_garbage_collection);
   ROCKS_LOG_HEADER(
+      log, "                 BlobDBOptions.garbage_collection_cutoff: %f",
+      garbage_collection_cutoff);
+  ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

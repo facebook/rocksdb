@@ -25,7 +25,7 @@
 #include "util/heap.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
 typedef BinaryHeap<IteratorWrapper*, MaxIteratorComparator> MergerMaxIterHeap;
@@ -79,6 +79,7 @@ class MergingIterator : public InternalIterator {
     for (auto& child : children_) {
       child.DeleteIter(is_arena_mode_);
     }
+    status_.PermitUncheckedError();
   }
 
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
@@ -167,7 +168,6 @@ class MergingIterator : public InternalIterator {
       SwitchToForward();
       // The loop advanced all non-current children to be > key() so current_
       // should still be strictly the smallest key.
-      assert(current_ == CurrentForward());
     }
 
     // For the heap modifications below to be correct, current_ must be the
@@ -195,7 +195,8 @@ class MergingIterator : public InternalIterator {
     bool is_valid = Valid();
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->bound_check_result = UpperBoundCheckResult();
+      result->value_prepared = current_->IsValuePrepared();
     }
     return is_valid;
   }
@@ -241,6 +242,17 @@ class MergingIterator : public InternalIterator {
     return current_->value();
   }
 
+  bool PrepareValue() override {
+    assert(Valid());
+    if (current_->PrepareValue()) {
+      return true;
+    }
+
+    considerStatus(current_->status());
+    assert(!status_.ok());
+    return false;
+  }
+
   // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
   // from current child iterator. Potentially as long as one of child iterator
   // report out of bound is not possible, we know current key is within bound.
@@ -250,9 +262,9 @@ class MergingIterator : public InternalIterator {
     return current_->MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() override {
+  IterBoundCheck UpperBoundCheckResult() override {
     assert(Valid());
-    return current_->MayBeOutOfUpperBound();
+    return current_->UpperBoundCheckResult();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -466,4 +478,4 @@ InternalIterator* MergeIteratorBuilder::Finish() {
   return ret;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

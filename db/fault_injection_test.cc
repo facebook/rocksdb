@@ -16,19 +16,19 @@
 #include "db/version_set.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const int kValueSize = 1000;
 static const int kMaxNumValues = 2000;
@@ -84,8 +84,8 @@ class FaultInjectionTest
         db_(nullptr) {}
 
   ~FaultInjectionTest() override {
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
   bool ChangeOptions() {
@@ -192,7 +192,7 @@ class FaultInjectionTest
     for (int i = start_idx; i < start_idx + num_vals; i++) {
       Slice key = Key(i, &key_space);
       batch.Clear();
-      batch.Put(key, Value(i, &value_space));
+      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
       ASSERT_OK(db_->Write(write_options, &batch));
     }
   }
@@ -249,7 +249,8 @@ class FaultInjectionTest
   // Return the value to associate with the specified key
   Slice Value(int k, std::string* storage) const {
     Random r(k);
-    return test::RandomString(&r, kValueSize, storage);
+    *storage = r.RandomString(kValueSize);
+    return Slice(*storage);
   }
 
   void CloseDB() {
@@ -271,12 +272,12 @@ class FaultInjectionTest
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(db_->Delete(WriteOptions(), iter->key()));
     }
-
+    ASSERT_OK(iter->status());
     delete iter;
 
     FlushOptions flush_options;
     flush_options.wait = true;
-    db_->Flush(flush_options);
+    ASSERT_OK(db_->Flush(flush_options));
   }
 
   // rnd cannot be null for kResetDropRandomUnsyncedData
@@ -309,7 +310,7 @@ class FaultInjectionTest
 
     Build(write_options, 0, num_pre_sync);
     if (sync_use_compact_) {
-      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
     write_options.sync = false;
     Build(write_options, num_pre_sync, num_post_sync);
@@ -341,7 +342,7 @@ class FaultInjectionTest
   }
 
   void WaitCompactionFinish() {
-    static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact();
+    ASSERT_OK(static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
 };
@@ -408,7 +409,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  db_->FlushWAL(false);
+  ASSERT_OK(db_->FlushWAL(false));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -436,42 +437,42 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   OpenDB();
 
   if (!sequential_order_) {
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
         {"FaultInjectionTest::FaultTest:0", "DBImpl::BGWorkCompaction"},
         {"CompactionJob::Run():End", "FaultInjectionTest::FaultTest:1"},
         {"FaultInjectionTest::FaultTest:2",
          "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
     });
   }
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   int kNumKeys = 1000;
   Build(WriteOptions(), 0, kNumKeys);
   FlushOptions flush_options;
   flush_options.wait = true;
-  db_->Flush(flush_options);
+  ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:0");
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:1");
   env_->SetFilesystemActive(false);
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:2");
   CloseDB();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ResetDBState(kResetDropUnsyncedData);
 
   std::atomic<bool> opened(false);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::Open:Opened", [&](void* /*arg*/) { opened.store(true); });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction",
       [&](void* /*arg*/) { ASSERT_TRUE(opened.load()); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(OpenDB());
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
   WaitCompactionFinish();
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(FaultInjectionTest, ManualLogSyncTest) {
@@ -520,9 +521,9 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   wo.sync = true;
   wo.disableWAL = false;
   WriteBatch batch;
-  batch.Put("cats", "dogs");
+  ASSERT_OK(batch.Put("cats", "dogs"));
   batch.MarkWalTerminationPoint();
-  batch.Put("boys", "girls");
+  ASSERT_OK(batch.Put("boys", "girls"));
   ASSERT_OK(db_->Write(wo, &batch));
 
   env_->SetFilesystemActive(false);
@@ -547,7 +548,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, kSyncWal, kEnd),
                       std::make_tuple(true, kSyncWal, kEnd)));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

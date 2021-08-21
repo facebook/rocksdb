@@ -7,7 +7,7 @@
 
 #include "rocksdb/trace_reader_writer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFileReader;
 class WritableFileWriter;
@@ -20,6 +20,7 @@ class FileTraceReader : public TraceReader {
 
   virtual Status Read(std::string* data) override;
   virtual Status Close() override;
+  virtual Status Reset() override;
 
  private:
   std::unique_ptr<RandomAccessFileReader> file_reader_;
@@ -45,4 +46,4 @@ class FileTraceWriter : public TraceWriter {
   std::unique_ptr<WritableFileWriter> file_writer_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

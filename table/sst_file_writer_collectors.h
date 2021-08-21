@@ -10,7 +10,7 @@
 #include "rocksdb/types.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Table Properties that are specific to tables created by SstFileWriter.
 struct ExternalSstFilePropertyNames {
@@ -35,9 +35,9 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
     return Status::OK();
   }
 
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) override {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
     return;
@@ -91,4 +91,4 @@ class SstFileWriterPropertiesCollectorFactory
   SequenceNumber global_seqno_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

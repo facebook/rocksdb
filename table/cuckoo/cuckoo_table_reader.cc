@@ -15,7 +15,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "memory/arena.h"
+#include "options/cf_options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
@@ -24,7 +26,7 @@
 #include "table/meta_blocks.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 const uint64_t CACHE_LINE_MASK = ~((uint64_t)CACHE_LINE_SIZE - 1);
 const uint32_t kInvalidIndex = std::numeric_limits<uint32_t>::max();
@@ -33,7 +35,7 @@ const uint32_t kInvalidIndex = std::numeric_limits<uint32_t>::max();
 extern const uint64_t kCuckooTableMagicNumber;
 
 CuckooTableReader::CuckooTableReader(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     const Comparator* comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
@@ -54,6 +56,7 @@ CuckooTableReader::CuckooTableReader(
       get_slice_hash_(get_slice_hash) {
   if (!ioptions.allow_mmap_reads) {
     status_ = Status::InvalidArgument("File is not mmaped");
+    return;
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
@@ -136,7 +139,8 @@ CuckooTableReader::CuckooTableReader(
   cuckoo_block_size_ = *reinterpret_cast<const uint32_t*>(
       cuckoo_block_size->second.data());
   cuckoo_block_bytes_minus_one_ = cuckoo_block_size_ * bucket_length_ - 1;
-  status_ = file_->Read(0, static_cast<size_t>(file_size), &file_data_, nullptr);
+  status_ = file_->Read(IOOptions(), 0, static_cast<size_t>(file_size),
+                        &file_data_, nullptr, nullptr);
 }
 
 Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
@@ -170,7 +174,9 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
         } else {
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;
-          ParseInternalKey(full_key, &found_ikey);
+          Status s = ParseInternalKey(full_key, &found_ikey,
+                                      false /* log_err_key */);  // TODO
+          if (!s.ok()) return s;
           bool dont_care __attribute__((__unused__));
           get_context->SaveValue(found_ikey, value, &dont_care);
         }
@@ -378,7 +384,8 @@ InternalIterator* CuckooTableReader::NewIterator(
     const ReadOptions& /*read_options*/,
     const SliceTransform* /* prefix_extractor */, Arena* arena,
     bool /*skip_filters*/, TableReaderCaller /*caller*/,
-    size_t /*compaction_readahead_size*/) {
+    size_t /*compaction_readahead_size*/,
+    bool /* allow_unprepared_value */) {
   if (!status().ok()) {
     return NewErrorInternalIterator<Slice>(
         Status::Corruption("CuckooTableReader status is not okay."), arena);
@@ -395,5 +402,5 @@ InternalIterator* CuckooTableReader::NewIterator(
 
 size_t CuckooTableReader::ApproximateMemoryUsage() const { return 0; }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

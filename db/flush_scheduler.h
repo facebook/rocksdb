@@ -5,13 +5,14 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <set>
+
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyData;
 
@@ -51,4 +52,4 @@ class FlushScheduler {
 #endif  // NDEBUG
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

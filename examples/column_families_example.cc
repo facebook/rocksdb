@@ -10,9 +10,13 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_column_families_example";
+#else
 std::string kDBPath = "/tmp/rocksdb_column_families_example";
+#endif
 
 int main() {
   // open DB
@@ -28,7 +32,8 @@ int main() {
   assert(s.ok());
 
   // close DB
-  delete cf;
+  s = db->DestroyColumnFamilyHandle(cf);
+  assert(s.ok());
   delete db;
 
   // open DB with two column families
@@ -64,7 +69,8 @@ int main() {
 
   // close db
   for (auto handle : handles) {
-    delete handle;
+    s = db->DestroyColumnFamilyHandle(handle);
+    assert(s.ok());
   }
   delete db;
 

@@ -8,7 +8,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace experimental {
 
 // Supported only for Leveled compaction
@@ -26,4 +26,4 @@ Status PromoteL0(DB* db, ColumnFamilyHandle* column_family,
                  int target_level = 1);
 
 }  // namespace experimental
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

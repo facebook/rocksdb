@@ -13,7 +13,7 @@
 #include "util/string_util.h"
 #include <stdio.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -209,4 +209,35 @@ const SliceTransform* NewNoopTransform() {
   return new NoopTransform;
 }
 
-}  // namespace rocksdb
+PinnableSlice::PinnableSlice(PinnableSlice&& other) {
+  *this = std::move(other);
+}
+
+PinnableSlice& PinnableSlice::operator=(PinnableSlice&& other) {
+  if (this != &other) {
+    Cleanable::Reset();
+    Cleanable::operator=(std::move(other));
+    size_ = other.size_;
+    pinned_ = other.pinned_;
+    if (pinned_) {
+      data_ = other.data_;
+      // When it's pinned, buf should no longer be of use.
+    } else {
+      if (other.buf_ == &other.self_space_) {
+        self_space_ = std::move(other.self_space_);
+        buf_ = &self_space_;
+        data_ = buf_->data();
+      } else {
+        buf_ = other.buf_;
+        data_ = other.data_;
+      }
+    }
+    other.self_space_.clear();
+    other.buf_ = &other.self_space_;
+    other.pinned_ = false;
+    other.PinSelf();
+  }
+  return *this;
+}
+
+}  // namespace ROCKSDB_NAMESPACE

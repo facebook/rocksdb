@@ -14,7 +14,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A helper class useful for DBImpl::Get()
 class LookupKey {
@@ -63,4 +63,4 @@ inline LookupKey::~LookupKey() {
   if (start_ != space_) delete[] start_;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

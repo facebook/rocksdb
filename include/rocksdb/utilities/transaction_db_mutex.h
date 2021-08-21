@@ -10,7 +10,7 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // TransactionDBMutex and TransactionDBCondVar APIs allows applications to
 // implement custom mutexes and condition variables to be used by a
@@ -61,7 +61,7 @@ class TransactionDBCondVar {
   //
   // Returns OK if notified.
   // Returns TimedOut if timeout is reached.
-  // Returns other status if TransactionDB should otherwis stop waiting and
+  // Returns other status if TransactionDB should otherwise stop waiting and
   //  fail the operation.
   // May return OK spuriously even if not notified.
   virtual Status WaitFor(std::shared_ptr<TransactionDBMutex> mutex,
@@ -87,6 +87,6 @@ class TransactionDBMutexFactory {
   virtual ~TransactionDBMutexFactory() {}
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

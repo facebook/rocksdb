@@ -11,9 +11,10 @@
 #include "db/version_set.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
+#include "rocksdb/sst_partitioner.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // The file contains class Compaction, as well as some helper functions
 // and data structures used by the class.
 
@@ -69,12 +70,14 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
-             const ImmutableCFOptions& immutable_cf_options,
+             const ImmutableOptions& immutable_options,
              const MutableCFOptions& mutable_cf_options,
+             const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts, uint32_t max_subcompactions,
+             CompressionOptions compression_opts,
+             Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
@@ -160,7 +163,7 @@ class Compaction {
   CompressionType output_compression() const { return output_compression_; }
 
   // What compression options for output
-  CompressionOptions output_compression_opts() const {
+  const CompressionOptions& output_compression_opts() const {
     return output_compression_opts_;
   }
 
@@ -221,10 +224,10 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
-  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableCFOptions* immutable_cf_options() const {
-    return &immutable_cf_options_;
+  const ImmutableOptions* immutable_options() const {
+    return &immutable_options_;
   }
 
   // Return the MutableCFOptions that should be used throughout the compaction
@@ -255,11 +258,19 @@ class Compaction {
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
 
+  // Create a SstPartitioner from sst_partitioner_factory
+  std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;
+
   // Is the input level corresponding to output_level_ empty?
   bool IsOutputLevelEmpty() const;
 
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
+
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
 
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
@@ -289,9 +300,21 @@ class Compaction {
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
+  Temperature output_temperature() const { return output_temperature_; }
+
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MaxInputFileCreationTime() const;
+  uint64_t MinInputFileOldestAncesterTime() const;
+
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -325,7 +348,7 @@ class Compaction {
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
-  const ImmutableCFOptions immutable_cf_options_;
+  const ImmutableOptions immutable_options_;
   const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
@@ -336,7 +359,8 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
-  // If true, then the comaction can be done by simply deleting input files.
+  Temperature output_temperature_;
+  // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
   // Compaction input files organized by level. Constant after construction
@@ -376,9 +400,13 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
 };
 
 // Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

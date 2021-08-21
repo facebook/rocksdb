@@ -12,7 +12,7 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 namespace { // anonymous namespace
 
@@ -36,7 +36,10 @@ class UInt64AddOperator : public AssociativeMergeOperator {
     return true;  // Return true always since corruption will be treated as 0
   }
 
-  const char* Name() const override { return "UInt64AddOperator"; }
+  static const char* kClassName() { return "UInt64AddOperator"; }
+  static const char* kNickName() { return "uint64add"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   // Takes the string and decodes it into a uint64_t
@@ -60,10 +63,10 @@ class UInt64AddOperator : public AssociativeMergeOperator {
 
 }
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateUInt64AddOperator() {
   return std::make_shared<UInt64AddOperator>();
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE

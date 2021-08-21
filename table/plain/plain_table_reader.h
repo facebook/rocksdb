@@ -25,7 +25,7 @@
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Block;
 struct BlockContents;
@@ -67,7 +67,7 @@ class PlainTableReader: public TableReader {
 // whether it points to the data offset of the first key with the key prefix
 // or the offset of it. If there are too many keys share this prefix, it will
 // create a binary search-able index from the suffix to offset on disk.
-  static Status Open(const ImmutableCFOptions& ioptions,
+  static Status Open(const ImmutableOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      std::unique_ptr<RandomAccessFileReader>&& file,
@@ -84,7 +84,8 @@ class PlainTableReader: public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   void Prepare(const Slice& target) override;
 
@@ -109,7 +110,7 @@ class PlainTableReader: public TableReader {
     return arena_.MemoryAllocatedBytes();
   }
 
-  PlainTableReader(const ImmutableCFOptions& ioptions,
+  PlainTableReader(const ImmutableOptions& ioptions,
                    std::unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
@@ -162,10 +163,12 @@ class PlainTableReader: public TableReader {
   CacheAllocationPtr index_block_alloc_;
   CacheAllocationPtr bloom_block_alloc_;
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
+ protected: // for testing
   std::shared_ptr<const TableProperties> table_properties_;
+ private:
 
   bool IsFixedLength() const {
     return user_key_len_ != kPlainTableVariableLength;
@@ -240,5 +243,5 @@ class PlainTableReader: public TableReader {
   explicit PlainTableReader(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

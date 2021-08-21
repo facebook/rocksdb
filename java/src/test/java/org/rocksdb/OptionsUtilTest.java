@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class OptionsUtilTest {
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE = new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
@@ -94,10 +94,10 @@ public class OptionsUtilTest {
     assertThat(cfDescs.size()).isEqualTo(2);
     assertThat(cfDescs.get(0)).isNotNull();
     assertThat(cfDescs.get(1)).isNotNull();
-    assertThat(cfDescs.get(0).columnFamilyName()).isEqualTo(RocksDB.DEFAULT_COLUMN_FAMILY);
-    assertThat(cfDescs.get(1).columnFamilyName()).isEqualTo(secondCFName);
+    assertThat(cfDescs.get(0).getName()).isEqualTo(RocksDB.DEFAULT_COLUMN_FAMILY);
+    assertThat(cfDescs.get(1).getName()).isEqualTo(secondCFName);
 
-    ColumnFamilyOptions defaultCFOpts = cfDescs.get(0).columnFamilyOptions();
+    ColumnFamilyOptions defaultCFOpts = cfDescs.get(0).getOptions();
     assertThat(defaultCFOpts.writeBufferSize()).isEqualTo(baseDefaultCFOpts.writeBufferSize());
     assertThat(defaultCFOpts.maxWriteBufferNumber())
         .isEqualTo(baseDefaultCFOpts.maxWriteBufferNumber());
@@ -110,7 +110,7 @@ public class OptionsUtilTest {
     assertThat(defaultCFOpts.bottommostCompressionType())
         .isEqualTo(baseDefaultCFOpts.bottommostCompressionType());
 
-    ColumnFamilyOptions secondCFOpts = cfDescs.get(1).columnFamilyOptions();
+    ColumnFamilyOptions secondCFOpts = cfDescs.get(1).getOptions();
     assertThat(secondCFOpts.writeBufferSize()).isEqualTo(baseSecondCFOpts.writeBufferSize());
     assertThat(secondCFOpts.maxWriteBufferNumber())
         .isEqualTo(baseSecondCFOpts.maxWriteBufferNumber());

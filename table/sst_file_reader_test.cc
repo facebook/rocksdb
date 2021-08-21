@@ -5,17 +5,20 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/sst_file_reader.h"
+
 #include <cinttypes>
 
+#include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::string EncodeAsString(uint64_t v) {
   char buf[16];
@@ -34,11 +37,18 @@ class SstFileReaderTest : public testing::Test {
   SstFileReaderTest() {
     options_.merge_operator = MergeOperators::CreateUInt64AddOperator();
     sst_name_ = test::PerThreadDBPath("sst_file");
+
+    Env* base_env = Env::Default();
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    EXPECT_NE(nullptr, base_env);
+    env_ = base_env;
+    options_.env = env_;
   }
 
   ~SstFileReaderTest() {
-    Status s = Env::Default()->DeleteFile(sst_name_);
-    assert(s.ok());
+    Status s = env_->DeleteFile(sst_name_);
+    EXPECT_OK(s);
   }
 
   void CreateFile(const std::string& file_name,
@@ -76,6 +86,9 @@ class SstFileReaderTest : public testing::Test {
     if (check_global_seqno) {
       auto properties = reader.GetTableProperties();
       ASSERT_TRUE(properties);
+      std::string hostname;
+      ASSERT_OK(env_->GetHostNameString(&hostname));
+      ASSERT_EQ(properties->db_host_id, hostname);
       auto& user_properties = properties->user_collected_properties;
       ASSERT_TRUE(
           user_properties.count(ExternalSstFilePropertyNames::kGlobalSeqno));
@@ -91,6 +104,8 @@ class SstFileReaderTest : public testing::Test {
   Options options_;
   EnvOptions soptions_;
   std::string sst_name_;
+  std::shared_ptr<Env> env_guard_;
+  Env* env_;
 };
 
 const uint64_t kNumKeys = 100;
@@ -110,6 +125,31 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
     keys.emplace_back(EncodeAsUint64(i));
   }
   CreateFileAndCheck(keys);
+}
+
+TEST_F(SstFileReaderTest, ReadOptionsOutOfScope) {
+  // Repro a bug where the SstFileReader depended on its configured ReadOptions
+  // outliving it.
+  options_.comparator = test::Uint64Comparator();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  std::unique_ptr<Iterator> iter;
+  {
+    // Make sure ReadOptions go out of scope ASAP so we know the iterator
+    // operations do not depend on it.
+    ReadOptions ropts;
+    iter.reset(reader.NewIterator(ropts));
+  }
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+  }
 }
 
 TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
@@ -155,10 +195,20 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   ASSERT_OK(DestroyDB(db_name, options));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+  void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 

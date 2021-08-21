@@ -5,7 +5,7 @@
 
 #pragma once
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // A list of callers for a table reader. It is used to trace the caller that
 // accesses on a block. This is only used for block cache tracing and analysis.
 // A user may use kUncategorized if the caller is not interesting for analysis
@@ -36,4 +36,4 @@ enum TableReaderCaller : char {
   // All callers should be added before kMaxBlockCacheLookupCaller.
   kMaxBlockCacheLookupCaller
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

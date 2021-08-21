@@ -225,6 +225,6 @@ class TimerQueue {
    public:
     std::vector<WorkItem>& getContainer() { return this->c; }
   } m_items;
-  rocksdb::port::Thread m_th;
+  ROCKSDB_NAMESPACE::port::Thread m_th;
   bool closed_ = false;
 };

@@ -23,6 +23,8 @@
 #include <thread>
 #include <vector>
 
+// TODO: port this example to other systems. It should be straightforward for
+// POSIX-compliant systems.
 #if defined(OS_LINUX)
 #include <dirent.h>
 #include <signal.h>
@@ -30,23 +32,22 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#endif  // !OS_LINUX
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 
-using rocksdb::ColumnFamilyDescriptor;
-using rocksdb::ColumnFamilyHandle;
-using rocksdb::ColumnFamilyOptions;
-using rocksdb::DB;
-using rocksdb::FlushOptions;
-using rocksdb::Iterator;
-using rocksdb::Options;
-using rocksdb::ReadOptions;
-using rocksdb::Slice;
-using rocksdb::Status;
-using rocksdb::WriteOptions;
+using ROCKSDB_NAMESPACE::ColumnFamilyDescriptor;
+using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
+using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::Iterator;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::ReadOptions;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::WriteOptions;
 
 const std::string kDBPath = "/tmp/rocksdb_multi_processes_example";
 const std::string kPrimaryStatusFile =
@@ -57,7 +58,7 @@ const size_t kNumKeysPerFlush = 1000;
 
 const std::vector<std::string>& GetColumnFamilyNames() {
   static std::vector<std::string> column_family_names = {
-      rocksdb::kDefaultColumnFamilyName, "pikachu"};
+      ROCKSDB_NAMESPACE::kDefaultColumnFamilyName, "pikachu"};
   return column_family_names;
 }
 
@@ -136,13 +137,10 @@ static Slice GenerateRandomValue(const size_t max_length, char scratch[]) {
 
 static bool ShouldCloseDB() { return true; }
 
-// TODO: port this example to other systems. It should be straightforward for
-// POSIX-compliant systems.
-#if defined(OS_LINUX)
 void CreateDB() {
   long my_pid = static_cast<long>(getpid());
   Options options;
-  Status s = rocksdb::DestroyDB(kDBPath, options);
+  Status s = ROCKSDB_NAMESPACE::DestroyDB(kDBPath, options);
   if (!s.ok()) {
     fprintf(stderr, "[process %ld] Failed to destroy DB: %s\n", my_pid,
             s.ToString().c_str());
@@ -159,7 +157,7 @@ void CreateDB() {
   std::vector<ColumnFamilyHandle*> handles;
   ColumnFamilyOptions cf_opts(options);
   for (const auto& cf_name : GetColumnFamilyNames()) {
-    if (rocksdb::kDefaultColumnFamilyName != cf_name) {
+    if (ROCKSDB_NAMESPACE::kDefaultColumnFamilyName != cf_name) {
       ColumnFamilyHandle* handle = nullptr;
       s = db->CreateColumnFamily(cf_opts, cf_name, &handle);
       if (!s.ok()) {
@@ -301,7 +299,7 @@ void RunSecondary() {
       std::string value;
       db->Get(ropts, key, &value);
     }
-    fprintf(stdout, "[process %ld] Point lookup thread finished\n");
+    fprintf(stdout, "[process %ld] Point lookup thread finished\n", my_pid);
   });
 
   uint64_t curr_key = 0;
@@ -389,7 +387,7 @@ int main(int argc, char** argv) {
 }
 #else   // OS_LINUX
 int main() {
-  fpritnf(stderr, "Not implemented.\n");
+  fprintf(stderr, "Not implemented.\n");
   return 0;
 }
 #endif  // !OS_LINUX

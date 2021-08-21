@@ -13,7 +13,7 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Retrieves a single block of a given file. Utilizes the prefetch buffer and/or
 // persistent cache provided (if any) to try to avoid reading from the file
@@ -39,7 +39,7 @@ class BlockFetcher {
   BlockFetcher(RandomAccessFileReader* file,
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents, const ImmutableCFOptions& ioptions,
+               BlockContents* contents, const ImmutableOptions& ioptions,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
@@ -56,16 +56,34 @@ class BlockFetcher {
         do_uncompress_(do_uncompress),
         maybe_compressed_(maybe_compressed),
         block_type_(block_type),
+        block_size_(static_cast<size_t>(handle_.size())),
+        block_size_with_trailer_(block_size(handle_)),
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction) {
+    io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
+  }
 
-  Status ReadBlockContents();
+  IOStatus ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
+#ifndef NDEBUG
+  int TEST_GetNumStackBufMemcpy() const { return num_stack_buf_memcpy_; }
+  int TEST_GetNumHeapBufMemcpy() const { return num_heap_buf_memcpy_; }
+  int TEST_GetNumCompressedBufMemcpy() const {
+    return num_compressed_buf_memcpy_;
+  }
+
+#endif
  private:
+#ifndef NDEBUG
+  int num_stack_buf_memcpy_ = 0;
+  int num_heap_buf_memcpy_ = 0;
+  int num_compressed_buf_memcpy_ = 0;
+
+#endif
   static const uint32_t kDefaultStackBufferSize = 5000;
 
   RandomAccessFileReader* file_;
@@ -74,23 +92,25 @@ class BlockFetcher {
   const ReadOptions read_options_;
   const BlockHandle& handle_;
   BlockContents* contents_;
-  const ImmutableCFOptions& ioptions_;
-  bool do_uncompress_;
-  bool maybe_compressed_;
-  BlockType block_type_;
+  const ImmutableOptions& ioptions_;
+  const bool do_uncompress_;
+  const bool maybe_compressed_;
+  const BlockType block_type_;
+  const size_t block_size_;
+  const size_t block_size_with_trailer_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
-  Status status_;
+  IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
-  size_t block_size_;
+  AlignedBuf direct_io_buf_;
   CacheAllocationPtr heap_buf_;
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  rocksdb::CompressionType compression_type_;
+  CompressionType compression_type_;
   bool for_compaction_ = false;
 
   // return true if found
@@ -99,11 +119,13 @@ class BlockFetcher {
   bool TryGetFromPrefetchBuffer();
   bool TryGetCompressedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
-  // Copy content from used_buf_ to new heap buffer.
-  void CopyBufferToHeap();
+  // Copy content from used_buf_ to new heap_buf_.
+  void CopyBufferToHeapBuf();
+  // Copy content from used_buf_ to new compressed_buf_.
+  void CopyBufferToCompressedBuf();
   void GetBlockContents();
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void CheckBlockChecksum();
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

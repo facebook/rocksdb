@@ -7,11 +7,8 @@
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using rocksdb::Logger;
-using rocksdb::MergeOperator;
-using rocksdb::Slice;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const {
@@ -51,8 +48,6 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
   (void)new_value;
   return true;
 }
-
-const char* SortList::Name() const { return "MergeSortOperator"; }
 
 void SortList::MakeVector(std::vector<int>& operand, Slice slice) const {
   do {
@@ -97,4 +92,4 @@ std::vector<int> SortList::Merge(std::vector<int>& left,
 std::shared_ptr<MergeOperator> MergeOperators::CreateSortOperator() {
   return std::make_shared<SortList>();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

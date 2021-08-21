@@ -39,28 +39,22 @@ public class CompactionFilterFactoryTest {
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 
-      try (final RocksDB rocksDb = RocksDB.open(options,
-               dbFolder.getRoot().getAbsolutePath(), cfNames, cfHandles);
-      ) {
-        try {
-          final byte[] key1 = "key1".getBytes();
-          final byte[] key2 = "key2".getBytes();
+      try (final RocksDB rocksDb =
+               RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(), cfNames, cfHandles)) {
+        final byte[] key1 = "key1".getBytes();
+        final byte[] key2 = "key2".getBytes();
 
-          final byte[] value1 = "value1".getBytes();
-          final byte[] value2 = new byte[0];
+        final byte[] value1 = "value1".getBytes();
+        final byte[] value2 = new byte[0];
 
-          rocksDb.put(cfHandles.get(1), key1, value1);
-          rocksDb.put(cfHandles.get(1), key2, value2);
+        rocksDb.put(cfHandles.get(1), key1, value1);
+        rocksDb.put(cfHandles.get(1), key2, value2);
 
-          rocksDb.compactRange(cfHandles.get(1));
+        rocksDb.compactRange(cfHandles.get(1));
 
-          assertThat(rocksDb.get(cfHandles.get(1), key1)).isEqualTo(value1);
-          assertThat(rocksDb.keyMayExist(cfHandles.get(1), key2, new StringBuilder())).isFalse();
-        } finally {
-          for (final ColumnFamilyHandle cfHandle : cfHandles) {
-            cfHandle.close();
-          }
-        }
+        assertThat(rocksDb.get(cfHandles.get(1), key1)).isEqualTo(value1);
+        final boolean exists = rocksDb.keyMayExist(cfHandles.get(1), key2, null);
+        assertThat(exists).isFalse();
       }
     }
   }

@@ -12,7 +12,9 @@
 #include <stdint.h>
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
 extern std::string IsFastCrc32Supported();
@@ -21,6 +23,12 @@ extern std::string IsFastCrc32Supported();
 // crc32c of some string A.  Extend() is often used to maintain the
 // crc32c of a stream of data.
 extern uint32_t Extend(uint32_t init_crc, const char* data, size_t n);
+
+// Takes two unmasked crc32c values, and the length of the string from
+// which `crc2` was computed, and computes a crc32c value for the
+// concatenation of the original two input strings. Running time is
+// ~ log(crc2len).
+extern uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len);
 
 // Return the crc32c of data[0,n-1]
 inline uint32_t Value(const char* data, size_t n) {
@@ -46,4 +54,4 @@ inline uint32_t Unmask(uint32_t masked_crc) {
 }
 
 }  // namespace crc32c
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

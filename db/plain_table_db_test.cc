@@ -16,7 +16,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -32,26 +31,27 @@
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-using std::unique_ptr;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class PlainTableKeyDecoderTest : public testing::Test {};
 
 TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
-  std::string tmp;
   Random rnd(301);
   const uint32_t kLength = 2222;
-  Slice contents = test::RandomString(&rnd, kLength, &tmp);
+  std::string tmp = rnd.RandomString(kLength);
+  Slice contents(tmp);
   test::StringSource* string_source =
       new test::StringSource(contents, 0, false);
-
+  std::unique_ptr<FSRandomAccessFile> holder(string_source);
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      test::GetRandomAccessFileReader(string_source));
+      new RandomAccessFileReader(std::move(holder), "test"));
   std::unique_ptr<PlainTableReaderFileInfo> file_info(
       new PlainTableReaderFileInfo(std::move(file_reader), EnvOptions(),
                                    kLength));
@@ -146,9 +146,7 @@ class PlainTableDBTest : public testing::Test,
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void Reopen(Options* options = nullptr) {
     ASSERT_OK(TryReopen(options));
@@ -264,18 +262,15 @@ extern const uint64_t kPlainTableMagicNumber;
 
 class TestPlainTableReader : public PlainTableReader {
  public:
-  TestPlainTableReader(const EnvOptions& env_options,
-                       const InternalKeyComparator& icomparator,
-                       EncodingType encoding_type, uint64_t file_size,
-                       int bloom_bits_per_key, double hash_table_ratio,
-                       size_t index_sparseness,
-                       const TableProperties* table_properties,
-                       std::unique_ptr<RandomAccessFileReader>&& file,
-                       const ImmutableCFOptions& ioptions,
-                       const SliceTransform* prefix_extractor,
-                       bool* expect_bloom_not_match, bool store_index_in_file,
-                       uint32_t column_family_id,
-                       const std::string& column_family_name)
+  TestPlainTableReader(
+      const EnvOptions& env_options, const InternalKeyComparator& icomparator,
+      EncodingType encoding_type, uint64_t file_size, int bloom_bits_per_key,
+      double hash_table_ratio, size_t index_sparseness,
+      const TableProperties* table_properties,
+      std::unique_ptr<RandomAccessFileReader>&& file,
+      const ImmutableOptions& ioptions, const SliceTransform* prefix_extractor,
+      bool* expect_bloom_not_match, bool store_index_in_file,
+      uint32_t column_family_id, const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties,
                          prefix_extractor),
@@ -302,6 +297,7 @@ class TestPlainTableReader : public PlainTableReader {
         EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
+    table_properties_.reset(props);
   }
 
   ~TestPlainTableReader() override {}
@@ -335,8 +331,9 @@ class TestPlainTableFactory : public PlainTableFactory {
         column_family_id_(column_family_id),
         column_family_name_(std::move(column_family_name)) {}
 
+  using PlainTableFactory::NewTableReader;
   Status NewTableReader(
-      const TableReaderOptions& table_reader_options,
+      const ReadOptions& /*ro*/, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table,
       bool /*prefetch_index_and_filter_in_cache*/) const override {
@@ -392,11 +389,72 @@ class TestPlainTableFactory : public PlainTableFactory {
   const std::string column_family_name_;
 };
 
+TEST_P(PlainTableDBTest, BadOptions1) {
+  // Build with a prefix extractor
+  ASSERT_OK(Put("1000000000000foo", "v1"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  // Bad attempt to re-open without a prefix extractor
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset();
+  ASSERT_EQ(
+      "Invalid argument: Prefix extractor is missing when opening a PlainTable "
+      "built using a prefix extractor",
+      TryReopen(&options).ToString());
+
+  // Bad attempt to re-open with different prefix extractor
+  options.prefix_extractor.reset(NewFixedPrefixTransform(6));
+  ASSERT_EQ(
+      "Invalid argument: Prefix extractor given doesn't match the one used to "
+      "build PlainTable",
+      TryReopen(&options).ToString());
+
+  // Correct prefix extractor
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+}
+
+TEST_P(PlainTableDBTest, BadOptions2) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset();
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+  // Build without a prefix extractor
+  // (apparently works even if hash_table_ratio > 0)
+  ASSERT_OK(Put("1000000000000foo", "v1"));
+  // Build without a prefix extractor, this call will fail and returns the
+  // status for this bad attempt.
+  ASSERT_NOK(dbfull()->TEST_FlushMemTable());
+
+  // Bad attempt to re-open with hash_table_ratio > 0 and no prefix extractor
+  Status s = TryReopen(&options);
+  ASSERT_EQ(
+      "Not implemented: PlainTable requires a prefix extractor enable prefix "
+      "hash mode.",
+      s.ToString());
+
+  // OK to open with hash_table_ratio == 0 and no prefix extractor
+  PlainTableOptions plain_table_options;
+  plain_table_options.hash_table_ratio = 0;
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+
+  // OK to open newly with a prefix_extractor and hash table; builds index
+  // in memory.
+  options = CurrentOptions();
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+}
+
 TEST_P(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+    for (int bloom = -1; bloom <= 117; bloom += 117) {
+      const int bloom_bits = std::max(bloom, 0);
+      const bool full_scan_mode = bloom < 0;
       for (int total_order = 0; total_order <= 1; total_order++) {
         for (int store_index_in_file = 0; store_index_in_file <= 1;
              ++store_index_in_file) {
@@ -414,7 +472,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 2;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -427,7 +485,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 16;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -442,32 +500,49 @@ TEST_P(PlainTableDBTest, Flush) {
           ASSERT_OK(Put("1000000000000foo", "v1"));
           ASSERT_OK(Put("0000000000000bar", "v2"));
           ASSERT_OK(Put("1000000000000foo", "v3"));
-          dbfull()->TEST_FlushMemTable();
+          ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
           ASSERT_TRUE(dbfull()->GetIntProperty(
               "rocksdb.estimate-table-readers-mem", &int_num));
           ASSERT_GT(int_num, 0U);
 
           TablePropertiesCollection ptc;
-          reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+          ASSERT_OK(
+              reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
           ASSERT_EQ(1U, ptc.size());
           auto row = ptc.begin();
           auto tp = row->second;
 
-          if (!store_index_in_file) {
-            ASSERT_EQ(total_order ? "4" : "12",
-                      (tp->user_collected_properties)
-                          .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+          if (full_scan_mode) {
+            // Does not support Get/Seek
+            std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+            iter->SeekToFirst();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("0000000000000bar", iter->key().ToString());
+            ASSERT_EQ("v2", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("1000000000000foo", iter->key().ToString());
+            ASSERT_EQ("v3", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(!iter->Valid());
+            ASSERT_TRUE(iter->status().ok());
           } else {
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+            if (!store_index_in_file) {
+              ASSERT_EQ(total_order ? "4" : "12",
+                        (tp->user_collected_properties)
+                            .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            } else {
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            }
+            ASSERT_EQ("v3", Get("1000000000000foo"));
+            ASSERT_EQ("v2", Get("0000000000000bar"));
           }
-          ASSERT_EQ("v3", Get("1000000000000foo"));
-          ASSERT_EQ("v2", Get("0000000000000bar"));
         }
         }
       }
@@ -518,23 +593,23 @@ TEST_P(PlainTableDBTest, Flush2) {
         DestroyAndReopen(&options);
         ASSERT_OK(Put("0000000000000bar", "b"));
         ASSERT_OK(Put("1000000000000foo", "v1"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
         ASSERT_OK(Put("1000000000000foo", "v2"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
         ASSERT_EQ("v2", Get("1000000000000foo"));
 
         ASSERT_OK(Put("0000000000000eee", "v3"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
         ASSERT_EQ("v3", Get("0000000000000eee"));
 
         ASSERT_OK(Delete("0000000000000bar"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
         ASSERT_EQ("NOT_FOUND", Get("0000000000000bar"));
 
         ASSERT_OK(Put("0000000000000eee", "v5"));
         ASSERT_OK(Put("9000000000000eee", "v5"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
         ASSERT_EQ("v5", Get("0000000000000eee"));
 
         // Test Bloom Filter
@@ -574,12 +649,12 @@ TEST_P(PlainTableDBTest, Immortal) {
     DestroyAndReopen(&options);
     ASSERT_OK(Put("0000000000000bar", "b"));
     ASSERT_OK(Put("1000000000000foo", "v1"));
-    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
     int copied = 0;
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "GetContext::SaveValue::PinSelf", [&](void* /*arg*/) { copied++; });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_EQ("b", Get("0000000000000bar"));
     ASSERT_EQ("v1", Get("1000000000000foo"));
     ASSERT_EQ(2, copied);
@@ -596,7 +671,7 @@ TEST_P(PlainTableDBTest, Immortal) {
     } else {
       ASSERT_EQ(2, copied);
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -652,7 +727,7 @@ TEST_P(PlainTableDBTest, Iterator) {
         ASSERT_OK(Put("1000000000foo005", "v__5"));
         ASSERT_OK(Put("1000000000foo007", "v__7"));
         ASSERT_OK(Put("1000000000foo008", "v__8"));
-        dbfull()->TEST_FlushMemTable();
+        ASSERT_OK(dbfull()->TEST_FlushMemTable());
         ASSERT_EQ("v1", Get("1000000000foo001"));
         ASSERT_EQ("v__3", Get("1000000000foo003"));
         Iterator* iter = dbfull()->NewIterator(ReadOptions());
@@ -722,7 +797,7 @@ TEST_P(PlainTableDBTest, Iterator) {
             expect_bloom_not_match = false;
           }
         }
-
+        ASSERT_OK(iter->status());
         delete iter;
       }
     }
@@ -763,7 +838,7 @@ TEST_P(PlainTableDBTest, BloomSchema) {
     for (unsigned i = 0; i < 2345; ++i) {
       ASSERT_OK(Put(NthKey(i, 'y'), "added"));
     }
-    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ("added", Get(NthKey(42, 'y')));
 
     for (unsigned i = 0; i < 32; ++i) {
@@ -821,7 +896,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
     ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek(key_list[0]);
@@ -869,7 +944,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
     ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek(key_list[0]);
@@ -904,7 +979,7 @@ TEST_P(PlainTableDBTest, IteratorReverseSuffixComparator) {
   ASSERT_OK(Put("1000000000foo005", "v__5"));
   ASSERT_OK(Put("1000000000foo007", "v__7"));
   ASSERT_OK(Put("1000000000foo008", "v__8"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   ASSERT_EQ("v1", Get("1000000000foo001"));
   ASSERT_EQ("v__3", Get("1000000000foo003"));
   Iterator* iter = dbfull()->NewIterator(ReadOptions());
@@ -982,7 +1057,7 @@ TEST_P(PlainTableDBTest, HashBucketConflict) {
       ASSERT_OK(Put("2000000000000fo2", "v"));
       ASSERT_OK(Put("2000000000000fo3", "v"));
 
-      dbfull()->TEST_FlushMemTable();
+      ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
       ASSERT_EQ("v1", Get("5000000000000fo0"));
       ASSERT_EQ("v2", Get("5000000000000fo1"));
@@ -1043,6 +1118,7 @@ TEST_P(PlainTableDBTest, HashBucketConflict) {
       iter->Seek("8000000000000fo2");
       ASSERT_TRUE(!iter->Valid());
 
+      ASSERT_OK(iter->status());
       delete iter;
     }
   }
@@ -1076,7 +1152,7 @@ TEST_P(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
       ASSERT_OK(Put("2000000000000fo2", "v"));
       ASSERT_OK(Put("2000000000000fo3", "v"));
 
-      dbfull()->TEST_FlushMemTable();
+      ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
       ASSERT_EQ("v1", Get("5000000000000fo0"));
       ASSERT_EQ("v2", Get("5000000000000fo1"));
@@ -1136,6 +1212,7 @@ TEST_P(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
       iter->Seek("8000000000000fo2");
       ASSERT_TRUE(!iter->Valid());
 
+      ASSERT_OK(iter->status());
       delete iter;
     }
   }
@@ -1158,7 +1235,7 @@ TEST_P(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   ASSERT_OK(Put("5000000000000fo1", "v2"));
   ASSERT_OK(Put("5000000000000fo2", "v3"));
 
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   ASSERT_EQ("v1", Get("5000000000000fo0"));
   ASSERT_EQ("v2", Get("5000000000000fo1"));
@@ -1182,6 +1259,7 @@ TEST_P(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   iter->Seek("8000000000000fo2");
   ASSERT_TRUE(!iter->Valid());
 
+  ASSERT_OK(iter->status());
   delete iter;
 }
 
@@ -1191,15 +1269,9 @@ static std::string Key(int i) {
   return std::string(buf);
 }
 
-static std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 TEST_P(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 120 << 10;  // 100KB
+  options.write_buffer_size = 120 << 10;  // 120KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
@@ -1211,22 +1283,22 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
     std::vector<std::string> values;
     // Write 120KB (10 values, each 12K)
     for (int i = 0; i < 10; i++) {
-      values.push_back(RandomString(&rnd, 12000));
+      values.push_back(rnd.RandomString(12 << 10));
       ASSERT_OK(Put(Key(i), values[i]));
     }
     ASSERT_OK(Put(Key(999), ""));
-    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
 
   //generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
   for (int i = 0; i < 12; i++) {
-    values.push_back(RandomString(&rnd, 10000));
+    values.push_back(rnd.RandomString(10000));
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Put(Key(999), ""));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
@@ -1242,21 +1314,23 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   ASSERT_OK(Put("1000000000000foo", "v1"));
   ASSERT_OK(Put("0000000000000bar", "v2"));
   ASSERT_OK(Put("1000000000000foo", "v3"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   options.create_if_missing = false;
-  std::shared_ptr<TableFactory> dummy_factory;
   std::shared_ptr<TableFactory> block_based_factory(
       NewBlockBasedTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(
+      NewPlainTableFactory());
+  std::shared_ptr<TableFactory> dummy_factory;
   options.table_factory.reset(NewAdaptiveTableFactory(
-      block_based_factory, dummy_factory, dummy_factory));
+      block_based_factory, block_based_factory, plain_table_factory));
   Reopen(&options);
   ASSERT_EQ("v3", Get("1000000000000foo"));
   ASSERT_EQ("v2", Get("0000000000000bar"));
 
   ASSERT_OK(Put("2000000000000foo", "v4"));
   ASSERT_OK(Put("3000000000000bar", "v5"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   ASSERT_EQ("v4", Get("2000000000000foo"));
   ASSERT_EQ("v5", Get("3000000000000bar"));
 
@@ -1266,10 +1340,12 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   ASSERT_EQ("v4", Get("2000000000000foo"));
   ASSERT_EQ("v5", Get("3000000000000bar"));
 
+  options.paranoid_checks = false;
   options.table_factory.reset(NewBlockBasedTableFactory());
   Reopen(&options);
   ASSERT_NE("v3", Get("1000000000000foo"));
 
+  options.paranoid_checks = false;
   options.table_factory.reset(NewPlainTableFactory());
   Reopen(&options);
   ASSERT_NE("v5", Get("3000000000000bar"));
@@ -1277,7 +1353,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
 
 INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

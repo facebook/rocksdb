@@ -15,7 +15,7 @@
 #include "db/log_writer.h"
 #include "db/column_family.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemTable;
 struct SuperVersion;
@@ -23,7 +23,7 @@ struct SuperVersion;
 struct SuperVersionContext {
   struct WriteStallNotification {
     WriteStallInfo write_stall_info;
-    const ImmutableCFOptions* immutable_cf_options;
+    const ImmutableOptions* immutable_options;
   };
 
   autovector<SuperVersion*> superversions_to_free;
@@ -57,15 +57,16 @@ struct SuperVersionContext {
 #endif
   }
 
-  void PushWriteStallNotification(
-      WriteStallCondition old_cond, WriteStallCondition new_cond,
-      const std::string& name, const ImmutableCFOptions* ioptions) {
+  void PushWriteStallNotification(WriteStallCondition old_cond,
+                                  WriteStallCondition new_cond,
+                                  const std::string& name,
+                                  const ImmutableOptions* ioptions) {
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
     WriteStallNotification notif;
     notif.write_stall_info.cf_name = name;
     notif.write_stall_info.condition.prev = old_cond;
     notif.write_stall_info.condition.cur = new_cond;
-    notif.immutable_cf_options = ioptions;
+    notif.immutable_options = ioptions;
     write_stall_notifications.push_back(notif);
 #else
     (void)old_cond;
@@ -79,7 +80,7 @@ struct SuperVersionContext {
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
     // notify listeners on changed write stall conditions
     for (auto& notif : write_stall_notifications) {
-      for (auto& listener : notif.immutable_cf_options->listeners) {
+      for (auto& listener : notif.immutable_options->listeners) {
         listener->OnStallConditionsChanged(notif.write_stall_info);
       }
     }
@@ -102,8 +103,9 @@ struct SuperVersionContext {
 
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
-    return full_scan_candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size() || manifest_delete_files.size();
+    return !(full_scan_candidate_files.empty() && sst_delete_files.empty() &&
+             blob_delete_files.empty() && log_delete_files.empty() &&
+             manifest_delete_files.empty());
   }
 
   inline bool HaveSomethingToClean() const {
@@ -140,10 +142,16 @@ struct JobContext {
   std::vector<CandidateFileInfo> full_scan_candidate_files;
 
   // the list of all live sst files that cannot be deleted
-  std::vector<FileDescriptor> sst_live;
+  std::vector<uint64_t> sst_live;
 
-  // a list of sst files that we need to delete
+  // the list of sst files that we need to delete
   std::vector<ObsoleteFileInfo> sst_delete_files;
+
+  // the list of all live blob files that cannot be deleted
+  std::vector<uint64_t> blob_live;
+
+  // the list of blob files that we need to delete
+  std::vector<ObsoleteBlobFileInfo> blob_delete_files;
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;
@@ -216,4 +224,4 @@ struct JobContext {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

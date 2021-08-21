@@ -19,15 +19,15 @@
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
-#include "include/rocksdb/comparator.h"
-#include "include/rocksdb/types.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/types.h"
 #include "table/internal_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
 #include "util/heap.h"
 #include "util/kv_map.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TruncatedRangeDelIterator {
  public:
@@ -43,12 +43,12 @@ class TruncatedRangeDelIterator {
 
   void InternalNext();
 
-  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
   // the earliest tombstone that ends after target.
   void Seek(const Slice& target);
 
-  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
   // the latest tombstone that starts before target.
   void SeekForPrev(const Slice& target);
@@ -283,9 +283,14 @@ class RangeDelAggregator {
 
   bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
     ParsedInternalKey parsed;
-    if (!ParseInternalKey(key, &parsed)) {
+
+    Status pik_status =
+        ParseInternalKey(key, &parsed, false /* log_err_key */);  // TODO
+    assert(pik_status.ok());
+    if (!pik_status.ok()) {
       return false;
     }
+
     return ShouldDelete(parsed, mode);
   }
   virtual bool ShouldDelete(const ParsedInternalKey& parsed,
@@ -438,4 +443,4 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   const std::vector<SequenceNumber>* snapshots_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

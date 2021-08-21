@@ -25,7 +25,7 @@ DEFINE_int64(iters, 100000, "number of pseudo-random operations in each test");
  * std::priority_queue on a pseudo-random sequence of operations.
  */
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 using HeapTestValue = uint64_t;
 using Params = std::tuple<size_t, HeapTestValue, int64_t>;
@@ -128,7 +128,7 @@ INSTANTIATE_TEST_CASE_P(
   ::testing::Values(Params(1, 3, 0x176a1019ab0b612e))
 );
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -12,7 +12,6 @@
 #define ROCKSDB_HDFS_FILE_C
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <time.h>
 #include <algorithm>
 #include <iostream>
@@ -31,17 +30,17 @@
 // will reside on the same HDFS cluster.
 //
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
 // Log error message
 static Status IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
-             ? Status::NoSpace(context, strerror(err_number))
+             ? Status::NoSpace(context, errnoStr(err_number).c_str())
              : (err_number == ENOENT)
-                   ? Status::PathNotFound(context, strerror(err_number))
-                   : Status::IOError(context, strerror(err_number));
+                   ? Status::PathNotFound(context, errnoStr(err_number).c_str())
+                   : Status::IOError(context, errnoStr(err_number).c_str());
 }
 
 // assume that there is one global logger for now. It is not thread-safe,
@@ -124,8 +123,9 @@ class HdfsReadableFile : virtual public SequentialFile,
     Status s;
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile preading %s\n",
                     filename_.c_str());
-    ssize_t bytes_read = hdfsPread(fileSys_, hfile_, offset,
-                                   (void*)scratch, (tSize)n);
+    tSize bytes_read =
+        hdfsPread(fileSys_, hfile_, offset, static_cast<void*>(scratch),
+                  static_cast<tSize>(n));
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile pread %s\n",
                     filename_.c_str());
     *result = Slice(scratch, (bytes_read < 0) ? 0 : bytes_read);
@@ -212,6 +212,8 @@ class HdfsWritableFile: public WritableFile {
       hfile_ = nullptr;
     }
   }
+
+  using WritableFile::Append;
 
   // If the file was successfully created, then this returns true.
   // Otherwise returns false.
@@ -609,19 +611,31 @@ Status HdfsEnv::NewLogger(const std::string& fname,
   return Status::OK();
 }
 
+Status HdfsEnv::IsDirectory(const std::string& path, bool* is_dir) {
+  hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, path.c_str());
+  if (pFileInfo != nullptr) {
+    if (is_dir != nullptr) {
+      *is_dir = (pFileInfo->mKind == kObjectKindDirectory);
+    }
+    hdfsFreeFileInfo(pFileInfo, 1);
+    return Status::OK();
+  }
+  return IOError(path, errno);
+}
+
 // The factory method for creating an HDFS Env
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
   *hdfs_env = new HdfsEnv(fsname);
   return Status::OK();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif // ROCKSDB_HDFS_FILE_C
 
 #else // USE_HDFS
 
 // dummy placeholders used when HDFS is not available
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
                                   std::unique_ptr<SequentialFile>* /*result*/,
                                   const EnvOptions& /*options*/) {
@@ -631,6 +645,6 @@ Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
  Status NewHdfsEnv(Env** /*hdfs_env*/, const std::string& /*fsname*/) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
-}
+ }  // namespace ROCKSDB_NAMESPACE
 
 #endif

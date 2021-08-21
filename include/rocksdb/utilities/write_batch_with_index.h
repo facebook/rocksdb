@@ -23,7 +23,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_batch_base.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 class Comparator;
@@ -40,12 +40,13 @@ enum WriteType {
   kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
+  kUnknownRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
 // Used in WBWIIterator.
 struct WriteEntry {
-  WriteType type;
+  WriteType type = kUnknownRecord;
   Slice key;
   Slice value;
 };
@@ -125,9 +126,17 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status SingleDelete(const Slice& key) override;
 
   using WriteBatchBase::DeleteRange;
-  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
-                     const Slice& end_key) override;
-  Status DeleteRange(const Slice& begin_key, const Slice& end_key) override;
+  Status DeleteRange(ColumnFamilyHandle* /* column_family */,
+                     const Slice& /* begin_key */,
+                     const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(const Slice& /* begin_key */,
+                     const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
 
   using WriteBatchBase::PutLogData;
   Status PutLogData(const Slice& blob) override;
@@ -160,12 +169,13 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // returned iterator will also delete the base_iterator.
   //
   // Updating write batch with the current key of the iterator is not safe.
-  // We strongly recommand users not to do it. It will invalidate the current
+  // We strongly recommend users not to do it. It will invalidate the current
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
   // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
-                                Iterator* base_iterator);
+                                Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
   // default column family
   Iterator* NewIteratorWithBase(Iterator* base_iterator);
 
@@ -264,6 +274,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
   std::unique_ptr<Rep> rep;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

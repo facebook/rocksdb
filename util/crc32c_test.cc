@@ -7,10 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "util/crc32c.h"
+
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
 class CRC { };
@@ -137,8 +139,53 @@ TEST(CRC, Mask) {
   ASSERT_EQ(crc, Unmask(Unmask(Mask(Mask(crc)))));
 }
 
+TEST(CRC, Crc32cCombineBasicTest) {
+  uint32_t crc1 = Value("hello ", 6);
+  uint32_t crc2 = Value("world", 5);
+  uint32_t crc3 = Value("hello world", 11);
+  uint32_t crc1_2_combine = Crc32cCombine(crc1, crc2, 5);
+  ASSERT_EQ(crc3, crc1_2_combine);
+}
+
+TEST(CRC, Crc32cCombineOrderMattersTest) {
+  uint32_t crc1 = Value("hello ", 6);
+  uint32_t crc2 = Value("world", 5);
+  uint32_t crc3 = Value("hello world", 11);
+  uint32_t crc2_1_combine = Crc32cCombine(crc2, crc1, 6);
+  ASSERT_NE(crc3, crc2_1_combine);
+}
+
+TEST(CRC, Crc32cCombineFullCoverTest) {
+  int scale = 4 * 1024;
+  Random rnd(test::RandomSeed());
+  int size_1 = 1024 * 1024;
+  std::string s1 = rnd.RandomBinaryString(size_1);
+  uint32_t crc1 = Value(s1.data(), size_1);
+  for (int i = 0; i < scale; i++) {
+    int size_2 = i;
+    std::string s2 = rnd.RandomBinaryString(size_2);
+    uint32_t crc2 = Value(s2.data(), s2.size());
+    uint32_t crc1_2 = Extend(crc1, s2.data(), s2.size());
+    uint32_t crc1_2_combine = Crc32cCombine(crc1, crc2, size_2);
+    ASSERT_EQ(crc1_2, crc1_2_combine);
+  }
+}
+
+TEST(CRC, Crc32cCombineBigSizeTest) {
+  Random rnd(test::RandomSeed());
+  int size_1 = 1024 * 1024;
+  std::string s1 = rnd.RandomBinaryString(size_1);
+  uint32_t crc1 = Value(s1.data(), size_1);
+  int size_2 = 16 * 1024 * 1024 - 1;
+  std::string s2 = rnd.RandomBinaryString(size_2);
+  uint32_t crc2 = Value(s2.data(), s2.size());
+  uint32_t crc1_2 = Extend(crc1, s2.data(), s2.size());
+  uint32_t crc1_2_combine = Crc32cCombine(crc1, crc2, size_2);
+  ASSERT_EQ(crc1_2, crc1_2_combine);
+}
+
 }  // namespace crc32c
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 // copied from folly
 const uint64_t FNV_64_HASH_START = 14695981039346656037ULL;
@@ -162,12 +209,16 @@ int main(int argc, char** argv) {
   // Populate a buffer with a deterministic pattern
   // on which to compute checksums
 
-  const uint8_t* src = (uint8_t*)rocksdb::crc32c::buffer;
-  uint64_t* dst = (uint64_t*)rocksdb::crc32c::buffer;
-  const uint64_t* end = (const uint64_t*)(rocksdb::crc32c::buffer + rocksdb::crc32c::BUFFER_SIZE);
+  const uint8_t* src = (uint8_t*)ROCKSDB_NAMESPACE::crc32c::buffer;
+  uint64_t* dst = (uint64_t*)ROCKSDB_NAMESPACE::crc32c::buffer;
+  const uint64_t* end =
+      (const uint64_t*)(ROCKSDB_NAMESPACE::crc32c::buffer +
+                        ROCKSDB_NAMESPACE::crc32c::BUFFER_SIZE);
   *dst++ = 0;
   while (dst < end) {
-    rocksdb::EncodeFixed64(reinterpret_cast<char*>(dst), fnv64_buf((const char*)src, sizeof(uint64_t)));
+    ROCKSDB_NAMESPACE::EncodeFixed64(
+        reinterpret_cast<char*>(dst),
+        fnv64_buf((const char*)src, sizeof(uint64_t)));
     dst++;
     src += sizeof(uint64_t);
   }

@@ -8,7 +8,7 @@
 #include "rocksdb/ldb_tool.h"
 
 int main(int argc, char** argv) {
-  rocksdb::LDBTool tool;
+  ROCKSDB_NAMESPACE::LDBTool tool;
   tool.Run(argc, argv);
   return 0;
 }

@@ -5,15 +5,19 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/utilities/replayer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This file contains Tracer and Replayer classes that enable capturing and
 // replaying RocksDB traces.
@@ -22,8 +26,16 @@ class ColumnFamilyHandle;
 class ColumnFamilyData;
 class DB;
 class DBImpl;
+class Env;
 class Slice;
+class SystemClock;
+class TraceReader;
+class TraceWriter;
 class WriteBatch;
+
+struct ReadOptions;
+struct TraceOptions;
+struct WriteOptions;
 
 extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
@@ -32,47 +44,83 @@ const unsigned int kTracePayloadLengthSize = 4;
 const unsigned int kTraceMetadataSize =
     kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
-// Supported Trace types.
-enum TraceType : char {
-  kTraceBegin = 1,
-  kTraceEnd = 2,
-  kTraceWrite = 3,
-  kTraceGet = 4,
-  kTraceIteratorSeek = 5,
-  kTraceIteratorSeekForPrev = 6,
-  // Block cache related types.
-  kBlockTraceIndexBlock = 7,
-  kBlockTraceFilterBlock = 8,
-  kBlockTraceDataBlock = 9,
-  kBlockTraceUncompressionDictBlock = 10,
-  kBlockTraceRangeDeletionBlock = 11,
-  // All trace types should be added before kTraceMax
-  kTraceMax,
-};
+static const int kTraceFileMajorVersion = 0;
+static const int kTraceFileMinorVersion = 2;
 
-// TODO: This should also be made part of public interface to help users build
-// custom TracerReaders and TraceWriters.
-//
 // The data structure that defines a single trace.
 struct Trace {
   uint64_t ts;  // timestamp
   TraceType type;
+  // Each bit in payload_map stores which corresponding struct member added in
+  // the payload. Each TraceType has its corresponding payload struct. For
+  // example, if bit at position 0 is set in write payload, then the write batch
+  // will be addedd.
+  uint64_t payload_map = 0;
+  // Each trace type has its own payload_struct, which will be serilized in the
+  // payload.
   std::string payload;
 
   void reset() {
     ts = 0;
     type = kTraceMax;
+    payload_map = 0;
     payload.clear();
   }
 };
 
+enum TracePayloadType : char {
+  // Each member of all query payload structs should have a corresponding flag
+  // here. Make sure to add them sequentially in the order of it is added.
+  kEmptyPayload = 0,
+  kWriteBatchData = 1,
+  kGetCFID = 2,
+  kGetKey = 3,
+  kIterCFID = 4,
+  kIterKey = 5,
+  kIterLowerBound = 6,
+  kIterUpperBound = 7,
+  kMultiGetSize = 8,
+  kMultiGetCFIDs = 9,
+  kMultiGetKeys = 10,
+};
+
 class TracerHelper {
  public:
-  // Encode a trace object into the given string.
+  // Parse the string with major and minor version only
+  static Status ParseVersionStr(std::string& v_string, int* v_num);
+
+  // Parse the trace file version and db version in trace header
+  static Status ParseTraceHeader(const Trace& header, int* trace_version,
+                                 int* db_version);
+
+  // Encode a version 0.1 trace object into the given string.
   static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
 
   // Decode a string into the given trace object.
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
+
+  // Decode a string into the given trace header.
+  static Status DecodeHeader(const std::string& encoded_trace, Trace* header);
+
+  // Set the payload map based on the payload type
+  static bool SetPayloadMap(uint64_t& payload_map,
+                            const TracePayloadType payload_type);
+
+  // Decode the write payload and store in WrteiPayload
+  static Status DecodeWriteRecord(Trace* trace, int trace_file_version,
+                                  std::unique_ptr<TraceRecord>* record);
+
+  // Decode the get payload and store in WrteiPayload
+  static Status DecodeGetRecord(Trace* trace, int trace_file_version,
+                                std::unique_ptr<TraceRecord>* record);
+
+  // Decode the iter payload and store in WrteiPayload
+  static Status DecodeIterRecord(Trace* trace, int trace_file_version,
+                                 std::unique_ptr<TraceRecord>* record);
+
+  // Decode the multiget payload and store in MultiGetPayload
+  static Status DecodeMultiGetRecord(Trace* trace, int trace_file_version,
+                                     std::unique_ptr<TraceRecord>* record);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -80,7 +128,7 @@ class TracerHelper {
 // timestamp and type, followed by the trace payload.
 class Tracer {
  public:
-  Tracer(Env* env, const TraceOptions& trace_options,
+  Tracer(SystemClock* clock, const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
@@ -91,8 +139,21 @@ class Tracer {
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
 
   // Trace Iterators.
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                      const Slice& lower_bound, const Slice upper_bound);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                             const Slice& lower_bound, const Slice upper_bound);
+
+  // Trace MultiGet
+
+  Status MultiGet(const size_t num_keys, ColumnFamilyHandle** column_families,
+                  const Slice* keys);
+
+  Status MultiGet(const size_t num_keys, ColumnFamilyHandle* column_family,
+                  const Slice* keys);
+
+  Status MultiGet(const std::vector<ColumnFamilyHandle*>& column_family,
+                  const std::vector<Slice>& keys);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
@@ -118,41 +179,10 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
-  Env* env_;
+  SystemClock* clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
 };
 
-// Replayer helps to replay the captured RocksDB operations, using a user
-// provided TraceReader.
-// The Replayer is instantiated via db_bench today, on using "replay" benchmark.
-class Replayer {
- public:
-  Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
-           std::unique_ptr<TraceReader>&& reader);
-  ~Replayer();
-
-  // Replay all the traces from the provided trace stream, taking the delay
-  // between the traces into consideration.
-  Status Replay();
-
-  // Enables fast forwarding a replay by reducing the delay between the ingested
-  // traces.
-  // fast_forward : Rate of replay speedup.
-  //   If 1, replay the operations at the same rate as in the trace stream.
-  //   If > 1, speed up the replay by this amount.
-  Status SetFastForward(uint32_t fast_forward);
-
- private:
-  Status ReadHeader(Trace* header);
-  Status ReadFooter(Trace* footer);
-  Status ReadTrace(Trace* trace);
-
-  DBImpl* db_;
-  std::unique_ptr<TraceReader> trace_reader_;
-  std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
-  uint32_t fast_forward_;
-};
-
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

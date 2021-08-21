@@ -7,7 +7,7 @@
 
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Allow custom implementations of TraceWriter and TraceReader.
 // By default, RocksDB provides a way to capture the traces to a file using the
@@ -28,7 +28,7 @@ class TraceWriter {
 };
 
 // TraceReader allows reading RocksDB traces from any system, one operation at
-// a time. A RocksDB Replayer could depend on this to replay opertions.
+// a time. A RocksDB Replayer could depend on this to replay operations.
 class TraceReader {
  public:
   TraceReader() {}
@@ -36,6 +36,11 @@ class TraceReader {
 
   virtual Status Read(std::string* data) = 0;
   virtual Status Close() = 0;
+
+  // Seek back to the trace header. Replayer can call this method for
+  // repeatedly replaying. Note this method may fail if the reader is already
+  // closed.
+  virtual Status Reset() = 0;
 };
 
 // Factory methods to read/write traces from/to a file.
@@ -45,4 +50,5 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader);
-}  // namespace rocksdb
+
+}  // namespace ROCKSDB_NAMESPACE

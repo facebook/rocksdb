@@ -13,7 +13,7 @@
 #include "db/version_edit.h"
 #include "rocksdb/comparator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 FileIndexer::FileIndexer(const Comparator* ucmp)
     : num_levels_(0), ucmp_(ucmp), level_rb_(nullptr) {}
@@ -108,26 +108,30 @@ void FileIndexer::UpdateIndex(Arena* arena, const size_t num_levels,
 
     CalculateLB(
         upper_files, lower_files, &index_level,
-        [this](const FileMetaData * a, const FileMetaData * b)->int {
-          return ucmp_->Compare(a->smallest.user_key(), b->largest.user_key());
+        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key(),
+                                                b->largest.user_key());
         },
         [](IndexUnit* index, int32_t f_idx) { index->smallest_lb = f_idx; });
     CalculateLB(
         upper_files, lower_files, &index_level,
-        [this](const FileMetaData * a, const FileMetaData * b)->int {
-          return ucmp_->Compare(a->largest.user_key(), b->largest.user_key());
+        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+          return ucmp_->CompareWithoutTimestamp(a->largest.user_key(),
+                                                b->largest.user_key());
         },
         [](IndexUnit* index, int32_t f_idx) { index->largest_lb = f_idx; });
     CalculateRB(
         upper_files, lower_files, &index_level,
-        [this](const FileMetaData * a, const FileMetaData * b)->int {
-          return ucmp_->Compare(a->smallest.user_key(), b->smallest.user_key());
+        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key(),
+                                                b->smallest.user_key());
         },
         [](IndexUnit* index, int32_t f_idx) { index->smallest_rb = f_idx; });
     CalculateRB(
         upper_files, lower_files, &index_level,
-        [this](const FileMetaData * a, const FileMetaData * b)->int {
-          return ucmp_->Compare(a->largest.user_key(), b->smallest.user_key());
+        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+          return ucmp_->CompareWithoutTimestamp(a->largest.user_key(),
+                                                b->smallest.user_key());
         },
         [](IndexUnit* index, int32_t f_idx) { index->largest_rb = f_idx; });
   }
@@ -153,7 +157,6 @@ void FileIndexer::CalculateLB(
     if (cmp == 0) {
       set_index(&index[upper_idx], lower_idx);
       ++upper_idx;
-      ++lower_idx;
     } else if (cmp > 0) {
       // Lower level's file (largest) is smaller, a key won't hit in that
       // file. Move to next lower file
@@ -191,7 +194,6 @@ void FileIndexer::CalculateRB(
     if (cmp == 0) {
       set_index(&index[upper_idx], lower_idx);
       --upper_idx;
-      --lower_idx;
     } else if (cmp < 0) {
       // Lower level's file (smallest) is larger, a key won't hit in that
       // file. Move to next lower file.
@@ -211,4 +213,4 @@ void FileIndexer::CalculateRB(
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

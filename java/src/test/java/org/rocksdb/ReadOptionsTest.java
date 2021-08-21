@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ReadOptionsTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public ExpectedException exception = ExpectedException.none();
@@ -94,6 +94,7 @@ public class ReadOptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void managed() {
     try (final ReadOptions opt = new ReadOptions()) {
@@ -158,6 +159,8 @@ public class ReadOptionsTest {
       Slice upperBound = buildRandomSlice();
       opt.setIterateUpperBound(upperBound);
       assertThat(Arrays.equals(upperBound.data(), opt.iterateUpperBound().data())).isTrue();
+      opt.setIterateUpperBound(null);
+      assertThat(opt.iterateUpperBound()).isNull();
     }
   }
 
@@ -174,6 +177,8 @@ public class ReadOptionsTest {
       Slice lowerBound = buildRandomSlice();
       opt.setIterateLowerBound(lowerBound);
       assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
+      opt.setIterateLowerBound(null);
+      assertThat(opt.iterateLowerBound()).isNull();
     }
   }
 

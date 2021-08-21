@@ -11,7 +11,7 @@
 
 #include "rocksdb/utilities/env_mirror.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // An implementation of Env that mirrors all work over two backend
 // Env's.  This is useful for debugging purposes.
@@ -107,11 +107,20 @@ class WritableFileMirror : public WritableFile {
     assert(as == bs);
     return as;
   }
+  Status Append(const Slice& data,
+                const DataVerificationInfo& /* verification_info */) override {
+    return Append(data);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status as = a_->PositionedAppend(data, offset);
     Status bs = b_->PositionedAppend(data, offset);
     assert(as == bs);
     return as;
+  }
+  Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /* verification_info */) override {
+    return PositionedAppend(data, offset);
   }
   Status Truncate(uint64_t size) override {
     Status as = a_->Truncate(size);
@@ -258,5 +267,5 @@ Status EnvMirror::ReuseWritableFile(const std::string& fname,
   return as;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

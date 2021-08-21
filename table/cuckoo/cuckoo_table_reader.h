@@ -16,19 +16,19 @@
 
 #include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
-#include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class TableReader;
+struct ImmutableOptions;
 
 class CuckooTableReader: public TableReader {
  public:
-  CuckooTableReader(const ImmutableCFOptions& ioptions,
+  CuckooTableReader(const ImmutableOptions& ioptions,
                     std::unique_ptr<RandomAccessFileReader>&& file,
                     uint64_t file_size, const Comparator* user_comparator,
                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
@@ -52,7 +52,8 @@ class CuckooTableReader: public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.
@@ -96,5 +97,5 @@ class CuckooTableReader: public TableReader {
       uint64_t max_num_buckets);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
