@@ -30,7 +30,8 @@ const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
-      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters)
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
+      std::string _db_session_id)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
@@ -38,8 +39,8 @@ struct SstFileWriter::Rep {
         internal_comparator(_user_comparator),
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
-        last_fadvise_size(0),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        db_session_id(_db_session_id) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -57,8 +58,11 @@ struct SstFileWriter::Rep {
   bool invalidate_page_cache;
   // The size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.
-  uint64_t last_fadvise_size;
+  uint64_t last_fadvise_size = 0;
   bool skip_filters;
+  std::string db_session_id;
+  uint64_t next_file_number = 1;
+
   Status Add(const Slice& user_key, const Slice& value,
              const ValueType value_type) {
     if (!builder) {
@@ -170,7 +174,14 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              bool invalidate_page_cache,
                              Env::IOPriority io_priority, bool skip_filters)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
-                   column_family, invalidate_page_cache, skip_filters)) {
+                   column_family, invalidate_page_cache, skip_filters,
+                   DBImpl::GenerateDbSessionId(options.env))) {
+  // SstFileWriter is used to create sst files that can be added to database
+  // later. Therefore, no real db_id and db_session_id are associated with it.
+  // Here we mimic the way db_session_id behaves by getting a db_session_id
+  // for each SstFileWriter, and (later below) assign unique file numbers
+  // in the table properties. The db_id is set to be "SST Writer" for clarity.
+
   rep_->file_info.file_size = 0;
 }
 
@@ -241,22 +252,19 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
-  // SstFileWriter is used to create sst files that can be added to database
-  // later. Therefore, no real db_id and db_session_id are associated with it.
-  // Here we mimic the way db_session_id behaves by resetting the db_session_id
-  // every time SstFileWriter is used, and in this case db_id is set to be "SST
-  // Writer".
-  std::string db_session_id = DBImpl::GenerateDbSessionId(r->ioptions.env);
-  if (!db_session_id.empty() && db_session_id.back() == '\n') {
-    db_session_id.pop_back();
-  }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
       cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
       TableFileCreationReason::kMisc, 0 /* creation_time */,
       0 /* oldest_key_time */, 0 /* file_creation_time */,
-      "SST Writer" /* db_id */, db_session_id, 0 /* target_file_size */, 0);
+      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
+      r->next_file_number);
+  // External SST files used to each get a unique session id. Now for
+  // slightly better uniqueness probability in constructing cache keys, we
+  // assign fake file numbers to each file (into table properties) and keep
+  // the same session id for the life of the SstFileWriter.
+  r->next_file_number++;
   // XXX: when we can remove skip_filters from the SstFileWriter public API
   // we can remove it from TableBuilderOptions.
   table_builder_options.skip_filters = r->skip_filters;

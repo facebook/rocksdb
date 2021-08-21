@@ -179,6 +179,9 @@ std::string TableProperties::ToString(
   AppendProperty(result, "DB identity", db_id, prop_delim, kv_delim);
   AppendProperty(result, "DB session identity", db_session_id, prop_delim,
                  kv_delim);
+  AppendProperty(result, "DB host id", db_host_id, prop_delim, kv_delim);
+  AppendProperty(result, "original file number", orig_file_number, prop_delim,
+                 kv_delim);
 
   return result;
 }
@@ -233,6 +236,8 @@ const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";
 const std::string TablePropertiesNames::kDbHostId =
     "rocksdb.creating.host.identity";
+const std::string TablePropertiesNames::kOriginalFileNumber =
+    "rocksdb.original.file.number";
 const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =

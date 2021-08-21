@@ -630,28 +630,20 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys if
   // necessary info is available
-  std::string db_session_id = cur_db_session_id;
-  uint64_t file_num = cur_file_num;
-  if (rep->table_properties && !rep->table_properties->db_session_id.empty()) {
-    const auto& uprops = rep->table_properties->user_collected_properties;
-    auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
-    if (version_iter == uprops.end()) {
-      // Normal (non-external) SST file - can only use embedded db_session_id
-      // with current file number (which should be original file number)
-      if (file_num > 0) {
-        db_session_id = rep->table_properties->db_session_id;
-      }
-    } else {
-      // External (ingested) SST file - should not use current file number
-      // (which is changed from original), so that same file ingested into
-      // different DBs can share block cache entries. Although they can modify
-      // the embedded global_seqno, that information is not currently cached
-      // under these portable/stable keys.
-      // Note: For now, each external SST file gets its own unique session id,
-      // so we can use a fixed file number under than session id.
-      db_session_id = rep->table_properties->db_session_id;
-      file_num = 1;
-    }
+  std::string db_session_id;
+  uint64_t file_num;
+  if (rep->table_properties && !rep->table_properties->db_session_id.empty() &&
+      rep->table_properties->orig_file_number > 0) {
+    // We must have both properties to get a stable unique id because
+    // CreateColumnFamilyWithImport or IngestExternalFiles can change the
+    // file numbers on a file.
+    db_session_id = rep->table_properties->db_session_id;
+    file_num = rep->table_properties->orig_file_number;
+  } else {
+    // We have to use transient (but unique) cache keys based on current
+    // identifiers.
+    db_session_id = cur_db_session_id;
+    file_num = cur_file_num;
   }
   SetupCacheKeyPrefix(rep, db_session_id, file_num);
 
