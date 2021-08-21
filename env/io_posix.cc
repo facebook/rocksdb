@@ -617,14 +617,11 @@ async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
     assert(IsSectorAligned(scratch, GetRequiredBufferAlignment()));
   }
   
-  std::cout<<"I am in PosixRandomAccessFile::AsyncRead offset:"<<offset<<" size:"<<n<<"\n";
   static const int PageSize = 4096;
   IOStatus s;
   int pages = (int)std::ceil((float)n / PageSize);
   int last_page_size = n % PageSize;
   int page_size = PageSize;
-
-  std::cout<<"pages:"<<pages<<" last_page_size:"<<last_page_size<<"\n";
 
   file_read_page* data = new file_read_page(pages);
 
@@ -647,11 +644,8 @@ async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
 
   if (cqe != nullptr)
     io_uring_cqe_seen(ioring, cqe);
-  
-  std::cout<<"scratch:"<<(void*)scratch<<"\n";
-        
+
   *result = Slice(scratch, n);
-  std::cout<<"Result"<<result->data()<<"\n";
   co_return IOStatus::OK();
 }
 

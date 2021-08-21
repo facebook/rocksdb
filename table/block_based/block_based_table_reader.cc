@@ -2816,10 +2816,11 @@ async_result<Status> BlockBasedTable::AsyncGet(const ReadOptions& read_options, 
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
       DataBlockIter* result_biter = nullptr;
-      co_await AsyncNewDataBlockIterator<DataBlockIter>(
+      auto a_result = AsyncNewDataBlockIterator<DataBlockIter>(
           read_options, v.handle, &biter, BlockType::kData, get_context,
           &lookup_data_block_context,
           /*s=*/Status(), &result_biter, /*prefetch_buffer*/ nullptr);
+      co_await a_result;
 
       if (no_io && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache

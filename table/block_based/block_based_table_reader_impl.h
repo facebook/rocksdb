@@ -215,6 +215,7 @@ async_result<Status> BlockBasedTable::AsyncNewDataBlockIterator(
   }
 
   block.TransferTo(iter);
+  co_return Status::OK();
 }
 
 // Convert an uncompressed data block (i.e CachableEntry<Block>)
