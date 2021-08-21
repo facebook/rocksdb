@@ -932,14 +932,49 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // Ribbon filter policy
+  // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt, "filter_policy=ribbonfilter:5.678;",
+      config_options, table_opt, "filter_policy=ribbonfilter:5.678:-1;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
+  // Ribbon filter policy (default Bloom hybrid)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=ribbonfilter:6.789;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  auto ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
+      new_opt.filter_policy.get());
+  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 0);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
+  // Ribbon filter policy (custom Bloom hybrid)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=ribbonfilter:6.789:5;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
+      new_opt.filter_policy.get());
+  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 5);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
   // Old name
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=experimental_ribbon:6.789;",
