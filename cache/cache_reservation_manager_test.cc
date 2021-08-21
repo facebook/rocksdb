@@ -62,7 +62,7 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
               new_mem_used);
   ASSERT_EQ(s, Status::OK());
   ASSERT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
-  ASSERT_LE(cache->GetPinnedUsage(),
+  ASSERT_LT(cache->GetPinnedUsage(),
             1 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   Cache::Handle* handle = cache->Lookup(expected_cache_key_slice);
@@ -83,7 +83,7 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
             1 * kSizeDummyEntry);
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
   ASSERT_GE(initial_pinned_usage, 1 * kSizeDummyEntry);
-  ASSERT_LE(initial_pinned_usage,
+  ASSERT_LT(initial_pinned_usage,
             1 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   s = test_cache_rev_mng
@@ -115,7 +115,7 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation increase correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
-  EXPECT_LE(cache->GetPinnedUsage(),
+  EXPECT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to increase underlying dummy entries in cache correctly";
 }
@@ -134,7 +134,7 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation increase correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 3 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
-  EXPECT_LE(cache->GetPinnedUsage(),
+  EXPECT_LT(cache->GetPinnedUsage(),
             3 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to increase underlying dummy entries in cache correctly";
 }
@@ -177,7 +177,7 @@ TEST_F(CacheReservationManagerTest,
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
-  ASSERT_LE(cache->GetPinnedUsage(),
+  ASSERT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   new_mem_used = 1 * kSizeDummyEntry;
@@ -191,7 +191,7 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation decrease correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
-  EXPECT_LE(cache->GetPinnedUsage(),
+  EXPECT_LT(cache->GetPinnedUsage(),
             1 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to decrease underlying dummy entries in cache correctly";
 }
@@ -207,7 +207,7 @@ TEST_F(CacheReservationManagerTest,
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
-  ASSERT_LE(cache->GetPinnedUsage(),
+  ASSERT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   new_mem_used = kSizeDummyEntry / 2;
@@ -221,7 +221,7 @@ TEST_F(CacheReservationManagerTest,
       << "Failed to bookkeep cache reservation decrease correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
-  EXPECT_LE(cache->GetPinnedUsage(),
+  EXPECT_LT(cache->GetPinnedUsage(),
             1 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to decrease underlying dummy entries in cache correctly";
 }
@@ -249,7 +249,7 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
             8 * kSizeDummyEntry);
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
   ASSERT_GE(initial_pinned_usage, 8 * kSizeDummyEntry);
-  ASSERT_LE(initial_pinned_usage,
+  ASSERT_LT(initial_pinned_usage,
             8 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   new_mem_used = 6 * kSizeDummyEntry;
@@ -291,7 +291,7 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
       << "Failed to decrease underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
          "decrease mode";
-  EXPECT_LE(cache->GetPinnedUsage(),
+  EXPECT_LT(cache->GetPinnedUsage(),
             6 * kSizeDummyEntry + kMetaDataChargeOverhead)
       << "Failed to decrease underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
@@ -318,7 +318,7 @@ TEST(CacheReservationManagerDestructorTest,
                 new_mem_used);
     ASSERT_EQ(s, Status::OK());
     ASSERT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
-    ASSERT_LE(cache->GetPinnedUsage(),
+    ASSERT_LT(cache->GetPinnedUsage(),
               1 * kSizeDummyEntry + kMetaDataChargeOverhead);
   }
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry)
