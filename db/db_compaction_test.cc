@@ -2332,7 +2332,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   option_vector.emplace_back(DBOptions(options), cf_opt1);
   CreateColumnFamilies({"one"},option_vector[1]);
 
-  // Configura CF2 specific paths.
+  // Configure CF2 specific paths.
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 500 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_2", 4 * 1024 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 1024 * 1024 * 1024);
@@ -2387,13 +2387,16 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   // Check that default column family uses db_paths.
   // And Column family "one" uses cf_paths.
 
-  // First three 110KB files are not going to second path.
-  // After that, (100K, 200K)
+  // The compaction in level0 outputs the sst files in level1.
+  // The first path cannot hold level1's data(400KB+400KB > 500KB),
+  // so every compaction move a sst file to second path. Please
+  // refer to LevelCompactionBuilder::GetPathId.
   for (int num = 0; num < 3; num++) {
     generate_file();
   }
+  check_sstfilecount(0, 1);
+  check_sstfilecount(1, 2);
 
-  // Another 110KB triggers a compaction to 400K file to fill up first path
   generate_file();
   check_sstfilecount(1, 3);
 
@@ -6742,6 +6745,69 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
   SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBCompactionTest, FIFOWarm) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.num_levels = 1;
+  options.max_open_files = -1;
+  options.level0_file_num_compaction_trigger = 2;
+  options.create_if_missing = true;
+  CompactionOptionsFIFO fifo_options;
+  fifo_options.age_for_warm = 1000;
+  fifo_options.max_table_files_size = 100000000;
+  options.compaction_options_fifo = fifo_options;
+  env_->SetMockSleep();
+  Reopen(options);
+
+  int total_warm = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+        Temperature temperature = *(static_cast<Temperature*>(arg));
+        if (temperature == Temperature::kWarm) {
+          total_warm++;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_OK(Put(Key(0), "value1"));
+  env_->MockSleepForSeconds(800);
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(4, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[2].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[3].temperature);
+  ASSERT_EQ(2, total_warm);
 
   Destroy(options);
 }

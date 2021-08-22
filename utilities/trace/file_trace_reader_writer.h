@@ -20,6 +20,7 @@ class FileTraceReader : public TraceReader {
 
   virtual Status Read(std::string* data) override;
   virtual Status Close() override;
+  virtual Status Reset() override;
 
  private:
   std::unique_ptr<RandomAccessFileReader> file_reader_;

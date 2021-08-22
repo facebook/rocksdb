@@ -2615,7 +2615,12 @@ void VersionStorageInfo::ComputeCompactionScore(
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 mutable_cf_options.compaction_options_fifo.max_table_files_size;
-        if (mutable_cf_options.compaction_options_fifo.allow_compaction) {
+        if (mutable_cf_options.compaction_options_fifo.allow_compaction ||
+            mutable_cf_options.compaction_options_fifo.age_for_warm > 0) {
+          // Warm tier move can happen at any time. It's too expensive to
+          // check very file's timestamp now. For now, just trigger it
+          // slightly more frequently than FIFO compaction so that this
+          // happens first.
           score = std::max(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
@@ -2627,7 +2632,6 @@ void VersionStorageInfo::ComputeCompactionScore(
                   immutable_options, mutable_cf_options, files_[level])),
               score);
         }
-
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;

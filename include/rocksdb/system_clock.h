@@ -36,6 +36,8 @@ class SystemClock : public Customizable {
   // The name of this system clock
   virtual const char* Name() const = 0;
 
+  // The name/nickname for the Default SystemClock.  This name can be used
+  // to determine if the clock is the default one.
   static const char* kDefaultName() { return "DefaultClock"; }
 
   // Return a default SystemClock suitable for the current operating

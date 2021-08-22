@@ -27,6 +27,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
+class ObjectLibrary;
 class Random;
 class SequentialFile;
 class SequentialFileReader;
@@ -895,5 +896,10 @@ void DeleteDir(Env* env, const std::string& dirname);
 // environment variables.
 Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
                            std::shared_ptr<Env>* guard);
+
+#ifndef ROCKSDB_LITE
+// Registers the testutil classes with the ObjectLibrary
+int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
+#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

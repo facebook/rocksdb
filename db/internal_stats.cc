@@ -262,6 +262,8 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string live_sst_files_size_at_temperature =
+    "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
 static const std::string aggregated_table_properties =
@@ -369,6 +371,8 @@ const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
+const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
+    rocksdb_prefix + live_sst_files_size_at_temperature;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -482,6 +486,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
+        {DB::Properties::kLiveSstFilesSizeAtTemperature,
+         {true, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
+          nullptr, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -679,6 +686,28 @@ bool InternalStats::HandleBlockCacheEntryStatsMap(
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   stats.ToMap(values, clock_);
+  return true;
+}
+
+bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
+                                                        Slice suffix) {
+  uint64_t temperature;
+  bool ok = ConsumeDecimalNumber(&suffix, &temperature) && suffix.empty();
+  if (!ok) {
+    return false;
+  }
+
+  uint64_t size = 0;
+  const auto* vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); level++) {
+    for (const auto& file_meta : vstorage->LevelFiles(level)) {
+      if (static_cast<uint8_t>(file_meta->temperature) == temperature) {
+        size += file_meta->fd.GetFileSize();
+      }
+    }
+  }
+
+  *value = ToString(size);
   return true;
 }
 

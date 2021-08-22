@@ -336,6 +336,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */, compaction_reason_);
 

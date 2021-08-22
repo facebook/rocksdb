@@ -5,10 +5,12 @@
 //
 #include "db/memtable_list.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <limits>
 #include <queue>
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
@@ -340,6 +342,14 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
   bool atomic_flush = false;
+
+  // Note: every time MemTableList::Add(mem) is called, it adds the new mem
+  // at the FRONT of the memlist (memlist.push_front(mem)). Therefore, by
+  // iterating through the memlist starting at the end, the vector<MemTable*>
+  // ret is filled with memtables already sorted in increasing MemTable ID.
+  // However, when the mempurge feature is activated, new memtables with older
+  // IDs will be added to the memlist. Therefore we std::sort(ret) at the end to
+  // return a vector of memtables sorted by increasing memtable ID.
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
@@ -361,6 +371,15 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   if (!atomic_flush || num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete
   }
+
+  // Sort the list of memtables by increasing memtable ID.
+  // This is useful when the mempurge feature is activated
+  // and the memtables are not guaranteed to be sorted in
+  // the memlist vector.
+  std::sort(ret->begin(), ret->end(),
+            [](const MemTable* m1, const MemTable* m2) -> bool {
+              return m1->GetID() < m2->GetID();
+            });
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,

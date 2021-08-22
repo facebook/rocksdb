@@ -15,7 +15,6 @@
 #include "env/mock_env.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
-#include "options/configurable_helper.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
@@ -1125,8 +1124,8 @@ std::string SystemClockWrapper::SerializeOptions(
     return parent;
   } else {
     std::string result = header;
-    if (!StartsWith(parent, ConfigurableHelper::kIdPropName)) {
-      result.append(ConfigurableHelper::kIdPropName).append("=");
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
     }
     result.append(parent);
     if (!EndsWith(result, config_options.delimiter)) {

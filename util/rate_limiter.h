@@ -101,8 +101,8 @@ class GenericRateLimiter : public RateLimiter {
   Random rnd_;
 
   struct Req;
-  Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
+  bool wait_until_refill_pending_;
 
   bool auto_tuned_;
   int64_t num_drains_;
