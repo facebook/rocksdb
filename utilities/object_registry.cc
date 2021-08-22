@@ -6,7 +6,9 @@
 #include "rocksdb/utilities/object_registry.h"
 
 #include "logging/logging.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
@@ -144,6 +146,29 @@ std::shared_ptr<Customizable> ObjectRegistry::GetManagedObject(
   } else {
     return nullptr;
   }
+}
+
+Status ObjectRegistry::ListManagedObjects(
+    const std::string &type, const std::string &name,
+    std::vector<std::shared_ptr<Customizable>> *results) const {
+  {
+    std::string key = type + "://";
+    std::unique_lock<std::mutex> lock(objects_mutex_);
+    for (auto iter = managed_objects_.lower_bound(key);
+         iter != managed_objects_.end() && StartsWith(iter->first, key);
+         ++iter) {
+      auto shared = iter->second.lock();
+      if (shared != nullptr) {
+        if (name.empty() || shared->IsInstanceOf(name)) {
+          results->emplace_back(shared);
+        }
+      }
+    }
+  }
+  if (parent_ != nullptr) {
+    parent_->ListManagedObjects(type, name, results);
+  }
+  return Status::OK();
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {

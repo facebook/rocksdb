@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <regex>
@@ -272,6 +273,39 @@ class ObjectRegistry {
     }
   }
 
+  // Returns the set of managed objects found in the registry matching
+  // the input type and ID.
+  // If the input id is not empty, then only objects of that class
+  // (IsInstanceOf(id)) will be returned (for example, only return LRUCache
+  // objects) If the input id is empty, then all objects of that type (all Cache
+  // objects)
+  template <typename T>
+  Status ListManagedObjects(const std::string& id,
+                            std::vector<std::shared_ptr<T>>* results) const {
+    std::vector<std::shared_ptr<Customizable>> customizables;
+    results->clear();
+    Status s = ListManagedObjects(T::Type(), id, &customizables);
+    if (s.ok()) {
+      for (const auto& c : customizables) {
+        results->push_back(std::static_pointer_cast<T>(c));
+      }
+    }
+    return s;
+  }
+
+  template <typename T>
+  Status ListManagedObjects(std::vector<std::shared_ptr<T>>* results) const {
+    return ListManagedObjects("", results);
+  }
+
+  // Creates a new ManagedObject in the registry for the id if one does not
+  // currently exist.  If an object with that ID already exists, the current
+  // object is returned.
+  //
+  // The ID is the identifier of the object to be returned/created and returned
+  // in result
+  // If a new object is created (using the object factories), the cfunc
+  // parameter will be invoked to configure the new object.
   template <typename T>
   Status NewManagedObject(const std::string& id, std::shared_ptr<T>* result,
                           const ConfigureFunc<T>& cfunc = nullptr) {
@@ -317,7 +351,9 @@ class ObjectRegistry {
   // Returns the Customizable managed object associated with the key (Type/ID).
   // If not found, nullptr is returned.
   std::shared_ptr<Customizable> GetManagedObject(const std::string& key) const;
-
+  Status ListManagedObjects(
+      const std::string& type, const std::string& pattern,
+      std::vector<std::shared_ptr<Customizable>>* results) const;
   // Sets the managed object associated with the key (Type/ID) to c.
   // If the named managed object does not exist, the object is added and OK is
   // returned If the object exists and is the same as c, OK is returned
@@ -332,7 +368,7 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
-  std::unordered_map<std::string, std::weak_ptr<Customizable>> managed_objects_;
+  std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects
   mutable std::mutex library_mutex_;  // Mutex for managed libraries
