@@ -635,15 +635,10 @@ async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
   auto sqe = io_uring_get_sqe(ioring);
   io_uring_prep_readv(sqe, fd_, data->iov, pages, offset);
   io_uring_sqe_set_data(sqe, data);
-  io_uring_submit_and_wait(ioring, 1);
+  io_uring_submit(ioring);
 
-  struct io_uring_cqe* cqe = nullptr;
-  auto ret = io_uring_wait_cqe(ioring, &cqe);
-  if (ret != 0) 
-   co_return IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
-
-  if (cqe != nullptr)
-    io_uring_cqe_seen(ioring, cqe);
+  async_result<Status> a_result(true, data);
+  co_await a_result;
 
   *result = Slice(scratch, n);
   co_return IOStatus::OK();

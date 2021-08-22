@@ -5,6 +5,7 @@ LIB_SOURCES =                                                   \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
+  db/async_result.cc                                            \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \

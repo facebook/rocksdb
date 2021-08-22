@@ -4,15 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#include <liburing.h>
+#include <sys/uio.h>
 #include <coroutine>
 #include <iostream>
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-template <typename T> 
-struct async_result {
+struct file_read_page;
 
+template <class T> 
+struct async_result {
   struct promise_type {
 
     async_result get_return_object() {
@@ -43,7 +46,9 @@ struct async_result {
     bool result_set_ = false;
   };
 
-  async_result(bool async = false) : async_(async) {}
+  async_result() : async_(false) {}
+
+  async_result(bool async, struct file_read_page* context) : async_(async), context_(context) {}
 
   async_result(std::coroutine_handle<promise_type> h) : h_{h} {}
 
@@ -53,14 +58,15 @@ struct async_result {
     return h_.promise().result_set_;
   }
 
+  void await_suspend(std::coroutine_handle<promise_type> h);
+
+  /*
   void await_suspend(std::coroutine_handle<promise_type> h) {
     if (!async_) 
       h_.promise().prev_ = &h.promise();
-
-    if (async_) {
-      // TODO: really go off async
-    }
-  }
+    else
+      context_->promise = &h.promise();
+  }*/
 
   void await_resume() const noexcept {}
 
@@ -68,7 +74,18 @@ struct async_result {
 
   std::coroutine_handle<promise_type> h_;
   bool async_ = false;
+  struct file_read_page* context_;
 };
+
+struct file_read_page {
+  file_read_page(int pages) {
+    iov = (iovec*)calloc(pages, sizeof(struct iovec));
+  }
+
+  async_result<Status>::promise_type* promise;
+  struct iovec *iov;
+};
+
 }// namespace ROCKSDB_NAMESPACE
 
 

@@ -36,15 +36,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct file_read_page {
-    file_read_page(int pages) {
-      iov = (iovec*)calloc(pages, sizeof(struct iovec));
-    }
-
-    async_result<IOStatus>::promise_type* promise;
-    struct iovec *iov;
-};
-
 std::string IOErrorMsg(const std::string& context,
                        const std::string& file_name);
 // file_name can be left empty if it is not unkown.
