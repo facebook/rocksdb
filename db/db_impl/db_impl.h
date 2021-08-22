@@ -1114,6 +1114,8 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static std::string GenerateDbSessionId(Env* env);
+
  protected:
   const std::string dbname_;
   std::string db_id_;

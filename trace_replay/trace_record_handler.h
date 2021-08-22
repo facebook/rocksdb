@@ -5,12 +5,14 @@
 
 #pragma once
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -22,16 +24,21 @@ class TraceExecutionHandler : public TraceRecord::Handler {
                         const std::vector<ColumnFamilyHandle*>& handles);
   virtual ~TraceExecutionHandler() override;
 
-  virtual Status Handle(const WriteQueryTraceRecord& record) override;
-  virtual Status Handle(const GetQueryTraceRecord& record) override;
-  virtual Status Handle(const IteratorSeekQueryTraceRecord& record) override;
-  virtual Status Handle(const MultiGetQueryTraceRecord& record) override;
+  virtual Status Handle(const WriteQueryTraceRecord& record,
+                        std::unique_ptr<TraceRecordResult>* result) override;
+  virtual Status Handle(const GetQueryTraceRecord& record,
+                        std::unique_ptr<TraceRecordResult>* result) override;
+  virtual Status Handle(const IteratorSeekQueryTraceRecord& record,
+                        std::unique_ptr<TraceRecordResult>* result) override;
+  virtual Status Handle(const MultiGetQueryTraceRecord& record,
+                        std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   DB* db_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   WriteOptions write_opts_;
   ReadOptions read_opts_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // To do: Handler for trace_analyzer.

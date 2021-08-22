@@ -5,10 +5,10 @@
 
 #include "rocksdb/customizable.h"
 
-#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -29,7 +29,7 @@ std::string Customizable::GetOptionName(const std::string& long_name) const {
 Status Customizable::GetOption(const ConfigOptions& config_options,
                                const std::string& opt_name,
                                std::string* value) const {
-  if (opt_name == ConfigurableHelper::kIdPropName) {
+  if (opt_name == OptionTypeInfo::kIdPropName()) {
     *value = GetId();
     return Status::OK();
   } else {
@@ -49,8 +49,10 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
     result = id;
   } else {
     result.append(prefix);
-    result.append(ConfigurableHelper::kIdPropName).append("=");
-    result.append(id).append(config_options.delimiter);
+    result.append(OptionTypeInfo::kIdPropName());
+    result.append("=");
+    result.append(id);
+    result.append(config_options.delimiter);
     result.append(parent);
   }
   return result;
@@ -65,7 +67,7 @@ bool Customizable::AreEquivalent(const ConfigOptions& config_options,
       this != other) {
     const Customizable* custom = reinterpret_cast<const Customizable*>(other);
     if (GetId() != custom->GetId()) {
-      *mismatch = ConfigurableHelper::kIdPropName;
+      *mismatch = OptionTypeInfo::kIdPropName();
       return false;
     } else if (config_options.sanity_level >
                ConfigOptions::kSanityLevelLooselyCompatible) {
@@ -81,9 +83,13 @@ Status Customizable::GetOptionsMap(
     const ConfigOptions& config_options, const Customizable* customizable,
     const std::string& value, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
-  if (customizable != nullptr) {
-    Status status = ConfigurableHelper::GetOptionsMap(
-        value, customizable->GetId(), id, props);
+  Status status;
+  if (value.empty() || value == kNullptrString) {
+    *id = "";
+    props->clear();
+  } else if (customizable != nullptr) {
+    status =
+        Configurable::GetOptionsMap(value, customizable->GetId(), id, props);
 #ifdef ROCKSDB_LITE
     (void)config_options;
 #else
@@ -101,10 +107,10 @@ Status Customizable::GetOptionsMap(
       }
     }
 #endif  // ROCKSDB_LITE
-    return status;
   } else {
-    return ConfigurableHelper::GetOptionsMap(value, "", id, props);
+    status = Configurable::GetOptionsMap(value, "", id, props);
   }
+  return status;
 }
 
 Status Customizable::ConfigureNewObject(

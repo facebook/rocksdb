@@ -99,6 +99,8 @@ class CompactionIterator {
     virtual Version* input_version() const = 0;
 
     virtual bool DoesInputReferenceBlobFiles() const = 0;
+
+    virtual const Compaction* real_compaction() const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -151,6 +153,8 @@ class CompactionIterator {
     bool DoesInputReferenceBlobFiles() const override {
       return compaction_->DoesInputReferenceBlobFiles();
     }
+
+    const Compaction* real_compaction() const override { return compaction_; }
 
    private:
     const Compaction* compaction_;
@@ -267,13 +271,13 @@ class CompactionIterator {
                SnapshotCheckerResult::kInSnapshot;
   }
 
-  bool IsInEarliestSnapshot(SequenceNumber sequence);
+  bool IsInCurrentEarliestSnapshot(SequenceNumber sequence);
 
   bool DefinitelyInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
 
   bool DefinitelyNotInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
 
-  bool InEarliestSnapshot(SequenceNumber seq);
+  bool InCurrentEarliestSnapshot(SequenceNumber seq);
 
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
@@ -435,9 +439,10 @@ inline bool CompactionIterator::DefinitelyNotInSnapshot(
                     SnapshotCheckerResult::kNotInSnapshot)));
 }
 
-inline bool CompactionIterator::InEarliestSnapshot(SequenceNumber seq) {
+inline bool CompactionIterator::InCurrentEarliestSnapshot(SequenceNumber seq) {
   return ((seq) <= earliest_snapshot_ &&
-          (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))));
+          (snapshot_checker_ == nullptr ||
+           LIKELY(IsInCurrentEarliestSnapshot(seq))));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -267,6 +267,24 @@ class Configurable {
   // changed.
   virtual bool IsPrepared() const { return is_prepared_; }
 
+  // Splits the input opt_value into the ID field and the remaining options.
+  // The input opt_value can be in the form of "name" or "name=value
+  // [;name=value]". The first form uses the "name" as an id with no options The
+  // latter form converts the input into a map of name=value pairs and sets "id"
+  // to the "id" value from the map.
+  // @param opt_value The value to split into id and options
+  // @param id The id field from the opt_value
+  // @param options The remaining name/value pairs from the opt_value
+  // @param default_id If specified and there is no id field in the map, this
+  // value is returned as the ID
+  // @return OK if the value was converted to a map successfully and an ID was
+  // found.
+  // @return InvalidArgument if the value could not be converted to a map or
+  // there was or there is no id property in the map.
+  static Status GetOptionsMap(
+      const std::string& opt_value, const std::string& default_id,
+      std::string* id, std::unordered_map<std::string, std::string>* options);
+
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
