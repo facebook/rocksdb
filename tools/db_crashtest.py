@@ -104,7 +104,9 @@ default_params = {
     "use_clock_cache": 0, # currently broken
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    "use_ribbon_filter": lambda: random.randint(0, 1),
+    # 999 -> use Bloom API
+    "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
+    "use_block_based_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -220,8 +222,7 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_allow_mempurge": lambda: random.randint(0, 1),
-    "experimental_mempurge_policy": lambda: random.choice(["kAlways", "kAlternate"]),
+    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
@@ -360,6 +361,8 @@ def finalize_and_sanitize(src_params):
             dest_params["partition_filters"] = 0
         else:
             dest_params["use_block_based_filter"] = 0
+    if dest_params["ribbon_starting_level"] < 999:
+        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0

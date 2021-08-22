@@ -1569,6 +1569,96 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   ASSERT_EQ(total_sst_files_size, 0);
 }
 
+// This test if blob files are recorded by SST File Manager when Compaction job
+// creates/delete them and in case of AtomicFlush.
+TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+  Options options = CurrentOptions();
+  options.sst_file_manager = sst_file_manager;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+  options.atomic_flush = true;
+
+  int files_added = 0;
+  int files_deleted = 0;
+  int files_scheduled_to_delete = 0;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnAddFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_added++;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  ASSERT_OK(Put("key_1", "value_1"));
+  ASSERT_OK(Put("key_2", "value_2"));
+  ASSERT_OK(Put("key_3", "value_3"));
+  ASSERT_OK(Put("key_4", "value_4"));
+  ASSERT_OK(Flush());
+
+  // Overwrite will create the garbage data.
+  ASSERT_OK(Put("key_3", "new_value_3"));
+  ASSERT_OK(Put("key_4", "new_value_4"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("Key5", "blob_value5"));
+  ASSERT_OK(Put("Key6", "blob_value6"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(files_added, 3);
+  ASSERT_EQ(files_deleted, 0);
+  ASSERT_EQ(files_scheduled_to_delete, 0);
+  files_added = 0;
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+  // Compaction job will create a new file and delete the older files.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(files_added, 1);
+  ASSERT_EQ(files_deleted, 1);
+  ASSERT_EQ(files_scheduled_to_delete, 1);
+
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
+  sfm->WaitForEmptyTrash();
+  ASSERT_EQ(files_deleted, 4);
+  ASSERT_EQ(files_scheduled_to_delete, 4);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

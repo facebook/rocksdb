@@ -93,6 +93,8 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // Compaction in order to move files to temperature
+  kChangeTemperature,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

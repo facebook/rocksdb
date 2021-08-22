@@ -727,6 +727,26 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         }
         return guard->get();
       });
+  library.Register<MergeOperator>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingMergeOperator(uri));
+        return guard->get();
+      });
+  library.Register<CompactionFilter>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new test::ChanglingCompactionFilter(uri);
+      });
+  library.Register<CompactionFilterFactory>(
+      "Changling", [](const std::string& uri,
+                      std::unique_ptr<CompactionFilterFactory>* guard,
+                      std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingCompactionFilterFactory(uri));
+        return guard->get();
+      });
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
