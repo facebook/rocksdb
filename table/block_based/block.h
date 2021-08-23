@@ -35,7 +35,6 @@ template <class TValue>
 class BlockIter;
 class DataBlockIter;
 class IndexBlockIter;
-class MetaBlockIter;
 class BlockPrefixIndex;
 class DataBlockHashIndex;
 
@@ -272,7 +271,7 @@ class MetaBlock : public Block {
   explicit MetaBlock(BlockContents&& contents);
   // No copying allowed
   MetaBlock(const MetaBlock&) = delete;
-  MetaBlockIter* NewIterator(bool block_contents_pinned) const;
+  BlockIter<Slice>* NewIterator(bool block_contents_pinned) const;
   const char* DecodeKV(const char* p, const char* limit, uint32_t* shared,
                        uint32_t* non_shared,
                        uint32_t* value_length) const override;
@@ -339,7 +338,7 @@ class IndexBlock : public Block {
 // invoking `UpdateKey()`.
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
- public:
+ protected:
   void InitializeBase(const Comparator* raw_ucmp, const Block* block,
                       SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(block_ == nullptr);         // Ensure it is called only once
@@ -354,10 +353,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
   }
-
+  
+public:
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
-  void InvalidateBase(Status s) {
+  virtual void Invalidate(const Status& s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
            (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
@@ -368,7 +368,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
     // Call cleanup callbacks.
     Cleanable::Reset();
   }
-
   bool Valid() const override {
     return block_ != nullptr && restart_index_ < block_->NumRestarts();
   }
@@ -437,6 +436,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
   void SetCacheHandle(Cache::Handle* handle) { cache_handle_ = handle; }
 
   Cache::Handle* cache_handle() { return cache_handle_; }
+
+  uint32_t ValueOffset() const {
+    return static_cast<uint32_t>(value_.data() - block_->offset(0));
+  }
 
  protected:
   const Block* block_;
@@ -590,8 +593,8 @@ class DataBlockIter final : public BlockIter<Slice> {
     return res;
   }
 
-  void Invalidate(Status s) {
-    InvalidateBase(s);
+  void Invalidate(const Status& s) override {
+    BlockIter::Invalidate(s);
     data_block_ = nullptr;
     // Clear prev entries cache.
   }
@@ -612,31 +615,6 @@ class DataBlockIter final : public BlockIter<Slice> {
   mutable uint32_t last_bitmap_offset_;
 
   bool SeekForGetImpl(const Slice& target);
-};
-
-class MetaBlockIter final : public BlockIter<Slice> {
- public:
-  MetaBlockIter(const MetaBlock* meta_block, bool block_contents_pinned)
-      : BlockIter() {
-    InitializeBase(BytewiseComparator(), meta_block,
-                   kDisableGlobalSequenceNumber, block_contents_pinned);
-  }
-
-  Slice value() const override {
-    assert(Valid());
-    return value_;
-  }
-
-  void Invalidate(Status s) { InvalidateBase(s); }
-
-  uint32_t ValueOffset() const {
-    return static_cast<uint32_t>(value_.data() - block_->offset(0));
-  }
-
- protected:
-  virtual void SeekImpl(const Slice& target) override;
-  virtual void SeekForPrevImpl(const Slice& target) override;
-  virtual void PrevImpl() override;
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {
@@ -683,8 +661,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       return entry;
     }
   }
-
-  void Invalidate(Status s) { InvalidateBase(s); }
 
   bool IsValuePinned() const override {
     return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();

@@ -250,7 +250,7 @@ Status ReadProperties(const ReadOptions& read_options,
   }
 
   MetaBlock properties_block(std::move(block_contents));
-  std::unique_ptr<MetaBlockIter> iter(properties_block.NewIterator(false));
+  std::unique_ptr<BlockIter<Slice>> iter(properties_block.NewIterator(false));
 
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
