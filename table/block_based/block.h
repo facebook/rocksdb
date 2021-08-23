@@ -357,7 +357,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
-  void InvalidateBase(Status s) {
+  virtual void Invalidate(const Status& s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
            (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
@@ -590,8 +590,8 @@ class DataBlockIter final : public BlockIter<Slice> {
     return res;
   }
 
-  void Invalidate(Status s) {
-    InvalidateBase(s);
+  void Invalidate(const Status& s) override {
+    BlockIter::Invalidate(s);
     data_block_ = nullptr;
     // Clear prev entries cache.
   }
@@ -626,8 +626,6 @@ class MetaBlockIter final : public BlockIter<Slice> {
     assert(Valid());
     return value_;
   }
-
-  void Invalidate(Status s) { InvalidateBase(s); }
 
   uint32_t ValueOffset() const {
     return static_cast<uint32_t>(value_.data() - block_->offset(0));
@@ -683,8 +681,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       return entry;
     }
   }
-
-  void Invalidate(Status s) { InvalidateBase(s); }
 
   bool IsValuePinned() const override {
     return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
