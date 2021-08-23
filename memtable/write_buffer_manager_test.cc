@@ -246,7 +246,8 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
   wbf->ReserveMem(10 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 40 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 40 * kSizeDummyEntry);
-  ASSERT_LT(cache->GetPinnedUsage(), 40 * kSizeDummyEntry + kMetaDataChargeOverhead);
+  ASSERT_LT(cache->GetPinnedUsage(),
+            40 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   // Allocate 10MB, memory_used_ = 20480KB
   // Some dummy entry insertion will fail due to full cache
@@ -259,8 +260,9 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
   wbf->FreeMem(15 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 20 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 20 * kSizeDummyEntry);
-  ASSERT_LT(cache->GetPinnedUsage(), 20 * kSizeDummyEntry + kMetaDataChargeOverhead);
-  
+  ASSERT_LT(cache->GetPinnedUsage(),
+            20 * kSizeDummyEntry + kMetaDataChargeOverhead);
+
   // Reserve 15MB, creating cache full again, memory_used_ = 20480KB
   wbf->ReserveMem(15 * 1024 * 1024);
   ASSERT_LE(cache->GetPinnedUsage(), 12 * 1024 * 1024);
@@ -273,7 +275,8 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
   wbf->ReserveMem(10 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 120 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 120 * kSizeDummyEntry);
-  ASSERT_LT(cache->GetPinnedUsage(), 120 * kSizeDummyEntry + kMetaDataChargeOverhead);
+  ASSERT_LT(cache->GetPinnedUsage(),
+            120 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   // Gradually release 20 MB
   // It ended up sequentially releasing 32, 24, 18 dummy entries when
@@ -285,7 +288,8 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
 
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 46 * kSizeDummyEntry);
   ASSERT_GE(cache->GetPinnedUsage(), 46 * kSizeDummyEntry);
-  ASSERT_LT(cache->GetPinnedUsage(), 46 * kSizeDummyEntry + kMetaDataChargeOverhead);
+  ASSERT_LT(cache->GetPinnedUsage(),
+            46 * kSizeDummyEntry + kMetaDataChargeOverhead);
 }
 
 #endif  // ROCKSDB_LITE

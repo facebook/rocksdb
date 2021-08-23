@@ -164,45 +164,84 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly before cache resevation failure happens due to full cache";
-  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            kOneMegabyte)
-      << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy entry insertions) when encountering cache resevation failure due to full cache";
-  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry) << "Failed to insert underlying dummy entries correctly when encountering cache resevation failure due to full cache";
-  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte) << "Failed to insert underlying dummy entries correctly when encountering cache resevation failure due to full cache";
+      << "Failed to bookkeep correctly before cache resevation failure happens "
+         "due to full cache";
+  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(), kOneMegabyte)
+      << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
+         "entry insertions) when encountering cache resevation failure due to "
+         "full cache";
+  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
+      << "Failed to insert underlying dummy entries correctly when "
+         "encountering cache resevation failure due to full cache";
+  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte)
+      << "Failed to insert underlying dummy entries correctly when "
+         "encountering cache resevation failure due to full cache";
 
-  new_mem_used = kOneMegabyte / 2; // 2 dummy entries 
-  s = test_cache_rev_mng ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  new_mem_used = kOneMegabyte / 2;  // 2 dummy entries
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
-      << "Failed to decrease cache reservation after encountering cache reservation failure due to full cache";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), 2 * kSizeDummyEntry) << "Failed to bookkeep cache reservation decrease correctly after encountering cache reservation due to full cache";
-  EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry) << "Failed to release underlying dummy entries correctly on cache reservation decrease after encountering cache resevation failure due to full cache";
-  EXPECT_LT(cache->GetPinnedUsage(), 2 * kSizeDummyEntry + kMetaDataChargeOverhead) << "Failed to release underlying dummy entries correctly on cache reservation decrease after encountering cache resevation failure due to full cache";
+      << "Failed to decrease cache reservation after encountering cache "
+         "reservation failure due to full cache";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            2 * kSizeDummyEntry)
+      << "Failed to bookkeep cache reservation decrease correctly after "
+         "encountering cache reservation due to full cache";
+  EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
+      << "Failed to release underlying dummy entries correctly on cache "
+         "reservation decrease after encountering cache resevation failure due "
+         "to full cache";
+  EXPECT_LT(cache->GetPinnedUsage(),
+            2 * kSizeDummyEntry + kMetaDataChargeOverhead)
+      << "Failed to release underlying dummy entries correctly on cache "
+         "reservation decrease after encountering cache resevation failure due "
+         "to full cache";
 
   // Create cache full again for subsequent tests
-  new_mem_used = kOneMegabyte + 1;  
-  s = test_cache_rev_mng ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  new_mem_used = kOneMegabyte + 1;
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::Incomplete())
       << "Failed to return status to indicate failure of dummy entry insertion "
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
-      << "Failed to bookkeep correctly before cache resevation failure happens due to full cache";
-  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
-            kOneMegabyte)
-      << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy entry insertions) when encountering cache resevation failure due to full cache";
-  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry) << "Failed to insert underlying dummy entries correctly when encountering cache resevation failure due to full cache";
-  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte) << "Failed to insert underlying dummy entries correctly when encountering cache resevation failure due to full cache";
+      << "Failed to bookkeep correctly before cache resevation failure happens "
+         "due to full cache";
+  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(), kOneMegabyte)
+      << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
+         "entry insertions) when encountering cache resevation failure due to "
+         "full cache";
+  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
+      << "Failed to insert underlying dummy entries correctly when "
+         "encountering cache resevation failure due to full cache";
+  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte)
+      << "Failed to insert underlying dummy entries correctly when "
+         "encountering cache resevation failure due to full cache";
 
-  // Increase cache capacity so the previously failed insertion can fully succeed
+  // Increase cache capacity so the previously failed insertion can fully
+  // succeed
   cache->SetCapacity(kOneGigabyte);
-  new_mem_used = kOneMegabyte + 1; 
-  s = test_cache_rev_mng ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(new_mem_used);
+  new_mem_used = kOneMegabyte + 1;
+  s = test_cache_rev_mng
+          ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
+              new_mem_used);
   EXPECT_EQ(s, Status::OK())
-      << "Failed to increase cache reservation after increasing cache capacity and mitigating cache full error";
-  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), 5 * kSizeDummyEntry) << "Failed to bookkeep cache reservation increase correctly after increasing cache capacity and mitigating cache full error";
-  EXPECT_GE(cache->GetPinnedUsage(), 5 * kSizeDummyEntry) << "Failed to insert underlying dummy entries correctly after increasing cache capacity and mitigating cache full error";
-  EXPECT_LT(cache->GetPinnedUsage(), 5 * kSizeDummyEntry + kMetaDataChargeOverhead) << "Failed to insert underlying dummy entries correctly after increasing cache capacity and mitigating cache full error";
+      << "Failed to increase cache reservation after increasing cache capacity "
+         "and mitigating cache full error";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            5 * kSizeDummyEntry)
+      << "Failed to bookkeep cache reservation increase correctly after "
+         "increasing cache capacity and mitigating cache full error";
+  EXPECT_GE(cache->GetPinnedUsage(), 5 * kSizeDummyEntry)
+      << "Failed to insert underlying dummy entries correctly after increasing "
+         "cache capacity and mitigating cache full error";
+  EXPECT_LT(cache->GetPinnedUsage(),
+            5 * kSizeDummyEntry + kMetaDataChargeOverhead)
+      << "Failed to insert underlying dummy entries correctly after increasing "
+         "cache capacity and mitigating cache full error";
 }
 
 TEST_F(CacheReservationManagerTest,

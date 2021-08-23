@@ -80,9 +80,9 @@ Status CacheReservationManager::IncreaseCacheReservation(
   while (new_mem_used > cache_allocated_size_.load(std::memory_order_relaxed)) {
     Cache::Handle* handle = nullptr;
     return_status = cache_->Insert(GetNextCacheKey(), nullptr, kSizeDummyEntry,
-                               GetNoopDeleterForRole<R>(), &handle);
+                                   GetNoopDeleterForRole<R>(), &handle);
 
-    if (return_status != Status::OK()){
+    if (return_status != Status::OK()) {
       return return_status;
     }
 
