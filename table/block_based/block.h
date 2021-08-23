@@ -193,6 +193,8 @@ class Block {
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
+  DataBlockIter* NewMetaDataIterator();
+
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
@@ -545,6 +547,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   }
 
  protected:
+  friend Block;
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;

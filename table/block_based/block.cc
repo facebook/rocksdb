@@ -968,6 +968,13 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 }
 
+DataBlockIter* Block::NewMetaDataIterator() {
+  DataBlockIter* ret_iter =
+      NewDataIterator(BytewiseComparator(), kDisableGlobalSequenceNumber);
+  ret_iter->raw_key_.SetIsUserKey(true);
+  return ret_iter;
+}
+
 DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
