@@ -107,6 +107,7 @@ SHA256_CMD ?= sha256sum
 JAVA_TESTS = \
 	org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupEngineTest\
+	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
 	org.rocksdb.util.BytewiseComparatorTest\
@@ -148,6 +149,7 @@ JAVA_TESTS = \
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
 	org.rocksdb.MutableDBOptionsTest\
+	org.rocksdb.MutableOptionsGetSetTest \
 	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptimisticTransactionTest\
