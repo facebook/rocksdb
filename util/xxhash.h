@@ -7,9 +7,11 @@
 #ifndef XXH_STATIC_LINKING_ONLY
 #define XXH_STATIC_LINKING_ONLY 1 /* using xxhash.cc */
 #endif // !defined(XXH_STATIC_LINKING_ONLY)
+#ifndef XXH_INLINE_ALL
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
 #endif // !defined(XXH_NAMESPACE)
+#endif // !defined(XXH_INLINE_ALL)
 #include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
 /* END RocksDB customizations */
 
