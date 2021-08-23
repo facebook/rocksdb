@@ -215,24 +215,6 @@ void IndexBlockIter::PrevImpl() {
   }
 }
 
-class MetaBlockIter final : public BlockIter<Slice> {
- public:
-  MetaBlockIter(const MetaBlock* meta_block, bool block_contents_pinned)
-      : BlockIter() {
-    InitializeBase(BytewiseComparator(), meta_block,
-                   kDisableGlobalSequenceNumber, block_contents_pinned);
-  }
-
-  Slice value() const override {
-    assert(Valid());
-    return value_;
-  }
- protected:
-  virtual void SeekImpl(const Slice& target) override;
-  virtual void SeekForPrevImpl(const Slice& target) override;
-  virtual void PrevImpl() override;
-};
-
 void MetaBlockIter::PrevImpl() {
   assert(Valid());
 
@@ -990,7 +972,7 @@ DataBlockIter* DataBlock::NewDataIterator(const Comparator* raw_ucmp,
   return ret_iter;
 }
 
-BlockIter<Slice>* MetaBlock::NewIterator(bool block_contents_pinned) const {
+MetaBlockIter* MetaBlock::NewIterator(bool block_contents_pinned) const {
   return new MetaBlockIter(this, block_contents_pinned);
 }
 
