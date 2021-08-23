@@ -25,6 +25,7 @@
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -1865,10 +1866,16 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
 Status Version::MultiGetBlob(const ReadOptions& read_options,
                              MultiGetRange& range) {
-  Status rc;
   if (!range.NeedsAnyBlobRead()) {
-    return rc;
+    return Status::OK();
+  } else if (read_options.read_tier == kBlockCacheTier) {
+    Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    for (auto it = range.blob_begin(); it != range.blob_end(); ++it) {
+      *(it->s) = s;
+    }
+    return s;
   }
+
   using BlobIterator = MultiGetRange::BlobIterator;
   std::unordered_map<uint64_t, std::vector<std::pair<BlobIndex, BlobIterator>>>
       blob_rqs;
@@ -1885,49 +1892,91 @@ Status Version::MultiGetBlob(const ReadOptions& read_options,
     uint64_t file_number = blob_index.file_number();
     blob_rqs[file_number].emplace_back(std::make_pair(blob_index, it));
   }
+
   assert(blob_rqs.size() > 0);
+  Status status;
   for (auto& elem : blob_rqs) {
     uint64_t blob_file_number = elem.first;
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     assert(blob_file_cache_);
-    Status status = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                        &blob_file_reader);
+    status = blob_file_cache_->GetBlobFileReader(blob_file_number,
+                                                 &blob_file_reader);
+    assert(!status.ok() || blob_file_reader.GetValue());
+
     auto& blobs_in_file = elem.second;
+    if (!status.ok()) {
+      for (const auto& blob : blobs_in_file) {
+        auto blob_it = blob.second;
+        *(blob_it->s) = status;
+      }
+      continue;
+    }
+
+    assert(blob_file_reader.GetValue());
+    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
+    const CompressionType compression =
+        blob_file_reader.GetValue()->GetCompressionType();
+
     std::sort(blobs_in_file.begin(), blobs_in_file.end(),
               [](std::pair<BlobIndex, BlobIterator>& lhs,
                  std::pair<BlobIndex, BlobIterator>& rhs) -> bool {
                 return lhs.first.offset() < rhs.first.offset();
               });
+    autovector<std::reference_wrapper<Slice>> user_keys;
+    autovector<uint64_t> offsets;
+    autovector<uint64_t> value_sizes;
+    autovector<PinnableSlice*> values;
     for (const auto& blob : blobs_in_file) {
       const auto& blob_index = blob.first;
-      (void)blob_index;
       auto blob_it = blob.second;
-      Status* s = blob_it->s;
-      if (!status.ok()) {
-        *s = status;
+      const uint64_t key_size = blob_it->ukey_with_ts.size();
+      const uint64_t offset = blob_index.offset();
+      const uint64_t value_size = blob_index.size();
+      if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
+        *(blob_it->s) = Status::Corruption("Invalid blob offset");
         continue;
       }
-      *s = GetBlob(read_options, blob_it->ukey_with_ts, *blob_it->value,
-                   blob_it->value, nullptr);
-      if (!s->ok()) {
-        if (s->IsIncomplete()) {
+      if (blob_index.compression() != compression) {
+        *(blob_it->s) =
+            Status::Corruption("Compression type mismatch when reading a blob");
+        continue;
+      }
+      user_keys.emplace_back(std::ref(blob_it->ukey_with_ts));
+      offsets.push_back(blob_index.offset());
+      value_sizes.push_back(blob_index.size());
+      values.push_back(blob_it->value);
+    }
+    if (!blob_file_reader.GetValue()) {
+      continue;
+    }
+    status = blob_file_reader.GetValue()->MultiGetBlob(
+        read_options, user_keys, offsets, value_sizes, values,
+        /*bytes_read=*/nullptr);
+    if (status.ok()) {
+      for (const auto& blob : blobs_in_file) {
+        auto blob_it = blob.second;
+        range.AddValueSize(blob_it->value->size());
+        if (range.GetValueSize() > read_options.value_size_soft_limit) {
+          status = Status::Aborted();
+          break;
+        }
+        *(blob_it->s) = Status::OK();
+      }
+    } else {
+      for (const auto& blob : blobs_in_file) {
+        auto blob_it = blob.second;
+        if (status.IsIncomplete()) {
           auto& get_context = *blob_it->get_context;
           get_context.MarkKeyMayExist();
         }
-        continue;
-      }
-      assert(s->ok());
-      range.AddValueSize(blob_it->value->size());
-      if (range.GetValueSize() > read_options.value_size_soft_limit) {
-        rc = Status::Aborted();
-        break;
+        *(blob_it->s) = status;
       }
     }
-    if (!rc.ok()) {
+    if (!status.ok()) {
       break;
     }
   }
-  return rc;
+  return status;
 }
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,

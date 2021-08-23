@@ -264,17 +264,6 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
   return Status::OK();
 }
 
-Status BlobFileReader::MultiReadFromFile(
-    const RandomAccessFileReader* file_reader,
-    const autovector<uint64_t>& read_offsets,
-    const autovector<size_t>& read_sizes, Statistics* statistics) {
-  assert(file_reader);
-  (void)read_offsets;
-  (void)read_sizes;
-  (void)statistics;
-  return Status::OK();
-}
-
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
     CompressionType compression_type, SystemClock* clock,
@@ -366,16 +355,82 @@ Status BlobFileReader::MultiGetBlob(
     const ReadOptions& read_options,
     const autovector<std::reference_wrapper<Slice>>& user_keys,
     const autovector<uint64_t>& offsets,
-    const autovector<uint64_t>& value_sizes,
-    const autovector<CompressionType>& compression_types,
-    autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
-  (void)read_options;
-  (void)user_keys;
-  (void)offsets;
-  (void)value_sizes;
-  (void)compression_types;
-  (void)values;
-  (void)bytes_read;
+    const autovector<uint64_t>& value_sizes, autovector<PinnableSlice*>& values,
+    uint64_t* bytes_read) const {
+  const size_t num_blobs = user_keys.size();
+  assert(num_blobs == offsets.size());
+  assert(num_blobs == value_sizes.size());
+  assert(num_blobs == values.size());
+
+  std::vector<FSReadRequest> read_reqs(num_blobs);
+  autovector<uint64_t> adjustments;
+  uint64_t total_len = 0;
+  for (size_t i = 0; i < num_blobs; ++i) {
+    const size_t key_size = user_keys[i].get().size();
+    assert(IsValidBlobOffset(offsets[i], key_size, value_sizes[i], file_size_));
+    const uint64_t adjustment =
+        read_options.verify_checksums
+            ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
+            : 0;
+    assert(offsets[i] >= adjustment);
+    adjustments.push_back(adjustment);
+    read_reqs[i].offset = offsets[i] - adjustment;
+    read_reqs[i].len = value_sizes[i] + adjustment;
+    total_len += read_reqs[i].len;
+  }
+
+  Buffer buf;
+  AlignedBuf aligned_buf;
+
+  Status s;
+  bool direct_io = file_reader_->use_direct_io();
+  if (direct_io) {
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      read_reqs[i].scratch = nullptr;
+    }
+  } else {
+    buf.reset(new char[total_len]);
+    uint64_t pos = 0;
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      read_reqs[i].scratch = pos + buf.get();
+      pos += read_reqs[i].len;
+    }
+  }
+  TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
+  s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
+                              direct_io ? &aligned_buf : nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (read_options.verify_checksums) {
+    for (size_t i = 0; i < num_blobs; ++i) {
+      const Slice& record_slice = read_reqs[i].result;
+      s = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    const Slice& record_slice = read_reqs[i].result;
+    const Slice value_slice(record_slice.data() + adjustments[i],
+                            value_sizes[i]);
+    s = UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
+                               statistics_, values[i]);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (bytes_read) {
+    uint64_t total_bytes = 0;
+    for (const auto& req : read_reqs) {
+      total_bytes += req.result.size();
+    }
+    *bytes_read = total_bytes;
+  }
   return Status::OK();
 }
 

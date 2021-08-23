@@ -49,8 +49,11 @@ class BlobFileReader {
       const autovector<std::reference_wrapper<Slice>>& user_keys,
       const autovector<uint64_t>& offsets,
       const autovector<uint64_t>& value_sizes,
-      const autovector<CompressionType>& compression_types,
       autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
+
+  CompressionType GetCompressionType() const { return compression_type_; }
+
+  uint64_t GetFileSize() const { return file_size_; }
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
@@ -78,11 +81,6 @@ class BlobFileReader {
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
                              AlignedBuf* aligned_buf);
-
-  static Status MultiReadFromFile(const RandomAccessFileReader* file_reader,
-                                  const autovector<uint64_t>& read_offsets,
-                                  const autovector<size_t>& read_sizes,
-                                  Statistics* statistics);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                            uint64_t value_size);

@@ -522,10 +522,20 @@ class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
   std::string sync_point_;
 };
 
+class DBBlobBasicIOErrorMultiGetTest : public DBBlobBasicIOErrorTest {
+ public:
+  DBBlobBasicIOErrorMultiGetTest() : DBBlobBasicIOErrorTest() {}
+};
+
 INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:NewRandomAccessFile",
                             "BlobFileReader::GetBlob:ReadFromFile"}));
+
+INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorMultiGetTest,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileReader::OpenFile:NewRandomAccessFile",
+                            "BlobFileReader::MultiGetBlob:ReadFromFile"}));
 
 TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   Options options;
@@ -556,7 +566,7 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
+TEST_P(DBBlobBasicIOErrorMultiGetTest, MultiGetBlobs_IOError) {
   Options options = GetDefaultOptions();
   options.env = fault_injection_env_.get();
   options.enable_blob_files = true;
