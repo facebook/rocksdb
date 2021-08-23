@@ -9,6 +9,8 @@
 
 #include "table/block_based/block_based_table_builder.h"
 
+#define XXH_INLINE_ALL 1
+
 #include <assert.h>
 #include <stdio.h>
 
