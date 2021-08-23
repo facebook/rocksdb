@@ -385,7 +385,6 @@ struct CompactionServiceJobInfo {
                     // different DBs and sessions.
 
   // TODO: Add priority information
-
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_)
       : db_name(std::move(db_name_)),
