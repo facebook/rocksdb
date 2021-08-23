@@ -32,9 +32,7 @@ CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
 
 CacheReservationManager::~CacheReservationManager() {
   for (auto* handle : dummy_handles_) {
-    if (handle != nullptr) {
-      cache_->Release(handle, true);
-    }
+    cache_->Release(handle, true);
   }
 }
 
@@ -81,26 +79,12 @@ Status CacheReservationManager::IncreaseCacheReservation(
   Status return_status = Status::OK();
   while (new_mem_used > cache_allocated_size_.load(std::memory_order_relaxed)) {
     Cache::Handle* handle = nullptr;
-    Status s = cache_->Insert(GetNextCacheKey(), nullptr, kSizeDummyEntry,
-                              GetNoopDeleterForRole<R>(), &handle);
+    return_status = cache_->Insert(GetNextCacheKey(), nullptr, kSizeDummyEntry,
+                               GetNoopDeleterForRole<R>(), &handle);
 
-    // We do not return immeditately when encountering dummy entry insertion
-    // error to keep cache_allocated_size_ easy to reasonate. In other words, we
-    // still account those dummy entries that fail insertion in
-    // cache_allocation_size_. As a consequence, there will exist null dummy
-    // handles in dummy_handles_ if insertion error occurs.
-    //
-    // Also, We do not overwrite any non-OK status from dummy entry insertion.
-    // This is to prevent possible subsequent successful dummy entry insertion
-    // (due to newly available cache space resulting from manipulation in other
-    // threads) from overriding the non-OK status
-    if (return_status == Status::OK()) {
-      return_status = s;
+    if (return_status != Status::OK()){
+      return return_status;
     }
-
-    // We absorb the error here since s is conditionally checked
-    // when return_status == Status::OK()
-    s.PermitUncheckedError();
 
     dummy_handles_.push_back(handle);
     cache_allocated_size_ += kSizeDummyEntry;
@@ -120,10 +104,7 @@ Status CacheReservationManager::DecreaseCacheReservation(
          cache_allocated_size_.load(std::memory_order_relaxed)) {
     assert(!dummy_handles_.empty());
     auto* handle = dummy_handles_.back();
-    // If insert failed, handle is null so we should not release.
-    if (handle != nullptr) {
-      cache_->Release(handle, true);
-    }
+    cache_->Release(handle, true);
     dummy_handles_.pop_back();
     cache_allocated_size_ -= kSizeDummyEntry;
   }

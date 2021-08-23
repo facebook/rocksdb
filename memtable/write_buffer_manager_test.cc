@@ -232,7 +232,9 @@ TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
 }
 
 TEST_F(WriteBufferManagerTest, CacheFull) {
-  // 15MB cache size with strict capacity
+  constexpr std::size_t kMetaDataChargeOverhead = 20000;
+
+  // 12MB cache size with strict capacity
   LRUCacheOptions lo;
   lo.capacity = 12 * 1024 * 1024;
   lo.num_shard_bits = 0;
@@ -243,23 +245,35 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
   // Allocate 10MB, memory_used_ = 10240KB
   wbf->ReserveMem(10 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 40 * kSizeDummyEntry);
-  size_t prev_pinned = cache->GetPinnedUsage();
-  ASSERT_GE(prev_pinned, 10 * 1024 * 1024);
+  ASSERT_GE(cache->GetPinnedUsage(), 40 * kSizeDummyEntry);
+  ASSERT_LT(cache->GetPinnedUsage(), 40 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   // Allocate 10MB, memory_used_ = 20480KB
   // Some dummy entry insertion will fail due to full cache
   wbf->ReserveMem(10 * 1024 * 1024);
+  ASSERT_GE(cache->GetPinnedUsage(), 40 * kSizeDummyEntry);
   ASSERT_LE(cache->GetPinnedUsage(), 12 * 1024 * 1024);
-  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 80 * kSizeDummyEntry);
+  ASSERT_LT(wbf->dummy_entries_in_cache_usage(), 80 * kSizeDummyEntry);
 
-  // Increase capacity so next insert will succeed
-  cache->SetCapacity(30 * 1024 * 1024);
+  // Free 15MB after encoutering cache full, memory_used_ = 5120KB
+  wbf->FreeMem(15 * 1024 * 1024);
+  ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 20 * kSizeDummyEntry);
+  ASSERT_GE(cache->GetPinnedUsage(), 20 * kSizeDummyEntry);
+  ASSERT_LT(cache->GetPinnedUsage(), 20 * kSizeDummyEntry + kMetaDataChargeOverhead);
+  
+  // Reserve 15MB, creating cache full again, memory_used_ = 20480KB
+  wbf->ReserveMem(15 * 1024 * 1024);
+  ASSERT_LE(cache->GetPinnedUsage(), 12 * 1024 * 1024);
+  ASSERT_LT(wbf->dummy_entries_in_cache_usage(), 80 * kSizeDummyEntry);
+
+  // Increase capacity so next insert will fully succeed
+  cache->SetCapacity(40 * 1024 * 1024);
 
   // Allocate 10MB, memory_used_ = 30720KB
   wbf->ReserveMem(10 * 1024 * 1024);
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 120 * kSizeDummyEntry);
-  std::size_t pinned_usage_before_gradual_release = cache->GetPinnedUsage();
-  ASSERT_GT(pinned_usage_before_gradual_release, 20 * 1024 * 1024);
+  ASSERT_GE(cache->GetPinnedUsage(), 120 * kSizeDummyEntry);
+  ASSERT_LT(cache->GetPinnedUsage(), 120 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   // Gradually release 20 MB
   // It ended up sequentially releasing 32, 24, 18 dummy entries when
@@ -270,8 +284,8 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
   }
 
   ASSERT_EQ(wbf->dummy_entries_in_cache_usage(), 46 * kSizeDummyEntry);
-  ASSERT_GT(cache->GetPinnedUsage(), 46 * kSizeDummyEntry);
-  ASSERT_LT(cache->GetPinnedUsage(), pinned_usage_before_gradual_release);
+  ASSERT_GE(cache->GetPinnedUsage(), 46 * kSizeDummyEntry);
+  ASSERT_LT(cache->GetPinnedUsage(), 46 * kSizeDummyEntry + kMetaDataChargeOverhead);
 }
 
 #endif  // ROCKSDB_LITE
