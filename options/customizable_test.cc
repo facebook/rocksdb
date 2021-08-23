@@ -66,6 +66,7 @@ class TestCustomizable : public Customizable {
 
   const char* Name() const override { return name_.c_str(); }
   static const char* Type() { return "test.custom"; }
+#ifndef ROCKSDB_LITE
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,
                                  std::unique_ptr<TestCustomizable>* result);
@@ -75,6 +76,7 @@ class TestCustomizable : public Customizable {
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,
                                  TestCustomizable** result);
+#endif  // ROCKSDB_LITE
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -146,6 +148,7 @@ class BCustomizable : public TestCustomizable {
   BOptions opts_;
 };
 
+#ifndef ROCKSDB_LITE
 static bool LoadSharedB(const std::string& id,
                         std::shared_ptr<TestCustomizable>* result) {
   if (id == "B") {
@@ -159,7 +162,6 @@ static bool LoadSharedB(const std::string& id,
   }
 }
 
-#ifndef ROCKSDB_LITE
 static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
@@ -241,6 +243,7 @@ static void GetMapFromProperties(
 #endif  // ROCKSDB_LITE
 }  // namespace
 
+#ifndef ROCKSDB_LITE
 Status TestCustomizable::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<TestCustomizable>* result) {
@@ -285,6 +288,7 @@ Status TestCustomizable::CreateFromString(const ConfigOptions& config_options,
       },
       result);
 }
+#endif  // ROCKSDB_LITE
 
 class CustomizableTest : public testing::Test {
  public:
