@@ -480,7 +480,7 @@ Status TableCache::Get(const ReadOptions& options,
   return s;
 }
 
-async_result<Status> TableCache::AsyncGet(const ReadOptions& options,
+async_result TableCache::AsyncGet(const ReadOptions& options,
                                   const InternalKeyComparator& internal_comparator,
                                   const FileMetaData& file_meta, const Slice& k,
                                   GetContext* get_context,

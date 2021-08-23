@@ -74,7 +74,7 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
     return s;
   }
 
-  async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+  async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override {
     (void)offset;

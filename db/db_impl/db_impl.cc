@@ -1700,7 +1700,7 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
-async_result<Status> DBImpl::AsyncGet(const ReadOptions& read_options,
+async_result DBImpl::AsyncGet(const ReadOptions& read_options,
                 ColumnFamilyHandle* column_family, const Slice& key,
                 PinnableSlice* value, std::string* timestamp) {
   GetImplOptions get_impl_options;
@@ -1923,7 +1923,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
-async_result<Status> DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& key,
+async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);

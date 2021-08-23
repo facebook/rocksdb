@@ -710,7 +710,7 @@ class FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const = 0;
 
-  virtual async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+  virtual async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const = 0;
 
@@ -1383,7 +1383,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
     return target_->Read(offset, n, options, result, scratch, dbg);
   }
 
-  async_result<Status> AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+  async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override {
     return target_->AsyncRead(offset, n, options, result, scratch, dbg);
