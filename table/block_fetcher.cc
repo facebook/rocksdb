@@ -321,7 +321,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
   return io_status_;
 }
 
-async_result<Status> BlockFetcher::AsyncReadBlockContents() {
+async_result BlockFetcher::AsyncReadBlockContents() {
     if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -335,7 +335,7 @@ async_result<Status> BlockFetcher::AsyncReadBlockContents() {
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     IOOptions opts;
-    async_result<Status> a_result;
+    async_result a_result;
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
     // Actual file read
     if (io_status_.ok()) {

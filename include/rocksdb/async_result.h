@@ -14,10 +14,8 @@ namespace ROCKSDB_NAMESPACE {
 
 struct file_read_page;
 
-template <class T> 
 struct async_result {
   struct promise_type {
-
     async_result get_return_object() {
       auto h = std::coroutine_handle<promise_type>::from_promise(*this);
       return async_result(h);
@@ -36,13 +34,13 @@ struct async_result {
 
     void unhandled_exception() { std::exit(1); }
 
-    void return_value(T result) { 
+    void return_value(Status result) { 
       result_ = result; 
       result_set_ = true;
     }
 
     promise_type* prev_ = nullptr;
-    T result_;
+    Status result_;
     bool result_set_ = false;
   };
 
@@ -52,10 +50,14 @@ struct async_result {
 
   async_result(std::coroutine_handle<promise_type> h) : h_{h} {}
 
-  constexpr bool await_ready() const noexcept { 
-    //std::cout<<"h_.done():"<<h_.done()<<"\n";
-    //std::cout<<"result_set_:"<<h_.promise().result_set_<<"\n";
-    return h_.promise().result_set_;
+  bool await_ready() const noexcept { 
+    if (async_) {
+      return false;
+    } else {
+      std::cout<<"h_.done():"<<h_.done()<<"\n";
+      std::cout<<"result_set_:"<<h_.promise().result_set_<<"\n";
+      return h_.promise().result_set_;
+    }
   }
 
   void await_suspend(std::coroutine_handle<promise_type> h);
@@ -70,7 +72,7 @@ struct async_result {
 
   void await_resume() const noexcept {}
 
-  T result() { return h_.promise().result_; }
+  Status result() { return h_.promise().result_; }
 
   std::coroutine_handle<promise_type> h_;
   bool async_ = false;
@@ -82,7 +84,7 @@ struct file_read_page {
     iov = (iovec*)calloc(pages, sizeof(struct iovec));
   }
 
-  async_result<Status>::promise_type* promise;
+  async_result::promise_type* promise;
   struct iovec *iov;
 };
 

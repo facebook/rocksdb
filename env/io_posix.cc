@@ -607,7 +607,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
+async_result PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
                                      const IOOptions& /*opts*/, Slice* result,
                                      char* scratch,
                                      IODebugContext* /*dbg*/) const {
@@ -637,7 +637,7 @@ async_result<Status> PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
   io_uring_sqe_set_data(sqe, data);
   io_uring_submit(ioring);
 
-  async_result<Status> a_result(true, data);
+  async_result a_result(true, data);
   co_await a_result;
 
   *result = Slice(scratch, n);

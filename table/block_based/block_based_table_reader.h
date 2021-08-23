@@ -132,7 +132,7 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
     
-  async_result<Status> AsyncGet(const ReadOptions& readOptions, const Slice& key,
+  async_result AsyncGet(const ReadOptions& readOptions, const Slice& key,
                         GetContext* get_context,
                         const SliceTransform* prefix_extractor,
                         bool skip_filters = false) override;
@@ -246,7 +246,7 @@ class BlockBasedTable : public TableReader {
       FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
 
   template <typename TBlockIter>
-  async_result<Status> AsyncNewDataBlockIterator(
+  async_result AsyncNewDataBlockIterator(
       const ReadOptions& ro, const BlockHandle& block_handle,
       TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, Status s,
@@ -319,7 +319,7 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context, BlockContents* contents) const;
 
   template <typename TBlocklike>
-  async_result<Status> AsyncMaybeReadBlockAndLoadToCache(
+  async_result AsyncMaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       const bool wait, CachableEntry<TBlocklike>* block_entry,
@@ -340,7 +340,7 @@ class BlockBasedTable : public TableReader {
                        bool wait_for_cache) const;
 
   template <typename TBlocklike>
-  async_result<Status> AsyncRetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
+  async_result AsyncRetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
                        const ReadOptions& ro, const BlockHandle& handle,
                        const UncompressionDict& uncompression_dict,
                        CachableEntry<TBlocklike>* block_entry,

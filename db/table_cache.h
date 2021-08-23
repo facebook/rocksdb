@@ -98,7 +98,7 @@ class TableCache {
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1, size_t max_file_size_for_l0_meta_pin = 0);
 
-  async_result<Status> AsyncGet(const ReadOptions& options,
+  async_result AsyncGet(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
              const FileMetaData& file_meta, const Slice& k,
              GetContext* get_context,
