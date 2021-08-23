@@ -1404,25 +1404,6 @@ void WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
 
 }  // namespace port
 
-std::string Env::GenerateUniqueId() {
-  std::string result;
-
-  UUID uuid;
-  UuidCreateSequential(&uuid);
-
-  RPC_CSTR rpc_str;
-  auto status = UuidToStringA(&uuid, &rpc_str);
-  (void)status;
-  assert(status == RPC_S_OK);
-
-  result = reinterpret_cast<char*>(rpc_str);
-
-  status = RpcStringFreeA(&rpc_str);
-  assert(status == RPC_S_OK);
-
-  return result;
-}
-
 std::shared_ptr<FileSystem> FileSystem::Default() {
   return port::WinFileSystem::Default();
 }

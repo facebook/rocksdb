@@ -42,6 +42,19 @@ extern void AppendEscapedStringTo(std::string* str, const Slice& value);
 // Return a string printout of "num"
 extern std::string NumberToString(uint64_t num);
 
+// Put n digits from v in base kBase to (*buf)[0] to (*buf)[n-1] and
+// advance *buf to the position after what was written.
+template <size_t kBase>
+inline void PutBaseChars(char** buf, size_t n, uint64_t v, bool uppercase) {
+  const char* digitChars = uppercase ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                     : "0123456789abcdefghijklmnopqrstuvwxyz";
+  for (size_t i = n; i > 0; --i) {
+    (*buf)[i - 1] = digitChars[v % kBase];
+    v /= kBase;
+  }
+  *buf += n;
+}
+
 // Return a human-readable version of num.
 // for num >= 10.000, prints "xxK"
 // for num >= 10.000.000, prints "xxM"

@@ -279,6 +279,25 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
 
 int64_t GetProcessID() { return GetCurrentProcessId(); }
 
+bool GenerateRfcUuid(std::string* output) {
+  UUID uuid;
+  UuidCreateSequential(&uuid);
+
+  RPC_CSTR rpc_str;
+  auto status = UuidToStringA(&uuid, &rpc_str);
+  if (status != RPC_S_OK) {
+    return false;
+  }
+
+  // rpc_str is nul-terminated
+  *output = reinterpret_cast<char*>(rpc_str);
+
+  status = RpcStringFreeA(&rpc_str);
+  assert(status == RPC_S_OK);
+
+  return true;
+}
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
