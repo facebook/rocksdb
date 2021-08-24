@@ -560,6 +560,51 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, RefreshIterator) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  std::unique_ptr<Iterator> it(db_secondary_->NewIterator(ReadOptions()));
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    if (0 == i) {
+      it->Seek("foo");
+      ASSERT_FALSE(it->Valid());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value0", it->value());
+    } else {
+      it->Seek("foo");
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i - 1), it->value());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i), it->value());
+    }
+  }
+}
+
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
   Options options;
   options.env = env_;
