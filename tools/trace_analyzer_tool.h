@@ -164,7 +164,8 @@ struct CfUnit {
   std::map<uint32_t, uint32_t> cf_qps;
 };
 
-class TraceAnalyzer {
+class TraceAnalyzer : private TraceRecord::Handler,
+                      private WriteBatch::Handler {
  public:
   TraceAnalyzer(std::string& trace_path, std::string& output_path,
                 AnalyzerOptions _analyzer_opts);
@@ -182,24 +183,64 @@ class TraceAnalyzer {
 
   Status WriteTraceUnit(TraceUnit& unit);
 
-  // The trace  processing functions for different type
-  Status HandleGet(uint32_t column_family_id, const Slice& key,
-                   const uint64_t& ts, const uint32_t& get_ret);
-  Status HandlePut(uint32_t column_family_id, const Slice& key,
-                   const Slice& value);
-  Status HandleDelete(uint32_t column_family_id, const Slice& key);
-  Status HandleSingleDelete(uint32_t column_family_id, const Slice& key);
-  Status HandleDeleteRange(uint32_t column_family_id, const Slice& begin_key,
-                           const Slice& end_key);
-  Status HandleMerge(uint32_t column_family_id, const Slice& key,
-                     const Slice& value);
-  Status HandleIter(uint32_t column_family_id, const Slice& key,
-                    const uint64_t& ts, TraceType trace_type);
-  Status HandleMultiGet(const std::vector<uint32_t>& column_family_ids,
-                        const std::vector<Slice>& keys, const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
+  using TraceRecord::Handler::Handle;
+  Status Handle(const WriteQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const GetQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const IteratorSeekQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const MultiGetQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+
+  using WriteBatch::Handler::PutCF;
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override;
+
+  using WriteBatch::Handler::DeleteCF;
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override;
+
+  using WriteBatch::Handler::SingleDeleteCF;
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override;
+
+  using WriteBatch::Handler::DeleteRangeCF;
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override;
+
+  using WriteBatch::Handler::MergeCF;
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override;
+
+  // The following hanlders are not implemented, return Status::OK() to avoid
+  // the running time assertion and other irrelevant falures.
+  using WriteBatch::Handler::PutBlobIndexCF;
+  Status PutBlobIndexCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                        const Slice& /*value*/) override {
+    return Status::OK();
+  }
+
+  // The default implementation of LogData does nothing.
+  using WriteBatch::Handler::LogData;
+  void LogData(const Slice& /*blob*/) override {}
+
+  using WriteBatch::Handler::MarkBeginPrepare;
+  Status MarkBeginPrepare(bool = false) override { return Status::OK(); }
+
+  using WriteBatch::Handler::MarkEndPrepare;
+  Status MarkEndPrepare(const Slice& /*xid*/) override { return Status::OK(); }
+
+  using WriteBatch::Handler::MarkNoop;
+  Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
+
+  using WriteBatch::Handler::MarkRollback;
+  Status MarkRollback(const Slice& /*xid*/) override { return Status::OK(); }
+
+  using WriteBatch::Handler::MarkCommit;
+  Status MarkCommit(const Slice& /*xid*/) override { return Status::OK(); }
+
   ROCKSDB_NAMESPACE::Env* env_;
   EnvOptions env_options_;
   std::unique_ptr<TraceReader> trace_reader_;
@@ -213,6 +254,9 @@ class TraceAnalyzer {
   uint64_t total_access_keys_;
   uint64_t total_gets_;
   uint64_t total_writes_;
+  uint64_t total_seeks_;
+  uint64_t total_seek_prevs_;
+  uint64_t total_multigets_;
   uint64_t trace_create_time_;
   uint64_t begin_time_;
   uint64_t end_time_;
@@ -253,74 +297,7 @@ class TraceAnalyzer {
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);
   Status MakeStatisticQPS();
-  // Set the default trace file version as version 0.2
-  int trace_file_version_;
   int db_version_;
-};
-
-// write bach handler to be used for WriteBache iterator
-// when processing the write trace
-class TraceWriteHandler : public WriteBatch::Handler {
- public:
-  TraceWriteHandler() { ta_ptr = nullptr; }
-  explicit TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
-  ~TraceWriteHandler() {}
-
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) override {
-    return ta_ptr->HandlePut(column_family_id, key, value);
-  }
-  virtual Status DeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
-    return ta_ptr->HandleDelete(column_family_id, key);
-  }
-  virtual Status SingleDeleteCF(uint32_t column_family_id,
-                                const Slice& key) override {
-    return ta_ptr->HandleSingleDelete(column_family_id, key);
-  }
-  virtual Status DeleteRangeCF(uint32_t column_family_id,
-                               const Slice& begin_key,
-                               const Slice& end_key) override {
-    return ta_ptr->HandleDeleteRange(column_family_id, begin_key, end_key);
-  }
-  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
-    return ta_ptr->HandleMerge(column_family_id, key, value);
-  }
-
-  // The following hanlders are not implemented, return Status::OK() to avoid
-  // the running time assertion and other irrelevant falures.
-  virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
-                                const Slice& /*key*/,
-                                const Slice& /*value*/) override {
-    return Status::OK();
-  }
-
-  // The default implementation of LogData does nothing.
-  virtual void LogData(const Slice& /*blob*/) override {}
-
-  virtual Status MarkBeginPrepare(bool = false) override {
-    return Status::OK();
-  }
-
-  virtual Status MarkEndPrepare(const Slice& /*xid*/) override {
-    return Status::OK();
-  }
-
-  virtual Status MarkNoop(bool /*empty_batch*/) override {
-    return Status::OK();
-  }
-
-  virtual Status MarkRollback(const Slice& /*xid*/) override {
-    return Status::OK();
-  }
-
-  virtual Status MarkCommit(const Slice& /*xid*/) override {
-    return Status::OK();
-  }
-
- private:
-  TraceAnalyzer* ta_ptr;
 };
 
 int trace_analyzer_tool(int argc, char** argv);

@@ -70,7 +70,7 @@ Status ReplayerImpl::Next(std::unique_ptr<TraceRecord>* record) {
     return s;
   }
 
-  return DecodeTraceRecord(&trace, trace_file_version_, record);
+  return TracerHelper::DecodeTraceRecord(&trace, trace_file_version_, record);
 }
 
 Status ReplayerImpl::Execute(const std::unique_ptr<TraceRecord>& record,
@@ -117,7 +117,7 @@ Status ReplayerImpl::Replay(
 
       // In single-threaded replay, decode first then sleep.
       std::unique_ptr<TraceRecord> record;
-      s = DecodeTraceRecord(&trace, trace_file_version_, &record);
+      s = TracerHelper::DecodeTraceRecord(&trace, trace_file_version_, &record);
       if (!s.ok() && !s.IsNotSupported()) {
         break;
       }
@@ -283,34 +283,14 @@ Status ReplayerImpl::ReadTrace(Trace* trace) {
   return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
-Status ReplayerImpl::DecodeTraceRecord(Trace* trace, int trace_file_version,
-                                       std::unique_ptr<TraceRecord>* record) {
-  switch (trace->type) {
-    case kTraceWrite:
-      return TracerHelper::DecodeWriteRecord(trace, trace_file_version, record);
-    case kTraceGet:
-      return TracerHelper::DecodeGetRecord(trace, trace_file_version, record);
-    case kTraceIteratorSeek:
-    case kTraceIteratorSeekForPrev:
-      return TracerHelper::DecodeIterRecord(trace, trace_file_version, record);
-    case kTraceMultiGet:
-      return TracerHelper::DecodeMultiGetRecord(trace, trace_file_version,
-                                                record);
-    case kTraceEnd:
-      return Status::Incomplete("Trace end.");
-    default:
-      return Status::NotSupported("Unsupported trace type.");
-  }
-}
-
 void ReplayerImpl::BackgroundWork(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
 
   std::unique_ptr<TraceRecord> record;
-  Status s =
-      DecodeTraceRecord(&(ra->trace_entry), ra->trace_file_version, &record);
+  Status s = TracerHelper::DecodeTraceRecord(&(ra->trace_entry),
+                                             ra->trace_file_version, &record);
   if (!s.ok()) {
     // Stop the replay
     if (ra->error_cb != nullptr) {
