@@ -13,7 +13,6 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-
 #include <cinttypes>
 #include <cmath>
 #include <cstdio>
@@ -335,9 +334,11 @@ void TraceAnalysisResult::Add(TraceOperationType op_type, uint32_t cf_id,
 
 size_t TraceAnalysisResult::Count() const { return op_types_.size(); }
 
-Status TraceAnalysisResult::Accept(AnalysisHandler* handler) {
-  assert(handler != nullptr);
-  return handler->Handle(*this);
+Status TraceAnalysisResult::Accept(Handler* handler) {
+  TraceAnalysisResult::AnalysisHandler* a_handler =
+      dynamic_cast<TraceAnalysisResult::AnalysisHandler*>(handler);
+  assert(a_handler != nullptr);
+  return a_handler->Handle(*this);
 }
 
 // The trace analyzer constructor
@@ -1577,6 +1578,9 @@ Status TraceAnalyzer::CloseOutputFiles() {
 
 Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset();
+  }
   total_writes_++;
   // Note that, if the write happens in a transaction,
   // 'Write' will be called twice, one for Prepare, one for
@@ -1586,9 +1590,6 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
   // HasBeginPrepare()==false, so we process it normally.
   WriteBatch batch(record.GetWriteBatchRep().ToString());
   if (batch.Count() == 0 || (batch.HasBeginPrepare() && !batch.HasCommit())) {
-    if (result != nullptr) {
-      result->reset();
-    }
     return Status::OK();
   }
   write_result_.reset(
@@ -1600,9 +1601,6 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
   if (!s.ok()) {
     fprintf(stderr, "Cannot process the write batch in the trace\n");
     write_result_.reset();
-    if (result != nullptr) {
-      result->reset();
-    }
     return s;
   }
   if (result != nullptr) {
@@ -1614,6 +1612,9 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
 
 Status TraceAnalyzer::Handle(const GetQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset();
+  }
   total_gets_++;
   if (result != nullptr) {
     result->reset(new TraceAnalysisResult(
@@ -1625,6 +1626,9 @@ Status TraceAnalyzer::Handle(const GetQueryTraceRecord& record,
 
 Status TraceAnalyzer::Handle(const IteratorSeekQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset();
+  }
   TraceOperationType op_type;
   if (record.GetSeekType() == IteratorSeekQueryTraceRecord::kSeek) {
     op_type = TraceOperationType::kIteratorSeek;
@@ -1634,35 +1638,20 @@ Status TraceAnalyzer::Handle(const IteratorSeekQueryTraceRecord& record,
     total_seek_prevs_++;
   }
 
-  std::vector<Slice> keys({record.GetKey()});
-
-  Slice lower = record.GetLowerBound();
-  Slice upper = record.GetUpperBound();
-
-  if (!lower.empty()) {
-    keys.push_back(lower);
-  }
-  if (!upper.empty()) {
-    keys.push_back(upper);
-  }
-
-  std::vector<TraceOperationType> op_types;
-  std::vector<uint32_t> cf_ids;
-  std::vector<size_t> value_sizes;
-  op_types.resize(keys.size(), op_type);
-  cf_ids.resize(keys.size(), record.GetColumnFamilyID());
-  value_sizes.resize(keys.size(), 0);
-
   if (result != nullptr) {
     result->reset(new TraceAnalysisResult(
-        std::move(op_types), std::move(cf_ids), std::move(keys),
-        std::move(value_sizes), record.GetTimestamp(), record.GetTraceType()));
+        op_type, record.GetColumnFamilyID(), record.GetKey(), 0,
+        record.GetTimestamp(), record.GetTraceType()));
   }
   return Status::OK();
 }
 
 Status TraceAnalyzer::Handle(const MultiGetQueryTraceRecord& record,
                              std::unique_ptr<TraceRecordResult>* result) {
+  if (result != nullptr) {
+    result->reset();
+  }
+
   total_multigets_++;
 
   std::vector<uint32_t> cf_ids = record.GetColumnFamilyIDs();

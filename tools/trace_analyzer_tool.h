@@ -225,11 +225,7 @@ class TraceAnalysisResult : public TraceRecordResult {
     }
   };
 
-  Status Accept(Handler* /*handler*/) override {
-    return Status::NotSupported();
-  }
-
-  Status Accept(AnalysisHandler* handler);
+  Status Accept(Handler* handler) override;
 
  private:
   std::vector<TraceOperationType> op_types_;
