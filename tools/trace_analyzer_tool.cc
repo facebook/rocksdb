@@ -571,7 +571,10 @@ Status TraceAnalyzer::StartProcessing() {
       return s;
     }
     if (result != nullptr) {
-      result->Accept(this);
+      s = result->Accept(this);
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
   if (s.IsIncomplete()) {
@@ -1630,10 +1633,30 @@ Status TraceAnalyzer::Handle(const IteratorSeekQueryTraceRecord& record,
     op_type = TraceOperationType::kIteratorSeekForPrev;
     total_seek_prevs_++;
   }
+
+  std::vector<Slice> keys({record.GetKey()});
+
+  Slice lower = record.GetLowerBound();
+  Slice upper = record.GetUpperBound();
+
+  if (!lower.empty()) {
+    keys.push_back(lower);
+  }
+  if (!upper.empty()) {
+    keys.push_back(upper);
+  }
+
+  std::vector<TraceOperationType> op_types;
+  std::vector<uint32_t> cf_ids;
+  std::vector<size_t> value_sizes;
+  op_types.resize(keys.size(), op_type);
+  cf_ids.resize(keys.size(), record.GetColumnFamilyID());
+  value_sizes.resize(keys.size(), 0);
+
   if (result != nullptr) {
     result->reset(new TraceAnalysisResult(
-        op_type, record.GetColumnFamilyID(), record.GetKey(), 0,
-        record.GetTimestamp(), record.GetTraceType()));
+        std::move(op_types), std::move(cf_ids), std::move(keys),
+        std::move(value_sizes), record.GetTimestamp(), record.GetTraceType()));
   }
   return Status::OK();
 }
