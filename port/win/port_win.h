@@ -347,6 +347,8 @@ using ThreadId = int;
 
 extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
+int64_t GetProcessID();
+
 }  // namespace port
 
 

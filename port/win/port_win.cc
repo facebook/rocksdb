@@ -277,6 +277,8 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
   (void)priority;
 }
 
+int64_t GetProcessID() { return GetCurrentProcessId(); }
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
