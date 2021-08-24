@@ -5021,11 +5021,7 @@ class Benchmark {
           thread_(thread),
           options_(ReadOptions(FLAGS_verify_checksum, true)),
           num_key_gens_((bench_.db_.db == nullptr) ? bench_.multi_dbs_.size()
-                                                   : 1),
-          found_(0),
-          bytes_(0),
-          key_rand_(0),
-          num_keys_(0) {}
+                                                   : 1) {}
     void Init() {
       key_ = bench_.AllocateKey(&key_guard_);
       if (bench_.user_timestamp_size_ > 0) {
@@ -5063,8 +5059,6 @@ class Benchmark {
     ThreadState* thread_;
     ReadOptions options_;
     size_t num_key_gens_;
-    int64_t found_, bytes_, key_rand_;
-    int num_keys_;
     std::unique_ptr<const char[]> key_guard_;
     std::unique_ptr<char[]> ts_guard_;
     Slice ts_;
