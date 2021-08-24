@@ -266,16 +266,90 @@ TraceStats::TraceStats() {
 
 TraceStats::~TraceStats() {}
 
+// TraceAnalysisResult
+TraceAnalysisResult::TraceAnalysisResult(
+    std::vector<TraceOperationType> op_types, std::vector<uint32_t> cf_ids,
+    std::vector<Slice> keys, std::vector<size_t> value_sizes,
+    uint64_t timestamp, TraceType type)
+    : TraceRecordResult(type),
+      op_types_(std::move(op_types)),
+      cf_ids_(std::move(cf_ids)),
+      keys_(std::move(keys)),
+      value_sizes_(std::move(value_sizes)),
+      timestamp_(timestamp) {
+  assert(op_types_.size() == cf_ids_.size());
+  assert(op_types_.size() == keys_.size());
+  assert(op_types_.size() == value_sizes_.size());
+}
+
+TraceAnalysisResult::TraceAnalysisResult(TraceOperationType op_type,
+                                         uint32_t cf_id, const Slice& key,
+                                         size_t value_size, uint64_t timestamp,
+                                         TraceType type)
+    : TraceRecordResult(type), timestamp_(timestamp) {
+  Reserve(1);
+  op_types_.push_back(op_type);
+  cf_ids_.push_back(cf_id);
+  keys_.push_back(key);
+  value_sizes_.push_back(value_size);
+}
+
+TraceAnalysisResult::TraceAnalysisResult(uint64_t timestamp, TraceType type)
+    : TraceRecordResult(type), timestamp_(timestamp) {}
+
+TraceAnalysisResult::~TraceAnalysisResult() {}
+
+const std::vector<TraceOperationType>
+TraceAnalysisResult::GetTraceOperationTypes() const {
+  return op_types_;
+}
+
+const std::vector<uint32_t>& TraceAnalysisResult::GetColumnFamilyIDs() const {
+  return cf_ids_;
+}
+
+const std::vector<Slice>& TraceAnalysisResult::GetKeys() const { return keys_; }
+
+const std::vector<size_t>& TraceAnalysisResult::GetValueSizes() const {
+  return value_sizes_;
+}
+
+uint64_t TraceAnalysisResult::GetTimestamp() const { return timestamp_; }
+
+void TraceAnalysisResult::Reserve(size_t size) {
+  if (op_types_.size() < size) {
+    op_types_.reserve(size);
+    cf_ids_.reserve(size);
+    keys_.reserve(size);
+    value_sizes_.reserve(size);
+  }
+}
+
+void TraceAnalysisResult::Add(TraceOperationType op_type, uint32_t cf_id,
+                              const Slice& key, size_t value_size) {
+  op_types_.push_back(op_type);
+  cf_ids_.push_back(cf_id);
+  keys_.push_back(key);
+  value_sizes_.push_back(value_size);
+}
+
+size_t TraceAnalysisResult::Count() const { return op_types_.size(); }
+
+Status TraceAnalysisResult::Accept(AnalysisHandler* handler) {
+  assert(handler != nullptr);
+  return handler->Handle(*this);
+}
+
 // The trace analyzer constructor
 TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
                              AnalyzerOptions _analyzer_opts)
-    : trace_name_(trace_path),
+    : write_result_(nullptr),
+      trace_name_(trace_path),
       output_path_(output_path),
       analyzer_opts_(_analyzer_opts) {
   ROCKSDB_NAMESPACE::EnvOptions env_options;
   env_ = ROCKSDB_NAMESPACE::Env::Default();
   offset_ = 0;
-  c_time_ = 0;
   total_requests_ = 0;
   total_access_keys_ = 0;
   total_gets_ = 0;
@@ -468,6 +542,8 @@ Status TraceAnalyzer::StartProcessing() {
   }
 
   Trace trace;
+  std::unique_ptr<TraceRecord> record;
+  std::unique_ptr<TraceRecordResult> result;
   while (s.ok()) {
     trace.reset();
     s = ReadTraceRecord(&trace);
@@ -482,7 +558,6 @@ Status TraceAnalyzer::StartProcessing() {
     // Do not count TraceEnd (if there is one)
     total_requests_++;
 
-    std::unique_ptr<TraceRecord> record;
     s = TracerHelper::DecodeTraceRecord(&trace, trace_file_version, &record);
     if (s.IsNotSupported()) {
       continue;
@@ -490,10 +565,13 @@ Status TraceAnalyzer::StartProcessing() {
     if (!s.ok()) {
       return s;
     }
-    s = record->Accept(this, nullptr);
+    s = record->Accept(this, &result);
     if (!s.ok()) {
       fprintf(stderr, "Cannot process the TraceRecord\n");
       return s;
+    }
+    if (result != nullptr) {
+      result->Accept(this);
     }
   }
   if (s.IsIncomplete()) {
@@ -1495,7 +1573,7 @@ Status TraceAnalyzer::CloseOutputFiles() {
 }
 
 Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
-                             std::unique_ptr<TraceRecordResult>* /*result*/) {
+                             std::unique_ptr<TraceRecordResult>* result) {
   total_writes_++;
   // Note that, if the write happens in a transaction,
   // 'Write' will be called twice, one for Prepare, one for
@@ -1504,322 +1582,176 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
   // process the reord that is committed. If write is non-transaction,
   // HasBeginPrepare()==false, so we process it normally.
   WriteBatch batch(record.GetWriteBatchRep().ToString());
-  if (batch.HasBeginPrepare() && !batch.HasCommit()) {
+  if (batch.Count() == 0 || (batch.HasBeginPrepare() && !batch.HasCommit())) {
+    if (result != nullptr) {
+      result->reset();
+    }
     return Status::OK();
   }
-  c_time_ = record.GetTimestamp();
+  write_result_.reset(
+      new TraceAnalysisResult(record.GetTimestamp(), record.GetTraceType()));
+  write_result_->Reserve(static_cast<size_t>(batch.Count()));
+
+  // write_result_ will be updated in batch's handler during iteration.
   Status s = batch.Iterate(this);
   if (!s.ok()) {
     fprintf(stderr, "Cannot process the write batch in the trace\n");
+    write_result_.reset();
+    if (result != nullptr) {
+      result->reset();
+    }
     return s;
+  }
+  if (result != nullptr) {
+    // "Move" the temporary `write_result_` to `result`.
+    result->reset(write_result_.release());
   }
   return Status::OK();
 }
 
 Status TraceAnalyzer::Handle(const GetQueryTraceRecord& record,
-                             std::unique_ptr<TraceRecordResult>* /*result*/) {
+                             std::unique_ptr<TraceRecordResult>* result) {
   total_gets_++;
-
-  uint32_t cf_id = record.GetColumnFamilyID();
-  Slice key = record.GetKey();
-  uint64_t ts = record.GetTimestamp();
-
-  Status s;
-  size_t value_size = 0;
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kGet, cf_id, key, value_size,
-                           ts);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
+  if (result != nullptr) {
+    result->reset(new TraceAnalysisResult(
+        TraceOperationType::kGet, record.GetColumnFamilyID(), record.GetKey(),
+        0, record.GetTimestamp(), record.GetTraceType()));
   }
-
-  if (ta_[TraceOperationType::kGet].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kGet].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kGet].sample_count > 0) {
-    ta_[TraceOperationType::kGet].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kGet].sample_count++;
-
-  if (!ta_[TraceOperationType::kGet].enabled) {
-    return Status::OK();
-  }
-  value_size = 10;
-  s = KeyStatsInsertion(TraceOperationType::kGet, cf_id, key.ToString(),
-                        value_size, ts);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  return Status::OK();
 }
 
 Status TraceAnalyzer::Handle(const IteratorSeekQueryTraceRecord& record,
-                             std::unique_ptr<TraceRecordResult>* /*result*/) {
-  uint32_t cf_id = record.GetColumnFamilyID();
-  Slice key = record.GetKey();
-  uint64_t ts = record.GetTimestamp();
-
-  // To do: add lower/upper bounds
-
-  Status s;
-  size_t value_size = 0;
-  int type = -1;
-  if (record.GetTraceType() == kTraceIteratorSeek) {
-    type = TraceOperationType::kIteratorSeek;
+                             std::unique_ptr<TraceRecordResult>* result) {
+  TraceOperationType op_type;
+  if (record.GetSeekType() == IteratorSeekQueryTraceRecord::kSeek) {
+    op_type = TraceOperationType::kIteratorSeek;
     total_seeks_++;
-  } else if (record.GetTraceType() == kTraceIteratorSeekForPrev) {
-    type = TraceOperationType::kIteratorSeekForPrev;
-    total_seek_prevs_++;
   } else {
-    return s;
+    op_type = TraceOperationType::kIteratorSeekForPrev;
+    total_seek_prevs_++;
   }
-  if (type == -1) {
-    return s;
+  if (result != nullptr) {
+    result->reset(new TraceAnalysisResult(
+        op_type, record.GetColumnFamilyID(), record.GetKey(), 0,
+        record.GetTimestamp(), record.GetTraceType()));
   }
-
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(type, cf_id, key, value_size, ts);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
-
-  if (ta_[type].sample_count >= sample_max_) {
-    ta_[type].sample_count = 0;
-  }
-  if (ta_[type].sample_count > 0) {
-    ta_[type].sample_count++;
-    return Status::OK();
-  }
-  ta_[type].sample_count++;
-
-  if (!ta_[type].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(type, cf_id, key.ToString(), value_size, ts);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  return Status::OK();
 }
 
 Status TraceAnalyzer::Handle(const MultiGetQueryTraceRecord& record,
-                             std::unique_ptr<TraceRecordResult>* /*result*/) {
+                             std::unique_ptr<TraceRecordResult>* result) {
   total_multigets_++;
 
   std::vector<uint32_t> cf_ids = record.GetColumnFamilyIDs();
   std::vector<Slice> keys = record.GetKeys();
-  uint64_t ts = record.GetTimestamp();
+  std::vector<TraceOperationType> op_types;
+  std::vector<size_t> value_sizes;
 
-  Status s;
-  size_t value_size = 0;
-  if (cf_ids.size() != keys.size()) {
-    // The size does not match is not the error of tracing and anayzing, we just
-    // report it to the user. The analyzing continues.
+  // If the size does not match is not the error of tracing and anayzing, we
+  // just report it to the user. The analyzing continues.
+  if (cf_ids.size() > keys.size()) {
     printf("The CF ID vector size does not match the keys vector size!\n");
+    // Make the sure the 2 vectors are of the same (smaller) size.
+    cf_ids.resize(keys.size());
+  } else if (cf_ids.size() < keys.size()) {
+    printf("The CF ID vector size does not match the keys vector size!\n");
+    // Make the sure the 2 vectors are of the same (smaller) size.
+    keys.resize(cf_ids.size());
   }
-  size_t vector_size = std::min(cf_ids.size(), keys.size());
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    for (size_t i = 0; i < vector_size; i++) {
-      assert(i < cf_ids.size() && i < keys.size());
-      s = WriteTraceSequence(TraceOperationType::kMultiGet, cf_ids[i], keys[i],
-                             value_size, ts);
-    }
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
+  // Now the 2 vectors must be of the same size.
+  op_types.resize(cf_ids.size(), TraceOperationType::kMultiGet);
+  value_sizes.resize(cf_ids.size(), 0);
 
-  if (ta_[TraceOperationType::kMultiGet].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kMultiGet].sample_count = 0;
+  if (result != nullptr) {
+    result->reset(new TraceAnalysisResult(
+        std::move(op_types), std::move(cf_ids), std::move(keys),
+        std::move(value_sizes), record.GetTimestamp(), record.GetTraceType()));
   }
-  if (ta_[TraceOperationType::kMultiGet].sample_count > 0) {
-    ta_[TraceOperationType::kMultiGet].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kMultiGet].sample_count++;
-
-  if (!ta_[TraceOperationType::kMultiGet].enabled) {
-    return Status::OK();
-  }
-  for (size_t i = 0; i < vector_size; i++) {
-    assert(i < cf_ids.size() && i < keys.size());
-    s = KeyStatsInsertion(TraceOperationType::kMultiGet, cf_ids[i],
-                          keys[i].ToString(), value_size, ts);
-  }
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  return Status::OK();
 }
 
 // Handle the Put request in the write batch of the trace
 Status TraceAnalyzer::PutCF(uint32_t column_family_id, const Slice& key,
                             const Slice& value) {
-  Status s;
-  size_t value_size = value.ToString().size();
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kPut, column_family_id,
-                           key.ToString(), value_size, c_time_);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
-
-  if (ta_[TraceOperationType::kPut].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kPut].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kPut].sample_count > 0) {
-    ta_[TraceOperationType::kPut].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kPut].sample_count++;
-
-  if (!ta_[TraceOperationType::kPut].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(TraceOperationType::kPut, column_family_id,
-                        key.ToString(), value_size, c_time_);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  assert(write_result_ != nullptr);
+  write_result_->Add(TraceOperationType::kPut, column_family_id, key,
+                     value.size());
+  return Status::OK();
 }
 
 // Handle the Delete request in the write batch of the trace
 Status TraceAnalyzer::DeleteCF(uint32_t column_family_id, const Slice& key) {
-  Status s;
-  size_t value_size = 0;
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kDelete, column_family_id,
-                           key.ToString(), value_size, c_time_);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
-
-  if (ta_[TraceOperationType::kDelete].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kDelete].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kDelete].sample_count > 0) {
-    ta_[TraceOperationType::kDelete].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kDelete].sample_count++;
-
-  if (!ta_[TraceOperationType::kDelete].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(TraceOperationType::kDelete, column_family_id,
-                        key.ToString(), value_size, c_time_);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  assert(write_result_ != nullptr);
+  write_result_->Add(TraceOperationType::kDelete, column_family_id, key, 0);
+  return Status::OK();
 }
 
 // Handle the SingleDelete request in the write batch of the trace
 Status TraceAnalyzer::SingleDeleteCF(uint32_t column_family_id,
                                      const Slice& key) {
-  Status s;
-  size_t value_size = 0;
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kSingleDelete, column_family_id,
-                           key.ToString(), value_size, c_time_);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
-
-  if (ta_[TraceOperationType::kSingleDelete].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kSingleDelete].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kSingleDelete].sample_count > 0) {
-    ta_[TraceOperationType::kSingleDelete].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kSingleDelete].sample_count++;
-
-  if (!ta_[TraceOperationType::kSingleDelete].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(TraceOperationType::kSingleDelete, column_family_id,
-                        key.ToString(), value_size, c_time_);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  assert(write_result_ != nullptr);
+  write_result_->Add(TraceOperationType::kSingleDelete, column_family_id, key,
+                     0);
+  return Status::OK();
 }
 
 // Handle the DeleteRange request in the write batch of the trace
 Status TraceAnalyzer::DeleteRangeCF(uint32_t column_family_id,
                                     const Slice& begin_key,
                                     const Slice& end_key) {
-  Status s;
-  size_t value_size = 0;
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kRangeDelete, column_family_id,
-                           begin_key.ToString(), value_size, c_time_);
-    if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
-    }
-  }
-
-  if (ta_[TraceOperationType::kRangeDelete].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kRangeDelete].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kRangeDelete].sample_count > 0) {
-    ta_[TraceOperationType::kRangeDelete].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kRangeDelete].sample_count++;
-
-  if (!ta_[TraceOperationType::kRangeDelete].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(TraceOperationType::kRangeDelete, column_family_id,
-                        begin_key.ToString(), value_size, c_time_);
-  s = KeyStatsInsertion(TraceOperationType::kRangeDelete, column_family_id,
-                        end_key.ToString(), value_size, c_time_);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  assert(write_result_ != nullptr);
+  write_result_->Add(TraceOperationType::kRangeDelete, column_family_id,
+                     begin_key, 0);
+  write_result_->Add(TraceOperationType::kRangeDelete, column_family_id,
+                     end_key, 0);
+  return Status::OK();
 }
 
 // Handle the Merge request in the write batch of the trace
 Status TraceAnalyzer::MergeCF(uint32_t column_family_id, const Slice& key,
                               const Slice& value) {
+  assert(write_result_ != nullptr);
+  write_result_->Add(TraceOperationType::kMerge, column_family_id, key,
+                     value.size());
+  return Status::OK();
+}
+
+Status TraceAnalyzer::Handle(const TraceAnalysisResult& result) {
+  assert(result.Count() > 0);
   Status s;
-  size_t value_size = value.ToString().size();
-  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kMerge, column_family_id,
-                           key.ToString(), value_size, c_time_);
+  // All vectors must be the same size. This has already been asserted in
+  // TraceAnalysisResult's constructors and Add() function.
+  for (size_t i = 0; i < result.Count(); i++) {
+    TraceOperationType op_type = result.GetTraceOperationTypes()[i];
+    if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+      s = WriteTraceSequence(op_type, result.GetColumnFamilyIDs()[i],
+                             result.GetKeys()[i], result.GetValueSizes()[i],
+                             result.GetTimestamp());
+      if (!s.ok()) {
+        return Status::Corruption("Failed to write the trace sequence to file");
+      }
+    }
+    if (ta_[op_type].sample_count >= sample_max_) {
+      ta_[op_type].sample_count = 0;
+    }
+    if (ta_[op_type].sample_count > 0) {
+      ta_[op_type].sample_count++;
+      continue;
+    }
+    ta_[op_type].sample_count++;
+
+    if (!ta_[op_type].enabled) {
+      continue;
+    }
+
+    s = KeyStatsInsertion(op_type, result.GetColumnFamilyIDs()[i],
+                          result.GetKeys()[i].ToString(),
+                          result.GetValueSizes()[i], result.GetTimestamp());
     if (!s.ok()) {
-      return Status::Corruption("Failed to write the trace sequence to file");
+      return Status::Corruption("Failed to insert key statistics");
     }
   }
-
-  if (ta_[TraceOperationType::kMerge].sample_count >= sample_max_) {
-    ta_[TraceOperationType::kMerge].sample_count = 0;
-  }
-  if (ta_[TraceOperationType::kMerge].sample_count > 0) {
-    ta_[TraceOperationType::kMerge].sample_count++;
-    return Status::OK();
-  }
-  ta_[TraceOperationType::kMerge].sample_count++;
-
-  if (!ta_[TraceOperationType::kMerge].enabled) {
-    return Status::OK();
-  }
-  s = KeyStatsInsertion(TraceOperationType::kMerge, column_family_id,
-                        key.ToString(), value_size, c_time_);
-  if (!s.ok()) {
-    return Status::Corruption("Failed to insert key statistics");
-  }
-  return s;
+  return Status::OK();
 }
 
 // Before the analyzer is closed, the requested general statistic results are
@@ -2069,6 +2001,7 @@ int trace_analyzer_tool(int argc, char** argv) {
 
   return 0;
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // Endif of Gflag
