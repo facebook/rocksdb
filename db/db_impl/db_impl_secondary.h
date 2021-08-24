@@ -97,7 +97,9 @@ class DBImplSecondary : public DBImpl {
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
-                                      ReadCallback* read_callback);
+                                      ReadCallback* read_callback,
+                                      bool expose_blob_index = false,
+                                      bool allow_refresh = true);
 
   Status NewIterators(const ReadOptions& options,
                       const std::vector<ColumnFamilyHandle*>& column_families,

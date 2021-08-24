@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.
+
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
 
