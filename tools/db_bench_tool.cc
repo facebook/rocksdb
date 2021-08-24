@@ -337,25 +337,6 @@ DEFINE_int32(num_multi_db, 0,
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
 
-// DEFINE_double(
-//     overwrite_probability, 0.0,
-//     "Used in 'filluniquerandom' benchmark: for each write operation, "
-//     "we give a probability to perform an overwrite instead. The key used for
-//     " "the overwrite is randomly chosen from the last 'overwrite_window_size'
-//     " "keys " "previously inserted into the DB. " "Valid
-//     overwrite_probability values: [0.0, 1.0].");
-
-// DEFINE_uint32(overwrite_window_size, 1,
-//               "Used in 'filluniquerandom' benchmark. For each write "
-//               "operation, when "
-//               "the overwrite_probability flag is set by the user, the key
-//               used " "to perform " "an overwrite is randomly chosen from the
-//               last "
-//               "'overwrite_window_size' keys "
-//               "previously inserted into the DB. "
-//               "Warning: large values can affect throughput. "
-//               "Valid overwrite_window_size values: [1, kMaxUint32].");
-
 DEFINE_uint64(
     dentry_delete_delay, 0,
     "Minimum delay in microseconds for the series of Deletes "
@@ -374,7 +355,7 @@ DEFINE_uint64(dentry_batch_size, 0,
 DEFINE_int32(dentry_vsize, 64,
              "Size of the values (in bytes) of the entries targeted by "
              "selective deletes. "
-             "(only compatible with fillanddeleteuniquerandom benchmark)");
+             "(only compatible with randomreadrollingwritedelete benchmark)");
 
 DEFINE_double(dentry_probability, 0.0,
               "Probability for each entry to be made 'disposable' (deleted "
@@ -3332,6 +3313,8 @@ class Benchmark {
         num_ /= 1000;
         value_size = 100 * 1000;
         method = &Benchmark::WriteRandom;
+      } else if (name == "randomreadrollingwritedelete") {
+        method = &Benchmark::RandomReadRollingWriteDelete;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
       } else if (name == "readtorowcache") {
@@ -4680,6 +4663,9 @@ class Benchmark {
   void WriteUniqueRandom(ThreadState* thread) {
     DoWrite(thread, UNIQUE_RANDOM);
   }
+  void RandomReadRollingWriteDelete(ThreadState* thread) {
+    DoRandomReadRollingWriteDelete(thread, RANDOM);
+  }
 
   class KeyGenerator {
    public:
@@ -5126,6 +5112,17 @@ class Benchmark {
 
   void DoRandomReadRollingWriteDelete(ThreadState* thread,
                                       WriteMode write_mode) {
+    // This benchmark looks at a workload where two types of entries
+    // are inserted:
+    // - disposable KV entries: KV entries that will be deleted
+    // - persistent KV entries: KV entries that will (almost) never be deleted.
+    // For each insert, there is a probability 'dentry_probability' to insert
+    // a disposable KV entry. Once 'dentry_size_batch' disposable KV entries
+    // have been inserted, all these KV entries are deleted by a series of
+    // single deletes after a delay of 'dentry_delete_delay' microseconds. On
+    // top of this, random reads are also issued with a probability
+    // 'read_probability' (meaning each op will either be an insert/delete, or a
+    // read).
     double read_prob = 0.0, dentry_prob = 0.0;
     if (FLAGS_read_probability > 0.0) {
       read_prob = FLAGS_read_probability < 1.0 ? FLAGS_read_probability : 1.0;
@@ -5181,34 +5178,48 @@ class Benchmark {
     ReadAgent reader(*this, thread);
     WriteAgent writer(*this, thread, write_mode);
     writer.Init();
+    reader.Init();
 
     while (!writer.IsDurationDone(entries_per_batch_)) {
       writer.CreateNewCfIfStage();
       writer.SelectNewDBWithCfh();
       writer.ClearBatch();
       for (int64_t j = 0; j < entries_per_batch_; j++) {
+        // Decide between 'read' and 'insert/delete'.
         if (read_decider(read_gen)) {
           reader.SelectNewDBWithCfh();
+          // Read a purely random key.
           key_rand = GetRandomKey(&thread->rand);
           GenerateKeyFromInt(key_rand, FLAGS_num, &reader.key_);
           reader.ReadKey(key_rand);
+          // Read operation increments by one number of operations.
+          // If total # of opeartion reached, the batch of writes
+          // is still written do DB.
           if (writer.IsDurationDone(1)) {
             break;
           }
           // Read operation is not considered a batch entry.
           j--;
         } else {
+          // Once a delete timestamp becomes smaller than the current
+          // clock time, the corresponding series of deletes is created
+          // in the delete_reservoir, and shuffled so that the deleted keys
+          // are not necessarily issued in the same order as they were inserted.
           if (delete_reservoir.empty()) {
-            if (delete_timestamps.front() < (FLAGS_env->NowMicros())) {
+            if (!delete_timestamps.empty() &&
+                (delete_timestamps.front() < (FLAGS_env->NowMicros()))) {
+              // Recreate dentry keys from iterator.
               for (uint64_t i = 0; i < FLAGS_dentry_batch_size; i++) {
                 delete_reservoir.push_back(rnd_dentry_delete.Next());
               }
+              // Shuffle the dentry keys and update delete queue.
               std::shuffle(delete_reservoir.begin(), delete_reservoir.end(),
                            delete_shuffle_gen /* random engine */);
               delete_timestamps.pop();
             }
           }
           int64_t rand_num = 0;
+          // Pending deletes have the priority over additional inserts.
           if (!delete_reservoir.empty()) {
             rand_num = delete_reservoir.back();
             delete_reservoir.pop_back();
@@ -5216,6 +5227,7 @@ class Benchmark {
             writer.DeleteKInBatch(rand_num);
             delete_count++;
           } else {
+            // Decide between issuing a disp entry and a pers entry.
             is_dentry = dentry_decider(dentry_gen);
             rand_num = is_dentry ? rnd_dentry.Next() : rnd_pentry.Next();
             GenerateKeyFromInt(rand_num, FLAGS_num, &writer.key_);
@@ -5245,8 +5257,8 @@ class Benchmark {
       writer.FinishBatchOps();
     }
     fprintf(stdout,
-            "Number of disp keys: %" PRIu64 ".\nNumber of pers keys: %" PRIu64
-            ".\nNumber of deletes: %" PRIu64 ".\nNumber fo reads: %" PRId64,
+            "Number of disp keys: %" PRIu64 "\nNumber of pers keys: %" PRIu64
+            "\nNumber of deletes: %" PRIu64 "\nNumber of reads: %" PRId64 "\n",
             dentry_count, pentry_count, delete_count, reader.num_reads_);
     writer.AddBytesToThread();
   }
