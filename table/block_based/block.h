@@ -35,6 +35,7 @@ template <class TValue>
 class BlockIter;
 class DataBlockIter;
 class IndexBlockIter;
+class MetaBlockIter;
 class BlockPrefixIndex;
 
 // BlockReadAmpBitmap is a bitmap that map the ROCKSDB_NAMESPACE::Block data
@@ -193,7 +194,7 @@ class Block {
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
-  DataBlockIter* NewMetaDataIterator();
+  MetaBlockIter* NewMetaIterator(bool block_contents_pinned = false);
 
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
@@ -393,6 +394,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual const char* DecodeKV(const char* p, const char* limit,
                                uint32_t* shared, uint32_t* non_shared,
                                uint32_t* value_length) const = 0;
+  virtual bool ParseNextKey(bool* is_shared);
+
   InternalKeyComparator icmp() {
     return InternalKeyComparator(raw_ucmp_, false /* named */);
   }
@@ -525,22 +528,6 @@ class DataBlockIter final : public BlockIter<Slice> {
     return res;
   }
 
-  // Try to advance to the next entry in the block. If there is data corruption
-  // or error, report it to the caller instead of aborting the process. May
-  // incur higher CPU overhead because we need to perform check on every entry.
-  void NextOrReport() {
-    NextOrReportImpl();
-    UpdateKey();
-  }
-
-  // Try to seek to the first entry in the block. If there is data corruption
-  // or error, report it to caller instead of aborting the process. May incur
-  // higher CPU overhead because we need to perform check on every entry.
-  void SeekToFirstOrReport() {
-    SeekToFirstOrReportImpl();
-    UpdateKey();
-  }
-
   void Invalidate(const Status& s) override {
     BlockIter::Invalidate(s);
     // Clear prev entries cache.
@@ -554,6 +541,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   virtual const char* DecodeKV(const char* p, const char* limit,
                                uint32_t* shared, uint32_t* non_shared,
                                uint32_t* value_length) const override;
+  bool ParseNextKey(bool* is_shared) override;
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;
@@ -592,12 +580,34 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   DataBlockHashIndex* data_block_hash_index_;
 
-  template <typename DecodeEntryFunc>
-  inline bool ParseNextDataKey(const char* limit = nullptr);
-
   bool SeekForGetImpl(const Slice& target);
-  void NextOrReportImpl();
-  void SeekToFirstOrReportImpl();
+};
+
+class MetaBlockIter final : public BlockIter<Slice> {
+ public:
+  MetaBlockIter(const char* data, uint32_t restarts, uint32_t num_restarts,
+                bool block_contents_pinned)
+      : BlockIter() {
+    InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
+                   kDisableGlobalSequenceNumber, block_contents_pinned);
+    raw_key_.SetIsUserKey(true);
+  }
+
+  Slice value() const override {
+    assert(Valid());
+    return value_;
+  }
+
+ protected:
+  virtual const char* DecodeKV(const char* p, const char* limit,
+                               uint32_t* shared, uint32_t* non_shared,
+                               uint32_t* value_length) const override;
+  virtual void SeekToFirstImpl() override;
+  virtual void SeekToLastImpl() override;
+  virtual void SeekImpl(const Slice& target) override;
+  virtual void SeekForPrevImpl(const Slice& target) override;
+  virtual void NextImpl() override;
+  virtual void PrevImpl() override;
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {
@@ -724,7 +734,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   // When value_delta_encoded_ is enabled it decodes the value which is assumed
   // to be BlockHandle and put it to decoded_value_
-  inline void DecodeCurrentValue(uint32_t shared);
+  inline void DecodeCurrentValue(bool is_shared);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

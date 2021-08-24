@@ -25,6 +25,7 @@
 #include "meta_blocks.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -4399,7 +4400,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(
-        metaindex_block.NewMetaDataIterator());
+        metaindex_block.NewMetaIterator());
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -4479,7 +4480,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewMetaDataIterator()};
+      metaindex_block.NewMetaIterator()};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
@@ -4556,8 +4557,8 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   Block metaindex_block(std::move(metaindex_contents));
 
   // verify properties block comes last
-  std::unique_ptr<DataBlockIter> metaindex_iter(
-      metaindex_block.NewMetaDataIterator());
+  std::unique_ptr<MetaBlockIter> metaindex_iter(
+      metaindex_block.NewMetaIterator());
   bool has_hash_prefixes = false;
   bool has_hash_metadata = false;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
@@ -4832,6 +4833,7 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

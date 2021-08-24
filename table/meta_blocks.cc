@@ -249,7 +249,7 @@ Status ReadProperties(const ReadOptions& read_options,
   }
 
   Block properties_block(std::move(block_contents));
-  std::unique_ptr<DataBlockIter> iter(properties_block.NewMetaDataIterator());
+  std::unique_ptr<MetaBlockIter> iter(properties_block.NewMetaIterator());
 
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
@@ -300,7 +300,7 @@ Status ReadProperties(const ReadOptions& read_options,
   };
 
   std::string last_key;
-  for (iter->SeekToFirstOrReport(); iter->Valid(); iter->NextOrReport()) {
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     s = iter->status();
     if (!s.ok()) {
       break;
@@ -422,7 +422,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   // are to compress it.
   Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<InternalIterator> meta_iter(
-      metaindex_block.NewMetaDataIterator());
+      metaindex_block.NewMetaIterator());
 
   // -- Read property block
   bool found_properties_block = true;
@@ -493,7 +493,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(metaindex_block.NewMetaDataIterator());
+  meta_iter.reset(metaindex_block.NewMetaIterator());
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
@@ -537,7 +537,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(metaindex_block.NewMetaDataIterator());
+  meta_iter.reset(metaindex_block.NewMetaIterator());
 
   BlockHandle block_handle;
   status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
