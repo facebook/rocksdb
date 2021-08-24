@@ -415,7 +415,7 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(
         Status::NotSupported("snapshot not supported in secondary mode"));
   } else {
-    auto snapshot = versions_->LastSequence();
+    SequenceNumber snapshot(kMaxSequenceNumber);
     result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
   }
   return result;
@@ -423,14 +423,19 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
 
 ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
-    SequenceNumber snapshot, ReadCallback* read_callback) {
+    SequenceNumber snapshot, ReadCallback* read_callback,
+    bool expose_blob_index, bool allow_refresh) {
   assert(nullptr != cfd);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+  assert(snapshot == kMaxSequenceNumber);
+  snapshot = versions_->LastSequence();
+  assert(snapshot != kMaxSequenceNumber);
   auto db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
       super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback);
+      super_version->version_number, read_callback, this, cfd,
+      expose_blob_index, read_options.snapshot ? false : allow_refresh);
   auto internal_iter = NewInternalIterator(
       db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
       db_iter->GetRangeDelAggregator(), snapshot,
