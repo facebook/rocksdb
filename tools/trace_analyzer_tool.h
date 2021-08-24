@@ -21,8 +21,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A positive value to replace 0 value size.
-extern const size_t kShadowValueSize;
+// Value sizes may be used as denominators. Replacing 0 value sizes with this
+// positive integer avoids division error.
+extern const size_t kShadowValueSize /* = 10*/;
 
 enum TraceOperationType : int {
   kGet = 0,
