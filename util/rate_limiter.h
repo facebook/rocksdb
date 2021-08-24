@@ -50,8 +50,11 @@ class GenericRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
-      return total_bytes_through_[Env::IO_LOW] +
-             total_bytes_through_[Env::IO_HIGH];
+      int64_t total_bytes_through_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_bytes_through_sum += total_bytes_through_[i];
+      }
+      return total_bytes_through_sum;
     }
     return total_bytes_through_[pri];
   }
@@ -60,7 +63,11 @@ class GenericRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
-      return total_requests_[Env::IO_LOW] + total_requests_[Env::IO_HIGH];
+      int64_t total_requests_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_requests_sum += total_requests_[i];
+      }
+      return total_requests_sum;
     }
     return total_requests_[pri];
   }
@@ -71,6 +78,7 @@ class GenericRateLimiter : public RateLimiter {
 
  private:
   void RefillBytesAndGrantRequests();
+  std::vector<Env::IOPriority> GeneratePriorityIterationOrder();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
