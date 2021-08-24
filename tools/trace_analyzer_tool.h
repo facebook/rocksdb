@@ -21,8 +21,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DBImpl;
-class WriteBatch;
+// A positive value to replace 0 value size.
+extern const size_t kShadowValueSize;
 
 enum TraceOperationType : int {
   kGet = 0,

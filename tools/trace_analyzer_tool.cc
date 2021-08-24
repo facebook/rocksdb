@@ -168,6 +168,8 @@ DEFINE_double(sample_ratio, 1.0,
 
 namespace ROCKSDB_NAMESPACE {
 
+const size_t kShadowValueSize = 10;
+
 std::map<std::string, int> taOptToIndex = {
     {"get", 0},           {"put", 1},
     {"delete", 2},        {"single_delete", 3},
@@ -1650,7 +1652,7 @@ Status TraceAnalyzer::OutputAnalysisResult(TraceOperationType op_type,
     // calculation.
     s = KeyStatsInsertion(
         op_type, cf_ids[i], keys[i].ToString(),
-        op_type == TraceOperationType::kGet ? 10 : value_sizes[i], timestamp);
+        value_sizes[i] == 0 ? kShadowValueSize : value_sizes[i], timestamp);
     if (!s.ok()) {
       return Status::Corruption("Failed to insert key statistics");
     }
