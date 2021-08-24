@@ -604,7 +604,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
   str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
-      << port::GetProcessId();
+      << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
 }
