@@ -16,7 +16,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
-#include "rocksdb/trace_record_result.h"
 #include "rocksdb/write_batch.h"
 #include "trace_replay/trace_replay.h"
 
@@ -165,89 +164,8 @@ struct CfUnit {
   std::map<uint32_t, uint32_t> cf_qps;
 };
 
-class TraceAnalysisResult : public TraceRecordResult {
- public:
-  // All operations must have the same timestamp and trace type, e.g, MultiGet.
-  TraceAnalysisResult(TraceOperationType op_type, std::vector<uint32_t> cf_ids,
-                      std::vector<Slice> keys, std::vector<size_t> value_sizes,
-                      uint64_t timestamp, std::vector<bool> write_keys,
-                      TraceType type);
-
-  //  For Get and IteratorSeek(ForPrev). All vectors are of size 1.
-  TraceAnalysisResult(TraceOperationType op_type, uint32_t cf_id,
-                      const Slice& key, size_t value_size, uint64_t timestamp,
-                      TraceType type);
-
-  // For WriteBatch internal operations.
-  TraceAnalysisResult(uint64_t timestamp, TraceType type);
-
-  ~TraceAnalysisResult() override;
-
-  // Different from GetTraceType(). This also reports
-  // Put/Delete/SingleDelete/DeleteRange/Merge from a WriteBatch.
-  TraceOperationType GetTraceOperationType() const;
-
-  const std::vector<uint32_t>& GetColumnFamilyIDs() const;
-
-  const std::vector<Slice>& GetKeys() const;
-
-  const std::vector<size_t>& GetValueSizes() const;
-
-  // Timestamp of the TraceRecord.
-  uint64_t GetTimestamp() const;
-
-  // Whether to WriteTraceSequence(). This is currently only used in
-  // DeleteRange, where only the begin_key is written.
-  const std::vector<bool>& ShouldWriteKeys() const;
-
-  void Clear();
-
-  // Reset a result, keeping the timestamp and TraceType. Currently they are
-  // only used in iterating WriteBatch.
-  void Reset(TraceOperationType op_type, uint32_t cf_id, const Slice& key,
-             size_t value_size);
-
-  void Reset(TraceOperationType op_type, std::vector<uint32_t> cf_ids,
-             std::vector<Slice> keys, std::vector<size_t> value_sizes,
-             std::vector<bool> write_keys);
-
-  // Number of operations (size of all vectors).
-  size_t Count() const;
-
-  class AnalysisHandler : public Handler {
-   public:
-    virtual ~AnalysisHandler() = default;
-
-    virtual Status Handle(const TraceAnalysisResult& result) = 0;
-
-    Status Handle(const StatusOnlyTraceExecutionResult& /*result*/) override {
-      return Status::NotSupported();
-    }
-    Status Handle(const SingleValueTraceExecutionResult& /*result*/) override {
-      return Status::NotSupported();
-    }
-    Status Handle(const MultiValuesTraceExecutionResult& /*result*/) override {
-      return Status::NotSupported();
-    }
-    Status Handle(const IteratorTraceExecutionResult& /*result*/) override {
-      return Status::NotSupported();
-    }
-  };
-
-  Status Accept(Handler* handler) override;
-
- private:
-  TraceOperationType op_type_;
-  std::vector<uint32_t> cf_ids_;
-  std::vector<Slice> keys_;
-  std::vector<size_t> value_sizes_;
-  uint64_t timestamp_;
-  std::vector<bool> write_keys_;
-};
-
 class TraceAnalyzer : private TraceRecord::Handler,
-                      private WriteBatch::Handler,
-                      private TraceAnalysisResult::AnalysisHandler {
+                      private WriteBatch::Handler {
  public:
   TraceAnalyzer(std::string& trace_path, std::string& output_path,
                 AnalyzerOptions _analyzer_opts);
@@ -323,16 +241,24 @@ class TraceAnalyzer : private TraceRecord::Handler,
   using WriteBatch::Handler::MarkCommit;
   Status MarkCommit(const Slice& /*xid*/) override { return Status::OK(); }
 
-  using TraceAnalysisResult::AnalysisHandler::Handle;
-  Status Handle(const TraceAnalysisResult& result) override;
+  // Process each trace operation and output the analysis result to
+  // stdout/files.
+  Status OutputAnalysisResult(TraceOperationType op_type, uint64_t timestamp,
+                              std::vector<uint32_t> cf_ids,
+                              std::vector<Slice> keys,
+                              std::vector<size_t> value_sizes);
+
+  Status OutputAnalysisResult(TraceOperationType op_type, uint64_t timestamp,
+                              uint32_t cf_id, const Slice& key,
+                              size_t value_size);
 
   ROCKSDB_NAMESPACE::Env* env_;
   EnvOptions env_options_;
   std::unique_ptr<TraceReader> trace_reader_;
   size_t offset_;
   char buffer_[1024];
-  // Temporary result for iterating WriteBatch.
-  std::unique_ptr<TraceAnalysisResult> write_result_;
+  // Timestamp of a WriteBatch, used in its iteration.
+  uint64_t write_batch_ts_;
   std::string trace_name_;
   std::string output_path_;
   AnalyzerOptions analyzer_opts_;
