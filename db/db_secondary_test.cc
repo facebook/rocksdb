@@ -611,10 +611,12 @@ TEST_F(DBSecondaryTest, RefreshIterator) {
     if (0 == i) {
       it->Seek("foo");
       ASSERT_FALSE(it->Valid());
+      ASSERT_OK(it->status());
 
       ASSERT_OK(it->Refresh());
 
       it->Seek("foo");
+      ASSERT_OK(it->status());
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ("foo", it->key());
       ASSERT_EQ("foo_value0", it->value());
@@ -623,10 +625,12 @@ TEST_F(DBSecondaryTest, RefreshIterator) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ("foo", it->key());
       ASSERT_EQ("foo_value" + std::to_string(i - 1), it->value());
+      ASSERT_OK(it->status());
 
       ASSERT_OK(it->Refresh());
 
       it->Seek("foo");
+      ASSERT_OK(it->status());
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ("foo", it->key());
       ASSERT_EQ("foo_value" + std::to_string(i), it->value());
