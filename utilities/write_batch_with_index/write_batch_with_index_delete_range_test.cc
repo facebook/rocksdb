@@ -19,26 +19,14 @@
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "write_batch_with_index_test.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
+class WriteBatchWithIndexDeleteRangeTest : public WBWIOverwriteTest {
  public:
-  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
-        id_(id),
-        comparator_(comparator) {}
-  uint32_t GetID() const override { return id_; }
-  const Comparator* GetComparator() const override { return comparator_; }
-
- private:
-  uint32_t id_;
-  const Comparator* comparator_;
+  WriteBatchWithIndexDeleteRangeTest() : WBWIOverwriteTest() {}
 };
-}  // namespace
-
-class WriteBatchWithIndexDeleteRangeTest : public testing::Test {};
 
 class TestDB {
  public:
@@ -86,61 +74,6 @@ static std::vector<std::string> GetValuesFromBatch(
     WriteBatchWithIndex* batch, std::vector<std::string> keys) {
   return GetValuesFromBatch(batch, nullptr, keys);
 };
-
-static void PrintContents(WriteBatchWithIndex* batch,
-                          ColumnFamilyHandle* column_family,
-                          std::string* result) {
-  WBWIIterator* iter;
-  if (column_family == nullptr) {
-    iter = batch->NewIterator();
-  } else {
-    iter = batch->NewIterator(column_family);
-  }
-
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    ASSERT_OK(iter->status());
-
-    WriteEntry e = iter->Entry();
-
-    if (e.type == kPutRecord) {
-      result->append("PUT(");
-      result->append(e.key.ToString());
-      result->append("):");
-      result->append(e.value.ToString());
-    } else if (e.type == kMergeRecord) {
-      result->append("MERGE(");
-      result->append(e.key.ToString());
-      result->append("):");
-      result->append(e.value.ToString());
-    } else if (e.type == kSingleDeleteRecord) {
-      result->append("SINGLE-DEL(");
-      result->append(e.key.ToString());
-      result->append(")");
-    } else {
-      assert(e.type == kDeleteRecord);
-      result->append("DEL(");
-      result->append(e.key.ToString());
-      result->append(")");
-    }
-
-    iter->Next();
-    if (iter->Valid()) {
-      result->append(",");
-    }
-  }
-
-  ASSERT_OK(iter->status());
-
-  delete iter;
-}
-
-static std::string PrintContents(WriteBatchWithIndex* batch,
-                                 ColumnFamilyHandle* column_family) {
-  std::string result;
-  PrintContents(batch, column_family, &result);
-  return result;
-}
 
 void AssertKey(std::string key, WBWIIterator* iter) {
   ASSERT_TRUE(iter->Valid());
