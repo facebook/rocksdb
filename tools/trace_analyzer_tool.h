@@ -167,11 +167,10 @@ struct CfUnit {
 
 class TraceAnalysisResult : public TraceRecordResult {
  public:
-  // All operations must have the same timestamp and trace type, e.g, WriteBatch
-  // and MultiGet.
-  TraceAnalysisResult(std::vector<TraceOperationType> op_types,
-                      std::vector<uint32_t> cf_ids, std::vector<Slice> keys,
-                      std::vector<size_t> value_sizes, uint64_t timestamp,
+  // All operations must have the same timestamp and trace type, e.g, MultiGet.
+  TraceAnalysisResult(TraceOperationType op_type, std::vector<uint32_t> cf_ids,
+                      std::vector<Slice> keys, std::vector<size_t> value_sizes,
+                      uint64_t timestamp, std::vector<bool> write_keys,
                       TraceType type);
 
   //  For Get and IteratorSeek(ForPrev). All vectors are of size 1.
@@ -179,12 +178,14 @@ class TraceAnalysisResult : public TraceRecordResult {
                       const Slice& key, size_t value_size, uint64_t timestamp,
                       TraceType type);
 
-  // For WriteBatch.
+  // For WriteBatch internal operations.
   TraceAnalysisResult(uint64_t timestamp, TraceType type);
 
   ~TraceAnalysisResult() override;
 
-  const std::vector<TraceOperationType> GetTraceOperationTypes() const;
+  // Different from GetTraceType(). This also reports
+  // Put/Delete/SingleDelete/DeleteRange/Merge from a WriteBatch.
+  TraceOperationType GetTraceOperationType() const;
 
   const std::vector<uint32_t>& GetColumnFamilyIDs() const;
 
@@ -192,15 +193,23 @@ class TraceAnalysisResult : public TraceRecordResult {
 
   const std::vector<size_t>& GetValueSizes() const;
 
+  // Timestamp of the TraceRecord.
   uint64_t GetTimestamp() const;
 
-  // Reserve all vectors (for iterating WriteBatch).
-  void Reserve(size_t size);
+  // Whether to WriteTraceSequence(). This is currently only used in
+  // DeleteRange, where only the begin_key is written.
+  const std::vector<bool>& ShouldWriteKeys() const;
 
-  // This function is not thread-safe. Currently it's only used in iterating a
-  // WriteBatch in single-threaded.
-  void Add(TraceOperationType op_type, uint32_t cf_id, const Slice& key,
-           size_t value_size);
+  void Clear();
+
+  // Reset a result, keeping the timestamp and TraceType. Currently they are
+  // only used in iterating WriteBatch.
+  void Reset(TraceOperationType op_type, uint32_t cf_id, const Slice& key,
+             size_t value_size);
+
+  void Reset(TraceOperationType op_type, std::vector<uint32_t> cf_ids,
+             std::vector<Slice> keys, std::vector<size_t> value_sizes,
+             std::vector<bool> write_keys);
 
   // Number of operations (size of all vectors).
   size_t Count() const;
@@ -228,11 +237,12 @@ class TraceAnalysisResult : public TraceRecordResult {
   Status Accept(Handler* handler) override;
 
  private:
-  std::vector<TraceOperationType> op_types_;
+  TraceOperationType op_type_;
   std::vector<uint32_t> cf_ids_;
   std::vector<Slice> keys_;
   std::vector<size_t> value_sizes_;
   uint64_t timestamp_;
+  std::vector<bool> write_keys_;
 };
 
 class TraceAnalyzer : private TraceRecord::Handler,

@@ -267,40 +267,42 @@ TraceStats::~TraceStats() {}
 
 // TraceAnalysisResult
 TraceAnalysisResult::TraceAnalysisResult(
-    std::vector<TraceOperationType> op_types, std::vector<uint32_t> cf_ids,
+    TraceOperationType op_type, std::vector<uint32_t> cf_ids,
     std::vector<Slice> keys, std::vector<size_t> value_sizes,
-    uint64_t timestamp, TraceType type)
+    uint64_t timestamp, std::vector<bool> write_keys, TraceType type)
     : TraceRecordResult(type),
-      op_types_(std::move(op_types)),
+      op_type_(op_type),
       cf_ids_(std::move(cf_ids)),
       keys_(std::move(keys)),
       value_sizes_(std::move(value_sizes)),
-      timestamp_(timestamp) {
-  assert(op_types_.size() == cf_ids_.size());
-  assert(op_types_.size() == keys_.size());
-  assert(op_types_.size() == value_sizes_.size());
+      timestamp_(timestamp),
+      write_keys_(std::move(write_keys)) {
+  assert(!cf_ids_.empty());
+  assert(cf_ids_.size() == keys_.size());
+  assert(cf_ids_.size() == value_sizes_.size());
+  assert(cf_ids_.size() == write_keys_.size());
 }
 
 TraceAnalysisResult::TraceAnalysisResult(TraceOperationType op_type,
                                          uint32_t cf_id, const Slice& key,
                                          size_t value_size, uint64_t timestamp,
                                          TraceType type)
-    : TraceRecordResult(type), timestamp_(timestamp) {
-  Reserve(1);
-  op_types_.push_back(op_type);
-  cf_ids_.push_back(cf_id);
-  keys_.push_back(key);
-  value_sizes_.push_back(value_size);
+    : TraceRecordResult(type), op_type_(op_type), timestamp_(timestamp) {
+  cf_ids_ = {cf_id};
+  keys_ = {key};
+  value_sizes_ = {value_size};
+  write_keys_ = {true};
 }
 
 TraceAnalysisResult::TraceAnalysisResult(uint64_t timestamp, TraceType type)
-    : TraceRecordResult(type), timestamp_(timestamp) {}
+    : TraceRecordResult(type),
+      op_type_(TraceOperationType::kTaTypeNum),
+      timestamp_(timestamp) {}
 
-TraceAnalysisResult::~TraceAnalysisResult() {}
+TraceAnalysisResult::~TraceAnalysisResult() { Clear(); }
 
-const std::vector<TraceOperationType>
-TraceAnalysisResult::GetTraceOperationTypes() const {
-  return op_types_;
+TraceOperationType TraceAnalysisResult::GetTraceOperationType() const {
+  return op_type_;
 }
 
 const std::vector<uint32_t>& TraceAnalysisResult::GetColumnFamilyIDs() const {
@@ -315,24 +317,45 @@ const std::vector<size_t>& TraceAnalysisResult::GetValueSizes() const {
 
 uint64_t TraceAnalysisResult::GetTimestamp() const { return timestamp_; }
 
-void TraceAnalysisResult::Reserve(size_t size) {
-  if (op_types_.size() < size) {
-    op_types_.reserve(size);
-    cf_ids_.reserve(size);
-    keys_.reserve(size);
-    value_sizes_.reserve(size);
-  }
+const std::vector<bool>& TraceAnalysisResult::ShouldWriteKeys() const {
+  return write_keys_;
 }
 
-void TraceAnalysisResult::Add(TraceOperationType op_type, uint32_t cf_id,
-                              const Slice& key, size_t value_size) {
-  op_types_.push_back(op_type);
-  cf_ids_.push_back(cf_id);
-  keys_.push_back(key);
-  value_sizes_.push_back(value_size);
+void TraceAnalysisResult::Clear() {
+  op_type_ = TraceOperationType::kTaTypeNum;
+  cf_ids_.clear();
+  keys_.clear();
+  value_sizes_.clear();
+  write_keys_.clear();
 }
 
-size_t TraceAnalysisResult::Count() const { return op_types_.size(); }
+void TraceAnalysisResult::Reset(TraceOperationType op_type, uint32_t cf_id,
+                                const Slice& key, size_t value_size) {
+  op_type_ = op_type;
+  cf_ids_ = {cf_id};
+  keys_ = {key};
+  value_sizes_ = {value_size};
+  write_keys_ = {true};
+}
+
+void TraceAnalysisResult::Reset(TraceOperationType op_type,
+                                std::vector<uint32_t> cf_ids,
+                                std::vector<Slice> keys,
+                                std::vector<size_t> value_sizes,
+                                std::vector<bool> write_keys) {
+  assert(!cf_ids.empty());
+  assert(cf_ids.size() == keys.size());
+  assert(cf_ids.size() == value_sizes.size());
+  assert(cf_ids.size() == write_keys.size());
+
+  op_type_ = op_type;
+  cf_ids_ = std::move(cf_ids);
+  keys_ = std::move(keys);
+  value_sizes_ = std::move(value_sizes);
+  write_keys_ = std::move(write_keys);
+}
+
+size_t TraceAnalysisResult::Count() const { return cf_ids_.size(); }
 
 Status TraceAnalysisResult::Accept(Handler* handler) {
   TraceAnalysisResult::AnalysisHandler* a_handler =
@@ -571,7 +594,9 @@ Status TraceAnalyzer::StartProcessing() {
       fprintf(stderr, "Cannot process the TraceRecord\n");
       return s;
     }
-    if (result != nullptr) {
+    // WriteQueryTraceRecord does not return a result, instead, write_result_ is
+    // reused during iterating the WriteBatch.
+    if (record->GetTraceType() != kTraceWrite && result != nullptr) {
       s = result->Accept(this);
       if (!s.ok()) {
         return s;
@@ -1594,19 +1619,15 @@ Status TraceAnalyzer::Handle(const WriteQueryTraceRecord& record,
   }
   write_result_.reset(
       new TraceAnalysisResult(record.GetTimestamp(), record.GetTraceType()));
-  write_result_->Reserve(static_cast<size_t>(batch.Count()));
 
   // write_result_ will be updated in batch's handler during iteration.
   Status s = batch.Iterate(this);
+  write_result_.reset();
   if (!s.ok()) {
     fprintf(stderr, "Cannot process the write batch in the trace\n");
-    write_result_.reset();
     return s;
   }
-  if (result != nullptr) {
-    // "Move" the temporary `write_result_` to `result`.
-    result->reset(write_result_.release());
-  }
+
   return Status::OK();
 }
 
@@ -1638,6 +1659,8 @@ Status TraceAnalyzer::Handle(const IteratorSeekQueryTraceRecord& record,
     total_seek_prevs_++;
   }
 
+  // To do: shall we add lower/upper bounds?
+
   if (result != nullptr) {
     result->reset(new TraceAnalysisResult(
         op_type, record.GetColumnFamilyID(), record.GetKey(), 0,
@@ -1656,8 +1679,8 @@ Status TraceAnalyzer::Handle(const MultiGetQueryTraceRecord& record,
 
   std::vector<uint32_t> cf_ids = record.GetColumnFamilyIDs();
   std::vector<Slice> keys = record.GetKeys();
-  std::vector<TraceOperationType> op_types;
   std::vector<size_t> value_sizes;
+  std::vector<bool> write_keys;
 
   // If the size does not match is not the error of tracing and anayzing, we
   // just report it to the user. The analyzing continues.
@@ -1671,13 +1694,14 @@ Status TraceAnalyzer::Handle(const MultiGetQueryTraceRecord& record,
     keys.resize(cf_ids.size());
   }
   // Now the 2 vectors must be of the same size.
-  op_types.resize(cf_ids.size(), TraceOperationType::kMultiGet);
   value_sizes.resize(cf_ids.size(), 0);
+  write_keys.resize(cf_ids.size(), true);
 
   if (result != nullptr) {
     result->reset(new TraceAnalysisResult(
-        std::move(op_types), std::move(cf_ids), std::move(keys),
-        std::move(value_sizes), record.GetTimestamp(), record.GetTraceType()));
+        TraceOperationType::kMultiGet, std::move(cf_ids), std::move(keys),
+        std::move(value_sizes), record.GetTimestamp(), std::move(write_keys),
+        record.GetTraceType()));
   }
   return Status::OK();
 }
@@ -1686,25 +1710,25 @@ Status TraceAnalyzer::Handle(const MultiGetQueryTraceRecord& record,
 Status TraceAnalyzer::PutCF(uint32_t column_family_id, const Slice& key,
                             const Slice& value) {
   assert(write_result_ != nullptr);
-  write_result_->Add(TraceOperationType::kPut, column_family_id, key,
-                     value.size());
-  return Status::OK();
+  write_result_->Reset(TraceOperationType::kPut, column_family_id, key,
+                       value.size());
+  return write_result_->Accept(this);
 }
 
 // Handle the Delete request in the write batch of the trace
 Status TraceAnalyzer::DeleteCF(uint32_t column_family_id, const Slice& key) {
   assert(write_result_ != nullptr);
-  write_result_->Add(TraceOperationType::kDelete, column_family_id, key, 0);
-  return Status::OK();
+  write_result_->Reset(TraceOperationType::kDelete, column_family_id, key, 0);
+  return write_result_->Accept(this);
 }
 
 // Handle the SingleDelete request in the write batch of the trace
 Status TraceAnalyzer::SingleDeleteCF(uint32_t column_family_id,
                                      const Slice& key) {
   assert(write_result_ != nullptr);
-  write_result_->Add(TraceOperationType::kSingleDelete, column_family_id, key,
-                     0);
-  return Status::OK();
+  write_result_->Reset(TraceOperationType::kSingleDelete, column_family_id, key,
+                       0);
+  return write_result_->Accept(this);
 }
 
 // Handle the DeleteRange request in the write batch of the trace
@@ -1712,30 +1736,32 @@ Status TraceAnalyzer::DeleteRangeCF(uint32_t column_family_id,
                                     const Slice& begin_key,
                                     const Slice& end_key) {
   assert(write_result_ != nullptr);
-  write_result_->Add(TraceOperationType::kRangeDelete, column_family_id,
-                     begin_key, 0);
-  write_result_->Add(TraceOperationType::kRangeDelete, column_family_id,
-                     end_key, 0);
-  return Status::OK();
+  write_result_->Reset(TraceOperationType::kRangeDelete,
+                       {column_family_id, column_family_id},
+                       {begin_key, end_key}, {0, 0}, {true, false});
+  return write_result_->Accept(this);
 }
 
 // Handle the Merge request in the write batch of the trace
 Status TraceAnalyzer::MergeCF(uint32_t column_family_id, const Slice& key,
                               const Slice& value) {
   assert(write_result_ != nullptr);
-  write_result_->Add(TraceOperationType::kMerge, column_family_id, key,
-                     value.size());
-  return Status::OK();
+  write_result_->Reset(TraceOperationType::kMerge, column_family_id, key,
+                       value.size());
+  return write_result_->Accept(this);
 }
 
 Status TraceAnalyzer::Handle(const TraceAnalysisResult& result) {
   assert(result.Count() > 0);
   Status s;
+  TraceOperationType op_type = result.GetTraceOperationType();
   // All vectors must be the same size. This has already been asserted in
-  // TraceAnalysisResult's constructors and Add() function.
-  for (size_t i = 0; i < result.Count(); i++) {
-    TraceOperationType op_type = result.GetTraceOperationTypes()[i];
-    if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+  // TraceAnalysisResult's constructors and Reset() function.
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+    for (size_t i = 0; i < result.Count(); i++) {
+      if (!result.ShouldWriteKeys()[i]) {
+        continue;
+      }
       s = WriteTraceSequence(op_type, result.GetColumnFamilyIDs()[i],
                              result.GetKeys()[i], result.GetValueSizes()[i],
                              result.GetTimestamp());
@@ -1743,26 +1769,31 @@ Status TraceAnalyzer::Handle(const TraceAnalysisResult& result) {
         return Status::Corruption("Failed to write the trace sequence to file");
       }
     }
-    if (ta_[op_type].sample_count >= sample_max_) {
-      ta_[op_type].sample_count = 0;
-    }
-    if (ta_[op_type].sample_count > 0) {
-      ta_[op_type].sample_count++;
-      continue;
-    }
+  }
+
+  if (ta_[op_type].sample_count >= sample_max_) {
+    ta_[op_type].sample_count = 0;
+  }
+  if (ta_[op_type].sample_count > 0) {
     ta_[op_type].sample_count++;
+    return Status::OK();
+  }
+  ta_[op_type].sample_count++;
 
-    if (!ta_[op_type].enabled) {
-      continue;
-    }
+  if (!ta_[op_type].enabled) {
+    return Status::OK();
+  }
 
-    s = KeyStatsInsertion(op_type, result.GetColumnFamilyIDs()[i],
-                          result.GetKeys()[i].ToString(),
-                          result.GetValueSizes()[i], result.GetTimestamp());
+  for (size_t i = 0; i < result.Count(); i++) {
+    s = KeyStatsInsertion(
+        op_type, result.GetColumnFamilyIDs()[i], result.GetKeys()[i].ToString(),
+        op_type == TraceOperationType::kGet ? 10 : result.GetValueSizes()[i],
+        result.GetTimestamp());
     if (!s.ok()) {
       return Status::Corruption("Failed to insert key statistics");
     }
   }
+
   return Status::OK();
 }
 
@@ -1984,7 +2015,7 @@ int trace_analyzer_tool(int argc, char** argv) {
   s = analyzer->StartProcessing();
   if (!s.ok() && !FLAGS_try_process_corrupted_trace) {
     fprintf(stderr, "%s\n", s.getState());
-    fprintf(stderr, "Cannot processing the trace\n");
+    fprintf(stderr, "Cannot process the trace\n");
     exit(1);
   }
 
