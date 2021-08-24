@@ -45,8 +45,8 @@ class CacheReservationManager {
   // no copy constructor, copy assignment, move constructor, move assignment
   CacheReservationManager(const CacheReservationManager &) = delete;
   CacheReservationManager &operator=(const CacheReservationManager &) = delete;
-  CacheReservationManager(const CacheReservationManager &&) = delete;
-  CacheReservationManager &operator=(const CacheReservationManager &&) = delete;
+  CacheReservationManager(CacheReservationManager &&) = delete;
+  CacheReservationManager &operator=(CacheReservationManager &&) = delete;
 
   ~CacheReservationManager();
 
