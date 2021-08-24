@@ -242,7 +242,7 @@ void DataBlockIter::SeekImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeek(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -369,6 +369,23 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   return true;
 }
 
+const char* DataBlockIter::DecodeKV(const char* p, const char* limit,
+                                    uint32_t* shared, uint32_t* non_shared,
+                                    uint32_t* value_length) const {
+  return DecodeEntry()(p, limit, shared, non_shared, value_length);
+}
+
+const char* IndexBlockIter::DecodeKV(const char* p, const char* limit,
+                                     uint32_t* shared, uint32_t* non_shared,
+                                     uint32_t* value_length) const {
+  *value_length = 0;
+  if (value_delta_encoded_) {
+    return DecodeKeyV4()(p, limit, shared, non_shared);
+  } else {
+    return DecodeKey()(p, limit, shared, non_shared);
+  }
+}
+
 void IndexBlockIter::SeekImpl(const Slice& target) {
   TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   PERF_TIMER_GUARD(block_seek_nanos);
@@ -396,10 +413,8 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
     // restart interval must be one when hash search is enabled so the binary
     // search simply lands at the right place.
     skip_linear_scan = true;
-  } else if (value_delta_encoded_) {
-    ok = BinarySeek<DecodeKeyV4>(seek_key, &index, &skip_linear_scan);
   } else {
-    ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+    ok = BinarySeek(seek_key, &index, &skip_linear_scan);
   }
 
   if (!ok) {
@@ -416,7 +431,7 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
+  bool ok = BinarySeek(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -504,7 +519,7 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
 
   // Decode next entry
   uint32_t shared, non_shared, value_length;
-  p = DecodeEntryFunc()(p, limit, &shared, &non_shared, &value_length);
+  p = DecodeKV(p, limit, &shared, &non_shared, &value_length);
   if (p == nullptr || raw_key_.Size() < shared) {
     CorruptionError();
     return false;
@@ -682,7 +697,6 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
 // `*index`th restart key is the final result so that key does not need to be
 // compared again later.
 template <class TValue>
-template <typename DecodeKeyFunc>
 bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
                                    bool* skip_linear_scan) {
   if (restarts_ == 0) {
@@ -707,9 +721,9 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
     // The `mid` is computed by rounding up so it lands in (`left`, `right`].
     int64_t mid = left + (right - left + 1) / 2;
     uint32_t region_offset = GetRestartPoint(static_cast<uint32_t>(mid));
-    uint32_t shared, non_shared;
-    const char* key_ptr = DecodeKeyFunc()(
-        data_ + region_offset, data_ + restarts_, &shared, &non_shared);
+    uint32_t shared, non_shared, dummy;
+    const char* key_ptr = DecodeKV(data_ + region_offset, data_ + restarts_,
+                                   &shared, &non_shared, &dummy);
     if (key_ptr == nullptr || (shared != 0)) {
       CorruptionError();
       return false;

@@ -272,7 +272,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
-  void InvalidateBase(Status s) {
+  virtual void Invalidate(const Status& s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
            (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
@@ -387,8 +387,12 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual void SeekImpl(const Slice& target) = 0;
   virtual void SeekForPrevImpl(const Slice& target) = 0;
   virtual void NextImpl() = 0;
+
   virtual void PrevImpl() = 0;
 
+  virtual const char* DecodeKV(const char* p, const char* limit,
+                               uint32_t* shared, uint32_t* non_shared,
+                               uint32_t* value_length) const = 0;
   InternalKeyComparator icmp() {
     return InternalKeyComparator(raw_ucmp_, false /* named */);
   }
@@ -466,7 +470,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
   void CorruptionError();
 
  protected:
-  template <typename DecodeKeyFunc>
   inline bool BinarySeek(const Slice& target, uint32_t* index,
                          bool* is_index_key_result);
 
@@ -538,8 +541,8 @@ class DataBlockIter final : public BlockIter<Slice> {
     UpdateKey();
   }
 
-  void Invalidate(Status s) {
-    InvalidateBase(s);
+  void Invalidate(const Status& s) override {
+    BlockIter::Invalidate(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
     prev_entries_.clear();
@@ -548,6 +551,9 @@ class DataBlockIter final : public BlockIter<Slice> {
 
  protected:
   friend Block;
+  virtual const char* DecodeKV(const char* p, const char* limit,
+                               uint32_t* shared, uint32_t* non_shared,
+                               uint32_t* value_length) const override;
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;
@@ -639,13 +645,14 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
-  void Invalidate(Status s) { InvalidateBase(s); }
-
   bool IsValuePinned() const override {
     return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
   }
 
  protected:
+  virtual const char* DecodeKV(const char* p, const char* limit,
+                               uint32_t* shared, uint32_t* non_shared,
+                               uint32_t* value_length) const override;
   // IndexBlockIter follows a different contract for prefix iterator
   // from data iterators.
   // If prefix of the seek key `target` exists in the file, it must
