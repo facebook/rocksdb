@@ -215,14 +215,20 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 std::vector<Env::IOPriority>
 GenericRateLimiter::GeneratePriorityIterationOrder() {
   std::vector<Env::IOPriority> pri_iteration_order(Env::IO_TOTAL /* 4 */);
-  // We make Env::IO_USER a superior priority by always iterating its queue first
+  // We make Env::IO_USER a superior priority by always iterating its queue
+  // first
   pri_iteration_order[0] = Env::IO_USER;
 
   bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
-  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForHighPri", &high_pri_iterated_after_mid_low_pri);
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForHighPri",
+      &high_pri_iterated_after_mid_low_pri);
   bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
-  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForMidPri", &mid_pri_itereated_after_low_pri);
-  
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForMidPri",
+      &mid_pri_itereated_after_low_pri);
 
   if (high_pri_iterated_after_mid_low_pri) {
     pri_iteration_order[3] = Env::IO_HIGH;
@@ -238,7 +244,10 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
         (pri_iteration_order[3] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
   }
 
-  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PreReturnPriIterationOrder", &pri_iteration_order);
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PreReturnPriIterationOrder",
+      &pri_iteration_order);
   return pri_iteration_order;
 }
 
