@@ -553,7 +553,6 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ConfigOptions prepared(config_options_);
   prepared.invoke_prepare_options = true;
 
-  ASSERT_FALSE(base->IsPrepared());
   ASSERT_OK(base->ConfigureFromString(
       prepared, "unique=A_1; shared={id=B;string=s}; pointer.id=S"));
   SimpleOptions* simple = base->GetOptions<SimpleOptions>();
@@ -561,10 +560,6 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_NE(simple->cs, nullptr);
   ASSERT_NE(simple->cp, nullptr);
-  ASSERT_TRUE(base->IsPrepared());
-  ASSERT_TRUE(simple->cu->IsPrepared());
-  ASSERT_TRUE(simple->cs->IsPrepared());
-  ASSERT_TRUE(simple->cp->IsPrepared());
   delete simple->cp;
   base.reset(new SimpleConfigurable());
   ASSERT_OK(base->ConfigureFromString(
@@ -575,16 +570,8 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_NE(simple->cs, nullptr);
   ASSERT_NE(simple->cp, nullptr);
-  ASSERT_FALSE(base->IsPrepared());
-  ASSERT_FALSE(simple->cu->IsPrepared());
-  ASSERT_FALSE(simple->cs->IsPrepared());
-  ASSERT_FALSE(simple->cp->IsPrepared());
 
   ASSERT_OK(base->PrepareOptions(config_options_));
-  ASSERT_TRUE(base->IsPrepared());
-  ASSERT_TRUE(simple->cu->IsPrepared());
-  ASSERT_TRUE(simple->cs->IsPrepared());
-  ASSERT_TRUE(simple->cp->IsPrepared());
   delete simple->cp;
   base.reset(new SimpleConfigurable());
   simple = base->GetOptions<SimpleOptions>();
@@ -597,21 +584,16 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
   ASSERT_OK(
       base->ConfigureFromString(prepared, "unique={id=P; can_prepare=true}"));
   ASSERT_NE(simple->cu, nullptr);
-  ASSERT_TRUE(simple->cu->IsPrepared());
 
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=P; can_prepare=true}"));
   ASSERT_NE(simple->cu, nullptr);
-  ASSERT_FALSE(simple->cu->IsPrepared());
   ASSERT_OK(simple->cu->PrepareOptions(prepared));
-  ASSERT_TRUE(simple->cu->IsPrepared());
 
   ASSERT_OK(base->ConfigureFromString(config_options_,
                                       "unique={id=P; can_prepare=false}"));
   ASSERT_NE(simple->cu, nullptr);
-  ASSERT_FALSE(simple->cu->IsPrepared());
   ASSERT_NOK(simple->cu->PrepareOptions(prepared));
-  ASSERT_FALSE(simple->cu->IsPrepared());
 }
 
 namespace {
@@ -1019,7 +1001,6 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   std::string opt_str;
 
   ConfigOptions options = config_options_;
-  ASSERT_FALSE(mc.IsPrepared());
   ASSERT_OK(mc.ConfigureOption(options, "mutable", "{id=B;}"));
   options.mutable_options_only = true;
   ASSERT_OK(mc.GetOptionString(options, &opt_str));
