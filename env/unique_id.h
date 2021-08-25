@@ -9,6 +9,8 @@
 //
 // These functions could eventually migrate to public APIs, such as in Env.
 
+#pragma once
+
 #include <cstdint>
 
 #include "rocksdb/rocksdb_namespace.h"
