@@ -104,45 +104,46 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
     return nullptr;
   }
 }
-
 Status ObjectRegistry::SetManagedObject(
-    const std::string &key, const std::shared_ptr<Customizable> &object) {
+    const std::string &type, const std::string &id,
+    const std::shared_ptr<Customizable> &object) {
+  std::string object_key = ToManagedObjectKey(type, id);
   std::shared_ptr<Customizable> curr;
   if (parent_ != nullptr) {
-    curr = parent_->GetManagedObject(key);
+    curr = parent_->GetManagedObject(type, id);
   }
   if (curr == nullptr) {
     // We did not find the object in any parent.  Update in the current
     std::unique_lock<std::mutex> lock(objects_mutex_);
-    auto iter = managed_objects_.find(key);
+    auto iter = managed_objects_.find(object_key);
     if (iter != managed_objects_.end()) {  // The object exists
       curr = iter->second.lock();
       if (curr != nullptr && curr != object) {
-        return Status::InvalidArgument("Object already exists: ", key);
+        return Status::InvalidArgument("Object already exists: ", object_key);
       } else {
         iter->second = object;
       }
     } else {
       // The object does not exist.  Add it
-      managed_objects_[key] = object;
+      managed_objects_[object_key] = object;
     }
   } else if (curr != object) {
-    return Status::InvalidArgument("Object already exists: ", key);
+    return Status::InvalidArgument("Object already exists: ", object_key);
   }
   return Status::OK();
 }
 
 std::shared_ptr<Customizable> ObjectRegistry::GetManagedObject(
-    const std::string &key) const {
+    const std::string &type, const std::string &id) const {
   {
     std::unique_lock<std::mutex> lock(objects_mutex_);
-    auto iter = managed_objects_.find(key);
+    auto iter = managed_objects_.find(ToManagedObjectKey(type, id));
     if (iter != managed_objects_.end()) {
       return iter->second.lock();
     }
   }
   if (parent_ != nullptr) {
-    return parent_->GetManagedObject(key);
+    return parent_->GetManagedObject(type, id);
   } else {
     return nullptr;
   }
@@ -152,7 +153,7 @@ Status ObjectRegistry::ListManagedObjects(
     const std::string &type, const std::string &name,
     std::vector<std::shared_ptr<Customizable>> *results) const {
   {
-    std::string key = type + "://";
+    std::string key = ToManagedObjectKey(type, name);
     std::unique_lock<std::mutex> lock(objects_mutex_);
     for (auto iter = managed_objects_.lower_bound(key);
          iter != managed_objects_.end() && StartsWith(iter->first, key);

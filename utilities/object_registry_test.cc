@@ -293,6 +293,66 @@ TEST_F(EnvRegistryTest, TestTwoManagedObjects) {
   ASSERT_NOK(registry->GetManagedObject("B", &obj));
 }
 
+TEST_F(EnvRegistryTest, TestAlternateNames) {
+  auto registry = ObjectRegistry::NewInstance();
+  auto m_a = std::make_shared<MyCustomizable>("", "A");
+  auto m_b = std::make_shared<MyCustomizable>("", "B");
+  std::shared_ptr<MyCustomizable> obj;
+  std::vector<std::shared_ptr<MyCustomizable>> objects;
+  // Test no objects exist
+  ASSERT_NOK(registry->GetManagedObject("A", &obj));
+  ASSERT_NOK(registry->GetManagedObject("B", &obj));
+  ASSERT_NOK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_OK(registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 0U);
+
+  // Mark "TheOne" to be A
+  ASSERT_OK(registry->SetManagedObject("TheOne", m_a));
+  ASSERT_NOK(registry->GetManagedObject("B", &obj));
+  ASSERT_NOK(registry->GetManagedObject("A", &obj));
+  ASSERT_OK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 1U);
+  ASSERT_EQ(objects.front(), m_a);
+
+  // Try to mark "TheOne" again.
+  ASSERT_NOK(registry->SetManagedObject("TheOne", m_b));
+  ASSERT_OK(registry->SetManagedObject("TheOne", m_a));
+
+  // Add "A" as a managed object.  Registered 2x
+  ASSERT_OK(registry->SetManagedObject(m_a));
+  ASSERT_NOK(registry->GetManagedObject("B", &obj));
+  ASSERT_OK(registry->GetManagedObject("A", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_EQ(obj, m_a);
+  ASSERT_OK(registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 2U);
+
+  // Delete "A".
+  m_a.reset();
+  objects.clear();
+  obj.reset();
+
+  ASSERT_NOK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_OK(registry->SetManagedObject("TheOne", m_b));
+  ASSERT_OK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_EQ(obj, m_b);
+  ASSERT_OK(registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 1U);
+  ASSERT_EQ(objects.front(), m_b);
+
+  m_b.reset();
+  obj.reset();
+  objects.clear();
+  ASSERT_NOK(registry->GetManagedObject("A", &obj));
+  ASSERT_NOK(registry->GetManagedObject("A", &obj));
+  ASSERT_NOK(registry->GetManagedObject("TheOne", &obj));
+  ASSERT_OK(registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 0U);
+}
+
 TEST_F(EnvRegistryTest, TestTwoManagedClasses) {
   class MyCustomizable2 : public MyCustomizable {
    public:

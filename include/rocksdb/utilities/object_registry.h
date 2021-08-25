@@ -250,10 +250,14 @@ class ObjectRegistry {
   template <typename T>
   Status SetManagedObject(const std::shared_ptr<T>& object) {
     assert(object != nullptr);
-    std::string key = std::string(T::Type()) + "://" + object->GetId();
-    const auto c = std::static_pointer_cast<Customizable>(object);
+    return SetManagedObject(object->GetId(), object);
+  }
 
-    return SetManagedObject(key, c);
+  template <typename T>
+  Status SetManagedObject(const std::string& id,
+                          const std::shared_ptr<T>& object) {
+    const auto c = std::static_pointer_cast<Customizable>(object);
+    return SetManagedObject(T::Type(), id, c);
   }
 
   // Returns the object for the given id, if one exists.
@@ -263,13 +267,12 @@ class ObjectRegistry {
   template <typename T>
   Status GetManagedObject(const std::string& id,
                           std::shared_ptr<T>* result) const {
-    std::string key = std::string(T::Type()) + "://" + id;
-    auto c = GetManagedObject(key);
+    auto c = GetManagedObject(T::Type(), id);
     if (c != nullptr) {
       *result = std::static_pointer_cast<T>(c);
       return Status::OK();
     } else {
-      return Status::NotFound("Cannot find SharedObject: ", key);
+      return Status::NotFound("Cannot find SharedObject: ", id);
     }
   }
 
@@ -309,9 +312,8 @@ class ObjectRegistry {
   template <typename T>
   Status NewManagedObject(const std::string& id, std::shared_ptr<T>* result,
                           const ConfigureFunc<T>& cfunc = nullptr) {
-    std::string key = std::string(T::Type()) + "://" + id;
     if (parent_ != nullptr) {
-      auto object = parent_->GetManagedObject(key);
+      auto object = parent_->GetManagedObject(T::Type(), id);
       if (object != nullptr) {
         *result = std::static_pointer_cast<T>(object);
         return Status::OK();
@@ -319,6 +321,7 @@ class ObjectRegistry {
     }
     {
       std::unique_lock<std::mutex> lock(objects_mutex_);
+      auto key = ToManagedObjectKey(T::Type(), id);
       auto iter = managed_objects_.find(key);
       if (iter != managed_objects_.end()) {
         auto object = iter->second.lock();
@@ -347,10 +350,15 @@ class ObjectRegistry {
   explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
     libraries_.push_back(library);
   }
+  static std::string ToManagedObjectKey(const std::string& type,
+                                        const std::string& id) {
+    return type + "://" + id;
+  }
 
   // Returns the Customizable managed object associated with the key (Type/ID).
   // If not found, nullptr is returned.
-  std::shared_ptr<Customizable> GetManagedObject(const std::string& key) const;
+  std::shared_ptr<Customizable> GetManagedObject(const std::string& type,
+                                                 const std::string& id) const;
   Status ListManagedObjects(
       const std::string& type, const std::string& pattern,
       std::vector<std::shared_ptr<Customizable>>* results) const;
@@ -358,7 +366,7 @@ class ObjectRegistry {
   // If the named managed object does not exist, the object is added and OK is
   // returned If the object exists and is the same as c, OK is returned
   // Otherwise, an error status is returned.
-  Status SetManagedObject(const std::string& key,
+  Status SetManagedObject(const std::string& type, const std::string& id,
                           const std::shared_ptr<Customizable>& c);
 
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
