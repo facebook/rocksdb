@@ -288,7 +288,7 @@ class Configurable {
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
-  std::atomic<bool> is_prepared_;
+  bool is_prepared_;
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the

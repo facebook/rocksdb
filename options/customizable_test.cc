@@ -688,6 +688,42 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
 }
 
+TEST_F(CustomizableTest, CopyObjectTest) {
+  class CopyCustomizable : public Customizable {
+   public:
+    CopyCustomizable() : prepared_(0), validated_(0) {}
+    const char* Name() const override { return "CopyCustomizable"; }
+
+    Status PrepareOptions(const ConfigOptions& options) override {
+      prepared_++;
+      return Customizable::PrepareOptions(options);
+    }
+    Status ValidateOptions(const DBOptions& db_opts,
+                           const ColumnFamilyOptions& cf_opts) const override {
+      validated_++;
+      return Customizable::ValidateOptions(db_opts, cf_opts);
+    }
+    int prepared_;
+    mutable int validated_;
+  };
+
+  CopyCustomizable c1;
+  ConfigOptions config_options;
+  Options options;
+
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c1.prepared_, 1);
+  ASSERT_EQ(c1.validated_, 1);
+  CopyCustomizable c2 = c1;
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c2.prepared_, 1);
+  ASSERT_EQ(c2.validated_, 1);
+  ASSERT_EQ(c1.prepared_, 2);
+  ASSERT_EQ(c1.validated_, 2);
+}
+
 TEST_F(CustomizableTest, TestStringDepth) {
   class ShallowCustomizable : public Customizable {
    public:
