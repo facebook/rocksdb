@@ -108,7 +108,8 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
 class WriteBatchWithIndexTest : public WBWIBaseTest,
                                 public testing::WithParamInterface<bool> {
  public:
-  WriteBatchWithIndexTest() : WBWIBaseTest(GetParam()) {}
+  WriteBatchWithIndexTest()
+      : WBWIBaseTest("write_batch_with_index_test", GetParam()) {}
 };
 
 void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,

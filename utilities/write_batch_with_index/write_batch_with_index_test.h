@@ -160,16 +160,18 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
 
 class WBWIBaseTest : public testing::Test {
  public:
-  explicit WBWIBaseTest(bool overwrite) : db_(nullptr) {
+  explicit WBWIBaseTest(std::string databaseNamePrefix, bool overwrite)
+      : db_(nullptr) {
     options_.merge_operator =
         MergeOperators::CreateFromStringId("stringappend");
     options_.create_if_missing = true;
-    dbname_ = test::PerThreadDBPath("write_batch_with_index_test");
+    dbname_ = test::PerThreadDBPath(databaseNamePrefix);
     DestroyDB(dbname_, options_);
     batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 20, overwrite));
   }
 
   virtual ~WBWIBaseTest() {
+    batch_.reset();
     if (db_ != nullptr) {
       ReleaseSnapshot();
       delete db_;
@@ -220,12 +222,12 @@ class WBWIBaseTest : public testing::Test {
 
 class WBWIKeepTest : public WBWIBaseTest {
  public:
-  WBWIKeepTest() : WBWIBaseTest(false) {}
+  WBWIKeepTest() : WBWIBaseTest("write_batch_with_index_test", false) {}
 };
 
 class WBWIOverwriteTest : public WBWIBaseTest {
  public:
-  WBWIOverwriteTest() : WBWIBaseTest(true) {}
+  WBWIOverwriteTest() : WBWIBaseTest("write_batch_with_index_test", true) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE
