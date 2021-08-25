@@ -11,18 +11,19 @@
 
 #include "port/win/port_win.h"
 
-#include <io.h>
-#include "port/port_dirent.h"
-#include "port/sys_time.h"
-
-#include <cstdlib>
-#include <stdio.h>
 #include <assert.h>
+#include <io.h>
+#include <rpc.h>
+#include <stdio.h>
 #include <string.h>
 
-#include <memory>
-#include <exception>
 #include <chrono>
+#include <cstdlib>
+#include <exception>
+#include <memory>
+
+#include "port/port_dirent.h"
+#include "port/sys_time.h"
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 // utf8 <-> utf16
