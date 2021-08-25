@@ -134,6 +134,11 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     limiter->Request(20 /* request max bytes to drain so that refill and order generation will be triggered every time GenericRateLimiter::Request() is called */ , Env::IO_USER, nullptr /* stats */,
                      RateLimiter::OpType::kWrite);
   }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack("GenericRateLimiter::GeneratePriorityIterationOrder::PreReturnPriIterationOrder");
+  SyncPoint::GetInstance()->ClearCallBack("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForMidPri");
+  SyncPoint::GetInstance()->ClearCallBack("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForHighPri");
 }
 
 TEST_F(RateLimiterTest, Rate) {
