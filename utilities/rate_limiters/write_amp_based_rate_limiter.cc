@@ -32,10 +32,11 @@ constexpr int kSecondsPerTune = 1;
 constexpr int kMillisPerTune = 1000 * kSecondsPerTune;
 constexpr int kMicrosPerTune = 1000 * 1000 * kSecondsPerTune;
 
-// Two reasons for adding padding to baseline limit:
-// 1. compaction cannot fully utilize the IO quota we set.
-// 2. make it faster to digest unexpected burst of pending compaction bytes,
-// generally this will help flatten IO waves.
+// Due to the execution model of compaction, large waves of pending compactions
+// could possibly be hidden behind a constant rate of I/O requests. It's then
+// wise to raise the threshold slightly above estimation to ensure those
+// pending compactions can contribute to the convergence of a new alternative
+// threshold.
 // Padding is calculated through hyperbola based on empirical percentage of 10%
 // and special care for low-pressure domain. E.g. coordinates (5M, 18M) and
 // (10M, 16M) are on this curve.
@@ -313,6 +314,12 @@ int64_t WriteAmpBasedRateLimiter::CalculateRefillBytesPerPeriod(
   }
 }
 
+// The core function used to dynamically adjust the compaction rate limit,
+// called **at most** once every `kSecondsPerTune`.
+// I/O throughput threshold is automatically tuned based on history samples of
+// compaction and flush flow. This algorithm excels by taking into account the
+// limiter's inability to estimate the pressure of pending compactions, and the
+// possibility of foreground write fluctuation.
 Status WriteAmpBasedRateLimiter::Tune() {
   // computed rate limit will be larger than 10MB/s
   const int64_t kMinBytesPerSec = 10 << 20;
@@ -330,21 +337,33 @@ Status WriteAmpBasedRateLimiter::Tune() {
 
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
 
-  // Loop through the actual time slice to make sure bytes flow from long period
-  // of time is properly estimated when the compaction rate is low.
+  // This function can be called less frequent than we anticipate when
+  // compaction rate is low. Loop through the actual time slice to correct
+  // the estimation.
   for (uint32_t i = 0; i < duration_ms / kMillisPerTune; i++) {
     bytes_sampler_.AddSample(duration_bytes_through_ * 1000 / duration_ms);
     highpri_bytes_sampler_.AddSample(duration_highpri_bytes_through_ * 1000 /
                                      duration_ms);
     limit_bytes_sampler_.AddSample(prev_bytes_per_sec);
   }
+  int64_t new_bytes_per_sec = bytes_sampler_.GetFullValue();
   int32_t ratio = std::max(
       kRatioLower,
       static_cast<int32_t>(
           bytes_sampler_.GetFullValue() * 10 /
           std::max(highpri_bytes_sampler_.GetFullValue(), kHighBytesLower)));
-
-  // in case there are compaction bursts even when online writes are stable
+  // Only adjust threshold when foreground write (flush) flow increases,
+  // because decreasement could also be caused by manual flow control at
+  // application level to alleviate background pressure.
+  new_bytes_per_sec = std::max(
+      new_bytes_per_sec,
+      ratio *
+          std::max(highpri_bytes_sampler_.GetRecentValue(), kHighBytesLower) /
+          10);
+  // Set the threshold higher to avoid write stalls caused by pending
+  // compactions.
+  int64_t padding = CalculatePadding(new_bytes_per_sec);
+  // Adjustment based on utilization.
   int64_t util = bytes_sampler_.GetRecentValue() * 1000 /
                  limit_bytes_sampler_.GetRecentValue();
   if (util >= 995) {
@@ -354,11 +373,7 @@ Status WriteAmpBasedRateLimiter::Tune() {
   } else if (percent_delta_ > 0) {
     percent_delta_ -= 1;
   }
-
-  int64_t new_bytes_per_sec =
-      ratio *
-      std::max(highpri_bytes_sampler_.GetRecentValue(), kHighBytesLower) / 10;
-  int64_t padding = CalculatePadding(new_bytes_per_sec);
+  // React to pace-up requests when LSM is out of shape.
   if (critical_pace_up_.load(std::memory_order_relaxed)) {
     percent_delta_ = 150;
     critical_pace_up_.store(false, std::memory_order_relaxed);
