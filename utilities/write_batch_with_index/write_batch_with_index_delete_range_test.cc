@@ -1110,9 +1110,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
 TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(OpenDB());
   auto cf1 = makeCF("First Family");
-
-  ReadOptions read_opts_;
-  WriteOptions write_opts_;
   Status s;
 
   // Put A, B, CC, C into the DB
@@ -1579,9 +1576,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
 TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRangeCF) {
   ASSERT_OK(OpenDB());
   auto cf1 = makeCF("First Family");
-
-  ReadOptions read_opts_;
-  WriteOptions write_opts_;
   Status s;
 
   // Put A, B, C into the DB
@@ -1722,9 +1716,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleRangesCF) {
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRanges) {
-  ReadOptions read_opts_;
-  WriteOptions write_opts_;
-
   const bool overwrite_key = true;
   batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 0, overwrite_key));
 
@@ -1823,9 +1814,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRanges) {
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRangesCF) {
   ASSERT_OK(OpenDB());
   auto cf1 = makeCF("First Family");
-
-  ReadOptions read_opts_;
-  WriteOptions write_opts_;
 
   const bool overwrite_key = true;
   batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 0, overwrite_key));
@@ -2012,9 +2000,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
 TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(OpenDB());
   auto cf1 = makeCF("First Family");
-
-  ReadOptions read_opts_;
-  WriteOptions write_opts_;
   Status s;
 
   const bool overwrite_key = true;
