@@ -218,7 +218,10 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
   pri_iteration_order[0] = Env::IO_USER;
 
   bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForHighPri", &high_pri_iterated_after_mid_low_pri);
   bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PostRandomOneInFairnessForMidPri", &mid_pri_itereated_after_low_pri);
+  
 
   if (high_pri_iterated_after_mid_low_pri) {
     pri_iteration_order[3] = Env::IO_HIGH;
@@ -234,6 +237,7 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
         (pri_iteration_order[3] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
   }
 
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::GeneratePriorityIterationOrder::PreReturnPriIterationOrder", &pri_iteration_order);
   return pri_iteration_order;
 }
 
