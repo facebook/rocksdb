@@ -57,6 +57,7 @@ class Configurable {
 
  public:
   Configurable();
+  Configurable(const Configurable& o);
   virtual ~Configurable() {}
 
   // Returns the raw pointer of the named options that is used by this
@@ -288,7 +289,7 @@ class Configurable {
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
-  bool is_prepared_;
+  std::atomic<bool> is_prepared_;
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the
