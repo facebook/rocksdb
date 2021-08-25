@@ -269,7 +269,8 @@ int64_t GetProcessID() { return getpid(); }
 
 bool GenerateRfcUuid(std::string* output) {
   output->clear();
-  std::getline(std::ifstream("/proc/sys/kernel/random/uuid"), /*&*/ *output);
+  std::ifstream f("/proc/sys/kernel/random/uuid");
+  std::getline(f, /*&*/ *output);
   if (output->size() == 36) {
     return true;
   } else {
