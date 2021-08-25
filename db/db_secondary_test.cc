@@ -560,6 +560,39 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, SecondaryTailingBug_ISSUE_8467) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+  }
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  const auto verify_db = [&](const std::string& foo_val,
+                             const std::string& bar_val) {
+    std::string value;
+    ReadOptions ropts;
+    Status s = db_secondary_->Get(ropts, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(foo_val, value);
+
+    s = db_secondary_->Get(ropts, "bar", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(bar_val, value);
+  };
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db("foo_value2", "bar_value2");
+  }
+}
+
 TEST_F(DBSecondaryTest, RefreshIterator) {
   Options options;
   options.env = env_;
