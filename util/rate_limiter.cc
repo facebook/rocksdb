@@ -83,7 +83,7 @@ GenericRateLimiter::~GenericRateLimiter() {
   }
   requests_to_wait_ = static_cast<int32_t>(queues_size_sum);
 
-  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+  for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
     std::deque<Req*> queue = queue_[i];
     for (auto& r : queue) {
       r->cv.Signal();
