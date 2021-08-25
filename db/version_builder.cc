@@ -1017,7 +1017,8 @@ class VersionBuilder::Rep {
             &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
             true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
-            prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin);
+            prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
+            file_meta->temperature);
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(

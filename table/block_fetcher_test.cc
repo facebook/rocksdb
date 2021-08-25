@@ -327,7 +327,7 @@ class BlockFetcherTest : public testing::Test {
         file, nullptr /* prefetch_buffer */, footer, roptions, block, contents,
         ioptions, do_uncompress, compressed, block_type,
         UncompressionDict::GetEmptyDict(), persistent_cache_options,
-        heap_buf_allocator, compressed_buf_allocator));
+        Temperature::kUnknown, heap_buf_allocator, compressed_buf_allocator));
 
     ASSERT_OK(fetcher->ReadBlockContents());
 

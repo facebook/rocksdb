@@ -77,20 +77,40 @@ extern thread_local PerfContext perf_context;
   }
 
 // Increase metric value
-#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)                      \
-  if (perf_level >= PerfLevel::kEnableCount &&                               \
-      perf_context.per_level_perf_context_enabled &&                         \
-      perf_context.level_to_perf_context) {                                  \
-    if ((*(perf_context.level_to_perf_context)).find(level) !=               \
-        (*(perf_context.level_to_perf_context)).end()) {                     \
-      (*(perf_context.level_to_perf_context))[level].metric += value;        \
-    }                                                                        \
-    else {                                                                   \
-      PerfContextByLevel empty_context;                                      \
-      (*(perf_context.level_to_perf_context))[level] = empty_context;        \
-      (*(perf_context.level_to_perf_context))[level].metric += value;       \
-    }                                                                        \
-  }                                                                          \
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)               \
+  if (perf_level >= PerfLevel::kEnableCount &&                        \
+      perf_context.per_level_perf_context_enabled &&                  \
+      perf_context.level_to_perf_context) {                           \
+    if ((*(perf_context.level_to_perf_context)).find(level) !=        \
+        (*(perf_context.level_to_perf_context)).end()) {              \
+      (*(perf_context.level_to_perf_context))[level].metric += value; \
+    } else {                                                          \
+      PerfContextByLevel empty_context;                               \
+      (*(perf_context.level_to_perf_context))[level] = empty_context; \
+      (*(perf_context.level_to_perf_context))[level].metric += value; \
+    }                                                                 \
+  }
+
+// Increase temperature based file counter
+#define PERF_COUNTER_TEMPERATURE_BASED_ADD(temperature, value)                \
+  if (perf_level >= PerfLevel::kEnableCount) {                                \
+    switch (temperature) {                                                    \
+      case Temperature::kHot:                                                 \
+        perf_context.file_access_count_by_temperature.hot_file_read_count +=  \
+            value;                                                            \
+        break;                                                                \
+      case Temperature::kWarm:                                                \
+        perf_context.file_access_count_by_temperature.warm_file_read_count += \
+            value;                                                            \
+        break;                                                                \
+      case Temperature::kCold:                                                \
+        perf_context.file_access_count_by_temperature.cold_file_read_count += \
+            value;                                                            \
+        break;                                                                \
+      default:                                                                \
+        break;                                                                \
+    }                                                                         \
+  }
 
 #endif
 

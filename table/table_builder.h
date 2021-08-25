@@ -39,13 +39,14 @@ struct TableReaderOptions {
                      BlockCacheTracer* const _block_cache_tracer = nullptr,
                      size_t _max_file_size_for_l0_meta_pin = 0,
                      const std::string& _cur_db_session_id = "",
-                     uint64_t _cur_file_num = 0)
-      : TableReaderOptions(
-            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
-            _skip_filters, _immortal, _force_direct_prefetch, _level,
-            0 /* _largest_seqno */, _block_cache_tracer,
-            _max_file_size_for_l0_meta_pin, _cur_db_session_id, _cur_file_num) {
-  }
+                     uint64_t _cur_file_num = 0,
+                     Temperature _file_temperature = Temperature::kUnknown)
+      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
+                           _internal_comparator, _skip_filters, _immortal,
+                           _force_direct_prefetch, _level,
+                           0 /* _largest_seqno */, _block_cache_tracer,
+                           _max_file_size_for_l0_meta_pin, _cur_db_session_id,
+                           _cur_file_num, _file_temperature) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableOptions& _ioptions,
@@ -58,7 +59,7 @@ struct TableReaderOptions {
                      BlockCacheTracer* const _block_cache_tracer,
                      size_t _max_file_size_for_l0_meta_pin,
                      const std::string& _cur_db_session_id,
-                     uint64_t _cur_file_num)
+                     uint64_t _cur_file_num, Temperature _file_temperature)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -71,7 +72,8 @@ struct TableReaderOptions {
         block_cache_tracer(_block_cache_tracer),
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
         cur_db_session_id(_cur_db_session_id),
-        cur_file_num(_cur_file_num) {}
+        cur_file_num(_cur_file_num),
+        file_temperature(_file_temperature) {}
 
   const ImmutableOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -98,6 +100,9 @@ struct TableReaderOptions {
   std::string cur_db_session_id;
 
   uint64_t cur_file_num;
+
+  // The temperature of a file
+  Temperature file_temperature;
 };
 
 struct TableBuilderOptions {

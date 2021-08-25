@@ -402,7 +402,8 @@ class TableConstructor : public Constructor {
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
                            false, level_, largest_seqno_, &block_cache_tracer_,
-                           moptions.write_buffer_size, "", uniq_id_),
+                           moptions.write_buffer_size, "", uniq_id_,
+                           Temperature::kUnknown),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -4474,7 +4475,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), pcache_opts,
+      UncompressionDict::GetEmptyDict(), pcache_opts, Temperature::kUnknown,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));

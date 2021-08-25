@@ -96,14 +96,15 @@ Status ReadBlockFromFile(
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
     MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
-    const FilterPolicy* filter_policy) {
+    const FilterPolicy* filter_policy, Temperature file_temperature) {
   assert(result);
 
   BlockContents contents;
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, options, handle, &contents, ioptions,
-      do_uncompress, maybe_compressed, block_type, uncompression_dict,
-      cache_options, memory_allocator, nullptr, for_compaction);
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
+                             &contents, ioptions, do_uncompress,
+                             maybe_compressed, block_type, uncompression_dict,
+                             cache_options, file_temperature, memory_allocator,
+                             nullptr, for_compaction);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
@@ -525,7 +526,7 @@ Status BlockBasedTable::Open(
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
-    uint64_t cur_file_num) {
+    uint64_t cur_file_num, Temperature file_temperature) {
   table_reader->reset();
 
   Status s;
@@ -587,9 +588,9 @@ Status BlockBasedTable::Open(
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters,
-                                      file_size, level, immortal_table);
+  Rep* rep = new BlockBasedTable::Rep(
+      ioptions, env_options, table_options, internal_comparator, skip_filters,
+      file_size, level, immortal_table, file_temperature);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
@@ -1125,7 +1126,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
       0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
       false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
-      nullptr /* filter_policy */);
+      nullptr /* filter_policy */, rep_->file_temperature);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1512,7 +1513,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
             maybe_compressed, block_type, uncompression_dict,
-            rep_->persistent_cache_options,
+            rep_->persistent_cache_options, rep_->file_temperature,
             GetMemoryAllocator(rep_->table_options),
             GetMemoryAllocatorForCompressedBlock(rep_->table_options));
         s = block_fetcher.ReadBlockContents();
@@ -1724,6 +1725,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     PERF_COUNTER_ADD(block_read_count, 1);
     PERF_COUNTER_ADD(block_read_byte, block_size(handle));
+    PERF_COUNTER_TEMPERATURE_BASED_ADD(rep_->file_temperature, 1);
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
@@ -1959,7 +1961,7 @@ Status BlockBasedTable::RetrieveBlock(
             : 0,
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get());
+        rep_->table_options.filter_policy.get(), rep_->file_temperature);
 
     if (get_context) {
       switch (block_type) {
@@ -2994,7 +2996,8 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
         rep_->file.get(), &prefetch_buffer, rep_->footer, ReadOptions(), handle,
         &contents, rep_->ioptions, false /* decompress */,
         false /*maybe_compressed*/, BlockType::kData,
-        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
+        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
+        rep_->file_temperature);
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
@@ -3059,7 +3062,8 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
         ReadOptions(), handle, &contents, rep_->ioptions,
         false /* decompress */, false /*maybe_compressed*/,
         GetBlockTypeForMetaBlockByName(meta_block_name),
-        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
+        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
+        rep_->file_temperature);
     s = block_fetcher.ReadBlockContents();
     if (s.IsCorruption() && meta_block_name == kPropertiesBlock) {
       TableProperties* table_properties;
