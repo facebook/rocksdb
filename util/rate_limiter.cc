@@ -215,6 +215,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 std::vector<Env::IOPriority>
 GenericRateLimiter::GeneratePriorityIterationOrder() {
   std::vector<Env::IOPriority> pri_iteration_order(Env::IO_TOTAL /* 4 */);
+  // We make Env::IO_USER a superior priority by always iterating its queue first
   pri_iteration_order[0] = Env::IO_USER;
 
   bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
