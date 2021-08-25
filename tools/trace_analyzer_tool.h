@@ -21,8 +21,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DBImpl;
-class WriteBatch;
+// Value sizes may be used as denominators. Replacing 0 value sizes with this
+// positive integer avoids division error.
+extern const size_t kShadowValueSize /* = 10*/;
 
 enum TraceOperationType : int {
   kGet = 0,
@@ -241,12 +242,24 @@ class TraceAnalyzer : private TraceRecord::Handler,
   using WriteBatch::Handler::MarkCommit;
   Status MarkCommit(const Slice& /*xid*/) override { return Status::OK(); }
 
+  // Process each trace operation and output the analysis result to
+  // stdout/files.
+  Status OutputAnalysisResult(TraceOperationType op_type, uint64_t timestamp,
+                              std::vector<uint32_t> cf_ids,
+                              std::vector<Slice> keys,
+                              std::vector<size_t> value_sizes);
+
+  Status OutputAnalysisResult(TraceOperationType op_type, uint64_t timestamp,
+                              uint32_t cf_id, const Slice& key,
+                              size_t value_size);
+
   ROCKSDB_NAMESPACE::Env* env_;
   EnvOptions env_options_;
   std::unique_ptr<TraceReader> trace_reader_;
   size_t offset_;
   char buffer_[1024];
-  uint64_t c_time_;
+  // Timestamp of a WriteBatch, used in its iteration.
+  uint64_t write_batch_ts_;
   std::string trace_name_;
   std::string output_path_;
   AnalyzerOptions analyzer_opts_;
