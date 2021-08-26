@@ -1215,7 +1215,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 sub_compact->compaction->immutable_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
-                io_tracer_, blob_callback_, dbname_, &blob_file_paths,
+                io_tracer_, blob_callback_, dbname_,
+                BlobFileCreationReason::kCompaction, &blob_file_paths,
                 &sub_compact->blob_file_additions)
           : nullptr);
 

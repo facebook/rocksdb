@@ -51,12 +51,14 @@ class EventHelpers {
   static void NotifyBlobFileCreationStarted(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       const std::string& db_name, const std::string& cf_name,
-      const std::string& file_path, int job_id);
+      const std::string& file_path, int job_id,
+      BlobFileCreationReason creation_reason);
 
   static void NotifyBlobFileCreationFinished(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       const std::string& db_name, const std::string& cf_name,
-      const std::string& file_path, int job_id, const Status& s,
+      const std::string& file_path, int job_id,
+      BlobFileCreationReason creation_reason, const Status& s,
       const std::string& file_checksum,
       const std::string& file_checksum_func_name, uint64_t total_blob_count,
       uint64_t total_blob_bytes);

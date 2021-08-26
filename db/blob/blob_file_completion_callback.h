@@ -25,16 +25,17 @@ class BlobFileCompletionCallback {
       const std::vector<std::shared_ptr<EventListener> >& /*listeners*/,
       const std::string& /*dbname*/, const std::string& /*file_name*/,
       const std::string& /*column_family_name*/, int /*job_id*/,
-      Status /*report_status*/, std::string /*checksum_value*/,
-      std::string /*checksum_method*/, uint64_t /*blob_count*/,
-      uint64_t /*blob_bytes*/) {
+      BlobFileCreationReason /*creation_reason*/, Status /*report_status*/,
+      std::string /*checksum_value*/, std::string /*checksum_method*/,
+      uint64_t /*blob_count*/, uint64_t /*blob_bytes*/) {
     return Status::OK();
   }
 
   void OnBlobFileCreationStarted(
       const std::vector<std::shared_ptr<EventListener> >& /*listeners*/,
       const std::string& /*dbname*/, const std::string& /*file_name*/,
-      const std::string& /*column_family_name*/, int /*job_id*/) {}
+      const std::string& /*column_family_name*/, int /*job_id*/,
+      BlobFileCreationReason /*creation_reason*/) {}
 #else
   BlobFileCompletionCallback(SstFileManager* sst_file_manager,
                              InstrumentedMutex* mutex,
@@ -46,7 +47,8 @@ class BlobFileCompletionCallback {
   Status OnBlobFileCompleted(
       const std::vector<std::shared_ptr<EventListener> >& listeners,
       const std::string& dbname, const std::string& file_name,
-      const std::string& column_family_name, int job_id, Status report_status,
+      const std::string& column_family_name, int job_id,
+      BlobFileCreationReason creation_reason, Status report_status,
       std::string checksum_value, std::string checksum_method,
       uint64_t blob_count, uint64_t blob_bytes) {
     Status s;
@@ -64,18 +66,21 @@ class BlobFileCompletionCallback {
     }
     // Notify the listeners.
     EventHelpers::NotifyBlobFileCreationFinished(
-        listeners, dbname, column_family_name, file_name, job_id, report_status,
-        checksum_value, checksum_method, blob_count, blob_bytes);
+        listeners, dbname, column_family_name, file_name, job_id,
+        creation_reason, report_status, checksum_value, checksum_method,
+        blob_count, blob_bytes);
     return s;
   }
 
   void OnBlobFileCreationStarted(
       const std::vector<std::shared_ptr<EventListener> >& listeners,
       const std::string& dbname, const std::string& file_name,
-      const std::string& column_family_name, int job_id) {
+      const std::string& column_family_name, int job_id,
+      BlobFileCreationReason creation_reason) {
     // Notify the listeners.
-    EventHelpers::NotifyBlobFileCreationStarted(
-        listeners, dbname, column_family_name, file_name, job_id);
+    EventHelpers::NotifyBlobFileCreationStarted(listeners, dbname,
+                                                column_family_name, file_name,
+                                                job_id, creation_reason);
   }
 
  private:

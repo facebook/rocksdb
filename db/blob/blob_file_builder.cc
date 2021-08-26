@@ -37,13 +37,14 @@ BlobFileBuilder::BlobFileBuilder(
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback, const std::string& dbname,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
                       job_id, column_family_id, column_family_name, io_priority,
                       write_hint, io_tracer, blob_callback, dbname,
-                      blob_file_paths, blob_file_additions) {}
+                      creation_reason, blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
@@ -54,6 +55,7 @@ BlobFileBuilder::BlobFileBuilder(
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback, const std::string& dbname,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -71,6 +73,7 @@ BlobFileBuilder::BlobFileBuilder(
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
       dbname_(dbname),
+      creation_reason_(creation_reason),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
@@ -164,9 +167,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
 
   if (blob_callback_) {
-    blob_callback_->OnBlobFileCreationStarted(immutable_options_->listeners,
-                                              dbname_, blob_file_path,
-                                              column_family_name_, job_id_);
+    blob_callback_->OnBlobFileCreationStarted(
+        immutable_options_->listeners, dbname_, blob_file_path,
+        column_family_name_, job_id_, creation_reason_);
   }
 
   std::unique_ptr<FSWritableFile> file;
@@ -316,8 +319,8 @@ Status BlobFileBuilder::CloseBlobFile() {
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
         immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-        column_family_name_, job_id_, s, checksum_value, checksum_method,
-        blob_count_, blob_bytes_);
+        column_family_name_, job_id_, creation_reason_, s, checksum_value,
+        checksum_method, blob_count_, blob_bytes_);
   }
 
   assert(blob_file_additions_);
@@ -362,7 +365,7 @@ void BlobFileBuilder::Abandon(Status s) {
     // Blob files. So we can ignore the below error.
     blob_callback_->OnBlobFileCompleted(
         immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-        column_family_name_, job_id_, s, kUnknownFileChecksum,
+        column_family_name_, job_id_, creation_reason_, s, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, blob_count_, blob_bytes_);
   }
 

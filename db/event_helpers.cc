@@ -257,11 +257,13 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
 void EventHelpers::NotifyBlobFileCreationStarted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
-    const std::string& file_path, int job_id) {
+    const std::string& file_path, int job_id,
+    BlobFileCreationReason creation_reason) {
   if (listeners.empty()) {
     return;
   }
-  BlobFileCreationBriefInfo info(db_name, cf_name, file_path, job_id);
+  BlobFileCreationBriefInfo info(db_name, cf_name, file_path, job_id,
+                                 creation_reason);
   for (auto& listener : listeners) {
     listener->OnBlobFileCreationStarted(info);
   }
@@ -270,7 +272,8 @@ void EventHelpers::NotifyBlobFileCreationStarted(
 void EventHelpers::NotifyBlobFileCreationFinished(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
-    const std::string& file_path, int job_id, const Status& s,
+    const std::string& file_path, int job_id,
+    BlobFileCreationReason creation_reason, const Status& s,
     const std::string& file_checksum,
     const std::string& file_checksum_func_name, uint64_t total_blob_count,
     uint64_t total_blob_bytes) {
@@ -278,8 +281,9 @@ void EventHelpers::NotifyBlobFileCreationFinished(
     return;
   }
   BlobFileCreationInfo info(
-      db_name, cf_name, file_path, job_id, total_blob_count, total_blob_bytes,
-      s, (file_checksum.empty() ? kUnknownFileChecksum : file_checksum),
+      db_name, cf_name, file_path, job_id, creation_reason, total_blob_count,
+      total_blob_bytes, s,
+      (file_checksum.empty() ? kUnknownFileChecksum : file_checksum),
       (file_checksum_func_name.empty() ? kUnknownFileChecksumFuncName
                                        : file_checksum_func_name));
   for (auto& listener : listeners) {
