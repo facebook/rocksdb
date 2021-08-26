@@ -565,22 +565,6 @@ class Env {
   // NOTE: this has not be validated for use in cryptography
   virtual std::string GenerateUniqueId();
 
-  // Using APIs provided by the platform, generates a human-readable unique
-  // ID that can be used to identify a DB. In built-in implementations, this
-  // is an RFC-4122 UUID string, or returns Status NotSupported on some
-  // platforms or configurations.
-  // NOTE: this has not be validated for use in cryptography
-  // virtual Status GenerateUniqueIdFromPlatform(std::string *id);
-
-  // Generates a raw 128-bit unique identifier, split into two 64-bit pieces.
-  // Each 64-bit piece is guaranteed unique (any two `a`s or any two `b`s)
-  // through the life of a process, and full IDs (<a,b>) are unique with high
-  // probability between processes.
-  // NOTE: this is surely not suitable for cryptography
-  // virtual void GenerateRawUniqueId(uint64_t *a, uint64_t *b);
-
-  // GenerateRandomSeed(uint64_t *a, uint64_t *b);
-
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
   // the EnvOptions in the parameters, but is optimized for reading log files.
   virtual EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const;
