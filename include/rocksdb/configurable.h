@@ -56,7 +56,6 @@ class Configurable {
   };
 
  public:
-  Configurable();
   virtual ~Configurable() {}
 
   // Returns the raw pointer of the named options that is used by this
@@ -262,10 +261,6 @@ class Configurable {
   virtual Status ValidateOptions(const DBOptions& db_opts,
                                  const ColumnFamilyOptions& cf_opts) const;
 
-  // Returns true if this object has been initialized via PrepareOptions, false
-  // otherwise. Once an object has been prepared, only mutable options may be
-  // changed.
-  virtual bool IsPrepared() const { return is_prepared_; }
 
   // Splits the input opt_value into the ID field and the remaining options.
   // The input opt_value can be in the form of "name" or "name=value
@@ -286,10 +281,6 @@ class Configurable {
       std::string* id, std::unordered_map<std::string, std::string>* options);
 
  protected:
-  // True once the object is prepared.  Once the object is prepared, only
-  // mutable options can be configured.
-  std::atomic<bool> is_prepared_;
-
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the
   // Classes may override this method to provide further specialization (such as
