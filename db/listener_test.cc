@@ -1241,44 +1241,43 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     call_count_++;
-    EXPECT_GE(info.blob_files_info.size(), 1);
+    EXPECT_GE(info.blob_file_addition_infos.size(), 1);
     const auto& blob_files = GetBlobFiles();
     {
       std::lock_guard<std::mutex> lock(mutex_);
       flushed_files_.push_back(info.file_path);
     }
-    for (auto blob_file_info : info.blob_files_info) {
+    EXPECT_EQ(info.blob_compression_type, kNoCompression);
+    for (auto blob_file_info : info.blob_file_addition_infos) {
       const auto meta =
           GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
       EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
       EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
       EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
-      EXPECT_EQ(blob_file_info.compression_type, kNoCompression);
       EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
     }
   }
 
   void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     call_count_++;
-    EXPECT_GE(ci.blob_files_garbage_info.size(), 1);
+    EXPECT_GE(ci.blob_file_addition_infos.size(), 1);
     const auto& blob_files = GetBlobFiles();
+    EXPECT_EQ(ci.blob_compression_type, kNoCompression);
 
-    for (auto blob_file_info : ci.blob_files_info) {
+    for (auto blob_file_info : ci.blob_file_addition_infos) {
       const auto meta =
           GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
       EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
       EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
       EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
       EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
-      EXPECT_EQ(blob_file_info.compression_type, kNoCompression);
     }
 
-    for (auto blob_file_garbage_info : ci.blob_files_garbage_info) {
-      EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
-      EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
-      EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
-      EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0U);
-      EXPECT_EQ(blob_file_garbage_info.compression_type, kNoCompression);
+    for (auto blob_file_info : ci.blob_file_garbage_infos) {
+      EXPECT_GT(blob_file_info.blob_file_number, 0U);
+      EXPECT_GT(blob_file_info.garbage_blob_count, 0U);
+      EXPECT_GT(blob_file_info.garbage_blob_bytes, 0U);
+      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
     }
   }
 
@@ -1414,19 +1413,18 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
   }
   ASSERT_TRUE(is_blob_in_output);
 
-  for (auto blob_file_info : compaction_job_info.blob_files_info) {
+  for (auto blob_file_info : compaction_job_info.blob_file_addition_infos) {
     EXPECT_GT(blob_file_info.blob_file_number, 0U);
     EXPECT_GT(blob_file_info.total_blob_bytes, 0U);
     EXPECT_GT(blob_file_info.total_blob_count, 0U);
     EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
   }
 
-  for (auto blob_file_garbage_info :
-       compaction_job_info.blob_files_garbage_info) {
-    EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
-    EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
-    EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
-    EXPECT_GT(blob_file_garbage_info.blob_file_path.size(), 0U);
+  for (auto blob_file_info : compaction_job_info.blob_file_garbage_infos) {
+    EXPECT_GT(blob_file_info.blob_file_number, 0U);
+    EXPECT_GT(blob_file_info.garbage_blob_count, 0U);
+    EXPECT_GT(blob_file_info.garbage_blob_bytes, 0U);
+    EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
   }
 }
 
@@ -1455,8 +1453,8 @@ class BlobDBFileLevelEventListener : public EventListener {
     EXPECT_GT(info.job_id, 0);
     EXPECT_GT(info.total_blob_count, 0U);
     EXPECT_GT(info.total_blob_bytes, 0U);
-    EXPECT_EQ(info.file_checksum, "");
-    EXPECT_EQ(info.file_checksum_func_name, "");
+    EXPECT_EQ(info.file_checksum, kUnknownFileChecksum);
+    EXPECT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
     EXPECT_TRUE(info.status.ok());
   }
 

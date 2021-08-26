@@ -1021,17 +1021,17 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
   info->flush_reason = cfd_->GetFlushReason();
+  info->blob_compression_type = mutable_cf_options_.blob_compression_type;
 
   // Update BlobFilesInfo.
   for (auto blob_file : edit_->GetBlobFileAdditions()) {
-    BlobFileInfo blob_file_info;
-    blob_file_info.blob_file_number = blob_file.GetBlobFileNumber();
-    blob_file_info.blob_file_path = BlobFileName(
-        cfd_->ioptions()->cf_paths.front().path, blob_file.GetBlobFileNumber());
-    blob_file_info.total_blob_count = blob_file.GetTotalBlobCount();
-    blob_file_info.total_blob_bytes = blob_file.GetTotalBlobBytes();
-    blob_file_info.compression_type = mutable_cf_options_.blob_compression_type;
-    info->blob_files_info.emplace_back(blob_file_info);
+    BlobFileAdditionInfo blob_file_addition_info(
+        BlobFileName(cfd_->ioptions()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber()) /*blob_file_path*/,
+        blob_file.GetBlobFileNumber(), blob_file.GetTotalBlobCount(),
+        blob_file.GetTotalBlobBytes());
+    info->blob_file_addition_infos.emplace_back(
+        std::move(blob_file_addition_info));
   }
   return info;
 }
