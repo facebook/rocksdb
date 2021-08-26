@@ -378,7 +378,6 @@ class WriteBatch : public WriteBatchBase {
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-  const size_t timestamp_size_{0};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -766,7 +766,7 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   const std::vector<std::tuple<std::string, std::string>> kvs = {
       std::make_tuple("aa", "value1"), std::make_tuple("ab", "value2")};
   for (const auto& ts : timestamps) {
-    WriteBatch wb(0, 0, kTimestampSize);
+    WriteBatch wb;
     for (const auto& kv : kvs) {
       const std::string& key = std::get<0>(kv);
       const std::string& value = std::get<1>(kv);
@@ -1072,7 +1072,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   }
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
-    WriteBatch batch(0, 0, kTimestampSize);
+    WriteBatch batch;
     ASSERT_OK(batch.Put("a", "new_value"));
     ASSERT_OK(batch.Put("b", "new_value"));
     s = batch.AssignTimestamp(ts_str);
@@ -2621,7 +2621,7 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
     const Slice& write_ts = write_ts_list.back();
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
       WriteOptions wopts;
-      WriteBatch batch(0, 0, ts_sz);
+      WriteBatch batch;
       for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
         ASSERT_OK(
             batch.Put(handles_[cf], Key1(j),

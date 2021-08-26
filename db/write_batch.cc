@@ -804,15 +804,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSlice(&b->rep_, key);
-  } else {
-    PutVarint32(&b->rep_,
-                static_cast<uint32_t>(key.size() + b->timestamp_size_));
-    b->rep_.append(key.data(), key.size());
-    b->rep_.append(timestamp);
-  }
+  PutLengthPrefixedSlice(&b->rep_, key);
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -826,7 +818,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // inserted into memtable.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, timestamp)
+            .ProtectKVOT(key, value, kTypeValue, "")
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -873,12 +865,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSliceParts(&b->rep_, key);
-  } else {
-    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
   PutLengthPrefixedSliceParts(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -888,7 +875,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, timestamp)
+            .ProtectKVOT(key, value, kTypeValue, "")
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -965,15 +952,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSlice(&b->rep_, key);
-  } else {
-    PutVarint32(&b->rep_,
-                static_cast<uint32_t>(key.size() + b->timestamp_size_));
-    b->rep_.append(key.data(), key.size());
-    b->rep_.append(timestamp);
-  }
+  PutLengthPrefixedSlice(&b->rep_, key);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -982,7 +961,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, "" /* value */, kTypeDeletion, timestamp)
+            .ProtectKVOT(key, "" /* value */, kTypeDeletion, "")
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1003,12 +982,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSliceParts(&b->rep_, key);
-  } else {
-    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -1019,7 +993,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
         ProtectionInfo64()
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */, 0 /* _num_parts */),
-                         kTypeDeletion, timestamp)
+                         kTypeDeletion, "")
             .ProtectC(column_family_id));
   }
   return save.commit();
