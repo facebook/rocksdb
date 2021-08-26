@@ -265,6 +265,7 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
       GeneratePriorityIterationOrder();
 
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    assert(!pri_iteration_order.empty());
     Env::IOPriority current_pri = pri_iteration_order[i];
     auto* queue = &queue_[current_pri];
     while (!queue->empty()) {
