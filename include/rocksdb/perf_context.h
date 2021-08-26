@@ -41,9 +41,8 @@ struct PerfContextByLevel {
   void Reset();  // reset all performance counters to zero
 };
 
-// EXPERIMENTAL: the perf context for tiered storage. It match with each item
+// EXPERIMENTAL: the perf context for tiered storage. It matches with each item
 // in Temperature class.
-
 struct FileAccessByTemperature {
   // total number of block reads to Temperature::kHot file
   uint64_t hot_file_read_count = 0;
@@ -51,6 +50,8 @@ struct FileAccessByTemperature {
   uint64_t warm_file_read_count = 0;
   // total number of block reads to Temperature::kCold file
   uint64_t cold_file_read_count = 0;
+  // total number of block reads to Temperature::kUnknown file
+  uint64_t unknown_file_read_count = 0;
   // reset all the counters to 0.
   void Reset();
 };

@@ -456,6 +456,7 @@ void FileAccessByTemperature::Reset() {
   hot_file_read_count = 0;
   warm_file_read_count = 0;
   cold_file_read_count = 0;
+  unknown_file_read_count = 0;
 #endif
 }
 
@@ -547,6 +548,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.hot_file_read_count);
   PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.warm_file_read_count);
   PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.cold_file_read_count);
+  PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.unknown_file_read_count);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);

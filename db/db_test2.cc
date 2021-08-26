@@ -6522,6 +6522,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  get_perf_context()->Reset();
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
@@ -6530,11 +6531,51 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_GT(size, 0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.warm_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(get_perf_context()
+                ->file_access_count_by_temperature.unknown_file_read_count,
+            0);
+
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.warm_file_read_count,
+      1);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(get_perf_context()
+                ->file_access_count_by_temperature.unknown_file_read_count,
+            0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.warm_file_read_count,
+      1);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(get_perf_context()
+                ->file_access_count_by_temperature.unknown_file_read_count,
+            1);
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
@@ -6583,6 +6624,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kHot);
   ASSERT_EQ(size, 0);
+  get_perf_context()->Reset();
 
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
@@ -6600,6 +6642,32 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_EQ(size, 0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.warm_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(get_perf_context()
+                ->file_access_count_by_temperature.unknown_file_read_count,
+            0);
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.warm_file_read_count,
+      0);
+  ASSERT_EQ(
+      get_perf_context()->file_access_count_by_temperature.hot_file_read_count,
+      0);
+  ASSERT_EQ(get_perf_context()
+                ->file_access_count_by_temperature.unknown_file_read_count,
+            1);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));

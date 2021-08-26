@@ -32,6 +32,7 @@ extern thread_local PerfContext perf_context;
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_COUNTER_ADD(metric, value)
 #define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)
+#define PERF_COUNTER_TEMPERATURE_BASED_ADD(temperature, value)
 
 #else
 
@@ -108,6 +109,8 @@ extern thread_local PerfContext perf_context;
             value;                                                            \
         break;                                                                \
       default:                                                                \
+        perf_context.file_access_count_by_temperature                         \
+            .unknown_file_read_count += value;                                \
         break;                                                                \
     }                                                                         \
   }
