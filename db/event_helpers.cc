@@ -37,6 +37,9 @@ void EventHelpers::NotifyTableFileCreationStarted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, TableFileCreationReason reason) {
+  if (listeners.empty()) {
+    return;
+  }
   TableFileCreationBriefInfo info;
   info.db_name = db_name;
   info.cf_name = cf_name;
@@ -54,7 +57,7 @@ void EventHelpers::NotifyOnBackgroundError(
     BackgroundErrorReason reason, Status* bg_error, InstrumentedMutex* db_mutex,
     bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0U) {
+  if (listeners.empty()) {
     return;
   }
   db_mutex->AssertHeld();
@@ -163,7 +166,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   }
 
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0) {
+  if (listeners.empty()) {
     return;
   }
   TableFileCreationInfo info;
@@ -210,6 +213,9 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   event_logger->Log(jwriter);
 
 #ifndef ROCKSDB_LITE
+  if (listeners.empty()) {
+    return;
+  }
   TableFileDeletionInfo info;
   info.db_name = dbname;
   info.job_id = job_id;
@@ -230,7 +236,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     Status old_bg_error, InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() > 0) {
+  if (!listeners.empty()) {
     db_mutex->AssertHeld();
     // release lock while notifying events
     db_mutex->Unlock();

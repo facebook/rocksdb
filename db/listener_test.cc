@@ -1069,7 +1069,7 @@ class TestFileOperationListener : public EventListener {
       ++file_truncates_success_;
     }
     if (EndsWith(info.path, ".blob")) {
-      ++blob_file_reads_;
+      ++blob_file_truncates_;
     }
     ReportDuration(info);
   }
@@ -1149,15 +1149,6 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
   options.create_if_missing = true;
   TestFileOperationListener* listener = new TestFileOperationListener();
   options.listeners.emplace_back(listener);
-
-  options.use_direct_io_for_flush_and_compaction = false;
-  Status s = TryReopen(options);
-  if (s.IsInvalidArgument()) {
-    options.use_direct_io_for_flush_and_compaction = false;
-  } else {
-    ASSERT_OK(s);
-  }
-
   options.disable_auto_compactions = true;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -1241,43 +1232,50 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     call_count_++;
-    EXPECT_GE(info.blob_file_addition_infos.size(), 1);
+    EXPECT_FALSE(info.blob_file_addition_infos.empty());
     const auto& blob_files = GetBlobFiles();
     {
       std::lock_guard<std::mutex> lock(mutex_);
       flushed_files_.push_back(info.file_path);
     }
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
-    for (auto blob_file_info : info.blob_file_addition_infos) {
-      const auto meta =
-          GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
-      EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
-      EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
-      EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
-      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+
+    for (auto blob_file_addition_info : info.blob_file_addition_infos) {
+      const auto meta = GetBlobFileMetaData(
+          blob_files, blob_file_addition_info.blob_file_number);
+      EXPECT_EQ(meta->GetBlobFileNumber(),
+                blob_file_addition_info.blob_file_number);
+      EXPECT_EQ(meta->GetTotalBlobBytes(),
+                blob_file_addition_info.total_blob_bytes);
+      EXPECT_EQ(meta->GetTotalBlobCount(),
+                blob_file_addition_info.total_blob_count);
+      EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
     }
   }
 
   void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     call_count_++;
-    EXPECT_GE(ci.blob_file_addition_infos.size(), 1);
+    EXPECT_FALSE(ci.blob_file_garbage_infos.empty());
     const auto& blob_files = GetBlobFiles();
     EXPECT_EQ(ci.blob_compression_type, kNoCompression);
 
-    for (auto blob_file_info : ci.blob_file_addition_infos) {
-      const auto meta =
-          GetBlobFileMetaData(blob_files, blob_file_info.blob_file_number);
-      EXPECT_EQ(meta->GetBlobFileNumber(), blob_file_info.blob_file_number);
-      EXPECT_EQ(meta->GetTotalBlobBytes(), blob_file_info.total_blob_bytes);
-      EXPECT_EQ(meta->GetTotalBlobCount(), blob_file_info.total_blob_count);
-      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+    for (auto blob_file_addition_info : ci.blob_file_addition_infos) {
+      const auto meta = GetBlobFileMetaData(
+          blob_files, blob_file_addition_info.blob_file_number);
+      EXPECT_EQ(meta->GetBlobFileNumber(),
+                blob_file_addition_info.blob_file_number);
+      EXPECT_EQ(meta->GetTotalBlobBytes(),
+                blob_file_addition_info.total_blob_bytes);
+      EXPECT_EQ(meta->GetTotalBlobCount(),
+                blob_file_addition_info.total_blob_count);
+      EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
     }
 
-    for (auto blob_file_info : ci.blob_file_garbage_infos) {
-      EXPECT_GT(blob_file_info.blob_file_number, 0U);
-      EXPECT_GT(blob_file_info.garbage_blob_count, 0U);
-      EXPECT_GT(blob_file_info.garbage_blob_bytes, 0U);
-      EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+    for (auto blob_file_garbage_info : ci.blob_file_garbage_infos) {
+      EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
+      EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
+      EXPECT_FALSE(blob_file_garbage_info.blob_file_path.empty());
     }
   }
 
@@ -1319,7 +1317,7 @@ TEST_F(EventListenerTest, BlobDBOnFlushCompleted) {
 }
 
 // Test OnCompactionCompleted EventListener called for blob files
-TEST_F(EventListenerTest, BlobDBOnCompactionCmpleted) {
+TEST_F(EventListenerTest, BlobDBOnCompactionCompleted) {
   Options options;
   options.env = CurrentOptions().env;
   options.enable_blob_files = true;
@@ -1413,18 +1411,20 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
   }
   ASSERT_TRUE(is_blob_in_output);
 
-  for (auto blob_file_info : compaction_job_info.blob_file_addition_infos) {
-    EXPECT_GT(blob_file_info.blob_file_number, 0U);
-    EXPECT_GT(blob_file_info.total_blob_bytes, 0U);
-    EXPECT_GT(blob_file_info.total_blob_count, 0U);
-    EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+  for (auto blob_file_addition_info :
+       compaction_job_info.blob_file_addition_infos) {
+    EXPECT_GT(blob_file_addition_info.blob_file_number, 0U);
+    EXPECT_GT(blob_file_addition_info.total_blob_bytes, 0U);
+    EXPECT_GT(blob_file_addition_info.total_blob_count, 0U);
+    EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
   }
 
-  for (auto blob_file_info : compaction_job_info.blob_file_garbage_infos) {
-    EXPECT_GT(blob_file_info.blob_file_number, 0U);
-    EXPECT_GT(blob_file_info.garbage_blob_count, 0U);
-    EXPECT_GT(blob_file_info.garbage_blob_bytes, 0U);
-    EXPECT_GT(blob_file_info.blob_file_path.size(), 0U);
+  for (auto blob_file_garbage_info :
+       compaction_job_info.blob_file_garbage_infos) {
+    EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
+    EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
+    EXPECT_FALSE(blob_file_garbage_info.blob_file_path.empty());
   }
 }
 
@@ -1439,17 +1439,17 @@ class BlobDBFileLevelEventListener : public EventListener {
   void OnBlobFileCreationStarted(
       const BlobFileCreationBriefInfo& info) override {
     files_started_++;
-    EXPECT_GT(info.db_name.size(), 0U);
-    EXPECT_GT(info.cf_name.size(), 0U);
-    EXPECT_GT(info.file_path.size(), 0U);
+    EXPECT_FALSE(info.db_name.empty());
+    EXPECT_FALSE(info.cf_name.empty());
+    EXPECT_FALSE(info.file_path.empty());
     EXPECT_GT(info.job_id, 0);
   }
 
   void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
     files_created_++;
-    EXPECT_GT(info.db_name.size(), 0U);
-    EXPECT_GT(info.cf_name.size(), 0U);
-    EXPECT_GT(info.file_path.size(), 0U);
+    EXPECT_FALSE(info.db_name.empty());
+    EXPECT_FALSE(info.cf_name.empty());
+    EXPECT_FALSE(info.file_path.empty());
     EXPECT_GT(info.job_id, 0);
     EXPECT_GT(info.total_blob_count, 0U);
     EXPECT_GT(info.total_blob_bytes, 0U);
@@ -1460,8 +1460,8 @@ class BlobDBFileLevelEventListener : public EventListener {
 
   void OnBlobFileDeleted(const BlobFileDeletionInfo& info) override {
     files_deleted_++;
-    EXPECT_GT(info.db_name.size(), 0U);
-    EXPECT_GT(info.file_path.size(), 0U);
+    EXPECT_FALSE(info.db_name.empty());
+    EXPECT_FALSE(info.file_path.empty());
     EXPECT_GT(info.job_id, 0);
     EXPECT_TRUE(info.status.ok());
   }
