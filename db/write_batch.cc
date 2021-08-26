@@ -254,23 +254,16 @@ struct SavePoints {
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(0) {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
                    ? reserved_bytes
                    : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
-  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
-    reserved_bytes : WriteBatchInternal::kHeader);
-  rep_.resize(WriteBatchInternal::kHeader);
-}
-
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
                        size_t protection_bytes_per_key)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   // Currently `protection_bytes_per_key` can only be enabled at 8 bytes per
   // entry.
   assert(protection_bytes_per_key == 0 || protection_bytes_per_key == 8);
@@ -284,23 +277,18 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
-    : content_flags_(ContentFlags::DEFERRED),
-      max_bytes_(0),
-      rep_(rep),
-      timestamp_size_(0) {}
+    : content_flags_(ContentFlags::DEFERRED), max_bytes_(0), rep_(rep) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(std::move(rep)),
-      timestamp_size_(0) {}
+      rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_),
-      timestamp_size_(src.timestamp_size_) {
+      rep_(src.rep_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
     save_points_->stack = src.save_points_->stack;
@@ -317,8 +305,7 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       prot_info_(std::move(src.prot_info_)),
-      rep_(std::move(src.rep_)),
-      timestamp_size_(src.timestamp_size_) {}
+      rep_(std::move(src.rep_)) {}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {

@@ -61,11 +61,10 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes,
                       size_t protection_bytes_per_key);
   ~WriteBatch() override;
 
@@ -379,7 +378,7 @@ class WriteBatch : public WriteBatchBase {
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-  const size_t timestamp_size_;
+  const size_t timestamp_size_{0};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
