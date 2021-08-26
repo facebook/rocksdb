@@ -1120,7 +1120,9 @@ TEST_F(CompactionJobTest, InputSerialization) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
   while (!rnd.OneIn(10)) {
-    input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    input.input_files.emplace_back(rnd.RandomString(
+        rnd.Uniform(kStrMaxLen - 1) +
+        1));  // input file name should have at least one character
   }
   input.output_level = 4;
   input.has_begin = rnd.OneIn(2);
