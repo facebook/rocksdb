@@ -362,9 +362,9 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   }
 #ifndef ROCKSDB_LITE
   if (type == kBlobFile) {
-    EventHelpers::NotifyBlobFileDeletion(immutable_db_options_.listeners,
-                                         job_id, number, fname,
-                                         file_deletion_status, GetName());
+    EventHelpers::LogAndNotifyBlobFileDeletion(
+        &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
+        file_deletion_status, GetName());
   }
 #endif  // ROCKSDB_LITE
 }

@@ -268,15 +268,32 @@ void EventHelpers::NotifyBlobFileCreationStarted(
     listener->OnBlobFileCreationStarted(info);
   }
 }
+#endif  // !ROCKSDB_LITE
 
-void EventHelpers::NotifyBlobFileCreationFinished(
+void EventHelpers::LogAndNotifyBlobFileCreationFinished(
+    EventLogger* event_logger,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
-    const std::string& file_path, int job_id,
+    const std::string& file_path, int job_id, uint64_t file_number,
     BlobFileCreationReason creation_reason, const Status& s,
     const std::string& file_checksum,
     const std::string& file_checksum_func_name, uint64_t total_blob_count,
     uint64_t total_blob_bytes) {
+  if (s.ok() && event_logger) {
+    JSONWriter jwriter;
+    AppendCurrentTime(&jwriter);
+    jwriter << "cf_name" << cf_name << "job" << job_id << "event"
+            << "blob_file_creation"
+            << "file_number" << file_number << "total_blob_count"
+            << total_blob_count << "total_blob_bytes" << total_blob_bytes
+            << "file_checksum" << file_checksum << "file_checksum_func_name"
+            << file_checksum_func_name;
+
+    jwriter.EndObject();
+    event_logger->Log(jwriter);
+  }
+
+#ifndef ROCKSDB_LITE
   if (listeners.empty()) {
     return;
   }
@@ -290,12 +307,34 @@ void EventHelpers::NotifyBlobFileCreationFinished(
     listener->OnBlobFileCreated(info);
   }
   info.status.PermitUncheckedError();
+#else
+  (void)listeners;
+  (void)db_name;
+  (void)file_path;
+  (void)creation_reason;
+#endif
 }
 
-void EventHelpers::NotifyBlobFileDeletion(
+void EventHelpers::LogAndNotifyBlobFileDeletion(
+    EventLogger* event_logger,
     const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
-    uint64_t /*file_number*/, const std::string& file_path,
-    const Status& status, const std::string& dbname) {
+    uint64_t file_number, const std::string& file_path, const Status& status,
+    const std::string& dbname) {
+  if (event_logger) {
+    JSONWriter jwriter;
+    AppendCurrentTime(&jwriter);
+
+    jwriter << "job" << job_id << "event"
+            << "blob_file_deletion"
+            << "file_number" << file_number;
+    if (!status.ok()) {
+      jwriter << "status" << status.ToString();
+    }
+
+    jwriter.EndObject();
+    event_logger->Log(jwriter);
+  }
+#ifndef ROCKSDB_LITE
   if (listeners.empty()) {
     return;
   }
@@ -304,7 +343,11 @@ void EventHelpers::NotifyBlobFileDeletion(
     listener->OnBlobFileDeleted(info);
   }
   info.status.PermitUncheckedError();
-}
+#else
+  (void)listeners;
+  (void)dbname;
+  (void)file_path;
 #endif  // !ROCKSDB_LITE
+}
 
 }  // namespace ROCKSDB_NAMESPACE

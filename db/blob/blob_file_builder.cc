@@ -319,8 +319,8 @@ Status BlobFileBuilder::CloseBlobFile() {
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
         immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-        column_family_name_, job_id_, creation_reason_, s, checksum_value,
-        checksum_method, blob_count_, blob_bytes_);
+        column_family_name_, job_id_, blob_file_number, creation_reason_, s,
+        checksum_value, checksum_method, blob_count_, blob_bytes_);
   }
 
   assert(blob_file_additions_);
@@ -365,8 +365,8 @@ void BlobFileBuilder::Abandon(const Status& s) {
     blob_callback_
         ->OnBlobFileCompleted(
             immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-            column_family_name_, job_id_, creation_reason_, s,
-            kUnknownFileChecksum, kUnknownFileChecksumFuncName, blob_count_,
+            column_family_name_, job_id_, 0 /*file_number*/, creation_reason_,
+            s, kUnknownFileChecksum, kUnknownFileChecksumFuncName, blob_count_,
             blob_bytes_)
         .PermitUncheckedError();
   }
