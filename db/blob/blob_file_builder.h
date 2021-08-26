@@ -69,7 +69,7 @@ class BlobFileBuilder {
 
   Status Add(const Slice& key, const Slice& value, std::string* blob_index);
   Status Finish();
-  void Abandon(Status s);
+  void Abandon(const Status& s);
 
  private:
   bool IsBlobFileOpen() const;

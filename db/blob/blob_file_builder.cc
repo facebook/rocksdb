@@ -355,18 +355,20 @@ Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   return CloseBlobFile();
 }
 
-void BlobFileBuilder::Abandon(Status s) {
+void BlobFileBuilder::Abandon(const Status& s) {
   if (!IsBlobFileOpen()) {
     return;
   }
-
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
-    blob_callback_->OnBlobFileCompleted(
-        immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-        column_family_name_, job_id_, creation_reason_, s, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, blob_count_, blob_bytes_);
+    blob_callback_
+        ->OnBlobFileCompleted(
+            immutable_options_->listeners, dbname_, blob_file_paths_->back(),
+            column_family_name_, job_id_, creation_reason_, s,
+            kUnknownFileChecksum, kUnknownFileChecksumFuncName, blob_count_,
+            blob_bytes_)
+        .PermitUncheckedError();
   }
 
   writer_.reset();

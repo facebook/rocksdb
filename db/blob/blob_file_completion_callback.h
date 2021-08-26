@@ -48,7 +48,7 @@ class BlobFileCompletionCallback {
       const std::vector<std::shared_ptr<EventListener> >& listeners,
       const std::string& dbname, const std::string& file_name,
       const std::string& column_family_name, int job_id,
-      BlobFileCreationReason creation_reason, Status report_status,
+      BlobFileCreationReason creation_reason, const Status& report_status,
       std::string checksum_value, std::string checksum_method,
       uint64_t blob_count, uint64_t blob_bytes) {
     Status s;
