@@ -958,8 +958,13 @@ void DBImpl::DumpStats() {
         // Release DB mutex for gathering cache entry stats. Pass over all
         // column families for this first so that other stats are dumped
         // near-atomically.
-        InstrumentedMutexUnlock u(&mutex_);
-        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+        // Get a ref before unlocking
+        cfd->Ref();
+        {
+          InstrumentedMutexUnlock u(&mutex_);
+          cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+        }
+        cfd->UnrefAndTryDelete();
       }
     }
 
