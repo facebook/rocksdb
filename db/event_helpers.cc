@@ -252,6 +252,9 @@ void EventHelpers::NotifyBlobFileCreationStarted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id) {
+  if (listeners.empty()) {
+    return;
+  }
   BlobFileCreationBriefInfo info(db_name, cf_name, file_path, job_id);
   for (auto& listener : listeners) {
     listener->OnBlobFileCreationStarted(info);
@@ -283,6 +286,9 @@ void EventHelpers::NotifyBlobFileDeletion(
     const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
     uint64_t /*file_number*/, const std::string& file_path,
     const Status& status, const std::string& dbname) {
+  if (listeners.empty()) {
+    return;
+  }
   BlobFileDeletionInfo info(dbname, file_path, job_id, status);
   for (auto& listener : listeners) {
     listener->OnBlobFileDeleted(info);

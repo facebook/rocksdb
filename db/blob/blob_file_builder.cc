@@ -163,11 +163,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::string blob_file_path =
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
 
-#ifndef ROCKSDB_LITE
-  EventHelpers::NotifyBlobFileCreationStarted(immutable_options_->listeners,
-                                              dbname_, column_family_name_,
-                                              blob_file_path, job_id_);
-#endif  // !ROCKSDB_LITE
+  if (blob_callback_) {
+    blob_callback_->OnBlobFileCreationStarted(immutable_options_->listeners,
+                                              dbname_, blob_file_path,
+                                              column_family_name_, job_id_);
+  }
 
   std::unique_ptr<FSWritableFile> file;
 
@@ -179,14 +179,6 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
 
     if (!s.ok()) {
-#ifndef ROCKSDB_LITE
-      std::string file_checksum = kUnknownFileChecksum;
-      std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-      EventHelpers::NotifyBlobFileCreationFinished(
-          immutable_options_->listeners, dbname_, column_family_name_,
-          blob_file_path, job_id_, s, file_checksum, file_checksum_func_name,
-          blob_count_, blob_bytes_);
-#endif  // !ROCKSDB_LITE
       return s;
     }
   }
@@ -315,19 +307,18 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
 
-#ifndef ROCKSDB_LITE
-
-  EventHelpers::NotifyBlobFileCreationFinished(
-      immutable_options_->listeners, blob_file_paths_->back() /*dbname*/,
-      column_family_name_, blob_file_paths_->back(), job_id_, s, checksum_value,
-      checksum_method, blob_count_, blob_bytes_);
-#endif  // !ROCKSDB_LITE
-
   if (!s.ok()) {
     return s;
   }
 
   const uint64_t blob_file_number = writer_->get_log_number();
+
+  if (blob_callback_) {
+    s = blob_callback_->OnBlobFileCompleted(
+        immutable_options_->listeners, dbname_, blob_file_paths_->back(),
+        column_family_name_, job_id_, s, checksum_value, checksum_method,
+        blob_count_, blob_bytes_);
+  }
 
   assert(blob_file_additions_);
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
@@ -340,9 +331,6 @@ Status BlobFileBuilder::CloseBlobFile() {
                  " total blobs, %" PRIu64 " total bytes",
                  column_family_name_.c_str(), job_id_, blob_file_number,
                  blob_count_, blob_bytes_);
-  if (blob_callback_) {
-    s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
-  }
 
   writer_.reset();
   blob_count_ = 0;
@@ -364,7 +352,7 @@ Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   return CloseBlobFile();
 }
 
-void BlobFileBuilder::Abandon() {
+void BlobFileBuilder::Abandon(Status s) {
   if (!IsBlobFileOpen()) {
     return;
   }
@@ -372,8 +360,10 @@ void BlobFileBuilder::Abandon() {
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
-    blob_callback_->OnBlobFileCompleted(blob_file_paths_->back())
-        .PermitUncheckedError();
+    blob_callback_->OnBlobFileCompleted(
+        immutable_options_->listeners, dbname_, blob_file_paths_->back(),
+        column_family_name_, job_id_, s, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, blob_count_, blob_bytes_);
   }
 
   writer_.reset();

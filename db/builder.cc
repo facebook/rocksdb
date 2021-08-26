@@ -311,7 +311,7 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       } else {
-        blob_file_builder->Abandon();
+        blob_file_builder->Abandon(s);
       }
       blob_file_builder.reset();
     }

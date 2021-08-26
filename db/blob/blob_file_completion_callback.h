@@ -9,6 +9,7 @@
 #pragma once
 
 #include "db/error_handler.h"
+#include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "rocksdb/status.h"
 
@@ -20,9 +21,20 @@ class BlobFileCompletionCallback {
   BlobFileCompletionCallback(SstFileManager* /*sst_file_manager*/,
                              InstrumentedMutex* /*mutex*/,
                              ErrorHandler* /*error_handler*/) {}
-  Status OnBlobFileCompleted(const std::string& /*file_name*/) {
+  Status OnBlobFileCompleted(
+      const std::vector<std::shared_ptr<EventListener> >& /*listeners*/,
+      const std::string& /*dbname*/, const std::string& /*file_name*/,
+      const std::string& /*column_family_name*/, int /*job_id*/,
+      Status /*report_status*/, std::string /*checksum_value*/,
+      std::string /*checksum_method*/, uint64_t /*blob_count*/,
+      uint64_t /*blob_bytes*/) {
     return Status::OK();
   }
+
+  void OnBlobFileCreationStarted(
+      const std::vector<std::shared_ptr<EventListener> >& /*listeners*/,
+      const std::string& /*dbname*/, const std::string& /*file_name*/,
+      const std::string& /*column_family_name*/, int /*job_id*/) {}
 #else
   BlobFileCompletionCallback(SstFileManager* sst_file_manager,
                              InstrumentedMutex* mutex,
@@ -31,7 +43,12 @@ class BlobFileCompletionCallback {
         mutex_(mutex),
         error_handler_(error_handler) {}
 
-  Status OnBlobFileCompleted(const std::string& file_name) {
+  Status OnBlobFileCompleted(
+      const std::vector<std::shared_ptr<EventListener> >& listeners,
+      const std::string& dbname, const std::string& file_name,
+      const std::string& column_family_name, int job_id, Status report_status,
+      std::string checksum_value, std::string checksum_method,
+      uint64_t blob_count, uint64_t blob_bytes) {
     Status s;
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
@@ -45,7 +62,20 @@ class BlobFileCompletionCallback {
         error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
       }
     }
+    // Notify the listeners.
+    EventHelpers::NotifyBlobFileCreationFinished(
+        listeners, dbname, column_family_name, file_name, job_id, report_status,
+        checksum_value, checksum_method, blob_count, blob_bytes);
     return s;
+  }
+
+  void OnBlobFileCreationStarted(
+      const std::vector<std::shared_ptr<EventListener> >& listeners,
+      const std::string& dbname, const std::string& file_name,
+      const std::string& column_family_name, int job_id) {
+    // Notify the listeners.
+    EventHelpers::NotifyBlobFileCreationStarted(
+        listeners, dbname, column_family_name, file_name, job_id);
   }
 
  private:

@@ -1427,7 +1427,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (status.ok()) {
       status = blob_file_builder->Finish();
     } else {
-      blob_file_builder->Abandon();
+      blob_file_builder->Abandon(status);
     }
     blob_file_builder.reset();
   }
