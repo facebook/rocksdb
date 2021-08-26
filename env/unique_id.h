@@ -19,18 +19,22 @@ namespace ROCKSDB_NAMESPACE {
 
 // Generates a new 128-bit identifier that is universally unique
 // (with high probability) for each call. The result is split into
-// two 64-bit pieces.
+// two 64-bit pieces. This function has NOT been validated for use in
+// cryptography.
 //
 // This is used in generating DB session IDs and by Env::GenerateUniqueId
 // (used for DB IDENTITY) if the platform does not provide a generator of
 // RFC 4122 UUIDs or fails somehow. (Set exclude_port_uuid=true if this
-// function is used as a fallback for
+// function is used as a fallback for GenerateRfcUuid, because no need
+// trying it again.)
 void GenerateRawUniqueId(uint64_t* a, uint64_t* b,
                          bool exclude_port_uuid = false);
 
+#ifndef NDEBUG
 // A version of above with options for challenge testing
 void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
                               bool exclude_env_details,
                               bool exclude_random_device);
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

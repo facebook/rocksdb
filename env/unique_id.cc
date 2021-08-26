@@ -12,6 +12,7 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/version.h"
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,7 +47,6 @@ struct EntropyTrackEnvDetails {
   uint64_t thread_id;
   int64_t unix_time;
   uint64_t nano_time;
-  uintptr_t library_ptr;
 
   void Populate(const Opts& opts) {
     if (opts.exclude_env_details) {
@@ -58,9 +58,6 @@ struct EntropyTrackEnvDetails {
     thread_id = opts.env->GetThreadID();
     opts.env->GetCurrentTime(&unix_time).PermitUncheckedError();
     nano_time = opts.env->NowNanos();
-    // Use Env::Default() to distinguish among RocksDB versions linked into
-    // this process.
-    library_ptr = reinterpret_cast<uintptr_t>(Env::Default());
   }
 };
 
@@ -82,11 +79,19 @@ struct EntropyTrackRandomDevice {
 };
 
 struct Entropy {
+  uint64_t version_identifier;
   EntropyTrackRandomDevice et1;
   EntropyTrackEnvDetails et2;
   EntropyTrackPortUuid et3;
 
   void Populate(const Opts& opts) {
+    // If we change the format of what goes into the entropy inputs, it's
+    // conceivable there could be a physical collision in the hash input
+    // even though they are logically different. This value should change
+    // if there's a change to the "schema" here, including byte order.
+    version_identifier = (uint64_t{ROCKSDB_MAJOR} << 32) +
+                         (uint64_t{ROCKSDB_MINOR} << 16) +
+                         uint64_t{ROCKSDB_PATCH};
     et1.Populate(opts);
     et2.Populate(opts);
     et3.Populate(opts);
@@ -110,6 +115,7 @@ void GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid) {
   GenerateRawUniqueIdImpl(a, b, opts);
 }
 
+#ifndef NDEBUG
 void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
                               bool exclude_env_details,
                               bool exclude_random_device) {
@@ -119,5 +125,6 @@ void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
   opts.exclude_random_device = exclude_random_device;
   GenerateRawUniqueIdImpl(a, b, opts);
 }
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

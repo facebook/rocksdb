@@ -2492,9 +2492,11 @@ struct NoDuplicateMiniStressTest {
 
   void ThreadFn() {
     std::array<IdType, kIdsPerThread> my_ids;
+    // Generate in parallel threads as fast as possible
     for (size_t i = 0; i < kIdsPerThread; ++i) {
       my_ids[i] = Generate();
     }
+    // Now collate
     std::lock_guard<std::mutex> lock(mutex);
     for (auto& id : my_ids) {
       ids.insert(id);
