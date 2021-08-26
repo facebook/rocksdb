@@ -218,7 +218,8 @@ TEST_F(RateLimiterTest, Rate) {
                               RateLimiter::OpType::kWrite);
       }
 
-      for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst / 2 + 1) + 1); ++i) {
+      for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst / 2 + 1) + 1);
+           ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_MID,
                               nullptr /* stats */, RateLimiter::OpType::kWrite);
       }
