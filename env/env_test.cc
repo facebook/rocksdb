@@ -19,7 +19,6 @@
 #include <sys/types.h>
 
 #include <atomic>
-#include <iostream>
 #include <list>
 #include <mutex>
 #include <unordered_set>
@@ -2468,9 +2467,9 @@ constexpr size_t kIdsPerThread = 1000;
 
 // This is a mini-stress test to check for duplicates in functions like
 // GenerateUniqueId()
-template <typename IdType>
+template <typename IdType, class Hash = std::hash<IdType>>
 struct NoDuplicateMiniStressTest {
-  std::unordered_set<IdType> ids;
+  std::unordered_set<IdType, Hash> ids;
   std::mutex mutex;
   Env* env;
 
@@ -2513,26 +2512,19 @@ void VerifyRfcUuids(const std::unordered_set<std::string>& uuids) {
 }
 
 using uint64_pair_t = std::pair<uint64_t, uint64_t>;
-
-}  // namespace
-}  // namespace ROCKSDB_NAMESPACE
-
-namespace std {
-template <>
-struct hash<std::pair<uint64_t, uint64_t>> {
+struct HashUint64Pair {
   std::size_t operator()(
       std::pair<uint64_t, uint64_t> const& u) const noexcept {
     // Assume suitable distribution already
     return static_cast<size_t>(u.first ^ u.second);
   }
 };
-}  // namespace std
 
-namespace ROCKSDB_NAMESPACE {
+}  // namespace
 
 TEST_F(EnvTest, GenerateUniqueId) {
   struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
-    std::string Generate() { return env->GenerateUniqueId(); }
+    std::string Generate() override { return env->GenerateUniqueId(); }
   };
 
   MyStressTest t;
@@ -2550,7 +2542,7 @@ TEST_F(EnvTest, GenerateUniqueId) {
 
 TEST_F(EnvTest, GenerateDbSessionId) {
   struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
-    std::string Generate() { return DBImpl::GenerateDbSessionId(env); }
+    std::string Generate() override { return DBImpl::GenerateDbSessionId(env); }
   };
 
   MyStressTest t;
@@ -2575,7 +2567,7 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
     return;
   }
   struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
-    std::string Generate() {
+    std::string Generate() override {
       std::string u;
       assert(port::GenerateRfcUuid(&u));
       return u;
@@ -2591,10 +2583,13 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
 
 // Test the atomic, linear generation of GenerateRawUuid
 TEST_F(EnvTest, GenerateRawUniqueId) {
-  struct MyStressTest : public NoDuplicateMiniStressTest<uint64_pair_t> {
-    uint64_pair_t Generate() {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
       uint64_pair_t p;
       GenerateRawUniqueId(&p.first, &p.second);
+      p.first >>= 50;
+      p.second >>= 50;
       return p;
     }
   };
@@ -2610,8 +2605,9 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackPortUuidOnly) {
     return;
   }
 
-  struct MyStressTest : public NoDuplicateMiniStressTest<uint64_pair_t> {
-    uint64_pair_t Generate() {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
       uint64_pair_t p;
       TEST_GenerateRawUniqueId(&p.first, &p.second, false, true, true);
       return p;
@@ -2623,8 +2619,9 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackPortUuidOnly) {
 }
 
 TEST_F(EnvTest, GenerateRawUniqueIdTrackEnvDetailsOnly) {
-  struct MyStressTest : public NoDuplicateMiniStressTest<uint64_pair_t> {
-    uint64_pair_t Generate() {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
       uint64_pair_t p;
       TEST_GenerateRawUniqueId(&p.first, &p.second, true, false, true);
       return p;
@@ -2636,8 +2633,9 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackEnvDetailsOnly) {
 }
 
 TEST_F(EnvTest, GenerateRawUniqueIdTrackRandomDeviceOnly) {
-  struct MyStressTest : public NoDuplicateMiniStressTest<uint64_pair_t> {
-    uint64_pair_t Generate() {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
       uint64_pair_t p;
       TEST_GenerateRawUniqueId(&p.first, &p.second, true, true, false);
       return p;
