@@ -931,13 +931,15 @@ BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
       read_only_(read_only) {
   if (options_.backup_rate_limiter == nullptr &&
       options_.backup_rate_limit > 0) {
-    options_.backup_rate_limiter.reset(
-        NewGenericRateLimiter(options_.backup_rate_limit, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
+    options_.backup_rate_limiter.reset(NewGenericRateLimiter(
+        options_.backup_rate_limit, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   }
   if (options_.restore_rate_limiter == nullptr &&
       options_.restore_rate_limit > 0) {
-    options_.restore_rate_limiter.reset(
-        NewGenericRateLimiter(options_.restore_rate_limit, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
+    options_.restore_rate_limiter.reset(NewGenericRateLimiter(
+        options_.restore_rate_limit, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   }
 }
 
