@@ -5083,7 +5083,7 @@ class Benchmark {
       writer.SelectNewDBWithCfh();
       writer.ClearBatch();
 
-      for (int64_t j = 0; j < entries_per_batch_; j++) {
+      for (int64_t j = 0; j < entries_per_batch_; ++j) {
         int64_t rand_num = 0;
         rand_num = writer.GenerateKeyGenRand();
         GenerateKeyFromInt(rand_num, FLAGS_num, &writer.key_);
