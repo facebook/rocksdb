@@ -450,8 +450,9 @@ struct BlockBasedTableBuilder::Rep {
     buffer_exceeds_global_memory_limit = false;
     if (table_options.no_block_cache) {
       cache_rev_mng.reset(nullptr);
-    } else{
-      cache_rev_mng.reset(new CacheReservationManager(table_options.block_cache));
+    } else {
+      cache_rev_mng.reset(
+          new CacheReservationManager(table_options.block_cache));
     }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
@@ -1013,11 +1014,13 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
     rep_->data_block_buffers.emplace_back(std::move(raw_block_contents));
     rep_->data_begin_offset += rep_->data_block_buffers.back().size();
     if (rep_->cache_rev_mng != nullptr) {
-      //TODO: figure out if we need external sync for this
-      Status s = rep_->cache_rev_mng->UpdateCacheReservation<CacheEntryRole::kCompressionDictionaryBuildingBuffer>(rep_->data_block_buffers.size());
-      if (s.IsIncomplete()) { 
+      // TODO: figure out if we need external sync for this
+      Status s = rep_->cache_rev_mng->UpdateCacheReservation<
+          CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+          rep_->data_block_buffers.size());
+      if (s.IsIncomplete()) {
         rep_->buffer_exceeds_global_memory_limit = true;
-      } 
+      }
     }
     return;
   }
@@ -1934,8 +1937,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     // flushing all the buffered data blocks
     if (ok()) {
       if (rep_->cache_rev_mng != nullptr) {
-        //TODO: figure out if we need external sync for this
-        Status s = rep_->cache_rev_mng->UpdateCacheReservation<CacheEntryRole::kCompressionDictionaryBuildingBuffer>(0);
+        // TODO: figure out if we need external sync for this
+        Status s = rep_->cache_rev_mng->UpdateCacheReservation<
+            CacheEntryRole::kCompressionDictionaryBuildingBuffer>(0);
         s.PermitUncheckedError();
       }
     }
