@@ -4824,7 +4824,8 @@ class Benchmark {
         blob_db::BlobDB* blobdb =
             static_cast<blob_db::BlobDB*>(db_with_cfh_->db);
         if (FLAGS_blob_db_max_ttl_range > 0) {
-          int ttl = thread_->rand.Next() % FLAGS_blob_db_max_ttl_range;
+          int ttl = static_cast<int>(thread_->rand.Next() %
+                                     FLAGS_blob_db_max_ttl_range);
           s_ = blobdb->PutWithTTL(bench_.write_options_, key_, val_, ttl);
         } else {
           s_ = blobdb->Put(bench_.write_options_, key_, val_);
