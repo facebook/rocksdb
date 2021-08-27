@@ -317,10 +317,16 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Assign timestamp to write batch
+  // Assign timestamp to write batch.
+  // This requires that all keys (possibly from multiple column families) in
+  // the write batch have timestamps of the same format.
   Status AssignTimestamp(const Slice& ts);
 
-  // Assign timestamps to write batch
+  // Assign timestamps to write batch.
+  // This API allows the write batch to include keys from multiple column
+  // families whose timestamps' format can differ. For example, some column
+  // families can enable timestamp, while others disable the feature.
+  // If key does not have timestamp, then put an empty Slice in ts_list.
   Status AssignTimestamps(const std::vector<Slice>& ts_list);
 
   using WriteBatchBase::GetWriteBatch;

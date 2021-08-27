@@ -149,9 +149,7 @@ class TimestampAssigner : public WriteBatch::Handler {
         prot_info_(prot_info) {}
   explicit TimestampAssigner(const std::vector<Slice>& ts_list,
                              WriteBatch::ProtectionInfo* prot_info)
-      : timestamps_(ts_list), prot_info_(prot_info) {
-    SanityCheck();
-  }
+      : timestamps_(ts_list), prot_info_(prot_info) {}
   ~TimestampAssigner() override {}
 
   Status PutCF(uint32_t, const Slice& key, const Slice&) override {
@@ -211,20 +209,14 @@ class TimestampAssigner : public WriteBatch::Handler {
   }
 
  private:
-  void SanityCheck() const {
-    assert(!timestamps_.empty());
-#ifndef NDEBUG
-    const size_t ts_sz = timestamps_[0].size();
-    for (size_t i = 1; i != timestamps_.size(); ++i) {
-      assert(ts_sz == timestamps_[i].size());
-    }
-#endif  // !NDEBUG
-  }
-
   void AssignTimestamp(const Slice& key) {
     assert(timestamps_.empty() || idx_ < timestamps_.size());
     const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
     size_t ts_sz = ts.size();
+    if (ts_sz == 0) {
+      // This key does not have timestamp, so skip.
+      return;
+    }
     char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
     if (prot_info_ != nullptr) {
       Slice old_ts(ptr, ts_sz), new_ts(ts.data(), ts_sz);
