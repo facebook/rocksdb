@@ -1186,7 +1186,7 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
 
 class BlobDBJobLevelEventListenerTest : public EventListener {
  public:
-  BlobDBJobLevelEventListenerTest(EventListenerTest* test)
+  explicit BlobDBJobLevelEventListenerTest(EventListenerTest* test)
       : test_(test), call_count_(0) {}
 
   std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(

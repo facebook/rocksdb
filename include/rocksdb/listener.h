@@ -273,7 +273,7 @@ struct FileOperationInfo {
 };
 
 struct BlobFileInfo {
-  BlobFileInfo(const std::string _blob_file_path,
+  BlobFileInfo(const std::string& _blob_file_path,
                const uint64_t _blob_file_number)
       : blob_file_path(_blob_file_path), blob_file_number(_blob_file_number) {}
 
@@ -282,7 +282,7 @@ struct BlobFileInfo {
 };
 
 struct BlobFileAdditionInfo : public BlobFileInfo {
-  BlobFileAdditionInfo(const std::string _blob_file_path,
+  BlobFileAdditionInfo(const std::string& _blob_file_path,
                        const uint64_t _blob_file_number,
                        const uint64_t _total_blob_count,
                        const uint64_t _total_blob_bytes)
@@ -294,7 +294,7 @@ struct BlobFileAdditionInfo : public BlobFileInfo {
 };
 
 struct BlobFileGarbageInfo : public BlobFileInfo {
-  BlobFileGarbageInfo(const std::string _blob_file_path,
+  BlobFileGarbageInfo(const std::string& _blob_file_path,
                       const uint64_t _blob_file_number,
                       const uint64_t _garbage_blob_count,
                       const uint64_t _garbage_blob_bytes)
