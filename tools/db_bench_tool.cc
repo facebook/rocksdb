@@ -373,15 +373,6 @@ DEFINE_double(read_probability, 0.0,
               "Probability for each operation in RandomReadRollingWriteDelete "
               "to be a read.");
 
-DEFINE_uint64(
-    dseed, 1234,
-    "Random seed for disposable entry key generation. "
-    "Only compatible with --benchmarks='randomreadrollingwritedelete'.");
-DEFINE_uint64(
-    pseed, 5678,
-    "Random seed for persistent entry key generation. "
-    "Only compatible with --benchmarks='randomreadrollingwritedelete'.");
-
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
               "num * exp(-r) where r is uniform number from 0 to this value. "
@@ -4735,6 +4726,7 @@ class Benchmark {
     return FLAGS_sine_a*sin((FLAGS_sine_b*x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
 
+  // Used for the randomreadrollingwritedelete benchmark.
   class WriteAgent {
    public:
     WriteAgent(Benchmark& bench, ThreadState* thread,
@@ -4767,7 +4759,7 @@ class Benchmark {
           id_(0) {}
 
     void Init() {
-      for (size_t i = 0; i < num_key_gens_; i++) {
+      for (size_t i = 0; i < key_gens_.size(); i++) {
         key_gens_[i].reset(new KeyGenerator(
             &(thread_->rand), write_mode_,
             bench_.num_ + bench_.max_num_range_tombstones_, ops_per_stage_));
@@ -4820,7 +4812,10 @@ class Benchmark {
       batch_bytes_ = 0;
     }
 
-    int64_t GenerateKeyGenRand() { return key_gens_[id_]->Next(); }
+    int64_t GenerateKeyGenRand() {
+      assert(id_ < key_gens_.size());
+      return key_gens_[id_]->Next();
+    }
 
     void PutKVInBatch(const int64_t rand_num) {
       if (bench_.use_blob_db_) {
@@ -4829,7 +4824,7 @@ class Benchmark {
         blob_db::BlobDB* blobdb =
             static_cast<blob_db::BlobDB*>(db_with_cfh_->db);
         if (FLAGS_blob_db_max_ttl_range > 0) {
-          int ttl = rand() % FLAGS_blob_db_max_ttl_range;
+          int ttl = thread_->rand.Next() % FLAGS_blob_db_max_ttl_range;
           s_ = blobdb->PutWithTTL(bench_.write_options_, key_, val_, ttl);
         } else {
           s_ = blobdb->Put(bench_.write_options_, key_, val_);
@@ -4879,6 +4874,9 @@ class Benchmark {
           (num_written_ - bench_.writes_before_delete_range_) %
                   bench_.writes_per_range_tombstone_ ==
               0) {
+        assert(id_ < key_gens_.size());
+        assert(static_cast<long unsigned int>(bench_.range_tombstone_width_) <=
+               expanded_keys_.size());
         int64_t begin_num = key_gens_[id_]->Next();
         if (FLAGS_expand_range_tombstones) {
           for (int64_t offset = 0; offset < bench_.range_tombstone_width_;
@@ -5014,6 +5012,7 @@ class Benchmark {
     RandomGenerator gen_;
   };
 
+  // Used for the randomreadrollingwritedelete benchmark.
   class ReadAgent {
    public:
     ReadAgent(Benchmark& bench, ThreadState* thread)
@@ -5150,20 +5149,13 @@ class Benchmark {
       ErrorExit();
     }
 
-    if (FLAGS_pseed == FLAGS_dseed) {
-      fprintf(stderr,
-              "pseed and dseed are identical: the persistent "
-              "entries cannot persist in the DB. "
-              "Please use different seeds.\n");
-      ErrorExit();
-    }
     // rnd_dentry and rnd_dentry_delete use the same seed: they work like
     // iterators. rnd_pentry has a different seed, so even though there is a
     // slight chance that a pentry is deleted further down the road, it is still
     // worth using this 'iterator-like' approach.
-    Random64 rnd_dentry(static_cast<uint64_t>(FLAGS_dseed)),
-        rnd_dentry_delete(static_cast<uint64_t>(FLAGS_dseed)),
-        rnd_pentry(static_cast<uint64_t>(FLAGS_pseed));
+    Random64 rnd_dentry(static_cast<uint64_t>(FLAGS_seed + 1)),
+        rnd_dentry_delete(static_cast<uint64_t>(FLAGS_seed + 1)),
+        rnd_pentry(static_cast<uint64_t>(FLAGS_seed + 2));
     Random rnd_value(static_cast<uint32_t>(FLAGS_seed));
     std::string random_value("");
     bool is_dentry = false;
