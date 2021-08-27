@@ -2588,8 +2588,6 @@ TEST_F(EnvTest, GenerateRawUniqueId) {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
       GenerateRawUniqueId(&p.first, &p.second);
-      p.first >>= 50;
-      p.second >>= 50;
       return p;
     }
   };
