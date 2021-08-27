@@ -379,15 +379,22 @@ class Configurable {
   // @param name    The name of this set of options (@see GetOptionsPtr)
   // @param opt_ptr Pointer to the options to associate with this name
   // @param opt_map Options map that controls how this option is configured.
+  // @param high_pri If high_pri is true, the registered options will be
+  // evaluated before low priority options.  This parameter is rarely true, but
+  // may be used to set some options (like Env) on which other options may
+  // depend, or may be used to specify "TEST" options that alter the default
+  // settings under specific circumstances.
   template <typename T>
   void RegisterOptions(
       T* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
-    RegisterOptions(T::kName(), opt_ptr, opt_map);
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map,
+      bool high_pri = false) {
+    RegisterOptions(T::kName(), opt_ptr, opt_map, high_pri);
   }
   void RegisterOptions(
       const std::string& name, void* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map,
+      bool high_pri = false);
 
  private:
   // Contains the collection of options (name, opt_ptr, opt_map) associated with
