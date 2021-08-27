@@ -932,12 +932,12 @@ BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
   if (options_.backup_rate_limiter == nullptr &&
       options_.backup_rate_limit > 0) {
     options_.backup_rate_limiter.reset(
-        NewGenericRateLimiter(options_.backup_rate_limit));
+        NewGenericRateLimiter(options_.backup_rate_limit, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   }
   if (options_.restore_rate_limiter == nullptr &&
       options_.restore_rate_limit > 0) {
     options_.restore_rate_limiter.reset(
-        NewGenericRateLimiter(options_.restore_rate_limit));
+        NewGenericRateLimiter(options_.restore_rate_limit, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   }
 }
 
@@ -1954,6 +1954,10 @@ Status BackupEngineImpl::CopyOrCreateFile(
       size_t buffer_to_read =
           (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
+      if (rate_limiter != nullptr) {
+        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kRead);
+      }
       processed_buffer_size += buffer_to_read;
     } else {
       data = contents;
