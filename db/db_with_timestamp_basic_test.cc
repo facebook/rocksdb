@@ -196,6 +196,71 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+
+  Options options1 = CurrentOptions();
+  options1.env = env_;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options1.comparator = &test_cmp;
+  ColumnFamilyHandle* handle = nullptr;
+  Status s = db_->CreateColumnFamily(options1, "data", &handle);
+  ASSERT_OK(s);
+
+  WriteBatch wb;
+  ASSERT_OK(wb.Put("a", "value"));
+  {
+    std::string key("a");
+    std::string ts(kTimestampSize, '\0');
+    std::array<Slice, 2> key_with_ts_slices({key, ts});
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    std::string value_str("value");
+    Slice value_slice(value_str.data(), value_str.size());
+    SliceParts value(&value_slice, 1);
+    ASSERT_OK(wb.Put(handle, key_with_ts, value));
+  }
+  {
+    std::string ts = Timestamp(1, 0);
+    std::vector<Slice> ts_list({Slice(), ts});
+    ASSERT_OK(wb.AssignTimestamps(ts_list));
+    ASSERT_OK(db_->Write(WriteOptions(), &wb));
+  }
+
+  const auto verify_db = [=](DB* dbptr, ColumnFamilyHandle* h) {
+    ASSERT_EQ("value", Get("a"));
+    {
+      std::string ts = Timestamp(1, 0);
+      Slice read_ts_slice(ts);
+      ReadOptions read_opts;
+      read_opts.timestamp = &read_ts_slice;
+      std::string value;
+      ASSERT_OK(dbptr->Get(read_opts, h, "a", &value));
+      ASSERT_EQ("value", value);
+    }
+  };
+
+  verify_db(db_, handle);
+
+  delete handle;
+  Close();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back("data", options1);
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname_, cf_descs, &handles_, &db_);
+  ASSERT_OK(s);
+
+  verify_db(db_, handles_[1]);
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   Options options = CurrentOptions();
   options.env = env_;
