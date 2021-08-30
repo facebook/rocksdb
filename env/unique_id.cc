@@ -19,17 +19,30 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-struct Opts {
+struct GenerateRawUniqueIdOpts {
   Env* env = Env::Default();
   bool exclude_port_uuid = false;
   bool exclude_env_details = false;
   bool exclude_random_device = false;
 };
 
+// Each of these "tracks" below should be sufficient for generating 128 bits
+// of entropy, after hashing the raw bytes. The tracks are separable for
+// testing purposes, but in production we combine as many tracks as possible
+// to ensure quality results even if some environments have degraded
+// capabilities or quality in some APIs.
+//
+// This approach has not been validated for use in cryptography. The goal is
+// generating globally unique values with high probability without coordination
+// between instances.
+//
+// Linux performance: EntropyTrackRandomDevice is much faster than
+// EntropyTrackEnvDetails, which is much faster than EntropyTrackPortUuid.
+
 struct EntropyTrackPortUuid {
   std::array<char, 36> uuid;
 
-  void Populate(const Opts& opts) {
+  void Populate(const GenerateRawUniqueIdOpts& opts) {
     if (opts.exclude_port_uuid) {
       return;
     }
@@ -48,7 +61,7 @@ struct EntropyTrackEnvDetails {
   int64_t unix_time;
   uint64_t nano_time;
 
-  void Populate(const Opts& opts) {
+  void Populate(const GenerateRawUniqueIdOpts& opts) {
     if (opts.exclude_env_details) {
       return;
     }
@@ -67,7 +80,7 @@ struct EntropyTrackRandomDevice {
       /* generous bits */ 192U / (8U * sizeof(RandType));
   std::array<RandType, kNumRandVals> rand_vals;
 
-  void Populate(const Opts& opts) {
+  void Populate(const GenerateRawUniqueIdOpts& opts) {
     if (opts.exclude_random_device) {
       return;
     }
@@ -84,7 +97,7 @@ struct Entropy {
   EntropyTrackEnvDetails et2;
   EntropyTrackPortUuid et3;
 
-  void Populate(const Opts& opts) {
+  void Populate(const GenerateRawUniqueIdOpts& opts) {
     // If we change the format of what goes into the entropy inputs, it's
     // conceivable there could be a physical collision in the hash input
     // even though they are logically different. This value should change
@@ -98,7 +111,8 @@ struct Entropy {
   }
 };
 
-void GenerateRawUniqueIdImpl(uint64_t* a, uint64_t* b, const Opts& opts) {
+void GenerateRawUniqueIdImpl(uint64_t* a, uint64_t* b,
+                             const GenerateRawUniqueIdOpts& opts) {
   Entropy e;
   std::memset(&e, 0, sizeof(e));
   e.Populate(opts);
@@ -108,7 +122,7 @@ void GenerateRawUniqueIdImpl(uint64_t* a, uint64_t* b, const Opts& opts) {
 }  // namespace
 
 void GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid) {
-  Opts opts;
+  GenerateRawUniqueIdOpts opts;
   opts.exclude_port_uuid = exclude_port_uuid;
   assert(!opts.exclude_env_details);
   assert(!opts.exclude_random_device);
@@ -119,7 +133,7 @@ void GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid) {
 void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
                               bool exclude_env_details,
                               bool exclude_random_device) {
-  Opts opts;
+  GenerateRawUniqueIdOpts opts;
   opts.exclude_port_uuid = exclude_port_uuid;
   opts.exclude_env_details = exclude_env_details;
   opts.exclude_random_device = exclude_random_device;
