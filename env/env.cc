@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
+#include "env/unique_id.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -21,6 +22,7 @@
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -735,6 +737,46 @@ Status Env::GetHostNameString(std::string* result) {
     result->assign(hostname_buf.data());
   }
   return s;
+}
+
+std::string Env::GenerateUniqueId() {
+  std::string result;
+  bool success = port::GenerateRfcUuid(&result);
+  if (!success) {
+    // Fall back on our own way of generating a unique ID and adapt it to
+    // RFC 4122 variant 1 version 4 (a random ID).
+    // https://en.wikipedia.org/wiki/Universally_unique_identifier
+    // We already tried GenerateRfcUuid so no need to try it again in
+    // GenerateRawUniqueId
+    constexpr bool exclude_port_uuid = true;
+    uint64_t upper, lower;
+    GenerateRawUniqueId(&upper, &lower, exclude_port_uuid);
+
+    // Set 4-bit version to 4
+    upper = (upper & (~uint64_t{0xf000})) | 0x4000;
+    // Set unary-encoded variant to 1 (0b10)
+    lower = (lower & (~(uint64_t{3} << 62))) | (uint64_t{2} << 62);
+
+    // Use 36 character format of RFC 4122
+    result.resize(36U);
+    char* buf = &result[0];
+    PutBaseChars<16>(&buf, 8, upper >> 32, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, upper >> 16, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, upper, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, lower >> 48, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 12, lower, /*!uppercase*/ false);
+    assert(buf == &result[36]);
+
+    // Verify variant 1 version 4
+    assert(result[14] == '4');
+    assert(result[19] == '8' || result[19] == '9' || result[19] == 'a' ||
+           result[19] == 'b');
+  }
+  return result;
 }
 
 SequentialFile::~SequentialFile() {
