@@ -1108,11 +1108,7 @@ Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
   if (target_ == nullptr) {
     target_ = SystemClock::Default();
   }
-  Status s = SystemClock::PrepareOptions(options);
-  if (s.ok() && !target_->IsPrepared()) {
-    s = target_->PrepareOptions(options);
-  }
-  return s;
+  return SystemClock::PrepareOptions(options);
 }
 
 #ifndef ROCKSDB_LITE
