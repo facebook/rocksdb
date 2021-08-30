@@ -810,7 +810,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // inserted into memtable.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, "")
+            .ProtectKVOT(key, value, kTypeValue)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -867,7 +867,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, "")
+            .ProtectKVOT(key, value, kTypeValue)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -953,7 +953,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, "" /* value */, kTypeDeletion, "")
+            .ProtectKVOT(key, "" /* value */, kTypeDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -985,7 +985,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
         ProtectionInfo64()
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */, 0 /* _num_parts */),
-                         kTypeDeletion, "")
+                         kTypeDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1015,11 +1015,10 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   if (b->prot_info_ != nullptr) {
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(key, "" /* value */,
-                                                          kTypeSingleDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(key, "" /* value */, kTypeSingleDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1053,7 +1052,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */,
                                     0 /* _num_parts */) /* value */,
-                         kTypeSingleDeletion, "" /* timestamp */)
+                         kTypeSingleDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1085,11 +1084,10 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(begin_key, end_key,
-                                                          kTypeRangeDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(begin_key, end_key, kTypeRangeDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1120,11 +1118,10 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(begin_key, end_key,
-                                                          kTypeRangeDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(begin_key, end_key, kTypeRangeDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1163,7 +1160,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeMerge)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1201,7 +1198,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeMerge)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1234,7 +1231,7 @@ Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeBlobIndex, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeBlobIndex)
             .ProtectC(column_family_id));
   }
   return save.commit();

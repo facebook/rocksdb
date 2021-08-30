@@ -217,7 +217,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   {
     std::string key("a");
     std::string ts(kTimestampSize, '\0');
-    std::array<Slice, 2> key_with_ts_slices({key, ts});
+    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
     SliceParts key_with_ts(key_with_ts_slices.data(), 2);
     std::string value_str("value");
     Slice value_slice(value_str.data(), value_str.size());
@@ -231,20 +231,18 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
 
-  const auto verify_db = [=](DB* dbptr, ColumnFamilyHandle* h) {
+  const auto verify_db = [this](ColumnFamilyHandle* h) {
     ASSERT_EQ("value", Get("a"));
-    {
-      std::string ts = Timestamp(1, 0);
-      Slice read_ts_slice(ts);
-      ReadOptions read_opts;
-      read_opts.timestamp = &read_ts_slice;
-      std::string value;
-      ASSERT_OK(dbptr->Get(read_opts, h, "a", &value));
-      ASSERT_EQ("value", value);
-    }
+    std::string ts = Timestamp(1, 0);
+    Slice read_ts_slice(ts);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
+    std::string value;
+    ASSERT_OK(db_->Get(read_opts, h, "a", &value));
+    ASSERT_EQ("value", value);
   };
 
-  verify_db(db_, handle);
+  verify_db(handle);
 
   delete handle;
   Close();
@@ -256,7 +254,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   s = DB::Open(options, dbname_, cf_descs, &handles_, &db_);
   ASSERT_OK(s);
 
-  verify_db(db_, handles_[1]);
+  verify_db(handles_[1]);
 
   Close();
 }
@@ -835,9 +833,9 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
     for (const auto& kv : kvs) {
       const std::string& key = std::get<0>(kv);
       const std::string& value = std::get<1>(kv);
-      std::array<Slice, 2> key_with_ts_slices({Slice(key), Slice(ts)});
+      std::array<Slice, 2> key_with_ts_slices{{Slice(key), Slice(ts)}};
       SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-      std::array<Slice, 1> value_slices({Slice(value)});
+      std::array<Slice, 1> value_slices{{Slice(value)}};
       SliceParts values(value_slices.data(), 1);
       ASSERT_OK(wb.Put(key_with_ts, values));
     }
@@ -1142,21 +1140,18 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
     WriteBatch batch;
+    const std::string dummy_ts(kTimestampSize, '\0');
     {
-      std::array<Slice, 2> key_with_ts_slices(
-          {"a", std::string(kTimestampSize, '\0')});
+      std::array<Slice, 2> key_with_ts_slices{{"a", dummy_ts}};
       SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-      std::array<Slice, 1> value_slices({"new_value"});
+      std::array<Slice, 1> value_slices{{"new_value"}};
       SliceParts values(value_slices.data(), 1);
       ASSERT_OK(batch.Put(key_with_ts, values));
     }
     {
-      std::array<Slice, 2> key_with_ts_slices(
-          {"b", std::string(kTimestampSize, '\0')});
-      SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-      std::array<Slice, 1> value_slices({"new_value"});
-      SliceParts values(value_slices.data(), 1);
-      ASSERT_OK(batch.Put(key_with_ts, values));
+      std::string key_with_ts("b");
+      key_with_ts.append(dummy_ts);
+      ASSERT_OK(batch.Put(key_with_ts, "new_value"));
     }
     s = batch.AssignTimestamp(ts_str);
     ASSERT_OK(s);
@@ -2698,6 +2693,7 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
     }
   };
 
+  const std::string dummy_ts(ts_sz, '\0');
   for (size_t i = 0; i != kNumTimestamps; ++i) {
     write_ts_list.push_back(Timestamp(i * 2, 0));
     read_ts_list.push_back(Timestamp(1 + i * 2, 0));
@@ -2709,10 +2705,9 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
         const std::string key = Key1(j);
         const std::string value =
             "value_" + std::to_string(j) + "_" + std::to_string(i);
-        std::array<Slice, 2> key_with_ts_slices(
-            {key, std::string(ts_sz, '\0')});
+        std::array<Slice, 2> key_with_ts_slices{{key, dummy_ts}};
         SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-        std::array<Slice, 1> value_slices({value});
+        std::array<Slice, 1> value_slices{{value}};
         SliceParts values(value_slices.data(), 1);
         ASSERT_OK(batch.Put(handles_[cf], key_with_ts, values));
       }

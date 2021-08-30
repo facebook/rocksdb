@@ -2004,9 +2004,9 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
     s = batch.Put(column_family, key_with_ts, value);
   } else {
-    std::array<Slice, 2> key_with_ts_slices({key, *ts});
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
     SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    std::array<Slice, 1> value_slices({value});
+    std::array<Slice, 1> value_slices{{value}};
     SliceParts values(value_slices.data(), 1);
     s = batch.Put(column_family, key_with_ts, values);
   }
@@ -2037,7 +2037,7 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
     s = batch.Delete(column_family, key_with_ts);
   } else {
-    std::array<Slice, 2> key_with_ts_slices({key, *ts});
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
     SliceParts key_with_ts(key_with_ts_slices.data(), 2);
     s = batch.Delete(column_family, key_with_ts);
   }
