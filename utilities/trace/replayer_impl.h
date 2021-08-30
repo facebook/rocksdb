@@ -50,7 +50,6 @@ class ReplayerImpl : public Replayer {
 
  private:
   Status ReadHeader(Trace* header);
-  Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
   // Generic function to execute a Trace in a thread pool.
@@ -69,14 +68,14 @@ class ReplayerImpl : public Replayer {
   int trace_file_version_;
 };
 
-// The passin arg of MultiThreadRepkay for each trace record.
+// Arguments passed to BackgroundWork() for replaying in a thread pool.
 struct ReplayerWorkerArg {
   Trace trace_entry;
   int trace_file_version;
   // Handler to execute TraceRecord.
   TraceRecord::Handler* handler;
   // Callback function to report the error status and the timestamp of the
-  // TraceRecord.
+  // TraceRecord (not the start/end timestamp of executing the TraceRecord).
   std::function<void(Status, uint64_t)> error_cb;
   // Callback function to report the trace execution status and operation
   // execution status/result(s).

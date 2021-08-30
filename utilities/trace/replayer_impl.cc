@@ -157,8 +157,21 @@ Status ReplayerImpl::Replay(
     // Background decoding and execution status.
     Status bg_s = Status::OK();
     uint64_t last_err_ts = static_cast<uint64_t>(-1);
-    // Callback function used in background work to update bg_s at the first
-    // execution error (with the smallest Trace timestamp).
+    // Callback function used in background work to update bg_s for the ealiest
+    // TraceRecord which has execution error. This is different from the
+    // timestamp of the first execution error (either start or end timestamp).
+    //
+    // Suppose TraceRecord R1, R2, with timestamps T1 < T2. Their execution
+    // timestamps are T1_start, T1_end, T2_start, T2_end.
+    // Single-thread: there must be T1_start < T1_end < T2_start < T2_end.
+    // Multi-thread: T1_start < T2_start may not be enforced. Orders of them are
+    // totally unknown.
+    // In order to report the same `first` error in both single-thread and
+    // multi-thread replay, we can only rely on the TraceRecords' timestamps,
+    // rather than their executin timestamps. Although in single-thread replay,
+    // the first error is also the last error, while in multi-thread replay, the
+    // first error may not be the first error in execution, and it may not be
+    // the last error in exeution as well.
     auto error_cb = [&mtx, &bg_s, &last_err_ts](Status err, uint64_t err_ts) {
       std::lock_guard<std::mutex> gd(mtx);
       // Only record the first error.
@@ -188,7 +201,7 @@ Status ReplayerImpl::Replay(
         break;
       }
 
-      // In multi-threaded replay, sleep first thatn start decoding and
+      // In multi-threaded replay, sleep first then start decoding and
       // execution in a thread.
       std::chrono::system_clock::time_point sleep_to =
           replay_epoch +
@@ -251,20 +264,6 @@ Status ReplayerImpl::ReadHeader(Trace* header) {
   }
 
   return TracerHelper::DecodeHeader(encoded_trace, header);
-}
-
-Status ReplayerImpl::ReadFooter(Trace* footer) {
-  assert(footer != nullptr);
-  Status s = ReadTrace(footer);
-  if (!s.ok()) {
-    return s;
-  }
-  if (footer->type != kTraceEnd) {
-    return Status::Corruption("Corrupted trace file. Incorrect footer.");
-  }
-
-  // TODO: Add more validations later
-  return s;
 }
 
 Status ReplayerImpl::ReadTrace(Trace* trace) {
