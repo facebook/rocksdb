@@ -113,7 +113,7 @@ NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
 SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
-PARSER="'parser':'python build_tools/error_filter.py $1'"
+PARSER="'parser':'/usr/bin/env python3 build_tools/error_filter.py $1'"
 
 CONTRUN_NAME="ROCKSDB_CONTRUN_NAME"
 SKIP_FORMAT_CHECKS="SKIP_FORMAT_BUCK_CHECKS=1"
@@ -588,7 +588,7 @@ WRITE_STRESS_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and run RocksDB write stress tests',
-                'shell':'cd $WORKING_DIR; make write_stress && python tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL',
+                'shell':'cd $WORKING_DIR; make write_stress && /usr/bin/env python3 tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }

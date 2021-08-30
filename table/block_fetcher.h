@@ -62,7 +62,9 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction) {
+    io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
+  }
 
   IOStatus ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }

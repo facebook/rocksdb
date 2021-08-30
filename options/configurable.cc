@@ -17,8 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Configurable::Configurable() : is_prepared_(false) {}
-
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
@@ -68,9 +66,6 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
 #else
   (void)opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    is_prepared_ = true;
-  }
   return status;
 }
 
@@ -459,7 +454,8 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
       // map
       std::unordered_map<std::string, std::string> props;
       std::string id;
-      Status s = GetOptionsMap(value, custom->GetId(), &id, &props);
+      Status s =
+          Configurable::GetOptionsMap(value, custom->GetId(), &id, &props);
       if (!s.ok()) {
         return s;
       } else if (custom->GetId() != id) {
@@ -734,7 +730,7 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
 }
 #endif  // ROCKSDB_LITE
 
-Status ConfigurableHelper::GetOptionsMap(
+Status Configurable::GetOptionsMap(
     const std::string& value, const std::string& default_id, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
   assert(id);
@@ -756,6 +752,9 @@ Status ConfigurableHelper::GetOptionsMap(
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);
+        if (*id == kNullptrString) {
+          id->clear();
+        }
       } else if (!default_id.empty()) {
         *id = default_id;
       } else {           // No id property and no default

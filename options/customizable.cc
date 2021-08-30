@@ -5,7 +5,6 @@
 
 #include "rocksdb/customizable.h"
 
-#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
@@ -84,9 +83,13 @@ Status Customizable::GetOptionsMap(
     const ConfigOptions& config_options, const Customizable* customizable,
     const std::string& value, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
-  if (customizable != nullptr) {
-    Status status = ConfigurableHelper::GetOptionsMap(
-        value, customizable->GetId(), id, props);
+  Status status;
+  if (value.empty() || value == kNullptrString) {
+    *id = "";
+    props->clear();
+  } else if (customizable != nullptr) {
+    status =
+        Configurable::GetOptionsMap(value, customizable->GetId(), id, props);
 #ifdef ROCKSDB_LITE
     (void)config_options;
 #else
@@ -104,10 +107,10 @@ Status Customizable::GetOptionsMap(
       }
     }
 #endif  // ROCKSDB_LITE
-    return status;
   } else {
-    return ConfigurableHelper::GetOptionsMap(value, "", id, props);
+    status = Configurable::GetOptionsMap(value, "", id, props);
   }
+  return status;
 }
 
 Status Customizable::ConfigureNewObject(

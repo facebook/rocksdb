@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -19,7 +21,6 @@
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
-
 #include "trace_replay/block_cache_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -100,7 +101,7 @@ class BlockBasedTable : public TableReader {
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr,
                      size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& db_session_id = "",
+                     const std::string& cur_db_session_id = "",
                      uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
@@ -555,11 +556,11 @@ struct BlockBasedTable::Rep {
   Status status;
   std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size = 0;
-  char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t persistent_cache_key_prefix_size = 0;
+  // SIZE_MAX -> assert not used without re-assignment
+  size_t cache_key_prefix_size = SIZE_MAX;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size = 0;
+  // SIZE_MAX -> assert not used without re-assignment
+  size_t compressed_cache_key_prefix_size = SIZE_MAX;
   PersistentCacheOptions persistent_cache_options;
 
   // Footer contains the fixed table information
