@@ -2,21 +2,72 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 
+# Exit Codes
 EXIT_INVALID_ARGS=1
 EXIT_NOT_COMPACTION_TEST=2
 EXIT_UNKNOWN_JOB=3
 
+# Size Constants
+K=1024
+M=$((1024 * K))
+G=$((1024 * M))
+T=$((1024 * G))
+
+function display_usage() {
+  echo "useage: benchmark.sh [--help] <test>"
+  echo ""
+  echo "These are the available benchmark tests:"
+  echo -e "\tbulkload"
+  echo -e "\tfillseq_disable_wal\t\tSequentially fill the database with no WAL"
+  echo -e "\tfillseq_enable_wal\t\tSequentially fill the database with WAL"
+  echo -e "\toverwrite"
+  echo -e "\tupdaterandom"
+  echo -e "\treadrandom"
+  echo -e "\tmergerandom"
+  echo -e "\tfilluniquerandom"
+  echo -e "\tmultireadrandom"
+  echo -e "\tfwdrange"
+  echo -e "\trevrange"
+  echo -e "\treadwhilewriting"
+  echo -e "\treadwhilemerging"
+  echo -e "\tfwdrangewhilewriting"
+  echo -e "\trevrangewhilewriting"
+  echo -e "\tfwdrangewhilemerging"
+  echo -e "\trevrangewhilemerging"
+  echo -e "\trandomtransaction"
+  echo -e "\tuniversal_compaction"
+  echo -e "\tdebug"
+  echo ""
+  echo "Enviroment Variables:"
+  echo -e "\tDB_DIR\t\t\t\tPath to write the database data directory"
+  echo -e "\tWAL_DIR\t\t\t\tPath to write the database WAL directory"
+  echo -e "\tOUTPUT_DIR\t\t\tPath to write the benchmark results to (default: /tmp)"
+  echo -e "\tNUM_KEYS\t\t\tThe number of keys to use in the benchmark"
+  echo -e "\tKEY_SIZE\t\t\tThe size of the keys to use in the benchmark (default: 20 bytes)"
+  echo -e "\tVALUE_SIZE\t\t\tThe size of the values to use in the benchmark (default: 400 bytes)"
+  echo -e "\tBLOCK_SIZE\t\t\tThe size of the database blocks in the benchmark (default: 8 KB)"
+  echo -e "\tDB_BENCH_NO_SYNC\t\tDisable fsync on the WAL"
+  echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
+  echo -e "\tMB_WRITE_PER_SEC"
+  echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
+  echo -e "\tCACHE_SIZE\t\t\t(default: 16GB)"
+  echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
+  echo -e "\tCOMPRESSION_TYPE\t\t(default: zstd)"
+  echo -e "\tDURATION"
+}
+
 if [ $# -lt 1 ]; then
-  echo -n "./benchmark.sh [bulkload/fillseq_disable_wal/fillseq_enable_wal/overwrite/"
-  echo    "updaterandom/readrandom/mergerandom/filluniquerandom/multireadrandom/"
-  echo    "fwdrange/revrange/readwhilewriting/readwhilemerging/"
-  echo    "fwdrangewhilewriting/revrangewhilewriting/fwdrangewhilemerging/revrangewhilemerging/"
-  echo    "randomtransaction/universal_compaction/debug]"
+  display_usage
   exit $EXIT_INVALID_ARGS
 fi
 bench_cmd=$1
 shift
 bench_args=$*
+
+if [[ "$bench_cmd" == "--help" ]]; then
+  display_usage
+  exit
+fi
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from
@@ -25,12 +76,6 @@ if [ "$COMPACTION_TEST" == "1" -a "$bench_cmd" != "universal_compaction" ]; then
   echo "Skipping $1 because it's not a compaction test."
   exit $EXIT_NOT_COMPACTION_TEST
 fi
-
-# size constants
-K=1024
-M=$((1024 * K))
-G=$((1024 * M))
-T=$((1024 * G))
 
 if [ -z $DB_DIR ]; then
   echo "DB_DIR is not defined"
