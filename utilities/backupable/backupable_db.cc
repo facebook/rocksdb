@@ -785,7 +785,7 @@ class BackupEngineImpl {
   std::unique_ptr<Directory> private_directory_;
 
   static const size_t kDefaultCopyFileBufferSize = 5 * 1024 * 1024LL;  // 5MB
-  mutable size_t copy_file_buffer_size_;
+  mutable std::atomic<size_t> copy_file_buffer_size_;
   bool read_only_;
   BackupStatistics backup_statistics_;
   std::unordered_set<std::string> reported_ignored_fields_;
@@ -1920,9 +1920,10 @@ Status BackupEngineImpl::CopyOrCreateFile(
       new WritableFileWriter(std::move(dst_file), dst, dst_file_options));
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
+  size_t buf_size = copy_file_buffer_size_.load(std::memory_order_relaxed);
   if (!src.empty()) {
     src_reader.reset(new SequentialFileReader(std::move(src_file), src));
-    buf.reset(new char[copy_file_buffer_size_]);
+    buf.reset(new char[buf_size]);
   }
 
   Slice data;
@@ -1932,9 +1933,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
       return Status::Incomplete("Backup stopped");
     }
     if (!src.empty()) {
-      size_t buffer_to_read = (copy_file_buffer_size_ < size_limit)
-                                  ? copy_file_buffer_size_
-                                  : static_cast<size_t>(size_limit);
+      size_t buffer_to_read =
+          (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
       processed_buffer_size += buffer_to_read;
     } else {
@@ -2227,15 +2227,16 @@ Status BackupEngineImpl::ReadFileAndComputeChecksum(
     return s;
   }
 
-  std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
+  size_t buf_size = copy_file_buffer_size_.load(std::memory_order_relaxed);
+  std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
   do {
     if (stop_backup_.load(std::memory_order_acquire)) {
       return Status::Incomplete("Backup stopped");
     }
-    size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
-      copy_file_buffer_size_ : static_cast<size_t>(size_limit);
+    size_t buffer_to_read =
+        (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
 
     if (!s.ok()) {
