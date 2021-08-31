@@ -39,6 +39,7 @@ function display_usage() {
   echo -e "\tdebug"
   echo ""
   echo "Enviroment Variables:"
+  echo -e "\tJOB_ID\t\tAn identifier for the benchmark job, will appear in the results"
   echo -e "\tDB_DIR\t\t\t\tPath to write the database data directory"
   echo -e "\tWAL_DIR\t\t\t\tPath to write the database WAL directory"
   echo -e "\tOUTPUT_DIR\t\t\tPath to write the benchmark results to (default: /tmp)"
@@ -68,6 +69,8 @@ if [[ "$bench_cmd" == "--help" ]]; then
   display_usage
   exit
 fi
+
+job_id=${JOB_ID}
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from
@@ -265,11 +268,11 @@ function summarize_result {
 
   # if the report TSV (Tab Separate Values) file does not yet exist, create it and write the header row to it
   if [ ! -f "$report" ]; then
-    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name\ttest_date\trocksdb_version" \
+    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name\ttest_date\trocksdb_version\tjob_id" \
       >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name\t$iso_date\t$version" \
+  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name\t$iso_date\t$version\t$job_id" \
     >> $report
 }
 
@@ -574,7 +577,7 @@ IFS=',' read -a jobs <<< $bench_cmd
 for job in ${jobs[@]}; do
 
   if [ $job != debug ]; then
-    echo "Start $job at `date`" | tee -a $schedule
+    echo "Starting $job (ID: $job_id) at `date`" | tee -a $schedule
   fi
 
   start=$(now)
@@ -632,10 +635,10 @@ for job in ${jobs[@]}; do
   end=$(now)
 
   if [ $job != debug ]; then
-    echo "Complete $job in $((end-start)) seconds" | tee -a $schedule
+    echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest\tDate\tVersion"
+  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest\tDate\tVersion\tJob-ID"
   tail -1 $report
 
 done
