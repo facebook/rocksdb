@@ -24,7 +24,7 @@ We strive to achieve the following goals:
 * make all unit test pass both in debug and release builds. 
   * Note: latest introduction of SyncPoint seems to disable running db_test in Release.
 * make performance on par with published benchmarks accounting for HW differences
-* we would like to keep the port code inline with the master branch with no forking
+* we would like to keep the port code inline with the main branch with no forking
 
 ## Build system
 We have chosen CMake as a widely accepted build system to build the Windows port. It is very fast and convenient. 
