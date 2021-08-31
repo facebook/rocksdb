@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.24.1 (2021-08-31)
+### Bug Fixes
+* Fix a race in item ref counting in LRUCache when promoting an item from the SecondaryCache.
+
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
