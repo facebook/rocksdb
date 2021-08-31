@@ -32,7 +32,6 @@ extern thread_local PerfContext perf_context;
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_COUNTER_ADD(metric, value)
 #define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)
-#define PERF_COUNTER_TEMPERATURE_BASED_ADD(temperature, value)
 
 #else
 
@@ -90,29 +89,6 @@ extern thread_local PerfContext perf_context;
       (*(perf_context.level_to_perf_context))[level] = empty_context; \
       (*(perf_context.level_to_perf_context))[level].metric += value; \
     }                                                                 \
-  }
-
-// Increase temperature based file counter
-#define PERF_COUNTER_TEMPERATURE_BASED_ADD(temperature, value)                \
-  if (perf_level >= PerfLevel::kEnableCount) {                                \
-    switch (temperature) {                                                    \
-      case Temperature::kHot:                                                 \
-        perf_context.file_access_count_by_temperature.hot_file_read_count +=  \
-            value;                                                            \
-        break;                                                                \
-      case Temperature::kWarm:                                                \
-        perf_context.file_access_count_by_temperature.warm_file_read_count += \
-            value;                                                            \
-        break;                                                                \
-      case Temperature::kCold:                                                \
-        perf_context.file_access_count_by_temperature.cold_file_read_count += \
-            value;                                                            \
-        break;                                                                \
-      default:                                                                \
-        perf_context.file_access_count_by_temperature                         \
-            .unknown_file_read_count += value;                                \
-        break;                                                                \
-    }                                                                         \
   }
 
 #endif

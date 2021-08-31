@@ -238,7 +238,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
         PERF_COUNTER_ADD(block_read_count, 1);
-        PERF_COUNTER_TEMPERATURE_BASED_ADD(file_temperature_, 1);
+        PerfConterAddByTemperature(file_temperature_, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
@@ -247,7 +247,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr, for_compaction_);
         PERF_COUNTER_ADD(block_read_count, 1);
-        PERF_COUNTER_TEMPERATURE_BASED_ADD(file_temperature_, 1);
+        PerfConterAddByTemperature(file_temperature_, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
           num_stack_buf_memcpy_++;

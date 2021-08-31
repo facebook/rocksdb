@@ -131,4 +131,27 @@ class BlockFetcher {
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void CheckBlockChecksum();
 };
+
+inline void PerfConterAddByTemperature(Temperature file_temperature,
+                                       size_t value) {
+  switch (file_temperature) {
+    case Temperature::kHot:
+      PERF_COUNTER_ADD(file_access_count_by_temperature.hot_file_read_count,
+                       value);
+      break;
+    case Temperature::kWarm:
+      PERF_COUNTER_ADD(file_access_count_by_temperature.warm_file_read_count,
+                       value);
+      break;
+    case Temperature::kCold:
+      PERF_COUNTER_ADD(file_access_count_by_temperature.cold_file_read_count,
+                       value);
+      break;
+    default:
+      PERF_COUNTER_ADD(file_access_count_by_temperature.unknown_file_read_count,
+                       value);
+      break;
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE

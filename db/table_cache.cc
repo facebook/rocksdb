@@ -132,7 +132,8 @@ Status TableCache::GetTableReader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.clock, io_tracer_,
             record_read_stats ? ioptions_.stats : nullptr, SST_READ_MICROS,
-            file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners));
+            file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners,
+            file_temperature));
     s = ioptions_.table_factory->NewTableReader(
         ro,
         TableReaderOptions(ioptions_, prefix_extractor, file_options,

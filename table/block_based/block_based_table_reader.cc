@@ -1725,7 +1725,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     PERF_COUNTER_ADD(block_read_count, 1);
     PERF_COUNTER_ADD(block_read_byte, block_size(handle));
-    PERF_COUNTER_TEMPERATURE_BASED_ADD(rep_->file_temperature, 1);
+    PerfConterAddByTemperature(rep_->file_temperature, 1);
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
