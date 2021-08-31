@@ -1919,8 +1919,8 @@ Status Version::MultiGetBlob(const ReadOptions& read_options,
         blob_file_reader.GetValue()->GetCompressionType();
 
     std::sort(blobs_in_file.begin(), blobs_in_file.end(),
-              [](std::pair<BlobIndex, BlobIterator>& lhs,
-                 std::pair<BlobIndex, BlobIterator>& rhs) -> bool {
+              [](const std::pair<BlobIndex, BlobIterator>& lhs,
+                 const std::pair<BlobIndex, BlobIterator>& rhs) -> bool {
                 return lhs.first.offset() < rhs.first.offset();
               });
     autovector<std::reference_wrapper<Slice>> user_keys;
