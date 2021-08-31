@@ -87,7 +87,7 @@ if [ -z $WAL_DIR ]; then
   exit $EXIT_INVALID_ARGS
 fi
 
-output_dir=${OUTPUT_DIR:-/tmp/}
+output_dir=${OUTPUT_DIR:-/tmp}
 if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
 fi
