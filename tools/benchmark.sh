@@ -280,6 +280,7 @@ function run_bulkload {
   # This runs with a vector memtable and the WAL disabled to load faster. It is still crash safe and the
   # client can discover where to restart a load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys"
+  log_file_name=$output_dir/benchmark_bulkload_fillrandom.log
   cmd="./db_bench --benchmarks=fillrandom \
        --use_existing_db=0 \
        --disable_auto_compactions=1 \
@@ -290,19 +291,21 @@ function run_bulkload {
        --allow_concurrent_memtable_write=false \
        --disable_wal=1 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
-  echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/benchmark_bulkload_fillrandom.log bulkload fillrandom
+  summarize_result $log_file_name bulkload fillrandom
+
   echo "Compacting..."
+  log_file_name=$output_dir/benchmark_bulkload_compact.log
   cmd="./db_bench --benchmarks=compact \
        --use_existing_db=1 \
        --disable_auto_compactions=1 \
        --sync=0 \
        $params_w \
        --threads=1 \
-       2>&1 | tee -a $output_dir/benchmark_bulkload_compact.log"
-  echo $cmd | tee $output_dir/benchmark_bulkload_compact.log
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
 }
 
@@ -320,8 +323,7 @@ function run_manual_compaction_worker {
   # load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys for manual compaction."
 
-  fillrandom_output_file=$output_dir/benchmark_man_compact_fillrandom_$3.log
-  man_compact_output_log=$output_dir/benchmark_man_compact_$3.log
+  log_file_name=$output_dir/benchmark_man_compact_fillrandom_$3.log
 
   if [ "$2" == "1" ]; then
     extra_params=$params_univ_compact
@@ -344,14 +346,16 @@ function run_manual_compaction_worker {
        --disable_wal=1 \
        --max_background_compactions=$4 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $fillrandom_output_file"
+       2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $fillrandom_output_file
+  echo $cmd | tee $log_file_name
   eval $cmd
 
-  summarize_result $fillrandom_output_file man_compact_fillrandom_$3 fillrandom
+  summarize_result $log_file_namefillrandom_output_file man_compact_fillrandom_$3 fillrandom
 
   echo "Compacting with $3 subcompactions specified ..."
+
+  log_file_name=$output_dir/benchmark_man_compact_$3.log
 
   # This is the part we're really interested in. Given that compact benchmark
   # doesn't output regular statistics then we'll just use the time command to
@@ -368,9 +372,9 @@ function run_manual_compaction_worker {
        --subcompactions=$3 \
        --max_background_compactions=$4 \
        ;}
-       2>&1 | tee -a $man_compact_output_log"
+       2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $man_compact_output_log
+  echo $cmd | tee $log_file_name
   eval $cmd
 
   # Can't use summarize_result here. One way to analyze the results is to run
@@ -439,7 +443,7 @@ function run_fillseq {
 function run_change {
   operation=$1
   echo "Do $num_keys random $operation"
-  out_name="benchmark_${operation}.t${num_threads}.s${syncval}.log"
+  log_file_name="$output_dir/benchmark_${operation}.t${num_threads}.s${syncval}.log"
   cmd="./db_bench --benchmarks=$operation \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -447,59 +451,60 @@ function run_change {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} ${operation}.t${num_threads}.s${syncval} $operation
+  summarize_result $log_file_name ${operation}.t${num_threads}.s${syncval} $operation
 }
 
 function run_filluniquerandom {
   echo "Loading $num_keys unique keys randomly"
+  log_file_name=$output_dir/benchmark_filluniquerandom.log
   cmd="./db_bench --benchmarks=filluniquerandom \
        --use_existing_db=0 \
        --sync=0 \
        $params_w \
        --threads=1 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/benchmark_filluniquerandom.log"
-  echo $cmd | tee $output_dir/benchmark_filluniquerandom.log
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/benchmark_filluniquerandom.log filluniquerandom filluniquerandom
+  summarize_result $log_file_name filluniquerandom filluniquerandom
 }
 
 function run_readrandom {
   echo "Reading $num_keys random keys"
-  out_name="benchmark_readrandom.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_readrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=readrandom \
        --use_existing_db=1 \
        $params_w \
        --threads=$num_threads \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} readrandom.t${num_threads} readrandom
+  summarize_result $log_file_name readrandom.t${num_threads} readrandom
 }
 
 function run_multireadrandom {
   echo "Multi-Reading $num_keys random keys"
-  out_name="benchmark_multireadrandom.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_multireadrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=multireadrandom \
        --use_existing_db=1 \
        --threads=$num_threads \
        --batch_size=10 \
        $params_w \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} multireadrandom.t${num_threads} multireadrandom
+  summarize_result $log_file_name multireadrandom.t${num_threads} multireadrandom
 }
 
 function run_readwhile {
   operation=$1
   echo "Reading $num_keys random keys while $operation"
-  out_name="benchmark_readwhile${operation}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_readwhile${operation}.t${num_threads}.log"
   cmd="./db_bench --benchmarks=readwhile${operation} \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -507,17 +512,17 @@ function run_readwhile {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} readwhile${operation}.t${num_threads} readwhile${operation}
+  summarize_result $log_file_name readwhile${operation}.t${num_threads} readwhile${operation}
 }
 
 function run_rangewhile {
   operation=$1
   full_name=$2
   reverse_arg=$3
-  out_name="benchmark_${full_name}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
   echo "Range scan $num_keys random keys while ${operation} for reverse_iter=${reverse_arg}"
   cmd="./db_bench --benchmarks=seekrandomwhile${operation} \
        --use_existing_db=1 \
@@ -528,16 +533,16 @@ function run_rangewhile {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} ${full_name}.t${num_threads} seekrandomwhile${operation}
+  summarize_result $log_file_name ${full_name}.t${num_threads} seekrandomwhile${operation}
 }
 
 function run_range {
   full_name=$1
   reverse_arg=$2
-  out_name="benchmark_${full_name}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
   echo "Range scan $num_keys random keys for reverse_iter=${reverse_arg}"
   cmd="./db_bench --benchmarks=seekrandom \
        --use_existing_db=1 \
@@ -546,21 +551,22 @@ function run_range {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} ${full_name}.t${num_threads} seekrandom
+  summarize_result $log_file_name ${full_name}.t${num_threads} seekrandom
 }
 
 function run_randomtransaction {
   echo "..."
+  log_file_name=$output_dir/benchmark_randomtransaction.log
   cmd="./db_bench $params_r --benchmarks=randomtransaction \
        --num=$num_keys \
        --transaction_db \
        --threads=5 \
        --transaction_sets=5 \
-       2>&1 | tee $output_dir/benchmark_randomtransaction.log"
-  echo $cmd | tee $output_dir/benchmark_rangescanwhilewriting.log
+       2>&1 | tee $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
 }
 
