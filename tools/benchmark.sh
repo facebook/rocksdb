@@ -203,6 +203,23 @@ params_univ_compact="$const_params \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
+function month_to_num() {
+    local date_str=$1
+    date_str="${date_str/Jan/01}"
+    date_str="${date_str/Feb/02}"
+    date_str="${date_str/Mar/03}"
+    date_str="${date_str/Apr/04}"
+    date_str="${date_str/May/05}"
+    date_str="${date_str/Jun/06}"
+    date_str="${date_str/Jul/07}"
+    date_str="${date_str/Aug/08}"
+    date_str="${date_str/Sep/09}"
+    date_str="${date_str/Oct/10}"
+    date_str="${date_str/Nov/11}"
+    date_str="${date_str/Dec/12}"
+    echo $date_str
+}
+
 function summarize_result {
   test_out=$1
   test_name=$2
@@ -213,6 +230,11 @@ function summarize_result {
   # happen then empty output from grep when searching for "Sum" will cause
   # syntax errors.
   version=$( grep ^RocksDB: $test_out | awk '{ print $3 }' )
+  date=$( grep ^Date: $test_out | awk '{ print $6 "-" $3 "-" $4 "T" $5 ".000" }' )
+  iso_date=$( month_to_num $date )
+  tz=$( date "+%z" )
+  iso_tz="${tz:0:3}:${tz:3:2}"
+  iso_date="$iso_date$iso_tz"
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
   stall_time=$( grep "^Cumulative stall" $test_out | tail -1  | awk '{  print $3 }' )
   stall_pct=$( grep "^Cumulative stall" $test_out| tail -1  | awk '{  print $5 }' )
@@ -243,11 +265,11 @@ function summarize_result {
 
   # if the report TSV (Tab Separate Values) file does not yet exist, create it and write the header row to it
   if [ ! -f "$report" ]; then
-    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name\trocksdb_version" \
+    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name\ttest_date\trocksdb_version" \
       >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name\t$version" \
+  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name\t$iso_date\t$version" \
     >> $report
 }
 
@@ -613,7 +635,7 @@ for job in ${jobs[@]}; do
     echo "Complete $job in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest\tVersion"
+  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest\tDate\tVersion"
   tail -1 $report
 
 done
