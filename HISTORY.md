@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.23.4 (2021-08-31)
+### Bug Fixes
+* Fix a race in item ref counting in LRUCache when promoting an item from the SecondaryCache.
+
 ## 6.23.3 (2021-08-09)
 ### Bug Fixes
 * Removed a call to `RenameFile()` on a non-existent info log file ("LOG") when opening a new DB. Such a call was guaranteed to fail though did not impact applications since we swallowed the error. Now we also stopped swallowing errors in renaming "LOG" file.
