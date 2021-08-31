@@ -292,7 +292,12 @@ function run_bulkload {
        --disable_wal=1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name bulkload fillrandom
 
@@ -305,7 +310,12 @@ function run_bulkload {
        $params_w \
        --threads=1 \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 }
 
@@ -348,7 +358,12 @@ function run_manual_compaction_worker {
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
   summarize_result $log_file_namefillrandom_output_file man_compact_fillrandom_$3 fillrandom
@@ -374,7 +389,12 @@ function run_manual_compaction_worker {
        ;}
        2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
   # Can't use summarize_result here. One way to analyze the results is to run
@@ -414,10 +434,10 @@ function run_fillseq {
   # Make sure that we'll have unique names for all the files so that data won't
   # be overwritten.
   if [ $1 == 1 ]; then
-    log_file_name=$output_dir/benchmark_fillseq.wal_disabled.v${value_size}.log
+    log_file_name="${output_dir}/benchmark_fillseq.wal_disabled.v${value_size}.log"
     test_name=fillseq.wal_disabled.v${value_size}
   else
-    log_file_name=$output_dir/benchmark_fillseq.wal_enabled.v${value_size}.log
+    log_file_name="${output_dir}/benchmark_fillseq.wal_enabled.v${value_size}.log"
     test_name=fillseq.wal_enabled.v${value_size}
   fi
 
@@ -433,7 +453,13 @@ function run_fillseq {
        --disable_wal=$1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
   # The constant "fillseq" which we pass to db_bench is the benchmark name.
@@ -452,7 +478,12 @@ function run_change {
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name ${operation}.t${num_threads}.s${syncval} $operation
 }
@@ -467,7 +498,12 @@ function run_filluniquerandom {
        --threads=1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name filluniquerandom filluniquerandom
 }
@@ -481,7 +517,12 @@ function run_readrandom {
        --threads=$num_threads \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name readrandom.t${num_threads} readrandom
 }
@@ -496,7 +537,12 @@ function run_multireadrandom {
        $params_w \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name multireadrandom.t${num_threads} multireadrandom
 }
@@ -513,7 +559,12 @@ function run_readwhile {
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name readwhile${operation}.t${num_threads} readwhile${operation}
 }
@@ -552,7 +603,12 @@ function run_range {
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
   summarize_result $log_file_name ${full_name}.t${num_threads} seekrandom
 }
@@ -566,7 +622,12 @@ function run_randomtransaction {
        --threads=5 \
        --transaction_sets=5 \
        2>&1 | tee $log_file_name"
-  echo $cmd | tee $log_file_name
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 }
 
