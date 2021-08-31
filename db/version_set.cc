@@ -1974,9 +1974,6 @@ Status Version::MultiGetBlob(const ReadOptions& read_options,
         *(blob_it->s) = status;
       }
     }
-    if (!status.ok()) {
-      break;
-    }
   }
   return status;
 }
