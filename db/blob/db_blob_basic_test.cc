@@ -150,6 +150,83 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
                   .IsCorruption());
 }
 
+TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumOfKeys = 3;
+  std::array<std::string, kNumOfKeys> key_strs;
+  std::array<std::string, kNumOfKeys> value_strs;
+  std::array<Slice, kNumOfKeys + 1> keys;
+  for (size_t i = 0; i < kNumOfKeys; ++i) {
+    key_strs[i] = "foo" + std::to_string(i);
+    value_strs[i] = "blob_value" + std::to_string(i);
+    ASSERT_OK(Put(key_strs[i], value_strs[i]));
+    keys[i] = key_strs[i];
+  }
+
+  constexpr char key[] = "key";
+  {
+    // Fake a corrupt blob index.
+    const std::string blob_index("foobar");
+    WriteBatch batch;
+    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    keys[kNumOfKeys] = Slice(static_cast<const char*>(key), sizeof(key) - 1);
+  }
+
+  ASSERT_OK(Flush());
+
+  std::array<PinnableSlice, kNumOfKeys + 1> values;
+  std::array<Status, kNumOfKeys + 1> statuses;
+  db_->MultiGet(ReadOptions(), dbfull()->DefaultColumnFamily(), kNumOfKeys + 1,
+                keys.data(), values.data(), statuses.data(),
+                /*sorted_input=*/false);
+  for (size_t i = 0; i < kNumOfKeys + 1; ++i) {
+    if (i != kNumOfKeys) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ("blob_value" + std::to_string(i), values[i]);
+    } else {
+      ASSERT_TRUE(statuses[i].IsCorruption());
+    }
+  }
+}
+
+TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t kNumOfKeys = 3;
+  std::array<std::string, kNumOfKeys> key_bufs;
+  std::array<std::string, kNumOfKeys> value_bufs;
+  std::array<Slice, kNumOfKeys> keys;
+  for (size_t i = 0; i < kNumOfKeys; ++i) {
+    key_bufs[i] = "foo" + std::to_string(i);
+    value_bufs[i] = "blob_value" + std::to_string(i);
+    ASSERT_OK(Put(key_bufs[i], value_bufs[i]));
+    keys[i] = key_bufs[i];
+  }
+  ASSERT_OK(Flush());
+
+  std::array<PinnableSlice, kNumOfKeys> values;
+  std::array<Status, kNumOfKeys> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = 1;
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), kNumOfKeys,
+                keys.data(), values.data(), statuses.data(),
+                /*sorted_input=*/true);
+  for (const auto& s : statuses) {
+    ASSERT_TRUE(s.IsAborted());
+  }
+}
+
 TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
   constexpr uint64_t min_blob_size = 10;
 
