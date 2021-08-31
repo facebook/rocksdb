@@ -1866,9 +1866,10 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
 Status Version::MultiGetBlob(const ReadOptions& read_options,
                              MultiGetRange& range) {
-  if (!range.NeedsAnyBlobRead()) {
-    return Status::OK();
-  } else if (read_options.read_tier == kBlockCacheTier) {
+  // Guaranteed by caller.
+  assert(range.NeedsAnyBlobRead());
+
+  if (read_options.read_tier == kBlockCacheTier) {
     Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
     for (auto it = range.blob_begin(); it != range.blob_end(); ++it) {
       *(it->s) = s;
