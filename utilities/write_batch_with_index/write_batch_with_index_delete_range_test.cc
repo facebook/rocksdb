@@ -1831,8 +1831,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRanges) {
   ASSERT_EQ(expect, entries);
 }
 
-TEST_F(WriteBatchWithIndexDeleteRangeTest,
-       DISABLED_BEFORE_NEXT_TEST_MoreRangesCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRangesCF) {
   ASSERT_OK(OpenDB());
   auto cf1 = makeCF("more_ranges_cf_cf1");
 
@@ -2022,6 +2021,8 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   ASSERT_OK(db_->Flush(flush_options, db_->DefaultColumnFamily()));
   ASSERT_OK(db_->SyncWAL());
   ASSERT_OK(db_->Close());
+
+  std::this_thread::sleep_for(std::chrono::seconds(1));
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, DISABLED_BatchFlushDBReadCF) {
