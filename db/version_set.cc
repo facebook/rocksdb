@@ -1959,9 +1959,10 @@ Status Version::MultiGetBlob(const ReadOptions& read_options,
         range.AddValueSize(blob_it->value->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
           status = Status::Aborted();
-          break;
+          *(blob_it->s) = status;
+        } else {
+          *(blob_it->s) = Status::OK();
         }
-        *(blob_it->s) = Status::OK();
       }
     } else {
       for (const auto& blob : blobs_in_file) {
