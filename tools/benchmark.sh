@@ -92,7 +92,7 @@ if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
 fi
 
-report="$output_dir/report.txt"
+report="$output_dir/report.tsv"
 schedule="$output_dir/schedule.txt"
 
 # all multithreaded tests run with sync=1 unless
@@ -235,6 +235,13 @@ function summarize_result {
   p99=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $7 }' )
   p999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $9 }' )
   p9999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $11 }' )
+
+  # if the report TSV (Tab Separate Values) file does not yet exist, create it and write the header row to it
+  if [ ! -f "$report" ]; then
+    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name" \
+      >> $report
+  fi
+
   echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name" \
     >> $report
 }
