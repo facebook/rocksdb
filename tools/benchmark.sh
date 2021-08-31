@@ -92,6 +92,9 @@ if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
 fi
 
+report="$output_dir/report.txt"
+schedule="$output_dir/schedule.txt"
+
 # all multithreaded tests run with sync=1 unless
 # $DB_BENCH_NO_SYNC is defined
 syncval="1"
@@ -233,7 +236,7 @@ function summarize_result {
   p999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $9 }' )
   p9999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $11 }' )
   echo -e "$ops_sec\t$mb_sec\t$sum_size\t$lo_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name" \
-    >> $output_dir/report.txt
+    >> $report
 }
 
 function run_bulkload {
@@ -528,8 +531,6 @@ function now() {
   echo `date +"%s"`
 }
 
-report="$output_dir/report.txt"
-schedule="$output_dir/schedule.txt"
 
 echo "===== Benchmark ====="
 
@@ -601,6 +602,6 @@ for job in ${jobs[@]}; do
   fi
 
   echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest"
-  tail -1 $output_dir/report.txt
+  tail -1 $report
 
 done
