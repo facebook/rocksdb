@@ -594,6 +594,9 @@ class DataBlockIter final : public BlockIter<Slice> {
     BlockIter::Invalidate(s);
     data_block_ = nullptr;
     // Clear prev entries cache.
+    prev_entries_keys_buff_.clear();
+    prev_entries_.clear();
+    prev_entries_idx_ = -1;
   }
 
   size_t TEST_CurrentEntrySize() {
@@ -607,6 +610,30 @@ class DataBlockIter final : public BlockIter<Slice> {
   virtual bool ParseNextSharedKey(bool* is_shared) override;
 
  private:
+  struct CachedPrevEntry {
+    explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
+                             size_t _key_offset, size_t _key_size, Slice _value)
+        : offset(_offset),
+          key_ptr(_key_ptr),
+          key_offset(_key_offset),
+          key_size(_key_size),
+          value(_value) {}
+
+    // offset of entry in block
+    uint32_t offset;
+    // Pointer to key data in block (nullptr if key is delta-encoded)
+    const char* key_ptr;
+    // offset of key in prev_entries_keys_buff_ (0 if key_ptr is not nullptr)
+    size_t key_offset;
+    // size of key
+    size_t key_size;
+    // value slice pointing to data in block
+    Slice value;
+  };
+  std::string prev_entries_keys_buff_;
+  std::vector<CachedPrevEntry> prev_entries_;
+  int32_t prev_entries_idx_ = -1;
+
   const DataBlock* data_block_;
   // last `current_` value we report to read-amp bitmp
   mutable uint32_t last_bitmap_offset_;

@@ -633,7 +633,8 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLongerThanKey) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(20));
+  // Picking a Capped prefix of 3 so that the short key ("foo") fits
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   options.memtable_whole_key_filtering = true;
   options.memtable_prefix_bloom_size_ratio = 0.1;
   BlockBasedTableOptions bbto;
@@ -1317,7 +1318,8 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewCappedPrefixTransform(5));
+  // Picking a Capped prefix of 3 so that the short key ("foo") fits
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;

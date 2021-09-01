@@ -239,20 +239,73 @@ void MetaBlockIter::PrevImpl() {
 // Similar to IndexBlockIter::PrevImpl but also caches the prev entries
 void DataBlockIter::PrevImpl() {
   assert(Valid());
-  bool shared;
-  uint32_t previous =
-      block_->ParseKVBefore(current_, &raw_key_, &shared, &value_);
-  if (previous < current_) {
-    next_ = current_;
-    current_ = previous;
-    while (GetRestartPoint(restart_index_) > current_) {
-      restart_index_--;
+  assert(prev_entries_idx_ == -1 ||
+         static_cast<size_t>(prev_entries_idx_) < prev_entries_.size());
+  // Check if we can use cached prev_entries_
+  if (prev_entries_idx_ > 0 &&
+      prev_entries_[prev_entries_idx_].offset == current_) {
+    // Read cached CachedPrevEntry
+    prev_entries_idx_--;
+    const CachedPrevEntry& current_prev_entry =
+        prev_entries_[prev_entries_idx_];
+
+    const char* key_ptr = nullptr;
+    bool raw_key_cached;
+    if (current_prev_entry.key_ptr != nullptr) {
+      // The key is not delta encoded and stored in the data block
+      key_ptr = current_prev_entry.key_ptr;
+      raw_key_cached = false;
+    } else {
+      // The key is delta encoded and stored in prev_entries_keys_buff_
+      key_ptr = prev_entries_keys_buff_.data() + current_prev_entry.key_offset;
+      raw_key_cached = true;
     }
-  } else if (previous == GetRestartPoint(block_->NumRestarts())) {
-    // No more entries
-    restart_index_ = block_->NumRestarts();
-  } else {
-    CorruptionError();
+    const Slice current_key(key_ptr, current_prev_entry.key_size);
+
+    current_ = current_prev_entry.offset;
+    // TODO(ajkr): the copy when `raw_key_cached` is done here for convenience,
+    // not necessity. It is convenient since this class treats keys as pinned
+    // when `raw_key_` points to an outside buffer. So we cannot allow
+    // `raw_key_` point into Prev cache as it is a transient outside buffer
+    // (i.e., keys in it are not actually pinned).
+    raw_key_.SetKey(current_key, raw_key_cached /* copy */);
+    value_ = current_prev_entry.value;
+
+    return;
+  }
+
+  // Clear prev entries cache
+  prev_entries_idx_ = -1;
+  prev_entries_.clear();
+  prev_entries_keys_buff_.clear();
+
+  const uint32_t original = current_;
+  while (GetRestartPoint(restart_index_) >= original) {
+    if (restart_index_ == 0) {
+      // No more entries
+      restart_index_ = block_->NumRestarts();
+      return;
+    }
+    restart_index_--;
+  }
+  next_ = current_ = block_->GetRestartPoint(restart_index_);
+  bool shared;
+  // Loop until end of current entry hits the start of original entry
+  while (ParseNextSharedKey(&shared) && next_ < original) {
+    Slice current_key = raw_key_.GetKey();
+
+    if (shared) {
+      // The key is not delta encoded
+      prev_entries_.emplace_back(current_, current_key.data(), 0,
+                                 current_key.size(), value());
+    } else {
+      // The key is delta encoded, cache decoded key in buffer
+      size_t new_key_offset = prev_entries_keys_buff_.size();
+      prev_entries_keys_buff_.append(current_key.data(), current_key.size());
+
+      prev_entries_.emplace_back(current_, nullptr, new_key_offset,
+                                 current_key.size(), value());
+    }
   }
 }
 
