@@ -430,10 +430,15 @@ class OptionTypeInfo {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kShared,
-        [](const ConfigOptions& opts, const std::string&,
+        [](const ConfigOptions& opts, const std::string& name,
            const std::string& value, void* addr) {
           auto* shared = static_cast<std::shared_ptr<T>*>(addr);
-          return T::CreateFromString(opts, value, shared);
+          if (name == kIdPropName() && value.empty()) {
+            shared->reset();
+            return Status::OK();
+          } else {
+            return T::CreateFromString(opts, value, shared);
+          }
         },
         serialize_func, equals_func);
   }
@@ -463,10 +468,15 @@ class OptionTypeInfo {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kUnique,
-        [](const ConfigOptions& opts, const std::string&,
+        [](const ConfigOptions& opts, const std::string& name,
            const std::string& value, void* addr) {
           auto* unique = static_cast<std::unique_ptr<T>*>(addr);
-          return T::CreateFromString(opts, value, unique);
+          if (name == kIdPropName() && value.empty()) {
+            unique->reset();
+            return Status::OK();
+          } else {
+            return T::CreateFromString(opts, value, unique);
+          }
         },
         serialize_func, equals_func);
   }
@@ -494,10 +504,15 @@ class OptionTypeInfo {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kRawPointer,
-        [](const ConfigOptions& opts, const std::string&,
+        [](const ConfigOptions& opts, const std::string& name,
            const std::string& value, void* addr) {
           auto** pointer = static_cast<T**>(addr);
-          return T::CreateFromString(opts, value, pointer);
+          if (name == kIdPropName() && value.empty()) {
+            *pointer = nullptr;
+            return Status::OK();
+          } else {
+            return T::CreateFromString(opts, value, pointer);
+          }
         },
         serialize_func, equals_func);
   }
@@ -773,6 +788,9 @@ class OptionTypeInfo {
   static Status NextToken(const std::string& opts, char delimiter, size_t start,
                           size_t* end, std::string* token);
 
+  constexpr static const char* kIdPropName() { return "id"; }
+  constexpr static const char* kIdPropSuffix() { return ".id"; }
+
  private:
   int offset_;
 
@@ -867,18 +885,18 @@ Status SerializeVector(const ConfigOptions& config_options,
   std::string result;
   ConfigOptions embedded = config_options;
   embedded.delimiter = ";";
-  for (size_t i = 0; i < vec.size(); ++i) {
+  int printed = 0;
+  for (const auto& elem : vec) {
     std::string elem_str;
-    Status s = elem_info.Serialize(
-        embedded, name, reinterpret_cast<const char*>(&vec[i]), &elem_str);
+    Status s = elem_info.Serialize(embedded, name, &elem, &elem_str);
     if (!s.ok()) {
       return s;
-    } else {
-      if (i > 0) {
+    } else if (!elem_str.empty()) {
+      if (printed++ > 0) {
         result += separator;
       }
       // If the element contains embedded separators, put it inside of brackets
-      if (result.find(separator) != std::string::npos) {
+      if (elem_str.find(separator) != std::string::npos) {
         result += "{" + elem_str + "}";
       } else {
         result += elem_str;
@@ -886,6 +904,8 @@ Status SerializeVector(const ConfigOptions& config_options,
     }
   }
   if (result.find("=") != std::string::npos) {
+    *value = "{" + result + "}";
+  } else if (printed > 1 && result.at(0) == '{') {
     *value = "{" + result + "}";
   } else {
     *value = result;

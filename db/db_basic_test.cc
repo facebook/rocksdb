@@ -2756,6 +2756,11 @@ class DBBasicTestMultiGet : public DBTestBase {
         EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
     }
+    // Clear compressed cache, which is always pre-populated
+    if (compressed_cache_) {
+      compressed_cache_->SetCapacity(0);
+      compressed_cache_->SetCapacity(1048576);
+    }
   }
 
   bool CheckValue(int i, const std::string& value) {

@@ -228,6 +228,7 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   assert(blob);
   assert(compressed_blob);
   assert(compressed_blob->empty());
+  assert(immutable_options_);
 
   if (blob_compression_type_ == kNoCompression) {
     return Status::OK();
@@ -242,7 +243,16 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
 
   constexpr uint32_t compression_format_version = 2;
 
-  if (!CompressData(*blob, info, compression_format_version, compressed_blob)) {
+  bool success = false;
+
+  {
+    StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
+                         BLOB_DB_COMPRESSION_MICROS);
+    success =
+        CompressData(*blob, info, compression_format_version, compressed_blob);
+  }
+
+  if (!success) {
     return Status::Corruption("Error compressing blob");
   }
 

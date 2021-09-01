@@ -34,7 +34,8 @@ class CacheShard {
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
                                 const Cache::CacheItemHelper* helper,
                                 const Cache::CreateCallback& create_cb,
-                                Cache::Priority priority, bool wait) = 0;
+                                Cache::Priority priority, bool wait,
+                                Statistics* stats) = 0;
   virtual bool Release(Cache::Handle* handle, bool useful,
                        bool force_erase) = 0;
   virtual bool IsReady(Cache::Handle* handle) = 0;

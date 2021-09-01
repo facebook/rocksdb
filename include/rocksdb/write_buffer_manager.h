@@ -21,6 +21,7 @@
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
+class CacheReservationManager;
 
 // Interface to block and signal DB instances.
 // Each DB instance contains ptr to StallInterface.
@@ -60,7 +61,7 @@ class WriteBufferManager {
   bool enabled() const { return buffer_size() > 0; }
 
   // Returns true if pointer to cache is passed.
-  bool cost_to_cache() const { return cache_rep_ != nullptr; }
+  bool cost_to_cache() const { return cache_rev_mng_ != nullptr; }
 
   // Returns the total memory used by memtables.
   // Only valid if enabled()
@@ -73,9 +74,7 @@ class WriteBufferManager {
     return memory_active_.load(std::memory_order_relaxed);
   }
 
-  size_t dummy_entries_in_cache_usage() const {
-    return dummy_size_.load(std::memory_order_relaxed);
-  }
+  size_t dummy_entries_in_cache_usage() const;
 
   // Returns the buffer_size.
   size_t buffer_size() const {
@@ -163,9 +162,10 @@ class WriteBufferManager {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
-  std::atomic<size_t> dummy_size_;
-  struct CacheRep;
-  std::unique_ptr<CacheRep> cache_rep_;
+  std::unique_ptr<CacheReservationManager> cache_rev_mng_;
+  // Protects cache_rev_mng_
+  std::mutex cache_rev_mng_mu_;
+
   std::list<StallInterface*> queue_;
   // Protects the queue_
   std::mutex mu_;

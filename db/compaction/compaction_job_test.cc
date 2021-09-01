@@ -334,8 +334,8 @@ class CompactionJobTestBase : public testing::Test {
         cfd->current()->storage_info(), *cfd->ioptions(),
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
-        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts, 0,
-        {}, true);
+        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts,
+        Temperature::kUnknown, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -1120,7 +1120,9 @@ TEST_F(CompactionJobTest, InputSerialization) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
   while (!rnd.OneIn(10)) {
-    input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    input.input_files.emplace_back(rnd.RandomString(
+        rnd.Uniform(kStrMaxLen - 1) +
+        1));  // input file name should have at least one character
   }
   input.output_level = 4;
   input.has_begin = rnd.OneIn(2);

@@ -74,6 +74,9 @@ struct PerfContext {
   uint64_t filter_block_read_count;       // total number of filter block reads
   uint64_t compression_dict_block_read_count;  // total number of compression
                                                // dictionary block reads
+
+  uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
+
   uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
 
