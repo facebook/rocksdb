@@ -434,7 +434,13 @@ class Env {
   static std::string PriorityToString(Priority priority);
 
   // Priority for requesting bytes in rate limiter scheduler
-  enum IOPriority { IO_LOW = 0, IO_HIGH = 1, IO_TOTAL = 2 };
+  enum IOPriority {
+    IO_LOW = 0,
+    IO_MID = 1,
+    IO_HIGH = 2,
+    IO_USER = 3,
+    IO_TOTAL = 4
+  };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
@@ -559,7 +565,10 @@ class Env {
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
-  // Generates a unique id that can be used to identify a db
+  // Generates a human-readable unique ID that can be used to identify a DB.
+  // In built-in implementations, this is an RFC-4122 UUID string, but might
+  // not be in all implementations. Overriding is not recommended.
+  // NOTE: this has not be validated for use in cryptography
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
