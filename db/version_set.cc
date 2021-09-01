@@ -2727,7 +2727,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   // If we schedule compaction after TTL is reached, TTL is always slightly
   // violated, which might be confusing to users. Instead, we make a
   // scheduling TTL slightly ahead of time, but no more than a day.
-  uint64_t schedule_ttl = std::min(24 * 60 * 60, ttl / 32 * 31);
+  uint64_t schedule_ttl = std::min(uint64_t{24 * 60 * 60}, ttl / 32 * 31);
 
   expired_ttl_files_.clear();
 
