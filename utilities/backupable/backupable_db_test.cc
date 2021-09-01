@@ -2617,7 +2617,6 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
 
   AssertBackupConsistency(0, 0, 100000, 100010);
 }
-#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 INSTANTIATE_TEST_CASE_P(
     RateLimitingChargeReadInBackup, BackupEngineRateLimitingTestWithParam,
@@ -2714,6 +2713,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   EXPECT_EQ(total_bytes_through_with_read_charge,
             total_bytes_through_with_no_read_charge * 2);
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   DestroyDB(dbname_, options_);
