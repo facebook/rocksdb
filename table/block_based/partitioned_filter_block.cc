@@ -315,7 +315,7 @@ bool PartitionedFilterBlockReader::MayMatch(
     return true;
   }
 
-  if (UNLIKELY(filter_block.GetValue()->limit() == 0)) {
+  if (UNLIKELY(filter_block.GetValue()->block_limit() == 0)) {
     return true;
   }
 
@@ -352,7 +352,7 @@ void PartitionedFilterBlockReader::MayMatch(
     return;  // Any/all may match
   }
 
-  if (UNLIKELY(filter_block.GetValue()->limit() == 0)) {
+  if (UNLIKELY(filter_block.GetValue()->block_limit() == 0)) {
     return;  // Any/all may match
   }
 

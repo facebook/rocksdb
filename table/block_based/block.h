@@ -159,10 +159,10 @@ class Block {
   virtual ~Block();
 
   const char* data() const { return data_; }
-  uint32_t block_size() const {
+  inline uint32_t block_size() const {
     return static_cast<uint32_t>(contents_.data.size());
   }
-  uint32_t limit() const { return limit_; }
+  inline uint32_t block_limit() const { return limit_; }
   const char* offset(uint32_t pos) const {
     assert(pos <= limit_);
     return data_ + pos;
@@ -349,7 +349,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     raw_ucmp_ = raw_ucmp;
     block_ = block;
     restart_index_ = block->NumRestarts();
-    current_ = block->limit();
+    current_ = block->block_limit();
     global_seqno_ = global_seqno;
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
@@ -565,7 +565,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     InitializeBase(raw_ucmp, data_block, global_seqno, block_contents_pinned);
     raw_key_.SetIsUserKey(false);
     data_block_ = data_block;
-    last_bitmap_offset_ = data_block->limit();
+    last_bitmap_offset_ = data_block->block_limit();
   }
 
   Slice value() const override {
@@ -613,14 +613,14 @@ class DataBlockIter final : public BlockIter<Slice> {
   struct CachedPrevEntry {
     explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
                              size_t _key_offset, size_t _key_size, Slice _value)
-        : offset(_offset),
+        : entry_offset(_offset),
           key_ptr(_key_ptr),
           key_offset(_key_offset),
           key_size(_key_size),
           value(_value) {}
 
     // offset of entry in block
-    uint32_t offset;
+    uint32_t entry_offset;
     // Pointer to key data in block (nullptr if key is delta-encoded)
     const char* key_ptr;
     // offset of key in prev_entries_keys_buff_ (0 if key_ptr is not nullptr)
@@ -727,8 +727,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   void SeekForPrevImpl(const Slice&) override {
     assert(false);
-    current_ = block_->limit();
-    next_ = block_->limit();
+    current_ = block_->block_limit();
+    next_ = block_->block_limit();
     restart_index_ = block_->NumRestarts();
     status_ = Status::InvalidArgument(
         "RocksDB internal error: should never call SeekForPrev() on index "

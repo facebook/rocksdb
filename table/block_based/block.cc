@@ -243,7 +243,7 @@ void DataBlockIter::PrevImpl() {
          static_cast<size_t>(prev_entries_idx_) < prev_entries_.size());
   // Check if we can use cached prev_entries_
   if (prev_entries_idx_ > 0 &&
-      prev_entries_[prev_entries_idx_].offset == current_) {
+      prev_entries_[prev_entries_idx_].entry_offset == current_) {
     // Read cached CachedPrevEntry
     prev_entries_idx_--;
     const CachedPrevEntry& current_prev_entry =
@@ -262,7 +262,7 @@ void DataBlockIter::PrevImpl() {
     }
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
-    current_ = current_prev_entry.offset;
+    current_ = current_prev_entry.entry_offset;
     // TODO(ajkr): the copy when `raw_key_cached` is done here for convenience,
     // not necessity. It is convenient since this class treats keys as pinned
     // when `raw_key_` points to an outside buffer. So we cannot allow
@@ -616,7 +616,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
   if (success) {
     if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
       DecodeCurrentValue(shared);
-      next_ += value_.size();
+      next_ += static_cast<uint32_t>(value_.size());
     }
   }
   return success;
@@ -634,7 +634,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // Otherwise the format is delta-size = block handle size - size of last block
 // handle.
 void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
-  auto limit = block_->offset(block_->limit());
+  auto limit = block_->offset(block_->block_limit());
   Slice v(value_.data(), limit - value_.data());
   // Delta encoding is used if `shared` != 0.
   Status decode_s __attribute__((__unused__)) = decoded_value_.DecodeFrom(
@@ -705,7 +705,7 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
 template <class TValue>
 bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
                                    bool* skip_linear_scan) {
-  if (block_->limit() == 0) {
+  if (block_->block_limit() == 0) {
     // SST files dedicated to range tombstones are written with index blocks
     // that have no keys while also having `num_restarts_ == 1`. This would
     // cause a problem for `BinarySeek()` as it'd try to access the first key
