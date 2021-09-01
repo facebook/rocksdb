@@ -351,15 +351,16 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   return Status::OK();
 }
 
-Status BlobFileReader::MultiGetBlob(
+void BlobFileReader::MultiGetBlob(
     const ReadOptions& read_options,
     const autovector<std::reference_wrapper<Slice>>& user_keys,
     const autovector<uint64_t>& offsets,
-    const autovector<uint64_t>& value_sizes, autovector<PinnableSlice*>& values,
-    uint64_t* bytes_read) const {
+    const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
+    autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
   const size_t num_blobs = user_keys.size();
   assert(num_blobs == offsets.size());
   assert(num_blobs == value_sizes.size());
+  assert(num_blobs == statuses.size());
   assert(num_blobs == values.size());
 
   std::vector<FSReadRequest> read_reqs(num_blobs);
@@ -400,15 +401,26 @@ Status BlobFileReader::MultiGetBlob(
   s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
                               direct_io ? &aligned_buf : nullptr);
   if (!s.ok()) {
-    return s;
+    for (auto& req : read_reqs) {
+      req.status.PermitUncheckedError();
+    }
+    for (size_t i = 0; i < num_blobs; ++i) {
+      assert(statuses[i]);
+      *statuses[i] = s;
+    }
+    return;
   }
 
   if (read_options.verify_checksums) {
     for (size_t i = 0; i < num_blobs; ++i) {
+      if (!read_reqs[i].status.ok()) {
+        continue;
+      }
       const Slice& record_slice = read_reqs[i].result;
       s = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
       if (!s.ok()) {
-        return s;
+        assert(statuses[i]);
+        *statuses[i] = s;
       }
     }
   }
@@ -420,7 +432,8 @@ Status BlobFileReader::MultiGetBlob(
     s = UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
                                statistics_, values[i]);
     if (!s.ok()) {
-      return s;
+      assert(statuses[i]);
+      *statuses[i] = s;
     }
   }
 
@@ -431,7 +444,6 @@ Status BlobFileReader::MultiGetBlob(
     }
     *bytes_read = total_bytes;
   }
-  return Status::OK();
 }
 
 Status BlobFileReader::VerifyBlob(const Slice& record_slice,

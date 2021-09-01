@@ -44,12 +44,13 @@ class BlobFileReader {
                  CompressionType compression_type, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  Status MultiGetBlob(
-      const ReadOptions& read_options,
-      const autovector<std::reference_wrapper<Slice>>& user_keys,
-      const autovector<uint64_t>& offsets,
-      const autovector<uint64_t>& value_sizes,
-      autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
+  void MultiGetBlob(const ReadOptions& read_options,
+                    const autovector<std::reference_wrapper<Slice>>& user_keys,
+                    const autovector<uint64_t>& offsets,
+                    const autovector<uint64_t>& value_sizes,
+                    autovector<Status*>& statuses,
+                    autovector<PinnableSlice*>& values,
+                    uint64_t* bytes_read) const;
 
   CompressionType GetCompressionType() const { return compression_type_; }
 
