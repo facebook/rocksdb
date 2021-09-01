@@ -2619,6 +2619,71 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
 }
 
 INSTANTIATE_TEST_CASE_P(
+    RateLimitingVerifyBackup, BackupEngineRateLimitingTestWithParam,
+    ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 1,
+                                      std::make_pair(2 * MB, 3 * MB))));
+
+TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
+  size_t const kMicrosPerSec = 1000 * 1000LL;
+  std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(
+      1, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
+
+  bool makeThrottler = std::get<0>(GetParam());
+  if (makeThrottler) {
+    backupable_options_->backup_rate_limiter = backupThrottler;
+  }
+
+  bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
+  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+
+  const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
+  if (makeThrottler) {
+    backupable_options_->backup_rate_limiter->SetBytesPerSecond(backup_rate_limiter_limit);
+  } else {
+    backupable_options_->backup_rate_limit = backup_rate_limiter_limit;
+  }
+
+  DestroyDB(dbname_, Options());
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, 100000);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false /* flush_before_backup */));
+
+  std::vector<BackupInfo> backup_infos;
+  BackupInfo backup_info;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  const int backup_id = 1;
+  ASSERT_EQ(backup_id, backup_infos[0].backup_id);
+  ASSERT_OK(backup_engine_->GetBackupInfo(backup_id, &backup_info, true /* include_file_details */));
+
+  uint64_t bytes_read_during_verify_backup = 0;
+  for(BackupFileInfo backup_file_info: backup_info.file_details) {
+    bytes_read_during_verify_backup += backup_file_info.size;
+  }
+
+  auto start_verify_backup = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
+  auto verify_backup_time = db_chroot_env_->NowMicros() - start_verify_backup;
+  auto rate_limited_verify_backup_time= (bytes_read_during_verify_backup * kMicrosPerSec) / backup_rate_limiter_limit;
+  
+  if (makeThrottler) {
+    ASSERT_GE(verify_backup_time, 0.8 * rate_limited_verify_backup_time);
+  } else{
+    ASSERT_LT(verify_backup_time, rate_limited_verify_backup_time);
+  }
+  
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(backup_id, 0, 100000, 100010);
+}
+
+INSTANTIATE_TEST_CASE_P(
     RateLimitingChargeReadInBackup, BackupEngineRateLimitingTestWithParam,
     ::testing::Values(std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
