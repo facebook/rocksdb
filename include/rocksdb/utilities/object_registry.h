@@ -55,6 +55,9 @@ class ObjectLibrary {
   };                          // End class Entry
 
   // An Entry containing a FactoryFunc for creating new Objects
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
   template <typename T>
   class FactoryEntry : public Entry {
    public:
@@ -151,6 +154,9 @@ class ObjectRegistry {
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
   // std::regex_match.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.

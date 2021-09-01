@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "test_util/testharness.h"
+
+#include <regex>
 #include <string>
 #include <thread>
 
@@ -58,6 +60,50 @@ int RandomSeed() {
     result = 301;
   }
   return result;
+}
+
+class Regex::Impl {
+ public:
+  explicit Impl(const std::string& pattern)
+      : pattern_(pattern), regex_(pattern) {}
+  std::string pattern_;
+  std::regex regex_;
+};
+
+Regex::Regex(const std::string& pattern) : impl_(new Impl(pattern)) {}
+Regex::Regex(const char* pattern) : impl_(new Impl(pattern)) {}
+Regex::Regex(const Regex& other) : impl_(new Impl(*other.impl_)) {}
+Regex& Regex::operator=(const Regex& other) {
+  *impl_ = *other.impl_;
+  return *this;
+}
+
+Regex::~Regex() { delete impl_; }
+
+bool Regex::Matches(const std::string& str) const {
+  return std::regex_match(str, impl_->regex_);
+}
+
+const std::string& Regex::GetPattern() const { return impl_->pattern_; }
+
+::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
+                                              const char* pattern_expr,
+                                              const std::string& str,
+                                              const Regex& pattern) {
+  if (pattern.Matches(str)) {
+    return ::testing::AssertionSuccess();
+  } else if (Regex("\".*\"").Matches(pattern_expr)) {
+    // constant regex string
+    return ::testing::AssertionFailure()
+           << str << " (" << str_expr << ")" << std::endl
+           << "does not match regex " << pattern.GetPattern();
+  } else {
+    // runtime regex string
+    return ::testing::AssertionFailure()
+           << str << " (" << str_expr << ")" << std::endl
+           << "does not match regex" << std::endl
+           << pattern.GetPattern() << " (" << pattern_expr << ")";
+  }
 }
 
 }  // namespace test

@@ -78,5 +78,40 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
+
+// std::regex has terrible performance in some cases, including possible stack
+// overflow, so should not be used in production. See
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example.
+// However, it is useful in testing. These wrappers facilitate use in testing
+// without triggering Facebook linters.
+class Regex {
+ public:
+  /*implicit*/ Regex(const std::string& pattern);
+  /*implicit*/ Regex(const char* pattern);
+  Regex(const Regex& other);
+  Regex& operator=(const Regex& other);
+
+  ~Regex();
+
+  // Checks that the whole of str is matched by this regex
+  bool Matches(const std::string& str) const;
+
+  const std::string& GetPattern() const;
+
+ private:
+  class Impl;
+  Impl* impl_;
+};
+
+::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
+                                              const char* pattern_expr,
+                                              const std::string& str,
+                                              const Regex& pattern);
+
+#define ASSERT_MATCHES_REGEX(str, pattern) \
+  ASSERT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+#define EXPECT_MATCHES_REGEX(str, pattern) \
+  EXPECT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
