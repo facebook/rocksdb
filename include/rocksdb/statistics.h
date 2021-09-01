@@ -405,6 +405,9 @@ enum Tickers : uint32_t {
   // Secondary cache statistics
   SECONDARY_CACHE_HITS,
 
+  // Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
+  VERIFY_CHECKSUM_READ_BYTES,
+
   TICKER_ENUM_MAX
 };
 

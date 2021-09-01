@@ -155,6 +155,25 @@ TEST_F(DBStatisticsTest, ExcludeTickers) {
   ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
 }
 
+TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Expected to be populated regardless of `PerfLevel` in user thread
+  SetPerfLevel(kDisable);
+
+  ASSERT_EQ(0, options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(0, options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_GT(options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES), 0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

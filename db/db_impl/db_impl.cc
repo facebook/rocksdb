@@ -4964,6 +4964,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
     sv_list.push_back(cfd->GetReferencedSuperVersion(this));
   }
 
+  // `bytes_read` stat is enabled based on compile-time support and cannot
+  // be dynamically toggled. So we do not need to worry about `PerfLevel`
+  // here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  IOSTATS_RESET(bytes_read);
+
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
     ColumnFamilyData* cfd = sv->current->cfd();
@@ -4990,6 +4995,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, IOSTATS(bytes_read));
+        IOSTATS_RESET(bytes_read);
       }
     }
 
@@ -5004,6 +5011,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, IOSTATS(bytes_read));
+        IOSTATS_RESET(bytes_read);
         if (!s.ok()) {
           break;
         }
@@ -5035,6 +5044,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       cfd->UnrefAndTryDelete();
     }
   }
+  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, IOSTATS(bytes_read));
+  IOSTATS_RESET(bytes_read);
   return s;
 }
 
