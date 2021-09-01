@@ -150,14 +150,18 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
-       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent) != 100) {
-    fprintf(stderr,
-            "Error: "
-            "Read(%d)+Prefix(%d)+Write(%d)+Delete(%d)+DeleteRange(%d)"
-            "+Iterate(%d) percents != "
-            "100!\n",
-            FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
-            FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent);
+       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent +
+       FLAGS_customopspercent) != 100) {
+    fprintf(
+        stderr,
+        "Error: "
+        "Read(-readpercent=%d)+Prefix(-prefixpercent=%d)+Write(-writepercent=%"
+        "d)+Delete(-delpercent=%d)+DeleteRange(-delrangepercent=%d)"
+        "+Iterate(-iterpercent=%d)+CustomOps(-customopspercent=%d) percents != "
+        "100!\n",
+        FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
+        FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent,
+        FLAGS_customopspercent);
     exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {

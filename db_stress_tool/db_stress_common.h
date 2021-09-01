@@ -203,6 +203,7 @@ DECLARE_int32(delrangepercent);
 DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
+DECLARE_int32(customopspercent);
 DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);

@@ -675,6 +675,10 @@ DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
+DEFINE_int32(
+    customopspercent, 0,
+    "Ratio of custom operations to total workload (expressed as a percentage)");
+
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 

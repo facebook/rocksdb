@@ -203,6 +203,12 @@ class StressTest {
       const std::vector<int64_t>& rand_keys);
 #endif  // !ROCKSDB_LITE
 
+  virtual Status TestCustomOperations(
+      ThreadState* /*thread*/,
+      const std::vector<int>& /*rand_column_families*/) {
+    return Status::NotSupported("TestCustomOperations() must be overriden");
+  }
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
