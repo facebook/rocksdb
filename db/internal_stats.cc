@@ -281,6 +281,10 @@ static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 static const std::string options_statistics = "options-statistics";
+static const std::string num_blob_files = "num-blob-files";
+static const std::string blob_stats = "blob-stats";
+static const std::string total_blob_file_size = "total-blob-file-size";
+static const std::string live_blob_file_size = "live-blob-file-size";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -374,6 +378,13 @@ const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
 const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
     rocksdb_prefix + live_sst_files_size_at_temperature;
+const std::string DB::Properties::kNumBlobFiles =
+    rocksdb_prefix + num_blob_files;
+const std::string DB::Properties::kBlobStats = rocksdb_prefix + blob_stats;
+const std::string DB::Properties::kTotalBlobFileSize =
+    rocksdb_prefix + total_blob_file_size;
+const std::string DB::Properties::kLiveBlobFileSize =
+    rocksdb_prefix + live_blob_file_size;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -520,6 +531,17 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kOptionsStatistics,
          {true, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
+        {DB::Properties::kNumBlobFiles,
+         {false, nullptr, &InternalStats::HandleNumBlobFiles, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobStats,
+         {false, &InternalStats::HandleBlobStats, nullptr, nullptr, nullptr}},
+        {DB::Properties::kTotalBlobFileSize,
+         {false, nullptr, &InternalStats::HandleTotalBlobFileSize, nullptr,
+          nullptr}},
+        {DB::Properties::kLiveBlobFileSize,
+         {false, nullptr, &InternalStats::HandleLiveBlobFileSize, nullptr,
+          nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -710,6 +732,70 @@ bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
   }
 
   *value = ToString(size);
+  return true;
+}
+
+bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
+                                       Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  const auto& blobFiles = vstorage->GetBlobFiles();
+  *value = blobFiles.size();
+  return true;
+}
+
+bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
+  char buf[1000];
+  uint64_t numBlobFiles = 0;
+  uint64_t blobFileSize = 0;
+  HandleNumBlobFiles(&numBlobFiles, nullptr, nullptr);
+  HandleLiveBlobFileSize(&blobFileSize, nullptr, nullptr);
+  auto* currentVersion = cfd_->current();
+  uint64_t garbageSize = 0;
+  const auto& blobFiles = currentVersion->storage_info()->GetBlobFiles();
+  for (const auto& pair : blobFiles) {
+    const auto& meta = pair.second;
+    garbageSize += meta->GetGarbageBlobBytes();
+  }
+  snprintf(buf, sizeof(buf),
+           "Current version number: %s \n"
+           "Number of blob files: %s \n"
+           "Total size of blob files: %s \n"
+           "Total size of garbage in blob files: %s \n",
+           NumberToHumanString(currentVersion->GetVersionNumber()).c_str(),
+           NumberToHumanString(numBlobFiles).c_str(),
+           NumberToHumanString(blobFileSize).c_str(),
+           NumberToHumanString(garbageSize).c_str());
+  value->append(buf);
+  return true;
+}
+
+bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
+  std::unordered_set<uint64_t> uniqueBlobFiles;
+  uint64_t totalBlobFileSize = 0;
+  auto* currentVersion = cfd_->current();
+  for (auto* versionCounter = currentVersion; versionCounter != currentVersion;
+       versionCounter = versionCounter->Next()) {
+    // iterate all the versions
+    auto* vstorage = versionCounter->storage_info();
+    const auto& blobFiles = vstorage->GetBlobFiles();
+    for (const auto& pair : blobFiles) {
+      if (uniqueBlobFiles.find(pair.first) == uniqueBlobFiles.end()) {
+        // find Blob file that has not been counted
+        uniqueBlobFiles.insert(pair.first);
+        const auto& meta = pair.second;
+        totalBlobFileSize += meta->GetBlobFileSize();
+      }
+    }
+  }
+  *value = totalBlobFileSize;
+  return true;
+}
+
+bool InternalStats::HandleLiveBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  *value = vstorage->GetTotalBlobFileSize();
   return true;
 }
 
@@ -1104,8 +1190,17 @@ bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
 
 bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* /*db*/,
                                                Version* version) {
+  uint64_t estimateNonBlobDataSize = 0;
   const auto* vstorage = version->storage_info();
-  *value = vstorage->EstimateLiveDataSize();
+  estimateNonBlobDataSize = vstorage->EstimateLiveDataSize();
+
+  uint64_t estimateBlobDataSize = vstorage->GetTotalBlobFileSize();
+  const auto& blobFiles = vstorage->GetBlobFiles();
+  for (const auto& pair : blobFiles) {
+    const auto& meta = pair.second;
+    estimateBlobDataSize -= meta->GetGarbageBlobBytes();
+  }
+  *value = estimateNonBlobDataSize + estimateBlobDataSize;
   return true;
 }
 
