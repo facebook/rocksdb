@@ -2007,7 +2007,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
        "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
   };
 
-  const test::Regex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blobHAHAHA";
+  const test::Regex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
