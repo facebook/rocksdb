@@ -10,6 +10,9 @@
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
 
+### Behavior Change
+* RocksDB will try to schedule compactions based on options.ttl slightly ahead of the deadline, so that when the time the threshold hits, compaction usually already finished.
+
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.

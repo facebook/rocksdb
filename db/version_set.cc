@@ -2724,6 +2724,11 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
     const ImmutableOptions& ioptions, const uint64_t ttl) {
   assert(ttl > 0);
 
+  // If we schedule compaction after TTL is reached, TTL is always slightly
+  // violated, which might be confusing to users. Instead, we make a
+  // scheduling TTL slightly ahead of time, but no more than a day.
+  uint64_t schedule_ttl = std::min(24 * 60 * 60, ttl / 32 * 31);
+
   expired_ttl_files_.clear();
 
   int64_t _current_time;
@@ -2738,7 +2743,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
       if (!f->being_compacted) {
         uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
         if (oldest_ancester_time > 0 &&
-            oldest_ancester_time < (current_time - ttl)) {
+            oldest_ancester_time < (current_time - schedule_ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }

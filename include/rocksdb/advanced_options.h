@@ -715,11 +715,13 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Files containing updates older than TTL will go through the compaction
+  // Files containing updates older than TTL go through the compaction
   // process. This usually happens in a cascading way so that those entries
   // will be compacted to bottommost level/file.
   // The feature is used to remove stale entries that have been deleted or
   // updated from the file system.
+  // RocksDB will try to schedule the compactions ahead of the TTL deadline,
+  // so that by the time TTL hits, stale entries are already removed.
   // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
   //           compaction process.
