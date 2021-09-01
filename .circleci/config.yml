@@ -5,9 +5,9 @@ orbs:
   slack: circleci/slack@3.4.2
 
 aliases:
-  - &notify-on-master-failure
+  - &notify-on-main-failure
     fail_only: true
-    only_for_branches: master
+    only_for_branches: main
 
 commands:
   install-pyenv-on-macos:
@@ -60,7 +60,7 @@ commands:
 
   post-steps:
     steps:
-      - slack/status: *notify-on-master-failure
+      - slack/status: *notify-on-main-failure
       - store_test_results: # store test result if there's any
           path: /tmp/test-results
       - store_artifacts: # store LOG for debugging if there's any
@@ -801,7 +801,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
     jobs:
       - build-format-compatible
       - build-linux-arm-test-full
