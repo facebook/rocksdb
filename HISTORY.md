@@ -6,6 +6,7 @@
 * Fixed a bug that could lead to duplicate DB ID or DB session ID in POSIX environments without /proc/sys/kernel/random/uuid.
 * Fix a race in DumpStats() with column family destruction due to not taking a Ref on each entry while iterating the ColumnFamilySet.
 * Fix a race in item ref counting in LRUCache when promoting an item from the SecondaryCache.
+* Fix a race in BackupEngine if RateLimiter is reconfigured during concurrent Restore operations.
 
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
