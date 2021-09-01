@@ -408,7 +408,8 @@ class BackupEngineImpl {
         const std::string& backup_dir,
         const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
         Logger* info_log,
-        std::unordered_set<std::string>* reported_ignored_fields);
+        std::unordered_set<std::string>* reported_ignored_fields,
+        RateLimiter* rate_limiter);
     Status StoreToFile(
         bool sync, const TEST_FutureSchemaVersion2Options* test_future_options);
 
@@ -546,12 +547,14 @@ class BackupEngineImpl {
   Status ReadFileAndComputeChecksum(const std::string& src, Env* src_env,
                                     const EnvOptions& src_env_options,
                                     uint64_t size_limit,
-                                    std::string* checksum_hex) const;
+                                    std::string* checksum_hex,
+                                    RateLimiter* rate_limiter) const;
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
                              const std::string& file_path, std::string* db_id,
-                             std::string* db_session_id);
+                             std::string* db_session_id,
+                             RateLimiter* rate_limiter);
 
   struct CopyOrCreateResult {
     ~CopyOrCreateResult() {
@@ -1091,7 +1094,7 @@ Status BackupEngineImpl::Initialize() {
       if (s.ok()) {
         s = backup_iter->second->LoadFromFile(
             options_.backup_dir, abs_path_to_size, options_.info_log,
-            &reported_ignored_fields_);
+            &reported_ignored_fields_, options_.backup_rate_limiter.get());
       }
       if (s.IsCorruption() || s.IsNotSupported()) {
         ROCKS_LOG_INFO(options_.info_log, "Backup %u corrupted -- %s",
@@ -1886,7 +1889,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
       Status s = ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
-                                            0 /* size_limit */, &checksum_hex);
+                                            0 /* size_limit */, &checksum_hex, options_.backup_rate_limiter.get());
       if (!s.ok()) {
         return s;
       } else if (file_info->checksum_hex != checksum_hex) {
@@ -2053,7 +2056,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
       GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
-                          &db_session_id)
+                          &db_session_id, rate_limiter)
           .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
@@ -2062,7 +2065,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     // the shared_checksum directory.
     if (checksum_hex.empty() && db_session_id.empty()) {
       Status s = ReadFileAndComputeChecksum(
-          src_dir + fname, db_env_, src_env_options, size_limit, &checksum_hex);
+          src_dir + fname, db_env_, src_env_options, size_limit, &checksum_hex, rate_limiter);
       if (!s.ok()) {
         return s;
       }
@@ -2180,7 +2183,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
         } else {
           Status s = ReadFileAndComputeChecksum(src_dir + fname, db_env_,
                                                 src_env_options, size_limit,
-                                                &checksum_hex);
+                                                &checksum_hex, rate_limiter);
           if (!s.ok()) {
             return s;
           }
@@ -2234,7 +2237,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
 Status BackupEngineImpl::ReadFileAndComputeChecksum(
     const std::string& src, Env* src_env, const EnvOptions& src_env_options,
-    uint64_t size_limit, std::string* checksum_hex) const {
+    uint64_t size_limit, std::string* checksum_hex, RateLimiter* rate_limiter) const {
   if (checksum_hex == nullptr) {
     return Status::Aborted("Checksum pointer is null");
   }
@@ -2265,7 +2268,10 @@ Status BackupEngineImpl::ReadFileAndComputeChecksum(
     size_t buffer_to_read =
         (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
-
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -2283,7 +2289,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
                                              const EnvOptions& src_env_options,
                                              const std::string& file_path,
                                              std::string* db_id,
-                                             std::string* db_session_id) {
+                                             std::string* db_session_id, RateLimiter* rate_limiter) {
   assert(db_id != nullptr || db_session_id != nullptr);
 
   Options options;
@@ -2306,6 +2312,10 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
       table_properties = sst_reader.GetInitTableProperties();
     } else {
       table_properties = tp.get();
+      if(table_properties != nullptr && rate_limiter != nullptr) {
+        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+      }
     }
   } else {
     ROCKS_LOG_INFO(options_.info_log, "Failed to read %s: %s",
@@ -2630,7 +2640,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir,
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
     Logger* info_log,
-    std::unordered_set<std::string>* reported_ignored_fields) {
+    std::unordered_set<std::string>* reported_ignored_fields,
+    RateLimiter* rate_limiter) {
   assert(reported_ignored_fields);
   assert(Empty());
 
@@ -2651,6 +2662,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   // Failures handled at the end
   std::string line;
   if (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
       if (ver == "2" || StartsWith(ver, "2.")) {
@@ -2664,14 +2679,28 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       return Status::Corruption("Unexpected empty line");
     }
   }
-  if (!line.empty() || backup_meta_reader->ReadLine(&line)) {
+  if (!line.empty()){
+    timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
+  } else if(backup_meta_reader->ReadLine(&line)){
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   if (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
   while (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (line.empty()) {
       return Status::Corruption("Unexpected empty line");
     }
@@ -2711,6 +2740,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   std::vector<std::shared_ptr<FileInfo>> files;
   bool footer_present = false;
   while (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     std::vector<std::string> components = StringSplit(line, ' ');
 
     if (components.size() < 1) {
@@ -2798,6 +2831,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   if (footer_present) {
     assert(schema_major_version >= 2);
     while (backup_meta_reader->ReadLine(&line)) {
+      if (rate_limiter != nullptr) {
+        rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+      }
       if (line.empty()) {
         return Status::Corruption("Unexpected empty line");
       }
