@@ -85,7 +85,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_builder_options.column_family_name, 6,
       table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
       table_options_.store_index_in_file, table_builder_options.db_id,
-      table_builder_options.db_session_id);
+      table_builder_options.db_session_id, table_builder_options.cur_file_num);
 }
 
 std::string PlainTableFactory::GetPrintableOptions() const {

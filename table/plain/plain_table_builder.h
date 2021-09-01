@@ -45,7 +45,7 @@ class PlainTableBuilder: public TableBuilder {
       const std::string& column_family_name, uint32_t num_probes = 6,
       size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
       bool store_index_in_file = false, const std::string& db_id = "",
-      const std::string& db_session_id = "");
+      const std::string& db_session_id = "", uint64_t file_number = 0);
   // No copying allowed
   PlainTableBuilder(const PlainTableBuilder&) = delete;
   void operator=(const PlainTableBuilder&) = delete;

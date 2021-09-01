@@ -326,11 +326,9 @@ DEFINE_uint64(compaction_ttl, 1000,
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
-DEFINE_bool(experimental_allow_mempurge, false,
-            "Allow mempurge process to collect memtable garbage bytes.");
-
-DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Set mempurge (MemTable Garbage Collection) policy.");
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum estimated useful payload that triggers a "
+              "mempurge process to collect memtable garbage bytes.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
@@ -421,8 +419,11 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
-DEFINE_bool(use_ribbon_filter, false,
-            "Use Ribbon filter instead of Bloom filter");
+DEFINE_int32(
+    ribbon_starting_level, 999,
+    "Use Bloom filter on levels below specified and Ribbon beginning on level "
+    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
+    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "

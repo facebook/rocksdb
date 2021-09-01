@@ -27,6 +27,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
+class ObjectLibrary;
 class Random;
 class SequentialFile;
 class SequentialFileReader;
@@ -772,6 +773,15 @@ class ChanglingMergeOperator : public MergeOperator {
                                  Logger* /*logger*/) const override {
     return false;
   }
+  static const char* kClassName() { return "ChanglingMergeOperator"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return MergeOperator::IsInstanceOf(id);
+    }
+  }
+
   virtual const char* Name() const override { return name_.c_str(); }
 
  protected:
@@ -794,6 +804,15 @@ class ChanglingCompactionFilter : public CompactionFilter {
               const Slice& /*existing_value*/, std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     return false;
+  }
+
+  static const char* kClassName() { return "ChanglingCompactionFilter"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilter::IsInstanceOf(id);
+    }
   }
 
   const char* Name() const override { return name_.c_str(); }
@@ -821,6 +840,14 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
   // Returns a name that identifies this compaction filter factory.
   const char* Name() const override { return name_.c_str(); }
+  static const char* kClassName() { return "ChanglingCompactionFilterFactory"; }
+  virtual bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return CompactionFilterFactory::IsInstanceOf(id);
+    }
+  }
 
  protected:
   std::string name_;
@@ -869,5 +896,10 @@ void DeleteDir(Env* env, const std::string& dirname);
 // environment variables.
 Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
                            std::shared_ptr<Env>* guard);
+
+#ifndef ROCKSDB_LITE
+// Registers the testutil classes with the ObjectLibrary
+int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
+#endif  // ROCKSDB_LITE
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

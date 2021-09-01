@@ -624,6 +624,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -816,9 +817,12 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
+        trace_replay/trace_record_result.cc
+        trace_replay/trace_record.cc
+        trace_replay/trace_replay.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -849,6 +853,7 @@ set(SOURCES
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
+        utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/debug.cc
         utilities/env_mirror.cc
@@ -857,6 +862,7 @@ set(SOURCES
         utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
@@ -876,6 +882,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/trace/replayer_impl.cc
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
@@ -1117,6 +1124,7 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_counting_iterator_test.cc

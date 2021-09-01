@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <deque>
 
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
@@ -198,7 +199,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     need_cancel = true;
   }
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
-
+  bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
@@ -206,7 +207,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
+    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
+                      &switched_to_mempurge);
     need_cancel = false;
   }
 
@@ -282,7 +284,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     // from never needing it or ignoring the flush job status
     io_s.PermitUncheckedError();
   }
-  if (s.ok()) {
+  // If flush ran smoothly and no mempurge happened
+  // install new SST file path.
+  if (s.ok() && (!switched_to_mempurge)) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, mutable_cf_options,
@@ -407,10 +411,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
         thread_pri, io_tracer_, db_id_, db_session_id_,
-        cfd->GetFullHistoryTsLow()));
+        cfd->GetFullHistoryTsLow(), &blob_callback_));
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
+  // Use of deque<bool> because vector<bool>
+  // is specific and doesn't allow &v[i].
+  std::deque<bool> switched_to_mempurge(num_cfs, false);
   Status s;
   IOStatus log_io_s = IOStatus::OK();
   assert(num_cfs == static_cast<int>(jobs.size()));
@@ -460,10 +467,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
+    assert(switched_to_mempurge.size() ==
+           static_cast<long unsigned int>(num_cfs));
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
       exec_status[i].second =
-          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i]);
+          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
+                       &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
       io_status[i] = jobs[i]->io_status();
     }
@@ -475,8 +485,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
     assert(exec_status.size() > 0);
     assert(!file_meta.empty());
-    exec_status[0].second =
-        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
+    exec_status[0].second = jobs[0]->Run(
+        &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
+        switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
     io_status[0] = jobs[0]->io_status();
 
@@ -590,6 +601,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
+    autovector<std::list<std::unique_ptr<FlushJobInfo>>*>
+        committed_flush_jobs_info;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i]->GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
@@ -597,13 +610,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
         tmp_file_meta.emplace_back(&file_meta[i]);
+#ifndef ROCKSDB_LITE
+        committed_flush_jobs_info.emplace_back(
+            jobs[i]->GetCommittedFlushJobsInfo());
+#endif  //! ROCKSDB_LITE
       }
     }
 
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
         versions_.get(), &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
-        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+        committed_flush_jobs_info, &job_context->memtables_to_free,
+        directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok()) {
@@ -649,6 +667,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         immutable_db_options_.sst_file_manager.get());
     assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
     for (int i = 0; s.ok() && i != num_cfs; ++i) {
+      // If mempurge happened instead of Flush,
+      // no NotifyOnFlushCompleted call (no SST file created).
+      if (switched_to_mempurge[i]) {
+        continue;
+      }
       if (cfds[i]->IsDropped()) {
         continue;
       }
@@ -1257,7 +1280,7 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
-      c->column_family_data()->GetFullHistoryTsLow());
+      c->column_family_data()->GetFullHistoryTsLow(), &blob_callback_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2403,7 +2426,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     // future changes. Therefore, we add the following if
     // statement - note that calling it twice (or more)
     // doesn't break anything.
-    if (immutable_db_options_.experimental_allow_mempurge) {
+    if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
       // If imm() contains silent memtables,
       // requesting a flush will mark the imm_needed as true.
       cfd->imm()->FlushRequested();
@@ -2549,7 +2572,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 
     for (const auto& iter : flush_req) {
       ColumnFamilyData* cfd = iter.first;
-      if (immutable_db_options_.experimental_allow_mempurge) {
+      if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
         // If imm() contains silent memtables,
         // requesting a flush will mark the imm_needed as true.
         cfd->imm()->FlushRequested();
@@ -3170,7 +3193,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &compaction_job_stats, thread_pri, io_tracer_,
         is_manual ? &manual_compaction_paused_ : nullptr,
         is_manual ? manual_compaction->canceled : nullptr, db_id_,
-        db_session_id_, c->column_family_data()->GetFullHistoryTsLow());
+        db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
+        &blob_callback_);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -3469,7 +3493,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, mutable_cf_options);
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

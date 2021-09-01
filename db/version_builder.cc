@@ -856,18 +856,32 @@ class VersionBuilder::Rep {
     }
   }
 
-  // Save the current state in *vstorage.
-  Status SaveTo(VersionStorageInfo* vstorage) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
-    }
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+    const uint64_t file_number = f->fd.GetNumber();
 
-    s = CheckConsistency(vstorage);
-    if (!s.ok()) {
-      return s;
-    }
+    const auto& level_state = levels_[level];
 
+    const auto& del_files = level_state.deleted_files;
+    const auto del_it = del_files.find(file_number);
+
+    if (del_it != del_files.end()) {
+      // f is to-be-deleted table file
+      vstorage->RemoveCurrentStats(f);
+    } else {
+      const auto& add_files = level_state.added_files;
+      const auto add_it = add_files.find(file_number);
+
+      // Note: if the file appears both in the base version and in the added
+      // list, the added FileMetaData supersedes the one in the base version.
+      if (add_it != add_files.end() && add_it->second != f) {
+        vstorage->RemoveCurrentStats(f);
+      } else {
+        vstorage->AddFile(level, f);
+      }
+    }
+  }
+
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage) {
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
@@ -909,6 +923,21 @@ class VersionBuilder::Rep {
         }
       }
     }
+  }
+
+  // Save the current state in *vstorage.
+  Status SaveTo(VersionStorageInfo* vstorage) {
+    Status s = CheckConsistency(base_vstorage_);
+    if (!s.ok()) {
+      return s;
+    }
+
+    s = CheckConsistency(vstorage);
+    if (!s.ok()) {
+      return s;
+    }
+
+    SaveSSTFilesTo(vstorage);
 
     SaveBlobFilesTo(vstorage);
 
@@ -1016,31 +1045,6 @@ class VersionBuilder::Rep {
       }
     }
     return ret;
-  }
-
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
-    const uint64_t file_number = f->fd.GetNumber();
-
-    const auto& level_state = levels_[level];
-
-    const auto& del_files = level_state.deleted_files;
-    const auto del_it = del_files.find(file_number);
-
-    if (del_it != del_files.end()) {
-      // f is to-be-deleted table file
-      vstorage->RemoveCurrentStats(f);
-    } else {
-      const auto& add_files = level_state.added_files;
-      const auto add_it = add_files.find(file_number);
-
-      // Note: if the file appears both in the base version and in the added
-      // list, the added FileMetaData supersedes the one in the base version.
-      if (add_it != add_files.end() && add_it->second != f) {
-        vstorage->RemoveCurrentStats(f);
-      } else {
-        vstorage->AddFile(level, f);
-      }
-    }
   }
 };
 
