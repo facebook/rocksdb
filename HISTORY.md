@@ -11,6 +11,9 @@
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
 
+### Public API change
+* Remove obsolete implementation details FullKey and ParseFullKey from public API
+
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
