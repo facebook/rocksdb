@@ -1482,13 +1482,11 @@ TEST_F(OptionsTest, MutableTableOptions) {
   bbtf.reset(NewBlockBasedTableFactory());
   auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
-  ASSERT_FALSE(bbtf->IsPrepared());
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
-  ASSERT_TRUE(bbtf->IsPrepared());
   config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);

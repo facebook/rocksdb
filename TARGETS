@@ -133,6 +133,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
@@ -224,6 +225,7 @@ cpp_library(
         "env/fs_remap.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
+        "env/unique_id.cc",
         "file/delete_scheduler.cc",
         "file/file_prefetch_buffer.cc",
         "file/file_util.cc",
@@ -452,6 +454,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
@@ -543,6 +546,7 @@ cpp_library(
         "env/fs_remap.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
+        "env/unique_id.cc",
         "file/delete_scheduler.cc",
         "file/file_prefetch_buffer.cc",
         "file/file_util.cc",
@@ -1021,6 +1025,13 @@ ROCKS_TESTS = [
     [
         "bloom_test",
         "util/bloom_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "cache_reservation_manager_test",
+        "cache/cache_reservation_manager_test.cc",
         "parallel",
         [],
         [],

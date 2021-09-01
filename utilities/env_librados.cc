@@ -862,25 +862,6 @@ librados::IoCtx* EnvLibrados::_GetIoctx(const std::string& fpath) {
                 public functions
 ************************************************************/
 /**
- * @brief generate unique id
- * @details Combine system time and random number.
- * @return [description]
- */
-std::string EnvLibrados::GenerateUniqueId() {
-  Random64 r(time(nullptr));
-  uint64_t random_uuid_portion =
-    r.Uniform(std::numeric_limits<uint64_t>::max());
-  uint64_t nanos_uuid_portion = NowNanos();
-  char uuid2[200];
-  snprintf(uuid2,
-           200,
-           "%16lx-%16lx",
-           (unsigned long)nanos_uuid_portion,
-           (unsigned long)random_uuid_portion);
-  return uuid2;
-}
-
-/**
  * @brief create a new sequential read file handler
  * @details it will check the existence of fname
  *

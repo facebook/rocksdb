@@ -23,6 +23,7 @@
 #include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/cachable_entry.h"
@@ -602,7 +603,8 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   ++collection_count;
   role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
-  str << cache->Name() << "@" << static_cast<void*>(cache);
+  str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
+      << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
 }

@@ -68,23 +68,28 @@ GenericRateLimiter::GenericRateLimiter(
       prev_num_drains_(0),
       max_bytes_per_sec_(rate_bytes_per_sec),
       tuned_time_(NowMicrosMonotonic()) {
-  total_requests_[0] = 0;
-  total_requests_[1] = 0;
-  total_bytes_through_[0] = 0;
-  total_bytes_through_[1] = 0;
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    total_requests_[i] = 0;
+    total_bytes_through_[i] = 0;
+  }
 }
 
 GenericRateLimiter::~GenericRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
-  requests_to_wait_ = static_cast<int32_t>(queue_[Env::IO_LOW].size() +
-                                           queue_[Env::IO_HIGH].size());
-  for (auto& r : queue_[Env::IO_HIGH]) {
-    r->cv.Signal();
+  std::deque<Req*>::size_type queues_size_sum = 0;
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    queues_size_sum += queue_[i].size();
   }
-  for (auto& r : queue_[Env::IO_LOW]) {
-    r->cv.Signal();
+  requests_to_wait_ = static_cast<int32_t>(queues_size_sum);
+
+  for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+    std::deque<Req*> queue = queue_[i];
+    for (auto& r : queue) {
+      r->cv.Signal();
+    }
   }
+
   while (requests_to_wait_ > 0) {
     exit_cv_.Wait();
   }
@@ -171,10 +176,12 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         // If there is any remaining requests, make sure there exists at least
         // one candidate is awake for future duties by signaling a front request
         // of a queue.
-        if (!queue_[Env::IO_HIGH].empty()) {
-          queue_[Env::IO_HIGH].front()->cv.Signal();
-        } else if (!queue_[Env::IO_LOW].empty()) {
-          queue_[Env::IO_LOW].front()->cv.Signal();
+        for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+          std::deque<Req*> queue = queue_[i];
+          if (!queue.empty()) {
+            queue.front()->cv.Signal();
+            break;
+          }
         }
       }
     }
@@ -205,6 +212,45 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
 }
 
+std::vector<Env::IOPriority>
+GenericRateLimiter::GeneratePriorityIterationOrder() {
+  std::vector<Env::IOPriority> pri_iteration_order(Env::IO_TOTAL /* 4 */);
+  // We make Env::IO_USER a superior priority by always iterating its queue
+  // first
+  pri_iteration_order[0] = Env::IO_USER;
+
+  bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForHighPri",
+      &high_pri_iterated_after_mid_low_pri);
+  bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForMidPri",
+      &mid_pri_itereated_after_low_pri);
+
+  if (high_pri_iterated_after_mid_low_pri) {
+    pri_iteration_order[3] = Env::IO_HIGH;
+    pri_iteration_order[2] =
+        mid_pri_itereated_after_low_pri ? Env::IO_MID : Env::IO_LOW;
+    pri_iteration_order[1] =
+        (pri_iteration_order[2] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
+  } else {
+    pri_iteration_order[1] = Env::IO_HIGH;
+    pri_iteration_order[3] =
+        mid_pri_itereated_after_low_pri ? Env::IO_MID : Env::IO_LOW;
+    pri_iteration_order[2] =
+        (pri_iteration_order[3] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
+  }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PreReturnPriIterationOrder",
+      &pri_iteration_order);
+  return pri_iteration_order;
+}
+
 void GenericRateLimiter::RefillBytesAndGrantRequests() {
   TEST_SYNC_POINT("GenericRateLimiter::RefillBytesAndGrantRequests");
   next_refill_us_ = NowMicrosMonotonic() + refill_period_us_;
@@ -215,10 +261,13 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
     available_bytes_ += refill_bytes_per_period;
   }
 
-  int use_low_pri_first = rnd_.OneIn(fairness_) ? 0 : 1;
-  for (int q = 0; q < 2; ++q) {
-    auto use_pri = (use_low_pri_first == q) ? Env::IO_LOW : Env::IO_HIGH;
-    auto* queue = &queue_[use_pri];
+  std::vector<Env::IOPriority> pri_iteration_order =
+      GeneratePriorityIterationOrder();
+
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    assert(!pri_iteration_order.empty());
+    Env::IOPriority current_pri = pri_iteration_order[i];
+    auto* queue = &queue_[current_pri];
     while (!queue->empty()) {
       auto* next_req = queue->front();
       if (available_bytes_ < next_req->request_bytes) {
@@ -232,7 +281,7 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
       }
       available_bytes_ -= next_req->request_bytes;
       next_req->request_bytes = 0;
-      total_bytes_through_[use_pri] += next_req->bytes;
+      total_bytes_through_[current_pri] += next_req->bytes;
       queue->pop_front();
 
       next_req->granted = true;
