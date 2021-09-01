@@ -269,10 +269,10 @@ class CompactionJobStatsTest : public testing::Test,
     if (cf == 0) {
       // default cfd
       EXPECT_TRUE(db_->GetProperty(
-          "rocksdb.num-files-at-level" + NumberToString(level), &property));
+          "rocksdb.num-files-at-level" + ToString(level), &property));
     } else {
       EXPECT_TRUE(db_->GetProperty(
-          handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
+          handles_[cf], "rocksdb.num-files-at-level" + ToString(level),
           &property));
     }
     return atoi(property.c_str());

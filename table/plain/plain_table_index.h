@@ -244,6 +244,6 @@ class PlainTableIndexBuilder {
   static const size_t kRecordsPerGroup = 256;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

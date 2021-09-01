@@ -39,9 +39,6 @@ extern void AppendNumberTo(std::string* str, uint64_t num);
 // Escapes any non-printable characters found in "value".
 extern void AppendEscapedStringTo(std::string* str, const Slice& value);
 
-// Return a string printout of "num"
-extern std::string NumberToString(uint64_t num);
-
 // Put n digits from v in base kBase to (*buf)[0] to (*buf)[n-1] and
 // advance *buf to the position after what was written.
 template <size_t kBase>
