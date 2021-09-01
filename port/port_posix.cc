@@ -25,6 +25,8 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <fstream>
+#include <string>
 
 #include "util/string_util.h"
 
@@ -264,6 +266,18 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
 }
 
 int64_t GetProcessID() { return getpid(); }
+
+bool GenerateRfcUuid(std::string* output) {
+  output->clear();
+  std::ifstream f("/proc/sys/kernel/random/uuid");
+  std::getline(f, /*&*/ *output);
+  if (output->size() == 36) {
+    return true;
+  } else {
+    output->clear();
+    return false;
+  }
+}
 
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
