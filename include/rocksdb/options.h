@@ -375,27 +375,70 @@ enum class CompactionServiceJobStatus : char {
   kUseLocal,  // TODO: Add support for use local compaction
 };
 
+struct CompactionServiceJobInfo {
+  std::string db_name;
+  std::string db_id;
+  std::string db_session_id;
+  uint64_t job_id;  // job_id is only unique within the current DB and session,
+                    // restart DB will reset the job_id. `db_id` and
+                    // `db_session_id` could help you build unique id across
+                    // different DBs and sessions.
+
+  // TODO: Add priority information
+  CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
+                           std::string db_session_id_, uint64_t job_id_)
+      : db_name(std::move(db_name_)),
+        db_id(std::move(db_id_)),
+        db_session_id(std::move(db_session_id_)),
+        job_id(job_id_) {}
+};
+
 class CompactionService : public Customizable {
  public:
   static const char* Type() { return "CompactionService"; }
 
   // Returns the name of this compaction service.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.
-  // TODO: sub-compaction is not supported, as they will have the same job_id, a
-  // sub-compaction id might be added
+  // Warning: deprecated, please use the new interface
+  // `StartV2(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, uint64_t job_id) = 0;
+      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // Start the remote compaction with `compaction_service_input`, which can be
+  // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
+  // information the user might want to know, which includes `job_id`.
+  virtual CompactionServiceJobStatus StartV2(
+      const CompactionServiceJobInfo& info,
+      const std::string& compaction_service_input) {
+    // Default implementation to call legacy interface, please override and
+    // replace the legacy implementation
+    return Start(compaction_service_input, info.job_id);
+  }
 
   // Wait compaction to be finish.
-  // TODO: Add output path override
+  // Warning: deprecated, please use the new interface
+  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t job_id, std::string* compaction_service_result) = 0;
+      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
 
-  virtual ~CompactionService() {}
+  // Wait for remote compaction to finish.
+  virtual CompactionServiceJobStatus WaitForCompleteV2(
+      const CompactionServiceJobInfo& info,
+      std::string* compaction_service_result) {
+    // Default implementation to call legacy interface, please override and
+    // replace the legacy implementation
+    return WaitForComplete(info.job_id, compaction_service_result);
+  }
+
+  ~CompactionService() override = default;
 };
 
 struct DBOptions {

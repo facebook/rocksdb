@@ -133,6 +133,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
@@ -452,6 +453,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
@@ -1021,6 +1023,13 @@ ROCKS_TESTS = [
     [
         "bloom_test",
         "util/bloom_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "cache_reservation_manager_test",
+        "cache/cache_reservation_manager_test.cc",
         "parallel",
         [],
         [],

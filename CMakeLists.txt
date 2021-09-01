@@ -624,6 +624,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -1123,6 +1124,7 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
