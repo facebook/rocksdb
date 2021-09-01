@@ -936,6 +936,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
         bottom_size += bottom_files[bottom_end_idx]->fd.file_size;
       }
       bottom_end_idx++;
+      end_bottom_size_counted = false;
       num_skipped++;
     }
 
