@@ -2618,18 +2618,6 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   AssertBackupConsistency(0, 0, 100000, 100010);
 }
 
-INSTANTIATE_TEST_CASE_P(
-    RateLimitingVerifyBackup, BackupEngineRateLimitingTestWithParam,
-    ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(false, 1, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1,
-                                      std::make_pair(2 * MB, 3 * MB))));
-
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
   size_t const kMicrosPerSec = 1000 * 1000LL;
   std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(
@@ -2663,7 +2651,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
   ASSERT_EQ(backup_id, backup_infos[0].backup_id);
   ASSERT_OK(backup_engine_->GetBackupInfo(backup_id, &backup_info, true /* include_file_details */));
 
-  uint64_t bytes_read_during_verify_backup = 0;
+  std::uint64_t bytes_read_during_verify_backup = 0;
   for(BackupFileInfo backup_file_info: backup_info.file_details) {
     bytes_read_during_verify_backup += backup_file_info.size;
   }
@@ -2674,25 +2662,17 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
   auto rate_limited_verify_backup_time= (bytes_read_during_verify_backup * kMicrosPerSec) / backup_rate_limiter_limit;
   
   if (makeThrottler) {
-    ASSERT_GE(verify_backup_time, 0.8 * rate_limited_verify_backup_time);
+    EXPECT_GE(verify_backup_time, 0.8 * rate_limited_verify_backup_time);
   } else{
-    ASSERT_LT(verify_backup_time, rate_limited_verify_backup_time);
+    EXPECT_LT(verify_backup_time, rate_limited_verify_backup_time);
   }
   
   CloseDBAndBackupEngine();
   AssertBackupConsistency(backup_id, 0, 100000, 100010);
 }
 
-INSTANTIATE_TEST_CASE_P(
-    RateLimitingChargeReadInBackup, BackupEngineRateLimitingTestWithParam,
-    ::testing::Values(std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1,
-                                      std::make_pair(2 * MB, 3 * MB))));
-
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
-  std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
+  const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
   std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
       backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
@@ -2703,7 +2683,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   FillDB(db_.get(), 0, 10);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false /* flush_before_backup */));
   std::int64_t total_bytes_through_with_no_read_charge =
       backup_rate_limiter->GetTotalBytesThrough();
   CloseBackupEngine();
@@ -2713,7 +2693,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
       10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   backupable_options_->backup_rate_limiter = backup_rate_limiter;
   OpenBackupEngine(true);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false /* flush_before_backup */));
   std::int64_t total_bytes_through_with_read_charge =
       backup_rate_limiter->GetTotalBytesThrough();
   CloseDBAndBackupEngine();
@@ -2722,16 +2702,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
             total_bytes_through_with_no_read_charge);
 }
 
-INSTANTIATE_TEST_CASE_P(
-    RateLimitingChargeReadInRestore, BackupEngineRateLimitingTestWithParam,
-    ::testing::Values(std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1,
-                                      std::make_pair(2 * MB, 3 * MB))));
-
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
-  std::uint64_t restore_rate_limiter_limit = std::get<2>(GetParam()).second;
+  const std::uint64_t restore_rate_limiter_limit = std::get<2>(GetParam()).second;
   std::shared_ptr<RateLimiter> restore_rate_limiter(NewGenericRateLimiter(
       restore_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
@@ -2742,7 +2714,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 10);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false /* flush_before_backup */));
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
 
@@ -2751,7 +2723,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   std::int64_t total_bytes_through_with_no_read_charge =
       restore_rate_limiter->GetTotalBytesThrough();
   CloseBackupEngine();
-  AssertBackupConsistency(0, 0, 10, 20);
+  AssertBackupConsistency(1, 0, 10, 20);
   DestroyDB(dbname_, Options());
 
   restore_rate_limiter.reset(NewGenericRateLimiter(
@@ -2763,7 +2735,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   std::int64_t total_bytes_through_with_read_charge =
       restore_rate_limiter->GetTotalBytesThrough();
   CloseBackupEngine();
-  AssertBackupConsistency(0, 0, 10, 20);
+  AssertBackupConsistency(1, 0, 10, 20);
   DestroyDB(dbname_, Options());
 
   EXPECT_EQ(total_bytes_through_with_read_charge,
