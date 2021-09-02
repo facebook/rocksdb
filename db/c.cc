@@ -3840,7 +3840,8 @@ void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_key, bool original_format) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
+    double bits_per_key, bool original_format) {
   // Make a rocksdb_filterpolicy_t, but override all of its methods so
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
@@ -3875,16 +3876,17 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
   return wrapper;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(
+    double bits_per_key) {
   return rocksdb_filterpolicy_create_bloom_format(bits_per_key, false);
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(double bits_per_key) {
   return rocksdb_filterpolicy_create_bloom_format(bits_per_key, true);
 }
 
 rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
-    int bloom_equivalent_bits_per_key) {
+    double bloom_equivalent_bits_per_key, int bloom_before_level) {
   // Make a rocksdb_filterpolicy_t, but override all of its methods so
   // they delegate to a NewRibbonFilterPolicy() instead of user
   // supplied C functions.
@@ -3911,7 +3913,8 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
     static void DoNothing(void*) {}
   };
   Wrapper* wrapper = new Wrapper;
-  wrapper->rep_ = NewRibbonFilterPolicy(bloom_equivalent_bits_per_key);
+  wrapper->rep_ =
+      NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, bloom_before_level);
   wrapper->state_ = nullptr;
   wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
@@ -3919,9 +3922,15 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
 }
 
 rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon(
-    int bloom_equivalent_bits_per_key) {
+    double bloom_equivalent_bits_per_key) {
   return rocksdb_filterpolicy_create_ribbon_format(
-      bloom_equivalent_bits_per_key);
+      bloom_equivalent_bits_per_key, /*bloom_before_level = disabled*/ -1);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_hybrid(
+    double bloom_equivalent_bits_per_key, int bloom_before_level) {
+  return rocksdb_filterpolicy_create_ribbon_format(
+      bloom_equivalent_bits_per_key, bloom_before_level);
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(

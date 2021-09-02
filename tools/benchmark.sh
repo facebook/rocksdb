@@ -2,13 +2,17 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 
+EXIT_INVALID_ARGS=1
+EXIT_NOT_COMPACTION_TEST=2
+EXIT_UNKNOWN_JOB=3
+
 if [ $# -lt 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq_disable_wal/fillseq_enable_wal/overwrite/"
   echo    "updaterandom/readrandom/mergerandom/filluniquerandom/multireadrandom/"
   echo    "fwdrange/revrange/readwhilewriting/readwhilemerging/"
   echo    "fwdrangewhilewriting/revrangewhilewriting/fwdrangewhilemerging/revrangewhilemerging/"
   echo    "randomtransaction/universal_compaction/debug]"
-  exit 0
+  exit $EXIT_INVALID_ARGS
 fi
 bench_cmd=$1
 shift
@@ -19,7 +23,7 @@ bench_args=$*
 # rest of the benchmarks helps.
 if [ "$COMPACTION_TEST" == "1" -a "$bench_cmd" != "universal_compaction" ]; then
   echo "Skipping $1 because it's not a compaction test."
-  exit 0
+  exit $EXIT_NOT_COMPACTION_TEST
 fi
 
 # size constants
@@ -30,12 +34,12 @@ T=$((1024 * G))
 
 if [ -z $DB_DIR ]; then
   echo "DB_DIR is not defined"
-  exit 0
+  exit $EXIT_INVALID_ARGS
 fi
 
 if [ -z $WAL_DIR ]; then
   echo "WAL_DIR is not defined"
-  exit 0
+  exit $EXIT_INVALID_ARGS
 fi
 
 output_dir=${OUTPUT_DIR:-/tmp/}
@@ -543,7 +547,7 @@ for job in ${jobs[@]}; do
     echo "Setting num_keys to $num_keys"
   else
     echo "unknown job $job"
-    exit
+    exit $EXIT_UNKNOWN_JOB
   fi
   end=$(now)
 

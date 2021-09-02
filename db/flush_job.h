@@ -83,7 +83,8 @@ class FlushJob {
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
-             FileMetaData* file_meta = nullptr);
+             FileMetaData* file_meta = nullptr,
+             bool* switched_to_mempurge = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
@@ -191,9 +192,6 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
-
-  // Used when experimental_mempurge_threshold > 0.0.
-  bool contains_mempurge_outcome_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

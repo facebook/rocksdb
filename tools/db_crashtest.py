@@ -104,7 +104,9 @@ default_params = {
     "use_clock_cache": 0, # currently broken
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    "use_ribbon_filter": lambda: random.randint(0, 1),
+    # 999 -> use Bloom API
+    "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
+    "use_block_based_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -303,6 +305,7 @@ ts_params = {
     "use_blob_db": 0,
     "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
+    "use_block_based_filter": 0,
 }
 
 def finalize_and_sanitize(src_params):
@@ -359,6 +362,8 @@ def finalize_and_sanitize(src_params):
             dest_params["partition_filters"] = 0
         else:
             dest_params["use_block_based_filter"] = 0
+    if dest_params["ribbon_starting_level"] < 999:
+        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
