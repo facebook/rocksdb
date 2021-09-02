@@ -21,8 +21,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 class DB;
 class ColumnFamilyHandle;

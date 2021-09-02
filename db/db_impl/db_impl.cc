@@ -3116,7 +3116,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 }
 
 namespace {
-typedef autovector<ColumnFamilyData*, 2> CfdList;
+using CfdList = autovector<ColumnFamilyData*, 2>;
 bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
   for (const ColumnFamilyData* t : list) {
     if (t == cfd) {

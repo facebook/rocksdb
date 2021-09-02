@@ -177,7 +177,7 @@ static inline void AsmVolatilePause() {
 // Returns -1 if not available on this platform
 extern int PhysicalCoreID();
 
-typedef pthread_once_t OnceType;
+using OnceType = pthread_once_t;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
