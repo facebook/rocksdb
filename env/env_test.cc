@@ -2651,6 +2651,7 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
   std::string dir = test::PerThreadDBPath(env, "lockdir");
   std::string file = dir + "/lockfile";
 
+  // Ensure directory doesn't exist
   ASSERT_OK(DestroyDir(env, dir));
 
   // Make sure that we can acquire a file lock after the first attempt fails
@@ -2661,6 +2662,9 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
   ASSERT_OK(fs->CreateDir(dir, IOOptions(), /*dbg*/ nullptr));
   ASSERT_OK(fs->LockFile(file, IOOptions(), &lock, /*dbg*/ nullptr));
   ASSERT_OK(fs->UnlockFile(lock, IOOptions(), /*dbg*/ nullptr));
+
+  // Clean up
+  ASSERT_OK(DestroyDir(env, dir));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
