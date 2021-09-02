@@ -2701,7 +2701,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
   backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
 
   DestroyDB(dbname_, Options());
-  OpenDBAndBackupEngine(true);
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   FillDB(db_.get(), 0, 10);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   std::int64_t total_bytes_through_with_no_read_charge =
@@ -2718,17 +2718,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
       backup_rate_limiter->GetTotalBytesThrough();
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
-
-  // total_bytes_through_with_read_charge falls into the interval of
-  // (total_bytes_through_with_no_read_charge,
-  // total_bytes_through_with_no_read_charge * 2] since some of the
-  // write-to-file done in backup_engine_->CreateNewBackup(db_.get(), true) does
-  // not need corresponding read-from-file (e.g, write manifest_fname to the
-  // file)
   EXPECT_GT(total_bytes_through_with_read_charge,
             total_bytes_through_with_no_read_charge);
-  EXPECT_LE(total_bytes_through_with_read_charge,
-            total_bytes_through_with_no_read_charge * 2);
 }
 
 INSTANTIATE_TEST_CASE_P(
