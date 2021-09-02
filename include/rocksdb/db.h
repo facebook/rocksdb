@@ -357,6 +357,10 @@ class DB {
   virtual async_wal_result AsyncPut(const WriteOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice& key, const Slice& value) {
+      (void)options;
+      (void)column_family;
+      (void)key;
+      (void)value;
       co_return Status::NotSupported("AsyncPut() not implemented.");
   };
 
@@ -432,6 +436,8 @@ class DB {
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
   virtual async_wal_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
+      (void)options;
+      (void)updates;
       co_return Status::NotSupported("AsyncWrite() not implemented.");
   }
 

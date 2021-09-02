@@ -69,15 +69,12 @@ struct async_wal_result {
     }
   }
 
-  void await_suspend(std::coroutine_handle<promise_type> h);
+//  void await_suspend(std::coroutine_handle<promise_type> h);
 
-  /*
   void await_suspend(std::coroutine_handle<promise_type> h) {
     if (!async_)
       h_.promise().prev_ = &h.promise();
-    else
-      context_->promise = &h.promise();
-  }*/
+  }
 
   void await_resume() const noexcept {}
 
