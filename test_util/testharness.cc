@@ -62,37 +62,28 @@ int RandomSeed() {
   return result;
 }
 
-class Regex::Impl {
- public:
-  explicit Impl(const std::string& pattern)
-      : pattern_(pattern), regex_(pattern) {}
-  std::string pattern_;
-  std::regex regex_;
-};
-
-Regex::Regex(const std::string& pattern) : impl_(new Impl(pattern)) {}
-Regex::Regex(const char* pattern) : impl_(new Impl(pattern)) {}
-Regex::Regex(const Regex& other) : impl_(new Impl(*other.impl_)) {}
-Regex& Regex::operator=(const Regex& other) {
-  *impl_ = *other.impl_;
-  return *this;
+TestRegex::TestRegex(const std::string& pattern) : pattern_(pattern) {
+  Status s = Regex::Parse(pattern, &r_);
+  assert(s.ok());
+}
+TestRegex::TestRegex(const char* pattern) : pattern_(pattern) {
+  Status s = Regex::Parse(pattern, &r_);
+  assert(s.ok());
 }
 
-Regex::~Regex() { delete impl_; }
-
-bool Regex::Matches(const std::string& str) const {
-  return std::regex_match(str, impl_->regex_);
+bool TestRegex::Matches(const std::string& str) const {
+  return r_.Matches(str);
 }
 
-const std::string& Regex::GetPattern() const { return impl_->pattern_; }
+const std::string& TestRegex::GetPattern() const { return pattern_; }
 
 ::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
                                               const char* pattern_expr,
                                               const std::string& str,
-                                              const Regex& pattern) {
+                                              const TestRegex& pattern) {
   if (pattern.Matches(str)) {
     return ::testing::AssertionSuccess();
-  } else if (Regex("\".*\"").Matches(pattern_expr)) {
+  } else if (TestRegex("\".*\"").Matches(pattern_expr)) {
     // constant regex string
     return ::testing::AssertionFailure()
            << str << " (" << str_expr << ")" << std::endl

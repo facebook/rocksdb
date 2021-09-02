@@ -906,7 +906,7 @@ class BackupEngineTest : public testing::Test {
   }
 
   void AssertDirectoryFilesMatchRegex(const std::string& dir,
-                                      const test::Regex& pattern,
+                                      const TestRegex& pattern,
                                       const std::string& file_type,
                                       int minimum_count) {
     std::vector<FileAttributes> children;
@@ -1762,7 +1762,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
     if (sopt == kShareWithChecksum) {
       // Ensure we actually got DB manifest checksums by inspecting
       // shared_checksum file names for hex checksum component
-      test::Regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      TestRegex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
       std::vector<FileAttributes> children;
       const std::string dir = backupdir_ + "/shared_checksum";
       ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
@@ -1997,7 +1997,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
 
-  static const std::map<ShareFilesNaming, test::Regex> option_to_expected = {
+  static const std::map<ShareFilesNaming, TestRegex> option_to_expected = {
       {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
       // kFlagIncludeFileSize redundant here
       {kLegacyCrc32cAndFileSize | kFlagIncludeFileSize,
@@ -2007,7 +2007,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
        "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
   };
 
-  const test::Regex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
@@ -2048,9 +2048,9 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
   CloseDBAndBackupEngine();
 
   // Old names should always be used on old files
-  const test::Regex sstfile_pattern("[0-9]+_[0-9]+_[0-9]+[.]sst");
+  const TestRegex sstfile_pattern("[0-9]+_[0-9]+_[0-9]+[.]sst");
 
-  const test::Regex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
     CloseAndReopenDB();

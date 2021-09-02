@@ -68,7 +68,7 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_EQ(sid2, sid4);
 
   // Expected compact format for session ids (see notes in implementation)
-  test::Regex expected("[0-9A-Z]{20}");
+  TestRegex expected("[0-9A-Z]{20}");
   EXPECT_MATCHES_REGEX(sid1, expected);
   EXPECT_MATCHES_REGEX(sid2, expected);
   EXPECT_MATCHES_REGEX(sid3, expected);
