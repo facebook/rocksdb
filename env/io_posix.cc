@@ -120,6 +120,28 @@ bool PosixWrite(int fd, const char* buf, size_t nbyte) {
   return true;
 }
 
+async_wal_result AsyncPosixWrite(int fd, const char* buf, size_t nbyte) {
+  const size_t kLimit1Gb = 1UL << 30;
+
+  const char* src = buf;
+  size_t left = nbyte;
+
+  while (left != 0) {
+    size_t bytes_to_write = std::min(left, kLimit1Gb);
+
+    ssize_t done = write(fd, src, bytes_to_write);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      co_return false;
+    }
+    left -= done;
+    src += done;
+  }
+  co_return true;
+}
+
 bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
   const size_t kLimit1Gb = 1UL << 30;
 
@@ -1243,6 +1265,26 @@ IOStatus PosixWritableFile::Append(const Slice& data, const IOOptions& /*opts*/,
 
   filesize_ += nbytes;
   return IOStatus::OK();
+}
+
+async_wal_result PosixWritableFile::AsyncAppend(const Slice& data,
+                                                const IOOptions& /*opts*/,
+                                                IODebugContext* /*dbg*/) {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(data.size(), GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(data.data(), GetRequiredBufferAlignment()));
+  }
+  const char* src = data.data();
+  size_t nbytes = data.size();
+
+  auto result = AsyncPosixWrite(fd_, src, nbytes);
+  co_await result;
+  if (!result.posix_result()) {
+    co_return IOError("While appending to file", filename_, errno);
+  }
+
+  filesize_ += nbytes;
+  co_return IOStatus::OK();
 }
 
 IOStatus PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset,

@@ -165,6 +165,10 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
+  virtual async_wal_result AsyncWrite(const WriteOptions& options,
+                                      WriteBatch* updates) override;
+
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -1255,6 +1259,13 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr);
 
+  async_wal_result AsyncWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                                  WriteCallback* callback = nullptr,
+                                  uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                                  bool disable_memtable = false, uint64_t* seq_used = nullptr,
+                                  size_t batch_cnt = 0,
+                                  PreReleaseCallback* pre_release_callback = nullptr);
+
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
@@ -1695,10 +1706,18 @@ class DBImpl : public DB {
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size);
 
+  async_wal_result AsyncWriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                                   uint64_t* log_used, uint64_t* log_size);
+
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
                       bool need_log_sync, bool need_log_dir_sync,
                       SequenceNumber sequence);
+
+  async_wal_result AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
+                                   log::Writer* log_writer, uint64_t* log_used,
+                                   bool need_log_sync, bool need_log_dir_sync,
+                                   SequenceNumber sequence);
 
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,

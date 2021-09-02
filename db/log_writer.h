@@ -15,6 +15,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/async_wal_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -80,6 +81,8 @@ class Writer {
   ~Writer();
 
   IOStatus AddRecord(const Slice& slice);
+
+  async_wal_result AsyncAddRecord(const Slice& slice);
 
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "rocksdb/async_result.h"
+#include "rocksdb/async_wal_result.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -817,6 +818,9 @@ class FSWritableFile {
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
+
+  virtual async_wal_result AsyncAppend(const Slice& data, const IOOptions& options,
+                                       IODebugContext* dbg) = 0;
 
   // Append data with verification information.
   // Note that this API change is experimental and it might be changed in

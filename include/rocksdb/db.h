@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 #include "rocksdb/async_result.h"
+#include "rocksdb/async_wal_result.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -353,6 +354,10 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, value);
   }
 
+  virtual async_wal_result AsyncPut(const WriteOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key, const Slice& value) = 0;
+
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
   // did not exist in the database.
@@ -423,6 +428,8 @@ class DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+
+  virtual async_wal_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) = 0;
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
