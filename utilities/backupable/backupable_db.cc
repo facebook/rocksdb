@@ -1887,7 +1887,8 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
       Status s = ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
-                                            0 /* size_limit */, &checksum_hex, options_.backup_rate_limiter.get());
+                                            0 /* size_limit */, &checksum_hex,
+                                            options_.backup_rate_limiter.get());
       if (!s.ok()) {
         return s;
       } else if (file_info->checksum_hex != checksum_hex) {
@@ -2062,8 +2063,9 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     // since the session id should suffice to avoid file name collision in
     // the shared_checksum directory.
     if (checksum_hex.empty() && db_session_id.empty()) {
-      Status s = ReadFileAndComputeChecksum(
-          src_dir + fname, db_env_, src_env_options, size_limit, &checksum_hex, rate_limiter);
+      Status s =
+          ReadFileAndComputeChecksum(src_dir + fname, db_env_, src_env_options,
+                                     size_limit, &checksum_hex, rate_limiter);
       if (!s.ok()) {
         return s;
       }
@@ -2235,7 +2237,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
 Status BackupEngineImpl::ReadFileAndComputeChecksum(
     const std::string& src, Env* src_env, const EnvOptions& src_env_options,
-    uint64_t size_limit, std::string* checksum_hex, RateLimiter* rate_limiter) const {
+    uint64_t size_limit, std::string* checksum_hex,
+    RateLimiter* rate_limiter) const {
   if (checksum_hex == nullptr) {
     return Status::Aborted("Checksum pointer is null");
   }
@@ -2287,7 +2290,8 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
                                              const EnvOptions& src_env_options,
                                              const std::string& file_path,
                                              std::string* db_id,
-                                             std::string* db_session_id, RateLimiter* rate_limiter) {
+                                             std::string* db_session_id,
+                                             RateLimiter* rate_limiter) {
   assert(db_id != nullptr || db_session_id != nullptr);
 
   Options options;
@@ -2310,9 +2314,9 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
       table_properties = sst_reader.GetInitTableProperties();
     } else {
       table_properties = tp.get();
-      if(table_properties != nullptr && rate_limiter != nullptr) {
-        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      if (table_properties != nullptr && rate_limiter != nullptr) {
+        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
+                              nullptr /* stats */, RateLimiter::OpType::kRead);
       }
     }
   } else {
@@ -2637,8 +2641,7 @@ const std::string kNonIgnorableFieldPrefix{"ni::"};
 Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir,
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
-    Logger* info_log,
-    std::unordered_set<std::string>* reported_ignored_fields,
+    Logger* info_log, std::unordered_set<std::string>* reported_ignored_fields,
     RateLimiter* rate_limiter) {
   assert(reported_ignored_fields);
   assert(Empty());
@@ -2677,9 +2680,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       return Status::Corruption("Unexpected empty line");
     }
   }
-  if (!line.empty()){
+  if (!line.empty()) {
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
-  } else if(backup_meta_reader->ReadLine(&line)){
+  } else if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
       rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
                             RateLimiter::OpType::kRead);
@@ -2831,7 +2834,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     while (backup_meta_reader->ReadLine(&line)) {
       if (rate_limiter != nullptr) {
         rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+                              RateLimiter::OpType::kRead);
       }
       if (line.empty()) {
         return Status::Corruption("Unexpected empty line");
