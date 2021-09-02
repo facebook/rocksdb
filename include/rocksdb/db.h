@@ -356,7 +356,9 @@ class DB {
 
   virtual async_wal_result AsyncPut(const WriteOptions& options,
                                     ColumnFamilyHandle* column_family,
-                                    const Slice& key, const Slice& value) = 0;
+                                    const Slice& key, const Slice& value) {
+      co_return Status::NotSupported("AsyncPut() not implemented.");
+  };
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
@@ -429,7 +431,9 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
-  virtual async_wal_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) = 0;
+  virtual async_wal_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
+      co_return Status::NotSupported("AsyncWrite() not implemented.");
+  }
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
