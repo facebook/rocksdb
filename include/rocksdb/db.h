@@ -356,7 +356,13 @@ class DB {
 
   virtual async_wal_result AsyncPut(const WriteOptions& options,
                                     ColumnFamilyHandle* column_family,
-                                    const Slice& key, const Slice& value);
+                                    const Slice& key, const Slice& value) {
+      (void)options;
+      (void)column_family;
+      (void)key;
+      (void)value;
+      co_return Status::NotSupported("AsyncPut() not implemented.");
+  }
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"

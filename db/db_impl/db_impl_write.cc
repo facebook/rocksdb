@@ -2532,7 +2532,7 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
-async_wal_result DB::AsyncPut(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+async_wal_result DBImpl::AsyncPut(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
   if (nullptr == opt.timestamp) {
     // Pre-allocate size of write batch conservatively.
