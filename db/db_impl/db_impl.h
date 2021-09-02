@@ -149,10 +149,7 @@ class DBImpl : public DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) override;
-  virtual async_wal_result AsyncPut(const WriteOptions& options,
-                                    ColumnFamilyHandle* column_family,
-                                    const Slice& key,
-                                    const Slice& value) override;
+
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
@@ -171,7 +168,6 @@ class DBImpl : public DB {
 
   virtual async_wal_result AsyncWrite(const WriteOptions& options,
                                       WriteBatch* updates) override;
-
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
