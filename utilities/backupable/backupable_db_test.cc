@@ -2769,6 +2769,30 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   EXPECT_EQ(total_bytes_through_with_read_charge,
             total_bytes_through_with_no_read_charge * 2);
 }
+
+TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInInitialize) {
+  std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
+      1, 100 * 1000 /* refill_period_us */, 10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
+  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+
+  bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
+  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+
+  const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
+  backupable_options_->backup_rate_limiter->SetBytesPerSecond(backup_rate_limiter_limit);
+
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, 10);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false /* flush_before_backup */));
+  CloseBackupEngine();
+  std::int64_t total_bytes_through_before_inni = backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  
+  OpenBackupEngine();
+  EXPECT_GT(backupable_options_->backup_rate_limiter->GetTotalBytesThrough(), total_bytes_through_before_inni);
+  CloseDBAndBackupEngine();
+  
+  AssertBackupConsistency(1, 0, 10, 20);
+}
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
