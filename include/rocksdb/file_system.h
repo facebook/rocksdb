@@ -1436,7 +1436,7 @@ class FSWritableFileWrapper : public FSWritableFile {
                                IODebugContext* dbg) override {
     auto result = target_->AsyncAppend(data, options, dbg);
     co_await result;
-    return result.io_result();
+    co_return result.io_result();
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
