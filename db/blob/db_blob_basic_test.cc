@@ -6,6 +6,7 @@
 #include <array>
 
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -365,6 +366,35 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
 
   ASSERT_OK(statuses[2]);
   ASSERT_EQ(values[2], "v2_0");
+}
+
+TEST_F(DBBlobBasicTest, BlobDBProperties) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  Reopen(options);
+
+  const size_t numFile = 10;
+  for (size_t i = 0; i < numFile; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), "0000000000"));
+    ASSERT_OK(Flush());
+  }
+
+  uint64_t intPropertyValue = 0;
+  EXPECT_TRUE(db_->GetIntProperty("rocksdb.num-blob-files", &intPropertyValue));
+  ASSERT_EQ(intPropertyValue, numFile);
+  uint64_t totalBlobFileSize = 0;
+  EXPECT_TRUE(
+      db_->GetIntProperty("rocksdb.total-blob-file-size", &totalBlobFileSize));
+  uint64_t liveBlobFileSize = 0;
+  EXPECT_TRUE(
+      db_->GetIntProperty("rocksdb.live-blob-file-size", &liveBlobFileSize));
+  ASSERT_EQ(totalBlobFileSize, liveBlobFileSize);
+  EXPECT_TRUE(db_->GetIntProperty("rocksdb.estimate-live-data-size",
+                                  &intPropertyValue));
+  std::string propertyValue = "";
+  EXPECT_TRUE(db_->GetProperty("rocksdb.blob-stats", &propertyValue));
 }
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,

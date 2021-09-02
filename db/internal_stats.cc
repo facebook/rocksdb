@@ -757,10 +757,10 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
     garbageSize += meta->GetGarbageBlobBytes();
   }
   snprintf(buf, sizeof(buf),
-           "Current version number: %s \n"
-           "Number of blob files: %s \n"
-           "Total size of blob files: %s \n"
-           "Total size of garbage in blob files: %s \n",
+           "Current version number: %s\n"
+           "Number of blob files: %s\n"
+           "Total size of blob files: %s\n"
+           "Total size of garbage in blob files: %s\n",
            NumberToHumanString(currentVersion->GetVersionNumber()).c_str(),
            NumberToHumanString(numBlobFiles).c_str(),
            NumberToHumanString(blobFileSize).c_str(),
@@ -774,7 +774,7 @@ bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
   std::unordered_set<uint64_t> uniqueBlobFiles;
   uint64_t totalBlobFileSize = 0;
   auto* currentVersion = cfd_->current();
-  for (auto* versionCounter = currentVersion; versionCounter != currentVersion;
+  for (auto* versionCounter = currentVersion;;
        versionCounter = versionCounter->Next()) {
     // iterate all the versions
     auto* vstorage = versionCounter->storage_info();
@@ -784,8 +784,11 @@ bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
         // find Blob file that has not been counted
         uniqueBlobFiles.insert(pair.first);
         const auto& meta = pair.second;
-        totalBlobFileSize += meta->GetBlobFileSize();
+        totalBlobFileSize += meta->GetTotalBlobBytes();
       }
+    }
+    if (versionCounter->Next() == currentVersion) {
+      break;
     }
   }
   *value = totalBlobFileSize;
@@ -1194,10 +1197,11 @@ bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* /*db*/,
   const auto* vstorage = version->storage_info();
   estimateNonBlobDataSize = vstorage->EstimateLiveDataSize();
 
-  uint64_t estimateBlobDataSize = vstorage->GetTotalBlobFileSize();
+  uint64_t estimateBlobDataSize = 0;
   const auto& blobFiles = vstorage->GetBlobFiles();
   for (const auto& pair : blobFiles) {
     const auto& meta = pair.second;
+    estimateBlobDataSize += meta->GetTotalBlobBytes();
     estimateBlobDataSize -= meta->GetGarbageBlobBytes();
   }
   *value = estimateNonBlobDataSize + estimateBlobDataSize;
