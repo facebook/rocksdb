@@ -547,8 +547,7 @@ class BackupEngineImpl {
   Status ReadFileAndComputeChecksum(const std::string& src, Env* src_env,
                                     const EnvOptions& src_env_options,
                                     uint64_t size_limit,
-                                    std::string* checksum_hex,
-                                    RateLimiter* rate_limiter) const;
+                                    std::string* checksum_hex) const;
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
@@ -1887,8 +1886,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
       Status s = ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
-                                            0 /* size_limit */, &checksum_hex,
-                                            options_.backup_rate_limiter.get());
+                                            0 /* size_limit */, &checksum_hex);
       if (!s.ok()) {
         return s;
       } else if (file_info->checksum_hex != checksum_hex) {
@@ -2065,7 +2063,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     if (checksum_hex.empty() && db_session_id.empty()) {
       Status s =
           ReadFileAndComputeChecksum(src_dir + fname, db_env_, src_env_options,
-                                     size_limit, &checksum_hex, rate_limiter);
+                                     size_limit, &checksum_hex);
       if (!s.ok()) {
         return s;
       }
@@ -2183,7 +2181,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
         } else {
           Status s = ReadFileAndComputeChecksum(src_dir + fname, db_env_,
                                                 src_env_options, size_limit,
-                                                &checksum_hex, rate_limiter);
+                                                &checksum_hex);
           if (!s.ok()) {
             return s;
           }
@@ -2237,8 +2235,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
 Status BackupEngineImpl::ReadFileAndComputeChecksum(
     const std::string& src, Env* src_env, const EnvOptions& src_env_options,
-    uint64_t size_limit, std::string* checksum_hex,
-    RateLimiter* rate_limiter) const {
+    uint64_t size_limit, std::string* checksum_hex) const {
   if (checksum_hex == nullptr) {
     return Status::Aborted("Checksum pointer is null");
   }
