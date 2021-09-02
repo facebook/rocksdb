@@ -825,9 +825,6 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       result = IOError("while open a file for lock", fname, errno);
     } else if (LockOrUnlock(fd, true) == -1) {
-      // if there is an error in locking, then remove the pathname from
-      // lockedfiles
-      locked_files.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -836,6 +833,12 @@ class PosixFileSystem : public FileSystem {
       my_lock->fd_ = fd;
       my_lock->filename = fname;
       *lock = my_lock;
+    }
+    if (!result.ok()) {
+      // If there is an error in locking, then remove the pathname from
+      // locked_files. (If we got this far, it did not exist in locked_files
+      // before this call.)
+      locked_files.erase(fname);
     }
 
     mutex_locked_files.Unlock();
