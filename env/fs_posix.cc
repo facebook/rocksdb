@@ -109,6 +109,13 @@ class PosixFileLock : public FileLock {
  public:
   int fd_;
   std::string filename;
+
+  void Clear() { filename.clear(); }
+
+  virtual ~PosixFileLock() override {
+    // Check for destruction without UnlockFile
+    assert(filename.empty());
+  }
 };
 
 int cloexec_flags(int flags, const EnvOptions* options) {
@@ -859,6 +866,7 @@ class PosixFileSystem : public FileSystem {
       result = IOError("unlock", my_lock->filename, errno);
     }
     close(my_lock->fd_);
+    my_lock->Clear();
     delete my_lock;
     mutex_locked_files.Unlock();
     return result;

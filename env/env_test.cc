@@ -2660,7 +2660,7 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
 
   ASSERT_OK(fs->CreateDir(dir, IOOptions(), /*dbg*/ nullptr));
   ASSERT_OK(fs->LockFile(file, IOOptions(), &lock, /*dbg*/ nullptr));
-  delete lock;
+  ASSERT_OK(fs->UnlockFile(lock, IOOptions(), /*dbg*/ nullptr));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
