@@ -368,6 +368,7 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   ASSERT_EQ(values[2], "v2_0");
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, BlobDBProperties) {
   Options options = GetDefaultOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
@@ -396,6 +397,7 @@ TEST_F(DBBlobBasicTest, BlobDBProperties) {
   std::string propertyValue = "";
   EXPECT_TRUE(db_->GetProperty("rocksdb.blob-stats", &propertyValue));
 }
+#endif  // !ROCKSDB_LITE
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
