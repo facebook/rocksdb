@@ -28,7 +28,7 @@ std::string Customizable::GetOptionName(const std::string& long_name) const {
   }
 }
 
-std::string Customizable::GenerateUniqueId() const {
+std::string Customizable::GenerateIndividualId() const {
   std::ostringstream ostr;
   ostr << Name() << "@" << static_cast<const void*>(this) << "#"
        << port::GetProcessID();
