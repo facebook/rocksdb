@@ -20,25 +20,10 @@ STAT_FILE=${STAT_FILE:-$(mktemp -t -u rocksdb_test_stats_XXXX)}
 
 function cleanup {
   rm -rf $DATA_DIR
-  rm -f $STAT_FILE.fillseq
-  rm -f $STAT_FILE.readrandom
-  rm -f $STAT_FILE.overwrite
-  rm -f $STAT_FILE.memtablefillreadrandom
+  rm -f $STAT_FILE.*
 }
 
 trap cleanup EXIT
-
-if [ -z $GIT_BRANCH ]; then
-  git_br=`git rev-parse --abbrev-ref HEAD`
-else
-  git_br=$(basename $GIT_BRANCH)
-fi
-
-if [ $git_br == "master" ]; then
-  git_br=""
-else
-  git_br="."$git_br
-fi
 
 make release
 
@@ -286,12 +271,10 @@ common_in_mem_args="--db=/dev/shm/rocksdb \
     --sync=0 \
     --verify_checksum=1 \
     --delete_obsolete_files_period_micros=314572800 \
-    --max_grandparent_overlap_factor=10 \
     --use_plain_table=1 \
     --open_files=-1 \
     --mmap_read=1 \
     --mmap_write=0 \
-    --memtablerep=prefix_hash \
     --bloom_bits=10 \
     --bloom_locality=1 \
     --perf_level=0"
@@ -378,7 +361,7 @@ function send_to_ods {
     echo >&2 "ERROR: Key $key doesn't have a value."
     return
   fi
-  curl --silent "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build$git_br&key=$key&value=$value" \
+  curl --silent "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value" \
     --connect-timeout 60
 }
 

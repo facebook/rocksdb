@@ -1120,7 +1120,7 @@ NO_COMPRESSION_COMMANDS="[
 #
 run_regression()
 {
-  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKSPACE/leveldb.XXXX) $(mktemp leveldb_test_stats.XXXX)
+  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
 
   # ======= report size to ODS ========
 
@@ -1161,6 +1161,7 @@ REGRESSION_COMMANDS="[
     {
         'name':'Rocksdb regression commands',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -1361,7 +1362,9 @@ case $1 in
     echo $REGRESSION_COMMANDS
     ;;
   run_regression)
+    set -e
     run_regression
+    unset -e
     ;;
   java_build)
     echo $JAVA_BUILD_TEST_COMMANDS
