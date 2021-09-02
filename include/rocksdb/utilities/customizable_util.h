@@ -115,7 +115,7 @@ static Status NewManagedObject(
   Status status;
   if (!id.empty()) {
 #ifndef ROCKSDB_LITE
-    status = config_options.registry->NewManagedObject<T>(
+    status = config_options.registry->GetOrCreateManagedObject<T>(
         id, result, [config_options, opt_map](T* object) {
           return object->ConfigureFromMap(config_options, opt_map);
         });

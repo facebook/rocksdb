@@ -167,9 +167,10 @@ Status ObjectRegistry::ListManagedObjects(
     }
   }
   if (parent_ != nullptr) {
-    parent_->ListManagedObjects(type, name, results);
+    return parent_->ListManagedObjects(type, name, results);
+  } else {
+    return Status::OK();
   }
-  return Status::OK();
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {

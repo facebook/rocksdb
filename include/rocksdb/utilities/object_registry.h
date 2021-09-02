@@ -265,15 +265,9 @@ class ObjectRegistry {
   // If the object was found in the registry, the result is updated and OK is
   // returned.
   template <typename T>
-  Status GetManagedObject(const std::string& id,
-                          std::shared_ptr<T>* result) const {
+  std::shared_ptr<T> GetManagedObject(const std::string& id) const {
     auto c = GetManagedObject(T::Type(), id);
-    if (c != nullptr) {
-      *result = std::static_pointer_cast<T>(c);
-      return Status::OK();
-    } else {
-      return Status::NotFound("Cannot find SharedObject: ", id);
-    }
+    return std::static_pointer_cast<T>(c);
   }
 
   // Returns the set of managed objects found in the registry matching
@@ -310,8 +304,9 @@ class ObjectRegistry {
   // If a new object is created (using the object factories), the cfunc
   // parameter will be invoked to configure the new object.
   template <typename T>
-  Status NewManagedObject(const std::string& id, std::shared_ptr<T>* result,
-                          const ConfigureFunc<T>& cfunc = nullptr) {
+  Status GetOrCreateManagedObject(const std::string& id,
+                                  std::shared_ptr<T>* result,
+                                  const ConfigureFunc<T>& cfunc = nullptr) {
     if (parent_ != nullptr) {
       auto object = parent_->GetManagedObject(T::Type(), id);
       if (object != nullptr) {
@@ -336,7 +331,19 @@ class ObjectRegistry {
         s = cfunc(object.get());
       }
       if (s.ok()) {
-        managed_objects_[key] = std::static_pointer_cast<Customizable>(object);
+        auto c = std::static_pointer_cast<Customizable>(object);
+        if (id != c->Name()) {
+          // If the ID is not the base name of the class, add the new
+          // object under the input ID
+          managed_objects_[key] = c;
+        }
+        if (id != c->GetId() && c->GetId() != c->Name()) {
+          // If the input and current ID do not match, and the
+          // current ID is not the base bame, add the new object under
+          // its new ID
+          key = ToManagedObjectKey(T::Type(), c->GetId());
+          managed_objects_[key] = c;
+        }
         *result = object;
       }
       return s;
