@@ -808,6 +808,8 @@ DEFINE_uint64(periodic_compaction_seconds,
               "Files older than this will be picked up for compaction and"
               " rewritten to the same level");
 
+DEFINE_uint64(ttl_seconds, ROCKSDB_NAMESPACE::Options().ttl, "Set options.ttl");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0< pct <100 \n",
@@ -4285,7 +4287,7 @@ class Benchmark {
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
-
+    options.ttl = FLAGS_ttl_seconds;
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
