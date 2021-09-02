@@ -1096,7 +1096,7 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
     static const char* kClassName() { return "Managed"; }
     const char* Name() const override { return kClassName(); }
     std::string GetId() const override { return id_; }
-    ManagedCustomizable() { id_ = GenerateUniqueId(); }
+    ManagedCustomizable() { id_ = GenerateIndividualId(); }
     static Status CreateFromString(
         const ConfigOptions& opts, const std::string& value,
         std::shared_ptr<ManagedCustomizable>* result) {

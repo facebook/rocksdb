@@ -261,9 +261,7 @@ class ObjectRegistry {
   }
 
   // Returns the object for the given id, if one exists.
-  // If the object is not found in the registry, an error is returned.
-  // If the object was found in the registry, the result is updated and OK is
-  // returned.
+  // If the object is not found in the registry, a nullptr is returned
   template <typename T>
   std::shared_ptr<T> GetManagedObject(const std::string& id) const {
     auto c = GetManagedObject(T::Type(), id);
