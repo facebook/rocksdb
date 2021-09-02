@@ -37,7 +37,7 @@ class Regex {
   // Checks that the whole of str is matched by this regex. If called on a
   // default-constructed Regex, will trigger assertion failure in DEBUG build
   // or return false in release build.
-  bool Matches(const std::string& str) const;
+  bool Matches(const std::string &str) const;
 
  private:
   class Impl;

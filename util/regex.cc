@@ -21,7 +21,7 @@ class Regex::Impl : public std::regex {
   using std::regex::basic_regex;
 };
 
-bool Regex::Matches(const std::string& str) const {
+bool Regex::Matches(const std::string &str) const {
   if (impl_) {
     return std::regex_match(str, *impl_);
   } else {
@@ -35,7 +35,7 @@ Status Regex::Parse(const std::string &pattern, Regex *out) {
   try {
     out->impl_.reset(new Impl(pattern));
     return Status::OK();
-  } catch (const std::regex_error& e) {
+  } catch (const std::regex_error &e) {
     return Status::InvalidArgument(e.what());
   }
 }
