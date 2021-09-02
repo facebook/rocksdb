@@ -5,6 +5,9 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
+#include <memory>
 #include <string>
 
 #include "rocksdb/status.h"
@@ -24,11 +27,6 @@ class Regex {
  public:
   // Note: Cannot be constructed with a pattern, so that syntax errors can
   // be handled without using exceptions.
-  Regex();
-  Regex(const Regex& other);
-  Regex& operator=(const Regex& other);
-
-  ~Regex();
 
   // Parse returns OK and saves to `out` when the pattern is valid regex
   // syntax (modified ECMAScript), or else returns InvalidArgument.
@@ -36,11 +34,15 @@ class Regex {
   static Status Parse(const char *pattern, Regex *out);
   static Status Parse(const std::string &pattern, Regex *out);
 
-  // Checks that the whole of str is matched by this regex
+  // Checks that the whole of str is matched by this regex. If called on a
+  // default-constructed Regex, will trigger assertion failure in DEBUG build
+  // or return false in release build.
   bool Matches(const std::string& str) const;
 
  private:
   class Impl;
-  Impl* impl_;
+  std::shared_ptr<Impl> impl_;  // shared_ptr for simple implementation
 };
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif  // ROCKSDB_LITE

@@ -80,10 +80,13 @@ int RandomSeed();
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
 
-// Useful for testing without dealing with Status or triggering reports
-// on use of std::regex by Facebook linters.
+// Useful for testing
+// * No need to deal with Status like in Regex public API
+// * No triggering lint reports on use of std::regex in tests
+// * Available in LITE (unlike public API)
 class TestRegex {
  public:
+  // These throw on bad pattern
   /*implicit*/ TestRegex(const std::string& pattern);
   /*implicit*/ TestRegex(const char* pattern);
 
@@ -93,7 +96,8 @@ class TestRegex {
   const std::string& GetPattern() const;
 
  private:
-  Regex r_;
+  class Impl;
+  std::shared_ptr<Impl> impl_;  // shared_ptr for simple implementation
   std::string pattern_;
 };
 

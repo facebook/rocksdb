@@ -62,20 +62,29 @@ int RandomSeed() {
   return result;
 }
 
-TestRegex::TestRegex(const std::string& pattern) : pattern_(pattern) {
-  Status s = Regex::Parse(pattern, &r_);
-  assert(s.ok());
-}
-TestRegex::TestRegex(const char* pattern) : pattern_(pattern) {
-  Status s = Regex::Parse(pattern, &r_);
-  assert(s.ok());
-}
-
-bool TestRegex::Matches(const std::string& str) const {
-  return r_.Matches(str);
-}
+TestRegex::TestRegex(const std::string& pattern)
+    : impl_(std::make_shared<Impl>(pattern)), pattern_(pattern) {}
+TestRegex::TestRegex(const char* pattern)
+    : impl_(std::make_shared<Impl>(pattern)), pattern_(pattern) {}
 
 const std::string& TestRegex::GetPattern() const { return pattern_; }
+
+// Sorry about code duplication with regex.cc, but it doesn't support LITE
+// due to exception handling
+class TestRegex::Impl : public std::regex {
+ public:
+  using std::regex::basic_regex;
+};
+
+bool TestRegex::Matches(const std::string& str) const {
+  if (impl_) {
+    return std::regex_match(str, *impl_);
+  } else {
+    // Should not call Matches on unset Regex
+    assert(false);
+    return false;
+  }
+}
 
 ::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
                                               const char* pattern_expr,

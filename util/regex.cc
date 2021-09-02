@@ -3,6 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// LITE not supported here in part because of exception handling
+#ifndef ROCKSDB_LITE
+
 #include "rocksdb/utilities/regex.h"
 
 #include <cassert>
@@ -13,21 +16,27 @@ namespace ROCKSDB_NAMESPACE {
 // This section would change for alternate underlying implementations other
 // than std::regex.
 #if 1
-class Regex::Impl {
+class Regex::Impl : public std::regex {
  public:
-  std::regex regex_;
+  using std::regex::basic_regex;
 };
 
 bool Regex::Matches(const std::string& str) const {
-  return std::regex_match(str, impl_->regex_);
+  if (impl_) {
+    return std::regex_match(str, *impl_);
+  } else {
+    // Should not call Matches on unset Regex
+    assert(false);
+    return false;
+  }
 }
 
 Status Regex::Parse(const std::string &pattern, Regex *out) {
   try {
-    out->impl_->regex_ = std::regex(pattern);
+    out->impl_.reset(new Impl(pattern));
     return Status::OK();
   } catch (const std::regex_error& e) {
-    return Status::InvalidArgument();
+    return Status::InvalidArgument(e.what());
   }
 }
 #endif
@@ -36,15 +45,6 @@ Status Regex::Parse(const char *pattern, Regex *out) {
   return Parse(std::string(pattern), out);
 }
 
-Regex::Regex() : impl_(new Impl()) {}
-Regex::Regex(const Regex& other) : impl_(new Impl(*other.impl_)) {}
-Regex& Regex::operator=(const Regex& other) {
-  *impl_ = *other.impl_;
-  return *this;
-}
-
-Regex::~Regex() { delete impl_; }
-
-
-
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif  // ROCKSDB_LITE
