@@ -2061,9 +2061,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     // since the session id should suffice to avoid file name collision in
     // the shared_checksum directory.
     if (checksum_hex.empty() && db_session_id.empty()) {
-      Status s =
-          ReadFileAndComputeChecksum(src_dir + fname, db_env_, src_env_options,
-                                     size_limit, &checksum_hex);
+      Status s = ReadFileAndComputeChecksum(
+          src_dir + fname, db_env_, src_env_options, size_limit, &checksum_hex);
       if (!s.ok()) {
         return s;
       }
