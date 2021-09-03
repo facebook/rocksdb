@@ -80,23 +80,14 @@ struct SstFileWriter::Rep {
       }
     }
 
-    // TODO(tec) : For external SST files we could omit the seqno and type.
-    switch (value_type) {
-      case ValueType::kTypeValue:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeValue /* Put */);
-        break;
-      case ValueType::kTypeMerge:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeMerge /* Merge */);
-        break;
-      case ValueType::kTypeDeletion:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeDeletion /* Delete */);
-        break;
-      default:
-        return Status::InvalidArgument("Value type is not supported");
-    }
+    assert(value_type == kTypeValue || value_type == kTypeMerge ||
+           value_type == kTypeDeletion ||
+           value_type == kTypeDeletionWithTimestamp);
+
+    constexpr SequenceNumber sequence_number = 0;
+
+    ikey.Set(user_key, sequence_number, value_type);
+
     builder->Add(ikey.Encode(), value);
 
     // update file info
