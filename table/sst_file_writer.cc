@@ -108,6 +108,29 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status Add(const Slice& user_key, const Slice& timestamp, const Slice& value,
+             const ValueType value_type) {
+    const size_t timestamp_size = timestamp.size();
+
+    if (timestamp_size != internal_comparator.timestamp_size()) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    const size_t user_key_size = user_key.size();
+
+    if (user_key.data() + user_key_size == timestamp.data()) {
+      Slice user_key_with_ts(user_key.data(), user_key_size + timestamp_size);
+      return Add(user_key_with_ts, value, value_type);
+    }
+
+    std::string user_key_with_ts;
+    user_key_with_ts.reserve(user_key_size + timestamp_size);
+    user_key_with_ts.append(user_key.data(), user_key_size);
+    user_key_with_ts.append(timestamp.data(), timestamp_size);
+
+    return Add(user_key_with_ts, value, value_type);
+  }
+
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
@@ -294,12 +317,22 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeValue);
 }
 
+Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
+                          const Slice& value) {
+  return rep_->Add(user_key, timestamp, value, ValueType::kTypeValue);
+}
+
 Status SstFileWriter::Merge(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeMerge);
 }
 
 Status SstFileWriter::Delete(const Slice& user_key) {
   return rep_->Add(user_key, Slice(), ValueType::kTypeDeletion);
+}
+
+Status SstFileWriter::Delete(const Slice& user_key, const Slice& timestamp) {
+  return rep_->Add(user_key, timestamp, Slice(),
+                   ValueType::kTypeDeletionWithTimestamp);
 }
 
 Status SstFileWriter::DeleteRange(const Slice& begin_key,
