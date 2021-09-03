@@ -6,7 +6,6 @@
 #include <array>
 
 #include "db/blob/blob_index.h"
-#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -369,33 +368,107 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
 }
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBBlobBasicTest, BlobDBProperties) {
+TEST_F(DBBlobBasicTest, Properties) {
   Options options = GetDefaultOptions();
-  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  Reopen(options);
+  ASSERT_OK(Put("key1", "0000000000"));
+  ASSERT_OK(Put("key2", "0000000000"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "0000000000"));
+  ASSERT_OK(Flush());
+  // num of files
+  uint64_t num_blob_files = 0;
+  EXPECT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumBlobFiles, &num_blob_files));
+  ASSERT_EQ(num_blob_files, 2);
+  // size of live blob files
+  uint64_t live_blob_file_size = 0;
+  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileSize,
+                                  &live_blob_file_size));
+  // size of total blob files
+  uint64_t total_blob_file_size = 0;
+  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+                                  &total_blob_file_size));
+  ASSERT_EQ(live_blob_file_size, total_blob_file_size);
+  auto* versions = dbfull()->TEST_GetVersionSet();
+  auto* current = versions->GetColumnFamilySet()->GetDefault()->current();
+  const auto& blob_files = current->storage_info()->GetBlobFiles();
+  uint64_t expected_live_blob_file_size = 0;
+  for (const auto& pair : blob_files) {
+    expected_live_blob_file_size += pair.second->GetTotalBlobBytes();
+  }
+  ASSERT_EQ(live_blob_file_size, expected_live_blob_file_size);
+
+  // estimate live data size
+  std::string blob_stats = "";
+  EXPECT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &blob_stats));
+  EXPECT_TRUE(blob_stats.size() > 0);
+
+  // delete key2 to make some garbage
+  ASSERT_OK(Delete("key2"));
+  ASSERT_OK(Flush());
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  std::string new_blob_stats = "";
+  EXPECT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &new_blob_stats));
+  std::cout << blob_stats << new_blob_stats << std::endl;
+
+  {
+    std::istringstream ss1(blob_stats);
+    std::istringstream ss2(new_blob_stats);
+    std::string stats_line = "";
+    std::string new_stats_line = "";
+    // skip the first line because it is the version info
+    std::getline(ss1, stats_line);
+    std::getline(ss2, new_stats_line);
+    for (size_t i = 0; i < 3; i++) {
+      std::getline(ss1, stats_line);
+      std::getline(ss2, new_stats_line);
+      if (i == 2) {
+        ASSERT_TRUE(stats_line != new_stats_line);
+      } else {
+        ASSERT_EQ(stats_line, new_stats_line);
+      }
+    }
+  }
+}
+
+TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
+  Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   Reopen(options);
 
-  const size_t numFile = 10;
-  for (size_t i = 0; i < numFile; i++) {
-    ASSERT_OK(Put("key" + std::to_string(i), "0000000000"));
-    ASSERT_OK(Flush());
-  }
+  ASSERT_OK(Put("key1", "0000000000"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "0000000000"));
+  ASSERT_OK(Flush());
+  // create an iterator to make the current version alive
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(iter->status());
+  ASSERT_OK(Put("key3", "0000000000"));
+  ASSERT_OK(Flush());
 
-  uint64_t intPropertyValue = 0;
-  EXPECT_TRUE(db_->GetIntProperty("rocksdb.num-blob-files", &intPropertyValue));
-  ASSERT_EQ(intPropertyValue, numFile);
-  uint64_t totalBlobFileSize = 0;
-  EXPECT_TRUE(
-      db_->GetIntProperty("rocksdb.total-blob-file-size", &totalBlobFileSize));
-  uint64_t liveBlobFileSize = 0;
-  EXPECT_TRUE(
-      db_->GetIntProperty("rocksdb.live-blob-file-size", &liveBlobFileSize));
-  ASSERT_EQ(totalBlobFileSize, liveBlobFileSize);
-  EXPECT_TRUE(db_->GetIntProperty("rocksdb.estimate-live-data-size",
-                                  &intPropertyValue));
-  std::string propertyValue = "";
-  EXPECT_TRUE(db_->GetProperty("rocksdb.blob-stats", &propertyValue));
+  // size of total blob files
+  uint64_t total_blob_file_size = 0;
+  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+                                  &total_blob_file_size));
+
+  // total size equals to the current version's blob size because previous
+  // version's files are duplicated and thus not counted
+  auto* versions = dbfull()->TEST_GetVersionSet();
+  auto* current = versions->GetColumnFamilySet()->GetDefault()->current();
+  const auto& blob_files = current->storage_info()->GetBlobFiles();
+  uint64_t current_v_blob_size = 0;
+  for (const auto& pair : blob_files) {
+    current_v_blob_size += pair.second->GetTotalBlobBytes();
+  }
+  ASSERT_EQ(current_v_blob_size, total_blob_file_size);
+  delete iter;
 }
 #endif  // !ROCKSDB_LITE
 

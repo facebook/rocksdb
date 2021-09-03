@@ -738,60 +738,36 @@ bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
 bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
                                        Version* /*version*/) {
   const auto* vstorage = cfd_->current()->storage_info();
-  const auto& blobFiles = vstorage->GetBlobFiles();
-  *value = blobFiles.size();
+  const auto& blob_files = vstorage->GetBlobFiles();
+  *value = blob_files.size();
   return true;
 }
 
 bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
-  char buf[1000];
-  uint64_t numBlobFiles = 0;
-  uint64_t blobFileSize = 0;
-  HandleNumBlobFiles(&numBlobFiles, nullptr, nullptr);
-  HandleLiveBlobFileSize(&blobFileSize, nullptr, nullptr);
-  auto* currentVersion = cfd_->current();
-  uint64_t garbageSize = 0;
-  const auto& blobFiles = currentVersion->storage_info()->GetBlobFiles();
-  for (const auto& pair : blobFiles) {
+  std::ostringstream oss;
+  auto* current_version = cfd_->current();
+  const auto& blob_files = current_version->storage_info()->GetBlobFiles();
+  uint64_t current_num_blob_files = blob_files.size();
+  uint64_t current_file_size = 0;
+  uint64_t current_garbage_size = 0;
+  for (const auto& pair : blob_files) {
     const auto& meta = pair.second;
-    garbageSize += meta->GetGarbageBlobBytes();
+    current_file_size += meta->GetTotalBlobBytes();
+    current_garbage_size += meta->GetGarbageBlobBytes();
   }
-  snprintf(buf, sizeof(buf),
-           "Current version number: %s\n"
-           "Number of blob files: %s\n"
-           "Total size of blob files: %s\n"
-           "Total size of garbage in blob files: %s\n",
-           NumberToHumanString(currentVersion->GetVersionNumber()).c_str(),
-           NumberToHumanString(numBlobFiles).c_str(),
-           NumberToHumanString(blobFileSize).c_str(),
-           NumberToHumanString(garbageSize).c_str());
-  value->append(buf);
+  oss << "Current version number: " << current_version->GetVersionNumber()
+      << "\n"
+      << "Number of blob files: " << current_num_blob_files << "\n"
+      << "Total size of blob files: " << current_file_size << "\n"
+      << "Total size of garbage in blob files: " << current_garbage_size
+      << std::endl;
+  value->append(oss.str());
   return true;
 }
 
 bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
                                             Version* /*version*/) {
-  std::unordered_set<uint64_t> uniqueBlobFiles;
-  uint64_t totalBlobFileSize = 0;
-  auto* currentVersion = cfd_->current();
-  for (auto* versionCounter = currentVersion;;
-       versionCounter = versionCounter->Next()) {
-    // iterate all the versions
-    auto* vstorage = versionCounter->storage_info();
-    const auto& blobFiles = vstorage->GetBlobFiles();
-    for (const auto& pair : blobFiles) {
-      if (uniqueBlobFiles.find(pair.first) == uniqueBlobFiles.end()) {
-        // find Blob file that has not been counted
-        uniqueBlobFiles.insert(pair.first);
-        const auto& meta = pair.second;
-        totalBlobFileSize += meta->GetTotalBlobBytes();
-      }
-    }
-    if (versionCounter->Next() == currentVersion) {
-      break;
-    }
-  }
-  *value = totalBlobFileSize;
+  *value = cfd_->GetTotalBlobFileSize();
   return true;
 }
 
@@ -1193,18 +1169,8 @@ bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
 
 bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* /*db*/,
                                                Version* version) {
-  uint64_t estimateNonBlobDataSize = 0;
   const auto* vstorage = version->storage_info();
-  estimateNonBlobDataSize = vstorage->EstimateLiveDataSize();
-
-  uint64_t estimateBlobDataSize = 0;
-  const auto& blobFiles = vstorage->GetBlobFiles();
-  for (const auto& pair : blobFiles) {
-    const auto& meta = pair.second;
-    estimateBlobDataSize += meta->GetTotalBlobBytes();
-    estimateBlobDataSize -= meta->GetGarbageBlobBytes();
-  }
-  *value = estimateNonBlobDataSize + estimateBlobDataSize;
+  *value = vstorage->EstimateLiveDataSize();
   return true;
 }
 

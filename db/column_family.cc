@@ -1048,6 +1048,10 @@ uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
   return VersionSet::GetTotalSstFilesSize(dummy_versions_);
 }
 
+uint64_t ColumnFamilyData::GetTotalBlobFileSize() const {
+  return VersionSet::GetTotalBlobFileSize(dummy_versions_);
+}
+
 uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
   return current_->GetSstFilesSize();
 }

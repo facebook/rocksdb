@@ -893,8 +893,8 @@ class DB {
     static const std::string kCurrentSuperVersionNumber;
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
-    //      live data in bytes. For BlobDB, it returns the exact value for live
-    //      bytes in the version.
+    //      live data in bytes. For BlobDB, it also includes the exact value of
+    //      live bytes in the blob files of the version.
     static const std::string kEstimateLiveDataSize;
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
