@@ -404,6 +404,10 @@ enum Tickers : uint32_t {
   // Secondary cache statistics
   SECONDARY_CACHE_HITS,
 
+  // Bytes read/written while creating backups
+  BACKUP_READ_BYTES,
+  BACKUP_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 
