@@ -2910,7 +2910,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   cro.target_level = 2;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  auto get_stat = [](std::string level_str, LevelStatType type,
+  auto get_stat = [](const std::string& level_str, LevelStatType type,
                      std::map<std::string, std::string> props) {
     auto prop_str =
         "compaction." + level_str + "." +

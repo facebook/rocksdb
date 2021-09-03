@@ -864,7 +864,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 }
 
 Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
-                                        std::string ts_low) {
+                                        const std::string& ts_low) {
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
@@ -2457,8 +2457,9 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   }
 }
 
-void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
-                                  FileType type, uint64_t number, int job_id) {
+void DBImpl::SchedulePendingPurge(const std::string& fname,
+                                  const std::string& dir_to_sync, FileType type,
+                                  uint64_t number, int job_id) {
   mutex_.AssertHeld();
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
   purge_files_.insert({{number, std::move(file_info)}});

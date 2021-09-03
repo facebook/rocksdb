@@ -395,7 +395,7 @@ class DBImpl : public DB {
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) override;
-  virtual Status DeleteFile(std::string name) override;
+  virtual Status DeleteFile(const std::string& name) override;
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                              const RangePtr* ranges, size_t n,
                              bool include_end = true);
@@ -1426,8 +1426,8 @@ class DBImpl : public DB {
     FileType type;
     uint64_t number;
     int job_id;
-    PurgeFileInfo(std::string fn, std::string d, FileType t, uint64_t num,
-                  int jid)
+    PurgeFileInfo(const std::string& fn, const std::string& d, FileType t,
+                  uint64_t num, int jid)
         : fname(fn), dir_to_sync(d), type(t), number(num), job_id(jid) {}
   };
 
@@ -1761,8 +1761,9 @@ class DBImpl : public DB {
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
-  void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
-                            FileType type, uint64_t number, int job_id);
+  void SchedulePendingPurge(const std::string& fname,
+                            const std::string& dir_to_sync, FileType type,
+                            uint64_t number, int job_id);
   static void BGWorkCompaction(void* arg);
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
@@ -1966,7 +1967,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
+                                  const std::string& ts_low);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;

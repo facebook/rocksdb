@@ -408,15 +408,15 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   return Status::OK();
 }
 
-void StressTest::VerificationAbort(SharedState* shared, std::string msg,
+void StressTest::VerificationAbort(SharedState* shared, const std::string& msg,
                                    Status s) const {
   fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
           s.ToString().c_str());
   shared->SetVerificationFailure();
 }
 
-void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
-                                   int64_t key) const {
+void StressTest::VerificationAbort(SharedState* shared, const std::string& msg,
+                                   int cf, int64_t key) const {
   auto key_str = Key(key);
   Slice key_slice = key_str;
   fprintf(stderr,

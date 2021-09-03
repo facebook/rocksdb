@@ -780,7 +780,7 @@ class OnFileDeletionListener : public EventListener {
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "OnFileDeletionListener"; }
 
-  void SetExpectedFileName(const std::string file_name) {
+  void SetExpectedFileName(const std::string& file_name) {
     expected_file_name_ = file_name;
   }
 
@@ -1003,7 +1003,7 @@ class DBTestBase : public testing::Test {
   // `env_do_fsync` decides whether the special Env would do real
   // fsync for files and directories. Skipping fsync can speed up
   // tests, but won't cover the exact fsync logic.
-  DBTestBase(const std::string path, bool env_do_fsync);
+  DBTestBase(const std::string& path, bool env_do_fsync);
 
   ~DBTestBase();
 
@@ -1196,10 +1196,10 @@ class DBTestBase : public testing::Test {
 
   std::string DumpSSTableList();
 
-  static void GetSstFiles(Env* env, std::string path,
+  static void GetSstFiles(Env* env, const std::string& path,
                           std::vector<std::string>* files);
 
-  int GetSstFileCount(std::string path);
+  int GetSstFileCount(const std::string& path);
 
   // this will generate non-overlapping files since it keeps increasing key_idx
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false);
@@ -1217,7 +1217,7 @@ class DBTestBase : public testing::Test {
 
   std::string DummyString(size_t len, char c = 'a');
 
-  void VerifyIterLast(std::string expected_key, int cf = 0);
+  void VerifyIterLast(const std::string& expected_key, int cf = 0);
 
   // Used to test InplaceUpdate
 
@@ -1262,8 +1262,8 @@ class DBTestBase : public testing::Test {
       std::vector<std::pair<std::string, std::string>> true_data);
 
 #ifndef ROCKSDB_LITE
-  uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
-                                              std::string column_family_name);
+  uint64_t GetNumberOfSstFilesForColumnFamily(
+      DB* db, const std::string& column_family_name);
 #endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {

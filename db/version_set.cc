@@ -5013,7 +5013,7 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   return s;
 }
 
-Status VersionSet::DumpManifest(Options& options, std::string& dscname,
+Status VersionSet::DumpManifest(Options& options, const std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;

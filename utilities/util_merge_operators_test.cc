@@ -13,7 +13,7 @@ class UtilMergeOperatorTest : public testing::Test {
  public:
   UtilMergeOperatorTest() {}
 
-  std::string FullMergeV2(std::string existing_value,
+  std::string FullMergeV2(const std::string& existing_value,
                           std::vector<std::string> operands,
                           std::string key = "") {
     std::string result;
@@ -51,7 +51,7 @@ class UtilMergeOperatorTest : public testing::Test {
     return result;
   }
 
-  std::string PartialMerge(std::string left, std::string right,
+  std::string PartialMerge(const std::string& left, const std::string& right,
                            std::string key = "") {
     std::string result;
 

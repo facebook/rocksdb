@@ -119,7 +119,7 @@ class BlobCountingIterator : public InternalIterator {
     return iter_->IsValuePinned();
   }
 
-  Status GetProperty(std::string prop_name, std::string* prop) override {
+  Status GetProperty(const std::string& prop_name, std::string* prop) override {
     return iter_->GetProperty(prop_name, prop);
   }
 

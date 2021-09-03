@@ -92,7 +92,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   assert(timestamp_size_ == user_comparator_.timestamp_size());
 }
 
-Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
+Status DBIter::GetProperty(const std::string& prop_name, std::string* prop) {
   if (prop == nullptr) {
     return Status::InvalidArgument("prop is nullptr");
   }

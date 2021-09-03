@@ -109,7 +109,7 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.internal-key":
   //   Get the user-key portion of the internal key at which the iteration
   //   stopped.
-  virtual Status GetProperty(std::string prop_name, std::string* prop);
+  virtual Status GetProperty(const std::string& prop_name, std::string* prop);
 
   virtual Slice timestamp() const {
     assert(false);

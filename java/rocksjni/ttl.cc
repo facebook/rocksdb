@@ -78,7 +78,7 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(
       [](const char* str_data, const size_t str_len) {
         return std::string(str_data, str_len);
       },
-      [&jco, &column_families](size_t idx, std::string cf_name) {
+      [&jco, &column_families](size_t idx, const std::string& cf_name) {
         ROCKSDB_NAMESPACE::ColumnFamilyOptions* cf_options =
             reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jco[idx]);
         column_families.push_back(

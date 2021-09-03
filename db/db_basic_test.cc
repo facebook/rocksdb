@@ -2653,9 +2653,10 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
-  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
-                      bool uncompressed_cache, bool _compression_enabled,
-                      bool _fill_cache, uint32_t compression_parallel_threads)
+  DBBasicTestMultiGet(const std::string& test_dir, int num_cfs,
+                      bool compressed_cache, bool uncompressed_cache,
+                      bool _compression_enabled, bool _fill_cache,
+                      uint32_t compression_parallel_threads)
       : DBTestBase(test_dir, /*env_do_fsync=*/false) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;

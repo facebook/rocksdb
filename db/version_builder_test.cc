@@ -81,8 +81,8 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void AddBlob(uint64_t blob_file_number, uint64_t total_blob_count,
-               uint64_t total_blob_bytes, std::string checksum_method,
-               std::string checksum_value,
+               uint64_t total_blob_bytes, const std::string& checksum_method,
+               const std::string& checksum_value,
                BlobFileMetaData::LinkedSsts linked_ssts,
                uint64_t garbage_blob_count, uint64_t garbage_blob_bytes) {
     auto shared_meta = SharedBlobFileMetaData::Create(

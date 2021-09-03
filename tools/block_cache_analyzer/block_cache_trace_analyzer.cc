@@ -250,7 +250,7 @@ std::string caller_to_string(TableReaderCaller caller) {
   return "InvalidCaller";
 }
 
-TableReaderCaller string_to_caller(std::string caller_str) {
+TableReaderCaller string_to_caller(const std::string& caller_str) {
   if (caller_str == "Get") {
     return kUserGet;
   } else if (caller_str == "MultiGet") {

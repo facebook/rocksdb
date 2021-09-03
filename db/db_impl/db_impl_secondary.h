@@ -19,7 +19,7 @@ class LogReaderContainer {
   LogReaderContainer()
       : reader_(nullptr), reporter_(nullptr), status_(nullptr) {}
   LogReaderContainer(Env* env, std::shared_ptr<Logger> info_log,
-                     std::string fname,
+                     const std::string& fname,
                      std::unique_ptr<SequentialFileReader>&& file_reader,
                      uint64_t log_number) {
     LogReporter* reporter = new LogReporter();
@@ -72,7 +72,7 @@ class LogReaderContainer {
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname,
-                  std::string secondary_path);
+                  const std::string& secondary_path);
   ~DBImplSecondary() override;
 
   // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_

@@ -321,7 +321,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   explicit TestPlainTableFactory(bool* expect_bloom_not_match,
                                  const PlainTableOptions& options,
                                  uint32_t column_family_id,
-                                 std::string column_family_name)
+                                 const std::string& column_family_name)
       : PlainTableFactory(options),
         bloom_bits_per_key_(options.bloom_bits_per_key),
         hash_table_ratio_(options.hash_table_ratio),

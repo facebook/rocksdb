@@ -116,8 +116,8 @@ void print_help(bool to_stderr) {
 // arg_val is the parses value.
 // True if there is a match. False otherwise.
 // Woud exit after printing errmsg if cannot be parsed.
-bool ParseIntArg(const char* arg, const std::string arg_name,
-                 const std::string err_msg, int64_t* arg_val) {
+bool ParseIntArg(const char* arg, const std::string& arg_name,
+                 const std::string& err_msg, int64_t* arg_val) {
   if (strncmp(arg, arg_name.c_str(), arg_name.size()) == 0) {
     std::string input_str = arg + arg_name.size();
     std::istringstream iss(input_str);

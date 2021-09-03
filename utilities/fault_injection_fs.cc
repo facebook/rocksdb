@@ -33,7 +33,7 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kNewFileNoOverwrite = "";
 
 // Assume a filename, and not a directory name like "/foo/bar/"
-std::string TestFSGetDirName(const std::string filename) {
+std::string TestFSGetDirName(const std::string& filename) {
   size_t found = filename.find_last_of("/\\");
   if (found == std::string::npos) {
     return "";

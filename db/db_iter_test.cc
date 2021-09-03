@@ -40,28 +40,30 @@ class TestIterator : public InternalIterator {
     data_.reserve(16);
   }
 
-  void AddPut(std::string argkey, std::string argvalue) {
+  void AddPut(const std::string& argkey, const std::string& argvalue) {
     Add(argkey, kTypeValue, argvalue);
   }
 
-  void AddDeletion(std::string argkey) {
+  void AddDeletion(const std::string& argkey) {
     Add(argkey, kTypeDeletion, std::string());
   }
 
-  void AddSingleDeletion(std::string argkey) {
+  void AddSingleDeletion(const std::string& argkey) {
     Add(argkey, kTypeSingleDeletion, std::string());
   }
 
-  void AddMerge(std::string argkey, std::string argvalue) {
+  void AddMerge(const std::string& argkey, const std::string& argvalue) {
     Add(argkey, kTypeMerge, argvalue);
   }
 
-  void Add(std::string argkey, ValueType type, std::string argvalue) {
+  void Add(const std::string& argkey, ValueType type,
+           const std::string& argvalue) {
     Add(argkey, type, argvalue, sequence_number_++);
   }
 
-  void Add(std::string argkey, ValueType type, std::string argvalue,
-           size_t seq_num, bool update_iter = false) {
+  void Add(const std::string& argkey, ValueType type,
+           const std::string& argvalue, size_t seq_num,
+           bool update_iter = false) {
     valid_ = true;
     ParsedInternalKey internal_key(argkey, seq_num, type);
     data_.push_back(
@@ -92,7 +94,7 @@ class TestIterator : public InternalIterator {
   // apply next time the iterator moves.
   // Used for simulating ForwardIterator updating to a new version that doesn't
   // have some of the keys (e.g. after compaction with a filter).
-  void Vanish(std::string _key) {
+  void Vanish(const std::string& _key) {
     if (valid_ && data_[iter_].first == _key) {
       delete_current_ = true;
       return;

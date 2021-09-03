@@ -14,6 +14,6 @@ namespace ROCKSDB_NAMESPACE {
 // Multiple column families is not supported.
 // It is best-effort. No guarantee to succeed.
 // A full compaction may be executed.
-Status OptionChangeMigration(std::string dbname, const Options& old_opts,
+Status OptionChangeMigration(const std::string& dbname, const Options& old_opts,
                              const Options& new_opts);
 }  // namespace ROCKSDB_NAMESPACE

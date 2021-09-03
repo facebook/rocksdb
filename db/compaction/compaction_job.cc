@@ -338,7 +338,8 @@ CompactionJob::CompactionJob(
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    const std::string& full_history_ts_low,
+    BlobFileCompletionCallback* blob_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),

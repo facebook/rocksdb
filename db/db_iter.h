@@ -197,7 +197,7 @@ class DBIter final : public Iterator {
     return is_blob_;
   }
 
-  Status GetProperty(std::string prop_name, std::string* prop) override;
+  Status GetProperty(const std::string& prop_name, std::string* prop) override;
 
   void Next() final override;
   void Prev() final override;

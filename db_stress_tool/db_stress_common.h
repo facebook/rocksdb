@@ -361,7 +361,7 @@ inline std::string ChecksumTypeToString(ROCKSDB_NAMESPACE::ChecksumType ctype) {
   return iter->first;
 }
 
-inline std::vector<std::string> SplitString(std::string src) {
+inline std::vector<std::string> SplitString(const std::string& src) {
   std::vector<std::string> ret;
   if (src.empty()) {
     return ret;
@@ -463,7 +463,8 @@ extern inline std::string Key(int64_t val) {
 }
 
 // Given a string key, map it to an index into the expected values buffer
-extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
+extern inline bool GetIntVal(const std::string& big_endian_key,
+                             uint64_t* key_p) {
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 

@@ -415,8 +415,9 @@ class VersionEdit {
 
   // Add a new blob file.
   void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
-                   uint64_t total_blob_bytes, std::string checksum_method,
-                   std::string checksum_value) {
+                   uint64_t total_blob_bytes,
+                   const std::string& checksum_method,
+                   const std::string& checksum_value) {
     blob_file_additions_.emplace_back(
         blob_file_number, total_blob_count, total_blob_bytes,
         std::move(checksum_method), std::move(checksum_value));
@@ -539,7 +540,7 @@ class VersionEdit {
     assert(HasFullHistoryTsLow());
     return full_history_ts_low_;
   }
-  void SetFullHistoryTsLow(std::string full_history_ts_low) {
+  void SetFullHistoryTsLow(const std::string& full_history_ts_low) {
     assert(!full_history_ts_low.empty());
     full_history_ts_low_ = std::move(full_history_ts_low);
   }

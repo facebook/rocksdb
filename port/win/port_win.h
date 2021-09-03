@@ -337,7 +337,7 @@ inline void* pthread_getspecific(pthread_key_t key) {
 // using C-runtime to implement. Note, this does not
 // feel space with zeros in case the file is extended.
 int truncate(const char* path, int64_t length);
-int Truncate(std::string path, int64_t length);
+int Truncate(const std::string& path, int64_t length);
 void Crash(const std::string& srcfile, int srcline);
 extern int GetMaxOpenFiles();
 std::string utf16_to_utf8(const std::wstring& utf16);

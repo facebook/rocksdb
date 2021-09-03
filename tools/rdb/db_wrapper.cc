@@ -11,21 +11,21 @@
 #include "rocksdb/slice.h"
 
 namespace {
-  void printWithBackSlashes(std::string str) {
-    for (std::string::size_type i = 0; i < str.size(); i++) {
-      if (str[i] == '\\' || str[i] == '"') {
-        std::cout << "\\";
-      }
-
-      std::cout << str[i];
+void printWithBackSlashes(const std::string& str) {
+  for (std::string::size_type i = 0; i < str.size(); i++) {
+    if (str[i] == '\\' || str[i] == '"') {
+      std::cout << "\\";
     }
-  }
 
-  bool has_key_for_array(Local<Object> obj, std::string key) {
-    return obj->Has(String::NewSymbol(key.c_str())) &&
-        obj->Get(String::NewSymbol(key.c_str()))->IsArray();
+    std::cout << str[i];
   }
 }
+
+bool has_key_for_array(Local<Object> obj, const std::string& key) {
+  return obj->Has(String::NewSymbol(key.c_str())) &&
+         obj->Get(String::NewSymbol(key.c_str()))->IsArray();
+}
+}  // namespace
 
 using namespace v8;
 
@@ -320,7 +320,7 @@ bool DBWrapper::AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
 
 bool DBWrapper::AddToBatch(ROCKSDB_NAMESPACE::WriteBatch& batch, bool del,
                            Handle<Array> array, DBWrapper* db_wrapper,
-                           std::string cf) {
+                           const std::string& cf) {
   Handle<Array> put_pair;
   for (uint i = 0; i < array->Length(); i++) {
     if (del) {

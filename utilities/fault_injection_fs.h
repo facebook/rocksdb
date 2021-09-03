@@ -167,7 +167,7 @@ class TestFSSequentialFile : public FSSequentialFileWrapper {
 
 class TestFSDirectory : public FSDirectory {
  public:
-  explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
+  explicit TestFSDirectory(FaultInjectionTestFS* fs, const std::string& dirname,
                            FSDirectory* dir)
       : fs_(fs), dirname_(dirname), dir_(dir) {}
   ~TestFSDirectory() {}

@@ -534,7 +534,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
 
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
-  explicit SstFileWriterCollector(const std::string prefix) : prefix_(prefix) {
+  explicit SstFileWriterCollector(const std::string& prefix) : prefix_(prefix) {
     name_ = prefix_ + "_SstFileWriterCollector";
   }
 
@@ -568,7 +568,7 @@ class SstFileWriterCollector : public TablePropertiesCollector {
 
 class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
  public:
-  explicit SstFileWriterCollectorFactory(std::string prefix)
+  explicit SstFileWriterCollectorFactory(const std::string& prefix)
       : prefix_(prefix), num_created_(0) {}
   TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {

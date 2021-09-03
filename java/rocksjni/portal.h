@@ -1776,7 +1776,7 @@ class JniUtil {
      * @throws RocksDBException thrown
      *   if memory size to copy exceeds general java specific array size limitation.
      */
-    static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
+    static jbyteArray copyBytes(JNIEnv* env, const std::string& bytes) {
       return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
     }
 
