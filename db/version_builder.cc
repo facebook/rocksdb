@@ -388,7 +388,12 @@ class VersionBuilder::Rep {
             // This is an external file that we ingested
             const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
 
-            if (!(external_file_seqno < lhs->fd.largest_seqno ||
+            // If lhs and rhs are both ingested files, their seqno may be same.
+            // Because RocksDB will assign only one seqno for all files ingested
+            // in once call by `IngestExternalFile`.
+            if (!((lhs->fd.smallest_seqno == lhs->fd.largest_seqno &&
+                   lhs->fd.smallest_seqno == external_file_seqno) ||
+                  external_file_seqno < lhs->fd.largest_seqno ||
                   external_file_seqno == 0)) {
               std::ostringstream oss;
               oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
