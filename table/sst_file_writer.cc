@@ -63,8 +63,8 @@ struct SstFileWriter::Rep {
   std::string db_session_id;
   uint64_t next_file_number = 1;
 
-  Status Add(const Slice& user_key, const Slice& value,
-             const ValueType value_type) {
+  Status AddImpl(const Slice& user_key, const Slice& value,
+                 ValueType value_type) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
@@ -99,11 +99,19 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status Add(const Slice& user_key, const Slice& value, ValueType value_type) {
+    if (internal_comparator.timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    return AddImpl(user_key, value, value_type);
+  }
+
   Status Add(const Slice& user_key, const Slice& timestamp, const Slice& value,
-             const ValueType value_type) {
+             ValueType value_type) {
     const size_t timestamp_size = timestamp.size();
 
-    if (timestamp_size != internal_comparator.timestamp_size()) {
+    if (internal_comparator.timestamp_size() != timestamp_size) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
@@ -111,7 +119,7 @@ struct SstFileWriter::Rep {
 
     if (user_key.data() + user_key_size == timestamp.data()) {
       Slice user_key_with_ts(user_key.data(), user_key_size + timestamp_size);
-      return Add(user_key_with_ts, value, value_type);
+      return AddImpl(user_key_with_ts, value, value_type);
     }
 
     std::string user_key_with_ts;
@@ -119,10 +127,14 @@ struct SstFileWriter::Rep {
     user_key_with_ts.append(user_key.data(), user_key_size);
     user_key_with_ts.append(timestamp.data(), timestamp_size);
 
-    return Add(user_key_with_ts, value, value_type);
+    return AddImpl(user_key_with_ts, value, value_type);
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (internal_comparator.timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
