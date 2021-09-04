@@ -1103,7 +1103,7 @@ NO_COMPRESSION_COMMANDS="[
 #
 run_regression()
 {
-  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
+  time bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
 
   # ======= report size to ODS ========
 
