@@ -1191,7 +1191,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Copy RocksDB code to fbcode repo',
-                'shell':'cd internal_repo_rocksdb/repo && git init && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo master || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
+                'shell':'cd internal_repo_rocksdb/repo && git init -b main && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo main || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
