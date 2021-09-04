@@ -31,8 +31,8 @@ enum class CacheEntryRole {
   kOtherBlock,
   // WriteBufferManager reservations to account for memtable usage
   kWriteBuffer,
-  // Compression dictionary building buffer reservations to account for memtable
-  // usage
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
   kCompressionDictionaryBuildingBuffer,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
