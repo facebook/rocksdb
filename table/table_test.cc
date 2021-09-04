@@ -4823,7 +4823,7 @@ TEST_P(
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
   constexpr std::size_t kMaxDictBytes = 1024;
   // A small positive kMaxDictBufferBytes leads to a small buffer limit for our
-  // testing purpose 27 is chosen so that buffering two data blocks, each
+  // testing purpose. 27 is chosen so that buffering two data blocks, each
   // containing key1, value1 and key2, value2 will exceed buffer limit
   constexpr std::size_t kMaxDictBufferBytes = 27;
 
