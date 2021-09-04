@@ -380,23 +380,6 @@ LITE_BUILD_COMMANDS="[
 ]"
 
 #
-# Report RocksDB lite binary size to scuba
-REPORT_LITE_BINARY_SIZE_COMMANDS="[
-    {
-        'name':'Rocksdb Lite Binary Size',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Report RocksDB Lite binary size to scuba',
-                'shell':'cd $WORKING_DIR; tools/report_lite_binary_size.sh',
-                'user':'root',
-            },
-        ],
-]"
-
-#
 # RocksDB stress/crash test
 #
 STRESS_CRASH_TEST_COMMANDS="[
@@ -1264,9 +1247,6 @@ case $1 in
     ;;
   lite)
     echo $LITE_BUILD_COMMANDS
-    ;;
-  report_lite_binary_size)
-    echo $REPORT_LITE_BINARY_SIZE_COMMANDS
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
