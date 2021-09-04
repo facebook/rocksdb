@@ -905,11 +905,12 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       r->first_key_in_next_block = &key;
       Flush();
       if (r->state == Rep::State::kBuffered) {
-        bool exceeds_buffer_limit = (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
+        bool exceeds_buffer_limit =
+            (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
         bool is_cache_full = false;
 
         // Increase cache reservation for the last buffered data block
-        // only if the block is not going to be unbuffered immediately 
+        // only if the block is not going to be unbuffered immediately
         // and there exists a cache reservation manager
         if (!exceeds_buffer_limit && r->cache_rev_mng != nullptr) {
           Status s = r->cache_rev_mng->UpdateCacheReservation<
@@ -1937,7 +1938,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   r->data_begin_offset = 0;
   if (r->cache_rev_mng != nullptr) {
     Status s = r->cache_rev_mng->UpdateCacheReservation<
-        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(r->data_begin_offset);
+        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+        r->data_begin_offset);
     s.PermitUncheckedError();
   }
 }
