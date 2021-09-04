@@ -1344,7 +1344,7 @@ case $1 in
   run_regression)
     set -e
     run_regression
-    unset -e
+    set +e
     ;;
   java_build)
     echo $JAVA_BUILD_TEST_COMMANDS
