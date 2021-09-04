@@ -120,7 +120,8 @@ class SstFileWriter {
 
   // Add a Put (key with timestamp, value) to the currently opened file
   // REQUIRES: key is after any previously added key according to the
-  // comparator. REQUIRES: the timestamp's size is equal to what is expected by
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
   // the comparator.
   Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
@@ -134,7 +135,8 @@ class SstFileWriter {
 
   // Add a deletion key with timestamp to the currently opened file
   // REQUIRES: key is after any previously added key according to the
-  // comparator. REQUIRES: the timestamp's size is equal to what is expected by
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
   // the comparator.
   Status Delete(const Slice& user_key, const Slice& timestamp);
 
