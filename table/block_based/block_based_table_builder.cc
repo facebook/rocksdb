@@ -314,7 +314,6 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-  bool buffer_exceeds_global_memory_limit;
   std::unique_ptr<CacheReservationManager> cache_rev_mng;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
@@ -447,7 +446,6 @@ struct BlockBasedTableBuilder::Rep {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
     }
-    buffer_exceeds_global_memory_limit = false;
     if (table_options.no_block_cache) {
       cache_rev_mng.reset(nullptr);
     } else {
@@ -906,10 +904,21 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       r->first_key_in_next_block = &key;
       Flush();
-
       if (r->state == Rep::State::kBuffered) {
-        if ((r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit) ||
-            r->buffer_exceeds_global_memory_limit) {
+        bool exceeds_buffer_limit = (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
+        bool is_cache_full = false;
+
+        // Increase cache reservation for the last buffered data block
+        // only if the block is not going to be unbuffered immediately 
+        // and there exists a cache reservation manager
+        if (!exceeds_buffer_limit && r->cache_rev_mng != nullptr) {
+          Status s = r->cache_rev_mng->UpdateCacheReservation<
+              CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+              r->data_begin_offset);
+          is_cache_full = s.IsIncomplete();
+        }
+
+        if (exceeds_buffer_limit || is_cache_full) {
           EnterUnbuffered();
         }
       }
@@ -1013,15 +1022,6 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
     assert(block_type == BlockType::kData);
     rep_->data_block_buffers.emplace_back(std::move(raw_block_contents));
     rep_->data_begin_offset += rep_->data_block_buffers.back().size();
-    if (rep_->cache_rev_mng != nullptr) {
-      // TODO: figure out if we need external sync for this
-      Status s = rep_->cache_rev_mng->UpdateCacheReservation<
-          CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
-          rep_->data_block_buffers.size());
-      if (s.IsIncomplete()) {
-        rep_->buffer_exceeds_global_memory_limit = true;
-      }
-    }
     return;
   }
   WriteBlock(raw_block_contents, handle, block_type);
@@ -1931,22 +1931,15 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
                                         r->pending_handle);
       }
     }
-    // TODO: figure out when we can ensure all the buffered data blocks are
-    // flushed and call this function
-    // TODO: figure out what is the right status message for successfully
-    // flushing all the buffered data blocks
-    if (ok()) {
-      if (rep_->cache_rev_mng != nullptr) {
-        // TODO: figure out if we need external sync for this
-        Status s = rep_->cache_rev_mng->UpdateCacheReservation<
-            CacheEntryRole::kCompressionDictionaryBuildingBuffer>(0);
-        s.PermitUncheckedError();
-      }
-    }
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();
-  r->buffer_exceeds_global_memory_limit = false;
+  r->data_begin_offset = 0;
+  if (r->cache_rev_mng != nullptr) {
+    Status s = r->cache_rev_mng->UpdateCacheReservation<
+        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(r->data_begin_offset);
+    s.PermitUncheckedError();
+  }
 }
 
 Status BlockBasedTableBuilder::Finish() {
