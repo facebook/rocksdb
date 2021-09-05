@@ -59,8 +59,7 @@
 xxHash is an extremely fast hash algorithm, running at RAM speed limits.
 It also successfully passes all tests from the SMHasher suite.
 
-Comparison (single thread, Windows Seven 32 bits, using SMHasher on a Core 2 Duo
-@3GHz)
+Comparison (single thread, Windows Seven 32 bits, using SMHasher on a Core 2 Duo @3GHz)
 
 Name            Speed       Q.Score   Author
 xxHash          5.4 GB/s     10
@@ -295,11 +294,6 @@ extern "C" {
  */
 XXH_PUBLIC_API unsigned XXH_versionNumber (void);
 
-/* ****************************
- *  Definitions
- ******************************/
-#include <stddef.h> /* size_t */
-typedef enum { XXH_OK = 0, XXH_ERROR } XXH_errorcode;
 
 /* ****************************
 *  Definitions
@@ -532,9 +526,6 @@ XXH_PUBLIC_API XXH32_hash_t  XXH32_digest (const XXH32_state_t* statePtr);
  * The following functions allow transformation of hash values to and from
  * canonical format.
  */
-typedef struct {
-  unsigned char digest[4]; /*!< Hash bytes, big endian */
-} XXH32_canonical_t;
 
 /*!
  * @brief Canonical (big endian) representation of @ref XXH32_hash_t.
@@ -566,11 +557,6 @@ XXH_PUBLIC_API void XXH32_canonicalFromHash(XXH32_canonical_t* dst, XXH32_hash_t
  */
 XXH_PUBLIC_API XXH32_hash_t XXH32_hashFromCanonical(const XXH32_canonical_t* src);
 
-/*!
- * @}
- * @ingroup public
- * @{
- */
 
 /*!
  * @}
@@ -1092,62 +1078,11 @@ XXH_PUBLIC_API XXH128_hash_t XXH128(const void* data, size_t len, XXH64_hash_t s
 
 #endif  /* defined(XXH_STATIC_LINKING_ONLY) && !defined(XXHASH_H_STATIC_13879238742) */
 
-/*!
- * @internal
- * @brief Structure for XXH32 streaming API.
- *
- * @note This is only defined when @ref XXH_STATIC_LINKING_ONLY,
- * @ref XXH_INLINE_ALL, or @ref XXH_IMPLEMENTATION is defined. Otherwise it is
- * an opaque type. This allows fields to safely be changed.
- *
- * Typedef'd to @ref XXH32_state_t.
- * Do not access the members of this struct directly.
- * @see XXH64_state_s, XXH3_state_s
- */
-struct XXH32_state_s {
-  XXH32_hash_t total_len_32; /*!< Total length hashed, modulo 2^32 */
-  XXH32_hash_t large_len;    /*!< Whether the hash is >= 16 (handles @ref
-                                total_len_32 overflow) */
-  XXH32_hash_t v1;           /*!< First accumulator lane */
-  XXH32_hash_t v2;           /*!< Second accumulator lane */
-  XXH32_hash_t v3;           /*!< Third accumulator lane */
-  XXH32_hash_t v4;           /*!< Fourth accumulator lane */
-  XXH32_hash_t mem32[4];     /*!< Internal buffer for partial reads. Treated as
-                                unsigned char[16]. */
-  XXH32_hash_t memsize;      /*!< Amount of data in @ref mem32 */
-  XXH32_hash_t reserved; /*!< Reserved field. Do not read or write to it, it may
-                            be removed. */
-};                       /* typedef'd to XXH32_state_t */
 
 /* ======================================================================== */
 /* ======================================================================== */
 /* ======================================================================== */
 
-/*!
- * @internal
- * @brief Structure for XXH64 streaming API.
- *
- * @note This is only defined when @ref XXH_STATIC_LINKING_ONLY,
- * @ref XXH_INLINE_ALL, or @ref XXH_IMPLEMENTATION is defined. Otherwise it is
- * an opaque type. This allows fields to safely be changed.
- *
- * Typedef'd to @ref XXH64_state_t.
- * Do not access the members of this struct directly.
- * @see XXH32_state_s, XXH3_state_s
- */
-struct XXH64_state_s {
-  XXH64_hash_t total_len;  /*!< Total length hashed. This is always 64-bit. */
-  XXH64_hash_t v1;         /*!< First accumulator lane */
-  XXH64_hash_t v2;         /*!< Second accumulator lane */
-  XXH64_hash_t v3;         /*!< Third accumulator lane */
-  XXH64_hash_t v4;         /*!< Fourth accumulator lane */
-  XXH64_hash_t mem64[4];   /*!< Internal buffer for partial reads. Treated as
-                              unsigned char[32]. */
-  XXH32_hash_t memsize;    /*!< Amount of data in @ref mem64 */
-  XXH32_hash_t reserved32; /*!< Reserved field, needed for padding anyways*/
-  XXH64_hash_t reserved64; /*!< Reserved field. Do not read or write to it, it
-                              may be removed. */
-};                         /* typedef'd to XXH64_state_t */
 
 /*-**********************************************************************
  * xxHash implementation
@@ -2747,7 +2682,6 @@ XXH_PUBLIC_API XXH64_hash_t XXH64_hashFromCanonical(const XXH64_canonical_t* src
  */
 #if defined(__thumb__) && !defined(__thumb2__) && defined(__ARM_ARCH_ISA_ARM)
 #   warning "XXH3 is highly inefficient without ARM or Thumb-2."
-
 #endif
 
 /* ==========================================
@@ -3455,7 +3389,7 @@ XXH3_len_0to16_64b(const xxh_u8* input, size_t len, const xxh_u8* secret, XXH64_
  *
  * Keep this in mind when using the unseeded XXH3_64bits() variant: As with all
  * unseeded non-cryptographic hashes, it does not attempt to defend itself
- * against specially crafted inputs, ony random inputs.
+ * against specially crafted inputs, only random inputs.
  *
  * Compared to classic UMAC where a 1 in 2^31 chance of 4 consecutive bytes
  * cancelling out the secret is taken an arbitrary number of times (addressed
