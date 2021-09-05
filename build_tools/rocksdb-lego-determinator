@@ -1103,7 +1103,7 @@ NO_COMPRESSION_COMMANDS="[
 #
 run_regression()
 {
-  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
+  time bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
 
   # ======= report size to ODS ========
 
@@ -1344,7 +1344,7 @@ case $1 in
   run_regression)
     set -e
     run_regression
-    unset -e
+    set +e
     ;;
   java_build)
     echo $JAVA_BUILD_TEST_COMMANDS
