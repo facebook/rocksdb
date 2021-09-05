@@ -1512,15 +1512,16 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
-    const ConfigOptions config_options,
+    const ConfigOptions& config_options,
     std::shared_ptr<MemTableRepFactory>* factory) {
   Status s;
-  if (!strcasecmp(FLAGS_memtablerep.c_str(), "skip_list")) {
+  if (!strcasecmp(FLAGS_memtablerep.c_str(), SkipListFactory::kNickName())) {
     factory->reset(new SkipListFactory(FLAGS_skip_list_lookahead));
 #ifndef ROCKSDB_LITE
   } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "prefix_hash")) {
     factory->reset(NewHashSkipListRepFactory(FLAGS_hash_bucket_count));
-  } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "vector")) {
+  } else if (!strcasecmp(FLAGS_memtablerep.c_str(),
+                         VectorRepFactory::kNickName())) {
     factory->reset(new VectorRepFactory());
   } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "hash_linkedlist")) {
     factory->reset(NewHashLinkListRepFactory(FLAGS_hash_bucket_count));
