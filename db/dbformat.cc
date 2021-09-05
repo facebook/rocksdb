@@ -47,18 +47,6 @@ EntryType GetEntryType(ValueType value_type) {
   }
 }
 
-bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
-  ParsedInternalKey ikey;
-  if (!ParseInternalKey(internal_key, &ikey, false /*log_err_key */)
-           .ok()) {  // TODO
-    return false;
-  }
-  fkey->user_key = ikey.user_key;
-  fkey->sequence = ikey.sequence;
-  fkey->type = GetEntryType(ikey.type);
-  return true;
-}
-
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));

@@ -63,6 +63,10 @@ inline uint64_t NPHash64(const char* data, size_t n) {
 #endif
 }
 
+// Convenient and equivalent version of Hash128 without depending on 128-bit
+// scalars
+void Hash2x64(const char* data, size_t n, uint64_t* high64, uint64_t* low64);
+
 // Stable/persistent 32-bit hash. Moderate quality and high speed on
 // small inputs.
 // TODO: consider rename to Hash32

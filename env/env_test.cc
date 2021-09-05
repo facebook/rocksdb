@@ -18,10 +18,10 @@
 
 #include <sys/types.h>
 
-#include <iostream>
-#include <unordered_set>
 #include <atomic>
 #include <list>
+#include <mutex>
+#include <unordered_set>
 
 #ifdef OS_LINUX
 #include <fcntl.h>
@@ -35,8 +35,10 @@
 #include <errno.h>
 #endif
 
+#include "db/db_impl/db_impl.h"
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
+#include "env/unique_id.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -2457,6 +2459,190 @@ TEST_F(EncryptionProviderTest, LoadROT13Cipher) {
 }
 
 #endif  // ROCKSDB_LITE
+
+namespace {
+
+constexpr size_t kThreads = 8;
+constexpr size_t kIdsPerThread = 1000;
+
+// This is a mini-stress test to check for duplicates in functions like
+// GenerateUniqueId()
+template <typename IdType, class Hash = std::hash<IdType>>
+struct NoDuplicateMiniStressTest {
+  std::unordered_set<IdType, Hash> ids;
+  std::mutex mutex;
+  Env* env;
+
+  NoDuplicateMiniStressTest() { env = Env::Default(); }
+
+  virtual ~NoDuplicateMiniStressTest() {}
+
+  void Run() {
+    std::array<std::thread, kThreads> threads;
+    for (size_t i = 0; i < kThreads; ++i) {
+      threads[i] = std::thread([&]() { ThreadFn(); });
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    // All must be unique
+    ASSERT_EQ(ids.size(), kThreads * kIdsPerThread);
+  }
+
+  void ThreadFn() {
+    std::array<IdType, kIdsPerThread> my_ids;
+    // Generate in parallel threads as fast as possible
+    for (size_t i = 0; i < kIdsPerThread; ++i) {
+      my_ids[i] = Generate();
+    }
+    // Now collate
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& id : my_ids) {
+      ids.insert(id);
+    }
+  }
+
+  virtual IdType Generate() = 0;
+};
+
+void VerifyRfcUuids(const std::unordered_set<std::string>& uuids) {
+  if (uuids.empty()) {
+    return;
+  }
+}
+
+using uint64_pair_t = std::pair<uint64_t, uint64_t>;
+struct HashUint64Pair {
+  std::size_t operator()(
+      std::pair<uint64_t, uint64_t> const& u) const noexcept {
+    // Assume suitable distribution already
+    return static_cast<size_t>(u.first ^ u.second);
+  }
+};
+
+}  // namespace
+
+TEST_F(EnvTest, GenerateUniqueId) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
+    std::string Generate() override { return env->GenerateUniqueId(); }
+  };
+
+  MyStressTest t;
+  t.Run();
+
+  // Basically verify RFC-4122 format
+  for (auto& uuid : t.ids) {
+    ASSERT_EQ(36U, uuid.size());
+    ASSERT_EQ('-', uuid[8]);
+    ASSERT_EQ('-', uuid[13]);
+    ASSERT_EQ('-', uuid[18]);
+    ASSERT_EQ('-', uuid[23]);
+  }
+}
+
+TEST_F(EnvTest, GenerateDbSessionId) {
+  struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
+    std::string Generate() override { return DBImpl::GenerateDbSessionId(env); }
+  };
+
+  MyStressTest t;
+  t.Run();
+
+  // Basically verify session ID
+  for (auto& id : t.ids) {
+    ASSERT_EQ(20U, id.size());
+  }
+}
+
+constexpr bool kRequirePortGenerateRfcUuid =
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_WIN)
+    true;
+#else
+    false;
+#endif
+
+TEST_F(EnvTest, PortGenerateRfcUuid) {
+  if (!kRequirePortGenerateRfcUuid) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected on this platform");
+    return;
+  }
+  struct MyStressTest : public NoDuplicateMiniStressTest<std::string> {
+    std::string Generate() override {
+      std::string u;
+      assert(port::GenerateRfcUuid(&u));
+      return u;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+
+  // Extra verification on versions and variants
+  VerifyRfcUuids(t.ids);
+}
+
+// Test the atomic, linear generation of GenerateRawUuid
+TEST_F(EnvTest, GenerateRawUniqueId) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      GenerateRawUniqueId(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+// Test that each entropy source ("track") is at least adequate
+TEST_F(EnvTest, GenerateRawUniqueIdTrackPortUuidOnly) {
+  if (!kRequirePortGenerateRfcUuid) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected on this platform");
+    return;
+  }
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      TEST_GenerateRawUniqueId(&p.first, &p.second, false, true, true);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, GenerateRawUniqueIdTrackEnvDetailsOnly) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      TEST_GenerateRawUniqueId(&p.first, &p.second, true, false, true);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, GenerateRawUniqueIdTrackRandomDeviceOnly) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      TEST_GenerateRawUniqueId(&p.first, &p.second, true, true, false);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

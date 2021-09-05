@@ -117,6 +117,9 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
 #endif  // !ROCKSDB_LITE
   EXPECT_OK(s);
   assert(s.ok());
+  // Allowed to call NowNanos during DB creation (in GenerateRawUniqueId() for
+  // session ID)
+  EnvMergeTest::now_nanos_count_ = 0;
   return std::shared_ptr<DB>(db);
 }
 
@@ -463,6 +466,8 @@ void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(tmp_sum, counters->assert_get("c"));
   ASSERT_EQ(num_partial_merge_calls, 0U);
+  // NowNanos was previously called in MergeHelper::FilterMerge(), which
+  // harmed performance.
   ASSERT_EQ(EnvMergeTest::now_nanos_count_, 0U);
 }
 
