@@ -312,21 +312,20 @@ class VersionBuilder::Rep {
             if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
               return Status::Corruption(
-                  "L0 file with seqno " +
-                  NumberToString(f1->fd.smallest_seqno) + " " +
-                  NumberToString(f1->fd.largest_seqno) +
+                  "L0 file with seqno " + ToString(f1->fd.smallest_seqno) +
+                  " " + ToString(f1->fd.largest_seqno) +
                   " vs. file with global_seqno" +
-                  NumberToString(external_file_seqno) + " with fileNumber " +
-                  NumberToString(f1->fd.GetNumber()));
+                  ToString(external_file_seqno) + " with fileNumber " +
+                  ToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
-            return Status::Corruption(
-                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
-                " " + NumberToString(f1->fd.largest_seqno) + " " +
-                NumberToString(f1->fd.GetNumber()) + " vs. " +
-                NumberToString(f2->fd.smallest_seqno) + " " +
-                NumberToString(f2->fd.largest_seqno) + " " +
-                NumberToString(f2->fd.GetNumber()));
+            return Status::Corruption("L0 files seqno " +
+                                      ToString(f1->fd.smallest_seqno) + " " +
+                                      ToString(f1->fd.largest_seqno) + " " +
+                                      ToString(f1->fd.GetNumber()) + " vs. " +
+                                      ToString(f2->fd.smallest_seqno) + " " +
+                                      ToString(f2->fd.largest_seqno) + " " +
+                                      ToString(f2->fd.GetNumber()));
           }
         } else {
 #ifndef NDEBUG
@@ -335,21 +334,20 @@ class VersionBuilder::Rep {
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
             return Status::Corruption(
-                "L" + NumberToString(level) +
+                "L" + ToString(level) +
                 " files are not sorted properly: files #" +
-                NumberToString(f1->fd.GetNumber()) + ", #" +
-                NumberToString(f2->fd.GetNumber()));
+                ToString(f1->fd.GetNumber()) + ", #" +
+                ToString(f2->fd.GetNumber()));
           }
 
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
             return Status::Corruption(
-                "L" + NumberToString(level) +
-                " have overlapping ranges: file #" +
-                NumberToString(f1->fd.GetNumber()) +
+                "L" + ToString(level) + " have overlapping ranges: file #" +
+                ToString(f1->fd.GetNumber()) +
                 " largest key: " + (f1->largest).DebugString(true) +
-                " vs. file #" + NumberToString(f2->fd.GetNumber()) +
+                " vs. file #" + ToString(f2->fd.GetNumber()) +
                 " smallest key: " + (f2->smallest).DebugString(true));
           }
         }
