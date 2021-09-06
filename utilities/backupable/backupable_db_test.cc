@@ -3120,6 +3120,13 @@ TEST_F(BackupEngineTest, Concurrency) {
   //
   // Because of the challenges of integrating this into db_stress,
   // this is a non-deterministic mini-stress test here instead.
+
+  // To check for a race condition in handling buffer size based on byte
+  // burst limit, we need a (generous) rate limiter
+  std::shared_ptr<RateLimiter> limiter{NewGenericRateLimiter(1000000000)};
+  backupable_options_->backup_rate_limiter = limiter;
+  backupable_options_->restore_rate_limiter = limiter;
+
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
 
   static constexpr int keys_iteration = 5000;
@@ -3145,8 +3152,9 @@ TEST_F(BackupEngineTest, Concurrency) {
   std::array<std::thread, 4> restore_verify_threads;
   for (uint32_t i = 0; i < read_threads.size(); ++i) {
     uint32_t sleep_micros = rng() % 100000;
-    read_threads[i] = std::thread(
-        [this, i, sleep_micros, &db_opts, &be_opts, &restore_verify_threads] {
+    read_threads[i] =
+        std::thread([this, i, sleep_micros, &db_opts, &be_opts,
+                     &restore_verify_threads, &limiter] {
           test_db_env_->SleepForMicroseconds(sleep_micros);
 
           // Whether to also re-open the BackupEngine, potentially seeing
@@ -3223,6 +3231,14 @@ TEST_F(BackupEngineTest, Concurrency) {
             ASSERT_OK(my_be->VerifyBackup(to_restore, true));
             ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
                                                  restore_db_dir));
+          }
+
+          // Test for race condition in reconfiguring limiter
+          // FIXME: this could set to a different value in all threads, except
+          // GenericRateLimiter::SetBytesPerSecond has a write-write race
+          // reported by TSAN
+          if (i == 0) {
+            limiter->SetBytesPerSecond(2000000000);
           }
 
           // Re-verify metadata (we don't receive updates from concurrently

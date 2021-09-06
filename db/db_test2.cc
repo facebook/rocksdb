@@ -1684,9 +1684,9 @@ class CompactionCompressionListener : public EventListener {
     int bottommost_level = 0;
     for (int level = 0; level < db->NumberLevels(); level++) {
       std::string files_at_level;
-      ASSERT_TRUE(
-          db->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                          &files_at_level));
+      ASSERT_TRUE(db->GetProperty(
+          "rocksdb.num-files-at-level" + ROCKSDB_NAMESPACE::ToString(level),
+          &files_at_level));
       if (files_at_level != "0") {
         bottommost_level = level;
       }
