@@ -479,8 +479,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* not yet supported
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
-        typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-            TablePropertiesCollectorFactories;
+        using TablePropertiesCollectorFactories =
+            std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>;
         UpdateStatus (*inplace_callback)(char* existing_value,
                                          uint34_t* existing_value_size,
                                          Slice delta_value,

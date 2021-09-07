@@ -53,7 +53,7 @@ class SliceTransform;
 class Logger;
 struct DBOptions;
 
-typedef void* KeyHandle;
+using KeyHandle = void*;
 
 extern Slice GetLengthPrefixedSlice(const char* data);
 
@@ -63,7 +63,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
+    using DecodedType = ROCKSDB_NAMESPACE::Slice;
 
     virtual DecodedType decode_key(const char* key) const {
       // The format of key is frozen and can be treated as a part of the API

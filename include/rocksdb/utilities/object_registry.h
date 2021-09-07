@@ -10,12 +10,12 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <regex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/regex.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -55,14 +55,23 @@ class ObjectLibrary {
   };                          // End class Entry
 
   // An Entry containing a FactoryFunc for creating new Objects
+  //
+  // !!!!!! WARNING !!!!!!: The implementation currently uses std::regex, which
+  // has terrible performance in some cases, including possible crash due to
+  // stack overflow. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582
+  // for example. Avoid complicated regexes as much as possible.
   template <typename T>
   class FactoryEntry : public Entry {
    public:
     FactoryEntry(const std::string& name, FactoryFunc<T> f)
-        : Entry(name), pattern_(std::move(name)), factory_(std::move(f)) {}
+        : Entry(name), factory_(std::move(f)) {
+      // FIXME: the API needs to expose this failure mode. For now, bad regexes
+      // will match nothing.
+      Regex::Parse(name, &regex_).PermitUncheckedError();
+    }
     ~FactoryEntry() override {}
     bool matches(const std::string& target) const override {
-      return std::regex_match(target, pattern_);
+      return regex_.Matches(target);
     }
     // Creates a new T object.
     T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
@@ -71,7 +80,7 @@ class ObjectLibrary {
     }
 
    private:
-    std::regex pattern_;  // The pattern for this entry
+    Regex regex_;  // The pattern for this entry
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
@@ -151,6 +160,9 @@ class ObjectRegistry {
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
   // std::regex_match.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.

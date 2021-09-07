@@ -136,8 +136,8 @@ struct GetMergeOperandsOptions {
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without

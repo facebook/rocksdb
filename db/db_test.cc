@@ -2811,7 +2811,7 @@ TEST_F(DBTest, GroupCommitTest) {
 #endif  // TRAVIS
 
 namespace {
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 }
 
 class ModelDB : public DB {
