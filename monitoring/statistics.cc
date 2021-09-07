@@ -206,6 +206,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
      "rocksdb.memtable.garbage.bytes.at.flush"},
     {SECONDARY_CACHE_HITS, "rocksdb.secondary.cache.hits"},
+    {VERIFY_CHECKSUM_READ_BYTES, "rocksdb.verify_checksum.read.bytes"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

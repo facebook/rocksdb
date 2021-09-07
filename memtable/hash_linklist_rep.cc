@@ -22,9 +22,9 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 
-typedef const char* Key;
-typedef SkipList<Key, const MemTableRep::KeyComparator&> MemtableSkipList;
-typedef std::atomic<void*> Pointer;
+using Key = const char*;
+using MemtableSkipList = SkipList<Key, const MemTableRep::KeyComparator&>;
+using Pointer = std::atomic<void*>;
 
 // A data structure used as the header of a link list of a hash bucket.
 struct BucketHeader {

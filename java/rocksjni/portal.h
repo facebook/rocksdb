@@ -4876,7 +4876,7 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return -0x01;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
@@ -5002,8 +5002,17 @@ class TickerTypeJni {
         return -0x1D;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
         return -0x1E;
+      case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
+        return -0x1F;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return 0x5F;
       default:
         // undefined/default
@@ -5206,7 +5215,7 @@ class TickerTypeJni {
       case 0x5E:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case -0x01:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
@@ -5334,8 +5343,17 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
       case -0x1E:
         return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
+      case -0x1F:
+        return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
       case 0x5F:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
 
       default:
