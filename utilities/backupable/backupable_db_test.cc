@@ -3640,7 +3640,7 @@ TEST_F(BackupEngineTest, IOStats) {
 
   FillDB(db_.get(), 100 /* from */, 200 /* to */, kFlushMost);
 
-  options_.statistics->Reset();
+  ASSERT_OK(options_.statistics->Reset());
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             false /* flush_before_backup */));
   size_t final_backup_files_size;
