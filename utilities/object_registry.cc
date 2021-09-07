@@ -60,7 +60,7 @@ void ObjectLibrary::Dump(Logger *logger) const {
     }
   }
 }
-  
+
 // Returns the Default singleton instance of the ObjectLibrary
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {

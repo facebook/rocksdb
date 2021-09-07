@@ -987,7 +987,7 @@ foreach(PLUGIN IN LISTS PLUGINS)
   string(REGEX MATCH "_FUNC = ([^\n]*)" FOO ${PLUGINMK})
   if (NOT ${CMAKE_MATCH_1} STREQUAL "")
     string(APPEND ROCKSDB_PLUGIN_BUILTINS ${CMAKE_MATCH_1},)
-    string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::PluginProperties*, size_t, std::string*); ")
+    string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::Plugin*, size_t, std::string*); ")
   endif()
   #TODO: We need to set any compile/link-time flags and add any link libraries
 endforeach()

@@ -248,7 +248,7 @@ ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk
 include $(ROCKSDB_PLUGIN_MKS)
 ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
 ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
-ROCKSDB_PLUGIN_EXTERNS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach func, $($(plugin)_FUNC),  int $(func)(ROCKSDB_NAMESPACE::PluginProperties*, size_t, std::string*);))
+ROCKSDB_PLUGIN_EXTERNS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach func, $($(plugin)_FUNC),  int $(func)(ROCKSDB_NAMESPACE::Plugin*, size_t, std::string*);))
 ROCKSDB_PLUGIN_BUILTINS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach func, $($(plugin)_FUNC),  $(func), ))
 
 PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
