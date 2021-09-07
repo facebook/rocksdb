@@ -10,7 +10,7 @@
 
 #include "rocksjni/portal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 EventListenerJniCallback::EventListenerJniCallback(
     JNIEnv* env, jobject jevent_listener,
     const std::set<EnabledEventCallback>& enabled_event_callbacks)
@@ -499,4 +499,4 @@ void EventListenerJniCallback::OnFileOperation(const jmethodID& mid,
 
   CleanupCallbackInvocation(env, attached_thread, {&jop_info});
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
