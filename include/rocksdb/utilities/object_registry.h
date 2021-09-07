@@ -20,7 +20,7 @@
 namespace ROCKSDB_NAMESPACE {
 class Logger;
 class ObjectLibrary;
-struct PluginProperties;
+struct Plugin;
 
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
@@ -37,7 +37,22 @@ using FactoryFunc =
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
-using PluginFunc = std::function<int(PluginProperties*, size_t, std::string*)>;
+using PluginFunc = std::function<int(Plugin*, size_t, std::string*)>;
+
+struct Plugin {
+  // The version of this structure.  If the structure is changed, the version
+  // should be incremented
+  static constexpr int kVersion() { return 1; }
+
+  // The name of this plugin
+  std::string name;
+
+  // Function to use to register the factories for this plugin
+  RegistrarFunc registrar;
+
+  // The argument to pass to the registrar function
+  std::string arg;
+};
 
 class ObjectLibrary {
  public:
@@ -247,9 +262,9 @@ class ObjectRegistry {
   // On success, registers the retrieved properties with this registry.
   Status RegisterPlugin(const PluginFunc& func);
 
-  // Checks that the input properties are valid and, if so,
+  // Checks that the input plugin is valid and, if so,
   // registers the plugin with this ObjectRegistry
-  Status RegisterPlugin(const PluginProperties& plugin);
+  Status RegisterPlugin(const Plugin& plugin);
 
  private:
   explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);

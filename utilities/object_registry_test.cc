@@ -7,7 +7,6 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
-#include "rocksdb/utilities/plugin.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -189,59 +188,31 @@ class PluginRegistryTest : public testing::Test {
  public:
 };
 
-static int test_ValidPlugin(PluginProperties* props, size_t /*size*/,
+static int test_ValidPlugin(Plugin* plugin, size_t /*size*/,
                             std::string* /*errmsg*/) {
-  props->name = "Valid";
-  props->registrar = RegisterTestUnguarded;
+  plugin->name = "Valid";
+  plugin->registrar = RegisterTestUnguarded;
   return 0;
 }
 
-static int test_OlderPlugin(PluginProperties* props, size_t /*size*/,
-                            std::string* /*errmsg*/) {
-  props->name = "Older";
-  props->registrar = RegisterTestUnguarded;
-  props->rocksdb_version.major = ROCKSDB_MAJOR - 1;
-  return 0;
-}
-
-static int test_NewerPlugin(PluginProperties* props, size_t /*size*/,
-                            std::string* /*errmsg*/) {
-  props->name = "Newer";
-  props->registrar = RegisterTestUnguarded;
-  props->rocksdb_version.major = ROCKSDB_MAJOR + 1;
-  return 0;
-}
-
-static int test_MinorPlugin(PluginProperties* props, size_t /*size*/,
-                            std::string* /*errmsg*/) {
-  props->name = "Minor";
-  props->registrar = RegisterTestUnguarded;
-  props->rocksdb_version.minor = ROCKSDB_MINOR + 1;
-  return 0;
-}
-
-static int test_MissingPlugin(PluginProperties* props, size_t /*size*/,
+static int test_MissingPlugin(Plugin* plugin, size_t /*size*/,
                               std::string* /*errmsg*/) {
-  props->name = "Missing";
-  props->registrar = nullptr;
+  plugin->name = "Missing";
+  plugin->registrar = nullptr;
   return 0;
 }
 
-static int test_FailedPlugin(PluginProperties* props, size_t /*size*/,
+static int test_FailedPlugin(Plugin* plugin, size_t /*size*/,
                              std::string* errmsg) {
-  props->name = "Failed";
+  plugin->name = "Failed";
   *errmsg = "Invalid plugin";
   return -1;
 }
 
 TEST_F(PluginRegistryTest, Register) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NOK(registry->RegisterPlugin(test_OlderPlugin));
-  ASSERT_NOK(registry->RegisterPlugin(test_NewerPlugin));
-  ASSERT_NOK(registry->RegisterPlugin(test_MinorPlugin));
   ASSERT_NOK(registry->RegisterPlugin(test_FailedPlugin));
   ASSERT_NOK(registry->RegisterPlugin(test_MissingPlugin));
-
   ASSERT_OK(registry->RegisterPlugin(test_ValidPlugin));
 }
 

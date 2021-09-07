@@ -7,8 +7,6 @@
 
 #include "logging/logging.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/plugin.h"
-#include "rocksdb/version.h"
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
@@ -137,28 +135,24 @@ void ObjectRegistry::Dump(Logger *logger) const {
 }
 
 Status ObjectRegistry::RegisterPlugin(const PluginFunc &plugin_func) {
-  PluginProperties properties;
+  Plugin plugin;
   std::string errmsg;
-  int code = plugin_func(&properties, sizeof(properties), &errmsg);
+  int code = plugin_func(&plugin, sizeof(plugin), &errmsg);
   if (code != 0) {  // TODO: Perhaps use different codes?
     return Status::InvalidArgument(errmsg);
   } else {
-    return RegisterPlugin(properties);
+    return RegisterPlugin(plugin);
   }
 }
 
-Status ObjectRegistry::RegisterPlugin(const PluginProperties &properties) {
-  static RocksVersion version;
-  if (version.Compare(properties.rocksdb_version) != 0) {
-    return Status::InvalidArgument("Unsupported plugin version: ",
-                                   properties.rocksdb_version.AsString(false));
-  } else if (properties.registrar != nullptr) {
-    AddLibrary(properties.name, properties.registrar, properties.name);
-    plugins_.push_back(properties.name);
+Status ObjectRegistry::RegisterPlugin(const Plugin &plugin) {
+  if (plugin.registrar != nullptr) {
+    AddLibrary(plugin.name, plugin.registrar, plugin.arg);
+    plugins_.push_back(plugin.name);
     return Status::OK();
   } else {
     return Status::InvalidArgument("Plugin Missing Registrar Function: ",
-                                   properties.name);
+                                   plugin.name);
   }
 }
 #endif  // ROCKSDB_LITE
