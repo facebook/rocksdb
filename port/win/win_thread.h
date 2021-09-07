@@ -78,7 +78,7 @@ class WindowsThread {
     std::function<void()> target = binder;
 
     Init(std::move(target));
- }
+  }
 
   ~WindowsThread();
 
