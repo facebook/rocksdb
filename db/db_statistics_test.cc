@@ -178,14 +178,14 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   // Create one SST.
   ASSERT_OK(Flush());
   std::unordered_map<std::string, uint64_t> table_files;
-  size_t table_files_size = 0;
+  uint64_t table_files_size = 0;
   GetAllDataFiles(kTableFile, &table_files, &table_files_size);
 
   {
     // Scenario 1: Table verified in `VerifyFileChecksums()`. This should read
     // the whole file so we require the ticker stat exactly matches the file
     // size.
-    options.statistics->Reset();
+    ASSERT_OK(options.statistics->Reset());
     ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
     ASSERT_EQ(table_files_size,
               options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
@@ -195,7 +195,7 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
     // Scenario 2: Table verified in `VerifyChecksum()`. This opens a
     // `TableReader` to verify each block. It can involve duplicate reads of the
     // same data so we set a lower-bound only.
-    options.statistics->Reset();
+    ASSERT_OK(options.statistics->Reset());
     ASSERT_OK(db_->VerifyChecksum());
     ASSERT_GE(options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES),
               table_files_size);
