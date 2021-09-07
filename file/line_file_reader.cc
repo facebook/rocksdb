@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "file/line_file_reader.h"
+#include "monitoring/iostats_context_imp.h"
 
 #include <cstring>
 
