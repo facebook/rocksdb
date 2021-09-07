@@ -2671,8 +2671,6 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
 
   if (makeThrottler) {
     EXPECT_GE(verify_backup_time, 0.8 * rate_limited_verify_backup_time);
-  } else {
-    EXPECT_LT(verify_backup_time, rate_limited_verify_backup_time);
   }
   CloseDBAndBackupEngine();
   AssertBackupConsistency(backup_id, 0, 100000, 100010);
