@@ -158,7 +158,8 @@ class DummyDB : public StackableDB {
 
 class TestEnv : public EnvWrapper {
  public:
-  explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  explicit TestEnv(Env* t, std::atomic<size_t>* bytes_read)
+      : EnvWrapper(t), bytes_read_(bytes_read) {}
 
   class DummySequentialFile : public SequentialFile {
    public:
@@ -188,24 +189,48 @@ class TestEnv : public EnvWrapper {
     bool fail_reads_;
   };
 
+  class ReadCountingSequentialFile : public SequentialFileWrapper {
+   public:
+    explicit ReadCountingSequentialFile(std::unique_ptr<SequentialFile> target,
+                                        std::atomic<size_t>* bytes_read)
+        : SequentialFileWrapper(target.get()),
+          target_(std::move(target)),
+          bytes_read_(bytes_read) {}
+
+    Status Read(size_t n, Slice* result, char* scratch) override {
+      Status s = SequentialFileWrapper::Read(n, result, scratch);
+      if (s.ok()) {
+        *bytes_read_ += result->size();
+      }
+      return s;
+    }
+
+   private:
+    std::unique_ptr<SequentialFile> target_;
+    std::atomic<size_t>* bytes_read_;
+  };
+
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
     MutexLock l(&mutex_);
+    Status s;
+    std::unique_ptr<SequentialFile> r_underlying;
     if (dummy_sequential_file_) {
-      r->reset(
+      r_underlying.reset(
           new TestEnv::DummySequentialFile(dummy_sequential_file_fail_reads_));
-      return Status::OK();
     } else {
-      Status s = EnvWrapper::NewSequentialFile(f, r, options);
-      if (s.ok()) {
-        if ((*r)->use_direct_io()) {
-          ++num_direct_seq_readers_;
-        }
-        ++num_seq_readers_;
-      }
-      return s;
+      s = EnvWrapper::NewSequentialFile(f, &r_underlying, options);
     }
+    if (s.ok()) {
+      if (r_underlying->use_direct_io()) {
+        ++num_direct_seq_readers_;
+      }
+      ++num_seq_readers_;
+      r->reset(
+          new ReadCountingSequentialFile(std::move(r_underlying), bytes_read_));
+    }
+    return s;
   }
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
@@ -226,16 +251,43 @@ class TestEnv : public EnvWrapper {
     return s;
   }
 
+  class ReadCountingRandomAccessFile : public RandomAccessFileWrapper {
+   public:
+    explicit ReadCountingRandomAccessFile(
+        std::unique_ptr<RandomAccessFile> target,
+        std::atomic<size_t>* bytes_read)
+        : RandomAccessFileWrapper(target.get()),
+          target_(std::move(target)),
+          bytes_read_(bytes_read) {}
+
+    Status Read(uint64_t offset, size_t n, Slice* result,
+                char* scratch) const override {
+      Status s = RandomAccessFileWrapper::Read(offset, n, result, scratch);
+      if (s.ok()) {
+        *bytes_read_ += result->size();
+      }
+      return s;
+    }
+
+   private:
+    std::unique_ptr<RandomAccessFile> target_;
+    std::atomic<size_t>* bytes_read_;
+  };
+
   Status NewRandomAccessFile(const std::string& fname,
                              std::unique_ptr<RandomAccessFile>* result,
                              const EnvOptions& options) override {
     MutexLock l(&mutex_);
-    Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);
+    std::unique_ptr<RandomAccessFile> result_underlying;
+    Status s =
+        EnvWrapper::NewRandomAccessFile(fname, &result_underlying, options);
     if (s.ok()) {
-      if ((*result)->use_direct_io()) {
+      if (result_underlying->use_direct_io()) {
         ++num_direct_rand_readers_;
       }
       ++num_rand_readers_;
+      result->reset(new ReadCountingRandomAccessFile(
+          std::move(result_underlying), bytes_read_));
     }
     return s;
   }
@@ -378,6 +430,7 @@ class TestEnv : public EnvWrapper {
   int num_direct_writers() { return num_direct_writers_; }
 
  private:
+  std::atomic<size_t>* bytes_read_;
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
   bool dummy_sequential_file_fail_reads_ = false;
@@ -621,8 +674,8 @@ class BackupEngineTest : public testing::Test {
     // set up envs
     db_chroot_env_.reset(NewChrootEnv(Env::Default(), db_chroot));
     backup_chroot_env_.reset(NewChrootEnv(Env::Default(), backup_chroot));
-    test_db_env_.reset(new TestEnv(db_chroot_env_.get()));
-    test_backup_env_.reset(new TestEnv(backup_chroot_env_.get()));
+    test_db_env_.reset(new TestEnv(db_chroot_env_.get(), &bytes_read_));
+    test_backup_env_.reset(new TestEnv(backup_chroot_env_.get(), &bytes_read_));
     file_manager_.reset(new FileManager(backup_chroot_env_.get()));
     db_file_manager_.reset(new FileManager(db_chroot_env_.get()));
 
@@ -633,6 +686,7 @@ class BackupEngineTest : public testing::Test {
     options_.env = test_db_env_.get();
     options_.wal_dir = dbname_;
     options_.enable_blob_files = true;
+    options_.statistics = CreateDBStatistics();
 
     // Create logger
     DBOptions logger_options;
@@ -958,6 +1012,8 @@ class BackupEngineTest : public testing::Test {
   std::unique_ptr<FileManager> file_manager_;
   std::unique_ptr<FileManager> db_file_manager_;
 
+  std::atomic<size_t> bytes_read_;
+
   // all the dbs!
   DummyDB* dummy_db_;  // owned as db_ when present
   std::unique_ptr<DB> db_;
@@ -1087,7 +1143,17 @@ TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
       destroy_data = false;
       // kAutoFlushOnly to preserve legacy test behavior (consider updating)
       FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
+
+      bytes_read_ = 0;
+      // These ticker stats are expected to be populated regardless of
+      // `PerfLevel` in user thread.
+      SetPerfLevel(kDisable);
+      options_.statistics->Reset();
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
+      ASSERT_GT(options_.statistics->getTickerCount(BACKUP_READ_BYTES), 0);
+      ASSERT_EQ(bytes_read_,
+                options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
 
@@ -1131,9 +1197,18 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
     int fill_up_to = std::min(keys_iteration * (i + 1), max_key);
     // kAutoFlushOnly to preserve legacy test behavior (consider updating)
     FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
+
+    bytes_read_ = 0;
+    // These ticker stats are expected to be populated regardless of
+    // `PerfLevel` in user thread.
+    SetPerfLevel(kDisable);
+    options_.statistics->Reset();
     // we should get consistent results with flush_before_backup
     // set to both true and false
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
+    ASSERT_GT(options_.statistics->getTickerCount(BACKUP_READ_BYTES), 0);
+    ASSERT_EQ(bytes_read_,
+              options_.statistics->getTickerCount(BACKUP_READ_BYTES));
   }
   // close and destroy
   CloseDBAndBackupEngine();
@@ -3568,193 +3643,6 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
-}
-
-// These are the files currently expected to be copied by `BackupEngine`.
-// Notably missing are info logs, which aren't copied, and CURRENT file, which
-// is forged.
-const std::set<FileType> kBackupCopyFileTypes = {
-    kTableFile, kDescriptorFile, kWalFile, kBlobFile, kOptionsFile};
-
-const std::set<FileType> kBackupCopyUnsharedFileTypes = {
-    kDescriptorFile, kWalFile, kOptionsFile};
-
-// Populates `*total_size` with the size of all `db`'s files whose type is in
-// `include_types`.
-Status GetSizeOfDBFiles(DB* db, const std::set<FileType>& include_types,
-                        size_t* total_size) {
-  *total_size = 0;
-  std::vector<std::string> nonwal_filenames;
-  uint64_t manifest_file_size;
-  Status s = db->GetLiveFiles(nonwal_filenames, &manifest_file_size,
-                              false /* flush_memtable */);
-  for (size_t i = 0; s.ok() && i < nonwal_filenames.size(); ++i) {
-    uint64_t number;
-    FileType type;
-    const std::string& filename = nonwal_filenames[i];
-    if (ParseFileName(filename, &number, &type) &&
-        include_types.find(type) != include_types.end()) {
-      std::string file_path = db->GetName() + "/" + filename;
-      uint64_t file_size;
-      s = db->GetFileSystem()->GetFileSize(file_path, IOOptions(), &file_size,
-                                           nullptr /* dbg */);
-      if (s.ok()) {
-        *total_size += file_size;
-      }
-    }
-  }
-
-  if (include_types.find(kWalFile) != include_types.end()) {
-    VectorLogPtr log_files;
-    if (s.ok()) {
-      s = db->GetSortedWalFiles(log_files);
-    }
-    if (s.ok()) {
-      for (const auto& log_file : log_files) {
-        *total_size += log_file->SizeFileBytes();
-      }
-    }
-  }
-  return s;
-}
-
-// Populates `*total_size` with the size of all files under `backup_dir`.
-// We don't go through `BackupEngine` currently because it's hard to figure out
-// both the metadata file size and the size attributable to an incremental
-// backup.
-Status GetSizeOfBackupFiles(FileSystem* backup_fs,
-                            const std::string& backup_dir, size_t* total_size) {
-  *total_size = 0;
-  std::vector<std::string> dir_stack = {backup_dir};
-  Status s;
-  while (s.ok() && !dir_stack.empty()) {
-    std::string dir = std::move(dir_stack.back());
-    dir_stack.pop_back();
-    std::vector<std::string> children;
-    s = backup_fs->GetChildren(dir, IOOptions(), &children, nullptr /* dbg */);
-    for (size_t i = 0; s.ok() && i < children.size(); ++i) {
-      std::string path = dir + "/" + children[i];
-      bool is_dir;
-      s = backup_fs->IsDirectory(path, IOOptions(), &is_dir, nullptr /* dbg */);
-      uint64_t file_size = 0;
-      if (s.ok()) {
-        if (is_dir) {
-          dir_stack.emplace_back(std::move(path));
-        } else {
-          s = backup_fs->GetFileSize(path, IOOptions(), &file_size,
-                                     nullptr /* dbg */);
-        }
-      }
-      if (s.ok()) {
-        *total_size += file_size;
-      }
-    }
-  }
-  return s;
-}
-
-TEST_F(BackupEngineTest, IOStatsFullBackup) {
-  // Tests the `BACKUP_READ_BYTES` and `BACKUP_WRITE_BYTES` ticker stats have
-  // the expected values according to the files in the DB and full backup.
-
-  // These ticker stats are expected to be populated regardless of `PerfLevel`
-  // in user thread
-  SetPerfLevel(kDisable);
-
-  options_.statistics = CreateDBStatistics();
-  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                        kShareWithChecksum);
-
-  FillDB(db_.get(), 0 /* from */, 100 /* to */, kFlushMost);
-
-  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_READ_BYTES));
-  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
-                                            false /* flush_before_backup */));
-
-  size_t expected_bytes_read;
-  ASSERT_OK(
-      GetSizeOfDBFiles(db_.get(), kBackupCopyFileTypes, &expected_bytes_read));
-  // We currently double read WAL because `GetSortedWalFiles()` does a buffered
-  // read of the first record, which happens to be the whole file.
-  size_t wal_bytes;
-  ASSERT_OK(
-      GetSizeOfDBFiles(db_.get(), {kWalFile}, &wal_bytes));
-  expected_bytes_read += wal_bytes;
-  ASSERT_EQ(expected_bytes_read,
-            options_.statistics->getTickerCount(BACKUP_READ_BYTES));
-
-  size_t expected_bytes_written;
-  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
-                                 backupdir_, &expected_bytes_written));
-  ASSERT_EQ(expected_bytes_written,
-            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
-}
-
-TEST_F(BackupEngineTest, IOStatsIncremental) {
-  // Similar to "IOStatsFullBackup" test, but verify stats for an incremental
-  // backup.
-
-  // A `SharedSizeListener` tracks size of all shared files so we can tell
-  // the expected bytes copied during incremental backup.
-  class SharedSizeListener : public EventListener {
-   public:
-    void OnTableFileCreated(const TableFileCreationInfo& info) override {
-      if (info.status.ok()) {
-        total_size_ += info.file_size;
-      }
-    }
-
-    size_t GetTotalSize() { return total_size_; }
-
-   private:
-    size_t total_size_ = 0;
-  };
-  auto shared_size_listener = std::make_shared<SharedSizeListener>();
-
-  // These ticker stats are expected to be populated regardless of `PerfLevel`
-  // in user thread
-  SetPerfLevel(kDisable);
-
-  // TODO: enable blob files once `EventListener` can capture the size of newly
-  // created blob files.
-  options_.enable_blob_files = false;
-  options_.statistics = CreateDBStatistics();
-  options_.disable_auto_compactions = true;
-  options_.listeners.push_back(shared_size_listener);
-  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                        kShareWithChecksum);
-
-  FillDB(db_.get(), 0 /* from */, 100 /* to */, kFlushMost);
-  size_t orig_shared_size = shared_size_listener->GetTotalSize();
-
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
-                                            false /* flush_before_backup */));
-  size_t orig_backup_files_size;
-  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
-                                 backupdir_, &orig_backup_files_size));
-
-  FillDB(db_.get(), 100 /* from */, 200 /* to */, kFlushMost);
-
-  options_.statistics->Reset();
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
-                                            false /* flush_before_backup */));
-
-  size_t final_shared_size = shared_size_listener->GetTotalSize();
-  size_t expected_bytes_read = 0;
-  ASSERT_OK(GetSizeOfDBFiles(db_.get(), kBackupCopyUnsharedFileTypes,
-                             &expected_bytes_read));
-  expected_bytes_read += final_shared_size - orig_shared_size;
-  ASSERT_EQ(expected_bytes_read,
-            options_.statistics->getTickerCount(BACKUP_READ_BYTES));
-
-  size_t final_backup_files_size;
-  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
-                                 backupdir_, &final_backup_files_size));
-  size_t expected_bytes_written =
-      final_backup_files_size - orig_backup_files_size;
-  ASSERT_EQ(expected_bytes_written,
-            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
 }
 
 }  // anon namespace
