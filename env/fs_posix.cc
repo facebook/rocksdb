@@ -107,14 +107,17 @@ static int LockOrUnlock(int fd, bool lock) {
 
 class PosixFileLock : public FileLock {
  public:
-  int fd_;
+  int fd_ = /*invalid*/ -1;
   std::string filename;
 
-  void Clear() { filename.clear(); }
+  void Clear() {
+    fd_ = -1;
+    filename.clear();
+  }
 
   virtual ~PosixFileLock() override {
     // Check for destruction without UnlockFile
-    assert(filename.empty());
+    assert(fd_ == -1);
   }
 };
 
