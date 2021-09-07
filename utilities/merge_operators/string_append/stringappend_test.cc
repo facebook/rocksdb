@@ -149,7 +149,7 @@ class StringAppendOperatorTest : public testing::Test,
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
   }
 
-  typedef std::shared_ptr<DB> (*OpenFuncPtr)(const std::string&);
+  using OpenFuncPtr = std::shared_ptr<DB> (*)(const std::string&);
 
   // Allows user to open databases with different configurations.
   // e.g.: Can open a DB or a TtlDB, etc.

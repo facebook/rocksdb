@@ -49,10 +49,10 @@ template <typename T>
 class ProtectionInfoKVOTS;
 
 // Aliases for 64-bit protection infos.
-typedef ProtectionInfo<uint64_t> ProtectionInfo64;
-typedef ProtectionInfoKVOT<uint64_t> ProtectionInfoKVOT64;
-typedef ProtectionInfoKVOTC<uint64_t> ProtectionInfoKVOTC64;
-typedef ProtectionInfoKVOTS<uint64_t> ProtectionInfoKVOTS64;
+using ProtectionInfo64 = ProtectionInfo<uint64_t>;
+using ProtectionInfoKVOT64 = ProtectionInfoKVOT<uint64_t>;
+using ProtectionInfoKVOTC64 = ProtectionInfoKVOTC<uint64_t>;
+using ProtectionInfoKVOTS64 = ProtectionInfoKVOTS<uint64_t>;
 
 template <typename T>
 class ProtectionInfo {

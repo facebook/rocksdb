@@ -39,8 +39,9 @@ class MinIterComparator {
   const Comparator* comparator_;
 };
 
-typedef std::priority_queue<InternalIterator*, std::vector<InternalIterator*>,
-                            MinIterComparator> MinIterHeap;
+using MinIterHeap =
+    std::priority_queue<InternalIterator*, std::vector<InternalIterator*>,
+                        MinIterComparator>;
 
 /**
  * ForwardIterator is a special type of iterator that only supports Seek()

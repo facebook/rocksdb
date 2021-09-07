@@ -47,7 +47,7 @@
 #undef DeleteFile
 
 #ifndef _SSIZE_T_DEFINED
-typedef SSIZE_T ssize_t;
+using ssize_t = SSIZE_T;
 #endif
 
 // size_t printf formatting named in the manner of C99 standard formatting
@@ -292,7 +292,7 @@ static inline void AsmVolatilePause() {
 extern int PhysicalCoreID();
 
 // For Thread Local Storage abstraction
-typedef DWORD pthread_key_t;
+using pthread_key_t = DWORD;
 
 inline int pthread_key_create(pthread_key_t* key, void (*destructor)(void*)) {
   // Not used

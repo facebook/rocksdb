@@ -26,7 +26,7 @@ namespace ROCKSDB_NAMESPACE {
 //      ++pos) {
 //   ...
 // }
-typedef std::map<std::string, std::string> UserCollectedProperties;
+using UserCollectedProperties = std::map<std::string, std::string>;
 
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {

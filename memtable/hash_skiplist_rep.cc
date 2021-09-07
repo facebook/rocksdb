@@ -46,7 +46,7 @@ class HashSkipListRep : public MemTableRep {
 
  private:
   friend class DynamicIterator;
-  typedef SkipList<const char*, const MemTableRep::KeyComparator&> Bucket;
+  using Bucket = SkipList<const char*, const MemTableRep::KeyComparator&>;
 
   size_t bucket_size_;
 
