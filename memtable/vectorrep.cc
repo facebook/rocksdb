@@ -98,7 +98,7 @@ class VectorRep : public MemTableRep {
 
  private:
   friend class Iterator;
-  typedef std::vector<const char*> Bucket;
+  using Bucket = std::vector<const char*>;
   std::shared_ptr<Bucket> bucket_;
   mutable port::RWMutex rwlock_;
   bool immutable_;

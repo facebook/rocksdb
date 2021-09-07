@@ -285,7 +285,7 @@ struct BackupFileInfo {
   uint64_t size;
 };
 
-typedef uint32_t BackupID;
+using BackupID = uint32_t;
 
 struct BackupInfo {
   BackupID backup_id = 0U;

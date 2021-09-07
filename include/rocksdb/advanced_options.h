@@ -650,8 +650,8 @@ struct AdvancedColumnFamilyOptions {
   // the tables.
   // Default: empty vector -- no user-defined statistics collection will be
   // performed.
-  typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-      TablePropertiesCollectorFactories;
+  using TablePropertiesCollectorFactories =
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>;
   TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Maximum number of successive merge operations on a key in the memtable.

@@ -589,11 +589,11 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Use a vector of BlockRep as a buffer for a determined number
   // of BlockRep structures. All data referenced by pointers in
   // BlockRep will be freed when this vector is destructed.
-  typedef std::vector<BlockRep> BlockRepBuffer;
+  using BlockRepBuffer = std::vector<BlockRep>;
   BlockRepBuffer block_rep_buf;
   // Use a thread-safe queue for concurrent access from block
   // building thread and writer thread.
-  typedef WorkQueue<BlockRep*> BlockRepPool;
+  using BlockRepPool = WorkQueue<BlockRep*>;
   BlockRepPool block_rep_pool;
 
   // Use BlockRepSlot to keep block order in write thread.
@@ -617,7 +617,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Compression queue will pass references to BlockRep in block_rep_buf,
   // and those references are always valid before the destruction of
   // block_rep_buf.
-  typedef WorkQueue<BlockRep*> CompressQueue;
+  using CompressQueue = WorkQueue<BlockRep*>;
   CompressQueue compress_queue;
   std::vector<port::Thread> compress_thread_pool;
 
@@ -625,7 +625,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // and those references are always valid before the corresponding
   // BlockRep::slot is destructed, which is before the destruction of
   // block_rep_buf.
-  typedef WorkQueue<BlockRepSlot*> WriteQueue;
+  using WriteQueue = WorkQueue<BlockRepSlot*>;
   WriteQueue write_queue;
   std::unique_ptr<port::Thread> write_thread;
 

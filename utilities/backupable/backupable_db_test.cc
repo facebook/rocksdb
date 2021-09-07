@@ -15,7 +15,6 @@
 #include <array>
 #include <limits>
 #include <random>
-#include <regex>
 #include <string>
 #include <utility>
 
@@ -907,7 +906,7 @@ class BackupEngineTest : public testing::Test {
   }
 
   void AssertDirectoryFilesMatchRegex(const std::string& dir,
-                                      const std::regex& pattern,
+                                      const TestRegex& pattern,
                                       const std::string& file_type,
                                       int minimum_count) {
     std::vector<FileAttributes> children;
@@ -915,8 +914,7 @@ class BackupEngineTest : public testing::Test {
     int found_count = 0;
     for (const auto& child : children) {
       if (EndsWith(child.name, file_type)) {
-        ASSERT_TRUE(std::regex_match(child.name, pattern))
-            << "File name " << child.name << " does not match regex.";
+        ASSERT_MATCHES_REGEX(child.name, pattern);
         ++found_count;
       }
     }
@@ -1764,7 +1762,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
     if (sopt == kShareWithChecksum) {
       // Ensure we actually got DB manifest checksums by inspecting
       // shared_checksum file names for hex checksum component
-      std::regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      TestRegex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
       std::vector<FileAttributes> children;
       const std::string dir = backupdir_ + "/shared_checksum";
       ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
@@ -1772,8 +1770,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
         if (child.size_bytes == 0) {
           continue;
         }
-        const std::string match("match");
-        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
+        EXPECT_MATCHES_REGEX(child.name, expected);
       }
     }
     */
@@ -2000,7 +1997,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
 
-  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+  static const std::map<ShareFilesNaming, TestRegex> option_to_expected = {
       {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
       // kFlagIncludeFileSize redundant here
       {kLegacyCrc32cAndFileSize | kFlagIncludeFileSize,
@@ -2010,7 +2007,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
        "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
   };
 
-  const std::string blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
@@ -2019,15 +2016,15 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
-    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(pair.second), ".sst",
-                                   1 /* minimum_count */);
-    if (std::string::npos != pair.second.find("_[0-9]+[.]sst")) {
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", pair.second,
+                                   ".sst", 1 /* minimum_count */);
+    if (std::string::npos != pair.second.GetPattern().find("_[0-9]+[.]sst")) {
       AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
                                          1 /* minimum_count */);
     }
+
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(blobfile_pattern), ".blob",
+                                   blobfile_pattern, ".blob",
                                    1 /* minimum_count */);
   }
 }
@@ -2051,9 +2048,9 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
   CloseDBAndBackupEngine();
 
   // Old names should always be used on old files
-  const std::regex expected("[0-9]+_[0-9]+_[0-9]+[.]sst");
+  const TestRegex sstfile_pattern("[0-9]+_[0-9]+_[0-9]+[.]sst");
 
-  const std::string blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
     CloseAndReopenDB();
@@ -2062,10 +2059,11 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
-    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
-                                   ".sst", 1 /* minimum_count */);
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(blobfile_pattern), ".blob",
+                                   sstfile_pattern, ".sst",
+                                   1 /* minimum_count */);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   blobfile_pattern, ".blob",
                                    1 /* minimum_count */);
   }
 
