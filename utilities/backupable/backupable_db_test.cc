@@ -3570,6 +3570,187 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
   DestroyDB(dbname_, options_);
 }
 
+// These are the files currently expected to be copied by `BackupEngine`.
+// Notably missing are info logs, which aren't copied, and CURRENT file, which
+// is forged.
+const std::set<FileType> kBackupCopyFileTypes = {
+    kTableFile, kDescriptorFile, kWalFile, kBlobFile, kOptionsFile};
+
+const std::set<FileType> kBackupCopyUnsharedFileTypes = {
+    kDescriptorFile, kWalFile, kOptionsFile};
+
+// Populates `*total_size` with the size of all `db`'s files whose type is in
+// `include_types`.
+Status GetSizeOfDBFiles(DB* db, const std::set<FileType>& include_types,
+                        size_t* total_size) {
+  *total_size = 0;
+  std::vector<std::string> nonwal_filenames;
+  uint64_t manifest_file_size;
+  Status s = db->GetLiveFiles(nonwal_filenames, &manifest_file_size,
+                              false /* flush_memtable */);
+  for (size_t i = 0; s.ok() && i < nonwal_filenames.size(); ++i) {
+    uint64_t number;
+    FileType type;
+    const std::string& filename = nonwal_filenames[i];
+    if (ParseFileName(filename, &number, &type) &&
+        include_types.find(type) != include_types.end()) {
+      std::string file_path = db->GetName() + "/" + filename;
+      uint64_t file_size;
+      s = db->GetFileSystem()->GetFileSize(file_path, IOOptions(), &file_size,
+                                           nullptr /* dbg */);
+      if (s.ok()) {
+        *total_size += file_size;
+      }
+    }
+  }
+
+  if (include_types.find(kWalFile) != include_types.end()) {
+    VectorLogPtr log_files;
+    if (s.ok()) {
+      s = db->GetSortedWalFiles(log_files);
+    }
+    if (s.ok()) {
+      for (const auto& log_file : log_files) {
+        *total_size += log_file->SizeFileBytes();
+      }
+    }
+  }
+  return s;
+}
+
+// Populates `*total_size` with the size of all files under `backup_dir`.
+// We don't go through `BackupEngine` currently because it's hard to figure out
+// both the metadata file size and the size attributable to an incremental
+// backup.
+Status GetSizeOfBackupFiles(FileSystem* backup_fs,
+                            const std::string& backup_dir, size_t* total_size) {
+  *total_size = 0;
+  std::vector<std::string> dir_stack = {backup_dir};
+  Status s;
+  while (s.ok() && !dir_stack.empty()) {
+    std::string dir = std::move(dir_stack.back());
+    dir_stack.pop_back();
+    std::vector<std::string> children;
+    s = backup_fs->GetChildren(dir, IOOptions(), &children, nullptr /* dbg */);
+    for (size_t i = 0; s.ok() && i < children.size(); ++i) {
+      std::string path = dir + "/" + children[i];
+      bool is_dir;
+      s = backup_fs->IsDirectory(path, IOOptions(), &is_dir, nullptr /* dbg */);
+      uint64_t file_size = 0;
+      if (s.ok()) {
+        if (is_dir) {
+          dir_stack.emplace_back(std::move(path));
+        } else {
+          s = backup_fs->GetFileSize(path, IOOptions(), &file_size,
+                                     nullptr /* dbg */);
+        }
+      }
+      if (s.ok()) {
+        *total_size += file_size;
+      }
+    }
+  }
+  return s;
+}
+
+TEST_F(BackupEngineTest, IOStatsFullBackup) {
+  // Tests the `BACKUP_READ_BYTES` and `BACKUP_WRITE_BYTES` ticker stats have
+  // the expected values according to the files in the DB and full backup.
+
+  // These ticker stats are expected to be populated regardless of `PerfLevel`
+  // in user thread
+  SetPerfLevel(kDisable);
+
+  options_.statistics = CreateDBStatistics();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  FillDB(db_.get(), 0 /* from */, 100 /* to */, kFlushMost);
+
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+
+  size_t expected_bytes_read;
+  ASSERT_OK(
+      GetSizeOfDBFiles(db_.get(), kBackupCopyFileTypes, &expected_bytes_read));
+  ASSERT_EQ(expected_bytes_read,
+            options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+
+  size_t expected_bytes_written;
+  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
+                                 backupdir_, &expected_bytes_written));
+  ASSERT_EQ(expected_bytes_written,
+            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+}
+
+TEST_F(BackupEngineTest, IOStatsIncremental) {
+  // Similar to "IOStatsFullBackup" test, but verify stats for an incremental
+  // backup.
+
+  // A `SharedSizeListener` tracks size of all shared files so we can tell
+  // the expected bytes copied during incremental backup.
+  class SharedSizeListener : public EventListener {
+   public:
+    void OnTableFileCreated(const TableFileCreationInfo& info) override {
+      if (info.status.ok()) {
+        total_size_ += info.file_size;
+      }
+    }
+
+    size_t GetTotalSize() { return total_size_; }
+
+   private:
+    size_t total_size_ = 0;
+  };
+  auto shared_size_listener = std::make_shared<SharedSizeListener>();
+
+  // These ticker stats are expected to be populated regardless of `PerfLevel`
+  // in user thread
+  SetPerfLevel(kDisable);
+
+  // TODO: enable blob files once `EventListener` can capture the size of newly
+  // created blob files.
+  options_.enable_blob_files = false;
+  options_.statistics = CreateDBStatistics();
+  options_.disable_auto_compactions = true;
+  options_.listeners.push_back(shared_size_listener);
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  FillDB(db_.get(), 0 /* from */, 100 /* to */, kFlushMost);
+  size_t orig_shared_size = shared_size_listener->GetTotalSize();
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+  size_t orig_backup_files_size;
+  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
+                                 backupdir_, &orig_backup_files_size));
+
+  FillDB(db_.get(), 100 /* from */, 200 /* to */, kFlushMost);
+
+  options_.statistics->Reset();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+
+  size_t final_shared_size = shared_size_listener->GetTotalSize();
+  size_t expected_bytes_read = 0;
+  ASSERT_OK(GetSizeOfDBFiles(db_.get(), kBackupCopyUnsharedFileTypes,
+                             &expected_bytes_read));
+  expected_bytes_read += final_shared_size - orig_shared_size;
+  ASSERT_EQ(expected_bytes_read,
+            options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+
+  size_t final_backup_files_size;
+  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
+                                 backupdir_, &final_backup_files_size));
+  size_t expected_bytes_written =
+      final_backup_files_size - orig_backup_files_size;
+  ASSERT_EQ(expected_bytes_written,
+            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+}
+
 }  // anon namespace
 
 }  // namespace ROCKSDB_NAMESPACE
