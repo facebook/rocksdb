@@ -156,24 +156,52 @@ TEST_F(DBStatisticsTest, ExcludeTickers) {
 }
 
 #ifndef ROCKSDB_LITE
+
 TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   Reopen(options);
 
   // Expected to be populated regardless of `PerfLevel` in user thread
   SetPerfLevel(kDisable);
 
-  ASSERT_EQ(0, options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+  {
+    // Scenario 0: only WAL data. Not verified so require ticker to be zero.
+    ASSERT_OK(Put("foo", "value"));
+    ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+    ASSERT_OK(db_->VerifyChecksum());
+    ASSERT_EQ(0,
+              options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+  }
 
-  ASSERT_OK(Put("foo", "value"));
-  ASSERT_OK(db_->VerifyChecksum());
-  ASSERT_EQ(0, options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
-
+  // Create one SST.
   ASSERT_OK(Flush());
-  ASSERT_OK(db_->VerifyChecksum());
-  ASSERT_GT(options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES), 0);
+  std::unordered_map<std::string, uint64_t> table_files;
+  size_t table_files_size = 0;
+  GetAllDataFiles(kTableFile, &table_files, &table_files_size);
+
+  {
+    // Scenario 1: Table verified in `VerifyFileChecksums()`. This should read
+    // the whole file so we require the ticker stat exactly matches the file
+    // size.
+    options.statistics->Reset();
+    ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+    ASSERT_EQ(table_files_size,
+              options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+  }
+
+  {
+    // Scenario 2: Table verified in `VerifyChecksum()`. This opens a
+    // `TableReader` to verify each block. It can involve duplicate reads of the
+    // same data so we set a lower-bound only.
+    options.statistics->Reset();
+    ASSERT_OK(db_->VerifyChecksum());
+    ASSERT_GE(options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES),
+              table_files_size);
+  }
 }
+
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
