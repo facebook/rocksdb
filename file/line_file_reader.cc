@@ -49,6 +49,7 @@ bool LineFileReader::ReadLine(std::string* out) {
     out->append(buf_begin_, buf_end_ - buf_begin_);
     Slice result;
     status_ = sfr_.Read(buf_.size(), &result, buf_.data());
+    IOSTATS_ADD(bytes_read, result.size());
     if (!status_.ok()) {
       status_.MustCheck();
       return false;

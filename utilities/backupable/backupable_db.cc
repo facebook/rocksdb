@@ -2897,6 +2897,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
   }
 
   s = backup_meta_file->Append(Slice(buf.str()));
+  IOSTATS_ADD(bytes_written, buf.str().size());
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }
