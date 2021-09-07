@@ -10,6 +10,7 @@
 
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
+* Added a ticker statistic, "rocksdb.verify_checksum.read.bytes", reporting how many bytes were read from file to serve `VerifyChecksum()` and `VerifyFileChecksums()` queries.
 
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
