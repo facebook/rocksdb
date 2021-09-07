@@ -3570,8 +3570,7 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
 
 // Populates `*total_size` with the size of all files under `backup_dir`.
 // We don't go through `BackupEngine` currently because it's hard to figure out
-// both the metadata file size and the size attributable to an incremental
-// backup.
+// the metadata file size.
 Status GetSizeOfBackupFiles(FileSystem* backup_fs,
                             const std::string& backup_dir, size_t* total_size) {
   *total_size = 0;
@@ -3632,9 +3631,11 @@ TEST_F(BackupEngineTest, IOStats) {
   // purposes other than creating file, like `GetSortedWalFiles()` to find first
   // sequence number, or `CreateNewBackup()` thread to find SST file session ID.
   // So we loosely require there are at least as many reads as needed for
-  // copying.
+  // copying, but not as many as twice that.
   ASSERT_GE(options_.statistics->getTickerCount(BACKUP_READ_BYTES),
             expected_bytes_written);
+  ASSERT_LT(expected_bytes_written,
+            2 * options_.statistics->getTickerCount(BACKUP_READ_BYTES));
 
   FillDB(db_.get(), 100 /* from */, 200 /* to */, kFlushMost);
 
@@ -3647,9 +3648,11 @@ TEST_F(BackupEngineTest, IOStats) {
   expected_bytes_written = final_backup_files_size - orig_backup_files_size;
   ASSERT_EQ(expected_bytes_written,
             options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
-  // See above for why this lower-bound was chosen.
+  // See above for why these bounds were chosen.
   ASSERT_GE(options_.statistics->getTickerCount(BACKUP_READ_BYTES),
             expected_bytes_written);
+  ASSERT_LT(expected_bytes_written,
+            2 * options_.statistics->getTickerCount(BACKUP_READ_BYTES));
 }
 
 }  // anon namespace

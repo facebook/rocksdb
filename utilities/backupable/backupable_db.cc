@@ -1441,7 +1441,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (s.ok()) {
     backup_statistics_.IncrementNumberSuccessBackup();
     // here we know that we succeeded and installed the new backup
-    // in the LATEST_BACKUP file
     latest_backup_id_ = new_backup_id;
     latest_valid_backup_id_ = new_backup_id;
     if (new_backup_id_ptr) {
