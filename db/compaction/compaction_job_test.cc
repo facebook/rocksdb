@@ -82,10 +82,11 @@ class CompactionJobTestBase : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_,
-            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
+        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr,
+                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
@@ -269,7 +270,8 @@ class CompactionJobTestBase : public testing::Test {
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 
@@ -332,8 +334,8 @@ class CompactionJobTestBase : public testing::Test {
         cfd->current()->storage_info(), *cfd->ioptions(),
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
-        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts, 0,
-        {}, true);
+        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts,
+        Temperature::kUnknown, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -350,7 +352,8 @@ class CompactionJobTestBase : public testing::Test {
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */,
-        /*manual_compaction_paused=*/nullptr, /*db_id=*/"",
+        /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, /*db_id=*/"",
         /*db_session_id=*/"", full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
@@ -1117,7 +1120,9 @@ TEST_F(CompactionJobTest, InputSerialization) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
   while (!rnd.OneIn(10)) {
-    input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    input.input_files.emplace_back(rnd.RandomString(
+        rnd.Uniform(kStrMaxLen - 1) +
+        1));  // input file name should have at least one character
   }
   input.output_level = 4;
   input.has_begin = rnd.OneIn(2);

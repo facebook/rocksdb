@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <limits>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -24,9 +25,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// This is a static filter used for filtering
+// kvs during the compaction process.
+static std::string NEW_VALUE = "NewValue";
+
 class DBFlushTest : public DBTestBase {
  public:
-  DBFlushTest() : DBTestBase("/db_flush_test", /*env_do_fsync=*/true) {}
+  DBFlushTest() : DBTestBase("db_flush_test", /*env_do_fsync=*/true) {}
 };
 
 class DBFlushDirectIOTest : public DBFlushTest,
@@ -283,6 +288,1090 @@ TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// The following 3 tests are designed for testing garbage statistics at flush
+// time.
+//
+// ======= General Information ======= (from GitHub Wiki).
+// There are three scenarios where memtable flush can be triggered:
+//
+// 1 - Memtable size exceeds ColumnFamilyOptions::write_buffer_size
+//     after a write.
+// 2 - Total memtable size across all column families exceeds
+// DBOptions::db_write_buffer_size,
+//     or DBOptions::write_buffer_manager signals a flush. In this scenario
+//     the largest memtable will be flushed.
+// 3 - Total WAL file size exceeds DBOptions::max_total_wal_size.
+//     In this scenario the memtable with the oldest data will be flushed,
+//     in order to allow the WAL file with data from this memtable to be
+//     purged.
+//
+// As a result, a memtable can be flushed before it is full. This is one
+// reason the generated SST file can be smaller than the corresponding
+// memtable. Compression is another factor to make SST file smaller than
+// corresponding memtable, since data in memtable is uncompressed.
+
+TEST_F(DBFlushTest, StatisticsGarbageBasic) {
+  Options options = CurrentOptions();
+
+  // The following options are used to enforce several values that
+  // may already exist as default values to make this test resilient
+  // to default value updates in the future.
+  options.statistics = CreateDBStatistics();
+
+  // Record all statistics.
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+
+  // Useful for now as we are trying to compare uncompressed data savings on
+  // flush().
+  options.compression = kNoCompression;
+
+  // Prevent memtable in place updates. Should already be disabled
+  // (from Wiki:
+  //  In place updates can be enabled by toggling on the bool
+  //  inplace_update_support flag. However, this flag is by default set to
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 64 << 20;
+
+  ASSERT_OK(TryReopen(options));
+
+  // Put multiple times the same key-values.
+  // The encoded length of a db entry in the memtable is
+  // defined in db/memtable.cc (MemTable::Add) as the variable:
+  // encoded_len=  VarintLength(internal_key_size)  --> =
+  // log_256(internal_key).
+  // Min # of bytes
+  //                                                       necessary to
+  //                                                       store
+  //                                                       internal_key_size.
+  //             + internal_key_size                --> = actual key string,
+  //             (size key_size: w/o term null char)
+  //                                                      + 8 bytes for
+  //                                                      fixed uint64 "seq
+  //                                                      number
+  // +
+  //                                                      insertion type"
+  //             + VarintLength(val_size)           --> = min # of bytes to
+  //             store val_size
+  //             + val_size                         --> = actual value
+  //             string
+  // For example, in our situation, "key1" : size 4, "value1" : size 6
+  // (the terminating null characters are not copied over to the memtable).
+  // And therefore encoded_len = 1 + (4+8) + 1 + 6 = 20 bytes per entry.
+  // However in terms of raw data contained in the memtable, and written
+  // over to the SSTable, we only count internal_key_size and val_size,
+  // because this is the only raw chunk of bytes that contains everything
+  // necessary to reconstruct a user entry: sequence number, insertion type,
+  // key, and value.
+
+  // To test the relevance of our Memtable garbage statistics,
+  // namely MEMTABLE_PAYLOAD_BYTES_AT_FLUSH and MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+  // we insert K-V pairs with 3 distinct keys (of length 4),
+  // and random values of arbitrary length RAND_VALUES_LENGTH,
+  // and we repeat this step NUM_REPEAT times total.
+  // At the end, we insert 3 final K-V pairs with the same 3 keys
+  // and known values (these will be the final values, of length 6).
+  // I chose NUM_REPEAT=2,000 such that no automatic flush is
+  // triggered (the number of bytes in the memtable is therefore
+  // well below any meaningful heuristic for a memtable of size 64MB).
+  // As a result, since each K-V pair is inserted as a payload
+  // of N meaningful bytes (sequence number, insertion type,
+  // key, and value = 8 + 4 + RAND_VALUE_LENGTH),
+  // MEMTABLE_GARBAGE_BYTES_AT_FLUSH should be equal to 2,000 * N bytes
+  // and MEMTABLE_PAYLAOD_BYTES_AT_FLUSH = MEMTABLE_GARBAGE_BYTES_AT_FLUSH +
+  // (3*(8 + 4 + 6)) bytes. For RAND_VALUE_LENGTH = 172 (arbitrary value), we
+  // expect:
+  //      N = 8 + 4 + 172 = 184 bytes
+  //      MEMTABLE_GARBAGE_BYTES_AT_FLUSH = 2,000 * 184 = 368,000 bytes.
+  //      MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = 368,000 + 3*18 = 368,054 bytes.
+
+  const size_t NUM_REPEAT = 2000;
+  const size_t RAND_VALUES_LENGTH = 172;
+  const std::string KEY1 = "key1";
+  const std::string KEY2 = "key2";
+  const std::string KEY3 = "key3";
+  const std::string VALUE1 = "value1";
+  const std::string VALUE2 = "value2";
+  const std::string VALUE3 = "value3";
+  uint64_t EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = 0;
+  uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH = 0;
+
+  Random rnd(301);
+  // Insertion of of K-V pairs, multiple times.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY1.size() + p_v1.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY2.size() + p_v2.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY3.size() + p_v3.size() + sizeof(uint64_t);
+  }
+
+  // The memtable data bytes includes the "garbage"
+  // bytes along with the useful payload.
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+
+  ASSERT_OK(Put(KEY1, VALUE1));
+  ASSERT_OK(Put(KEY2, VALUE2));
+  ASSERT_OK(Put(KEY3, VALUE3));
+
+  // Add useful payload to the memtable data bytes:
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
+      KEY1.size() + VALUE1.size() + KEY2.size() + VALUE2.size() + KEY3.size() +
+      VALUE3.size() + 3 * sizeof(uint64_t);
+
+  // We assert that the last K-V pairs have been successfully inserted,
+  // and that the valid values are VALUE1, VALUE2, VALUE3.
+  PinnableSlice value;
+  ASSERT_OK(Get(KEY1, &value));
+  ASSERT_EQ(value.ToString(), VALUE1);
+  ASSERT_OK(Get(KEY2, &value));
+  ASSERT_EQ(value.ToString(), VALUE2);
+  ASSERT_OK(Get(KEY3, &value));
+  ASSERT_EQ(value.ToString(), VALUE3);
+
+  // Force flush to SST. Increments the statistics counter.
+  ASSERT_OK(Flush());
+
+  // Collect statistics.
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_garbage_bytes =
+      TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  Close();
+}
+
+TEST_F(DBFlushTest, StatisticsGarbageInsertAndDeletes) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 67108864;
+
+  ASSERT_OK(TryReopen(options));
+
+  const size_t NUM_REPEAT = 2000;
+  const size_t RAND_VALUES_LENGTH = 37;
+  const std::string KEY1 = "key1";
+  const std::string KEY2 = "key2";
+  const std::string KEY3 = "key3";
+  const std::string KEY4 = "key4";
+  const std::string KEY5 = "key5";
+  const std::string KEY6 = "key6";
+
+  uint64_t EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = 0;
+  uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH = 0;
+
+  WriteBatch batch;
+
+  Random rnd(301);
+  // Insertion of of K-V pairs, multiple times.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY1.size() + p_v1.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY2.size() + p_v2.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY3.size() + p_v3.size() + sizeof(uint64_t);
+    ASSERT_OK(Delete(KEY1));
+    ASSERT_OK(Delete(KEY2));
+    ASSERT_OK(Delete(KEY3));
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY1.size() + KEY2.size() + KEY3.size() + 3 * sizeof(uint64_t);
+  }
+
+  // The memtable data bytes includes the "garbage"
+  // bytes along with the useful payload.
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+
+  // Note : one set of delete for KEY1, KEY2, KEY3 is written to
+  // SSTable to propagate the delete operations to K-V pairs
+  // that could have been inserted into the database during past Flush
+  // opeartions.
+  EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH -=
+      KEY1.size() + KEY2.size() + KEY3.size() + 3 * sizeof(uint64_t);
+
+  // Additional useful paylaod.
+  ASSERT_OK(Delete(KEY4));
+  ASSERT_OK(Delete(KEY5));
+  ASSERT_OK(Delete(KEY6));
+
+  // // Add useful payload to the memtable data bytes:
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
+      KEY4.size() + KEY5.size() + KEY6.size() + 3 * sizeof(uint64_t);
+
+  // We assert that the K-V pairs have been successfully deleted.
+  PinnableSlice value;
+  ASSERT_NOK(Get(KEY1, &value));
+  ASSERT_NOK(Get(KEY2, &value));
+  ASSERT_NOK(Get(KEY3, &value));
+
+  // Force flush to SST. Increments the statistics counter.
+  ASSERT_OK(Flush());
+
+  // Collect statistics.
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_garbage_bytes =
+      TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  Close();
+}
+
+TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 67108864;
+
+  ASSERT_OK(TryReopen(options));
+
+  const size_t NUM_REPEAT = 1000;
+  const size_t RAND_VALUES_LENGTH = 42;
+  const std::string KEY1 = "key1";
+  const std::string KEY2 = "key2";
+  const std::string KEY3 = "key3";
+  const std::string KEY4 = "key4";
+  const std::string KEY5 = "key5";
+  const std::string KEY6 = "key6";
+  const std::string VALUE3 = "value3";
+
+  uint64_t EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH = 0;
+  uint64_t EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH = 0;
+
+  Random rnd(301);
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    std::string p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    std::string p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY1.size() + p_v1.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY2.size() + p_v2.size() + sizeof(uint64_t);
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        KEY3.size() + p_v3.size() + sizeof(uint64_t);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY2));
+    // Note: DeleteRange have an exclusive upper bound, e.g. here: [KEY2,KEY3)
+    // is deleted.
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2,
+                               KEY3));
+    // Delete ranges are stored as a regular K-V pair, with key=STARTKEY,
+    // value=ENDKEY.
+    EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH +=
+        (KEY1.size() + KEY2.size() + sizeof(uint64_t)) +
+        (KEY2.size() + KEY3.size() + sizeof(uint64_t));
+  }
+
+  // The memtable data bytes includes the "garbage"
+  // bytes along with the useful payload.
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH =
+      EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+
+  // Note : one set of deleteRange for (KEY1, KEY2) and (KEY2, KEY3) is written
+  // to SSTable to propagate the deleteRange operations to K-V pairs that could
+  // have been inserted into the database during past Flush opeartions.
+  EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH -=
+      (KEY1.size() + KEY2.size() + sizeof(uint64_t)) +
+      (KEY2.size() + KEY3.size() + sizeof(uint64_t));
+
+  // Overwrite KEY3 with known value (VALUE3)
+  // Note that during the whole time KEY3 has never been deleted
+  // by the RangeDeletes.
+  ASSERT_OK(Put(KEY3, VALUE3));
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
+      KEY3.size() + VALUE3.size() + sizeof(uint64_t);
+
+  // Additional useful paylaod.
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY4, KEY5));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY5, KEY6));
+
+  // Add useful payload to the memtable data bytes:
+  EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH +=
+      (KEY4.size() + KEY5.size() + sizeof(uint64_t)) +
+      (KEY5.size() + KEY6.size() + sizeof(uint64_t));
+
+  // We assert that the K-V pairs have been successfully deleted.
+  PinnableSlice value;
+  ASSERT_NOK(Get(KEY1, &value));
+  ASSERT_NOK(Get(KEY2, &value));
+  // And that KEY3's value is correct.
+  ASSERT_OK(Get(KEY3, &value));
+  ASSERT_EQ(value, VALUE3);
+
+  // Force flush to SST. Increments the statistics counter.
+  ASSERT_OK(Flush());
+
+  // Collect statistics.
+  uint64_t mem_data_bytes =
+      TestGetTickerCount(options, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  uint64_t mem_garbage_bytes =
+      TestGetTickerCount(options, MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  EXPECT_EQ(mem_data_bytes, EXPECTED_MEMTABLE_PAYLOAD_BYTES_AT_FLUSH);
+  EXPECT_EQ(mem_garbage_bytes, EXPECTED_MEMTABLE_GARBAGE_BYTES_AT_FLUSH);
+
+  Close();
+}
+
+#ifndef ROCKSDB_LITE
+// This simple Listener can only handle one flush at a time.
+class TestFlushListener : public EventListener {
+ public:
+  TestFlushListener(Env* env, DBFlushTest* test)
+      : slowdown_count(0), stop_count(0), db_closed(), env_(env), test_(test) {
+    db_closed = false;
+  }
+
+  ~TestFlushListener() override {
+    prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
+  }
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    ASSERT_GT(info.table_properties.data_size, 0U);
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
+  }
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    flushed_dbs_.push_back(db);
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
+      slowdown_count++;
+    }
+    if (info.triggered_writes_stop) {
+      stop_count++;
+    }
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
+    ASSERT_EQ(TableFileNameToNumber(info.file_path), info.file_number);
+
+    // Note: the following chunk relies on the notification pertaining to the
+    // database pointed to by DBTestBase::db_, and is thus bypassed when
+    // that assumption does not hold (see the test case MultiDBMultiListeners
+    // below).
+    ASSERT_TRUE(test_);
+    if (db == test_->db_) {
+      std::vector<std::vector<FileMetaData>> files_by_level;
+      test_->dbfull()->TEST_GetFilesMetaData(db->DefaultColumnFamily(),
+                                             &files_by_level);
+
+      ASSERT_FALSE(files_by_level.empty());
+      auto it = std::find_if(files_by_level[0].begin(), files_by_level[0].end(),
+                             [&](const FileMetaData& meta) {
+                               return meta.fd.GetNumber() == info.file_number;
+                             });
+      ASSERT_NE(it, files_by_level[0].end());
+      ASSERT_EQ(info.oldest_blob_file_number, it->oldest_blob_file_number);
+    }
+
+    ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
+    ASSERT_GT(info.thread_id, 0U);
+  }
+
+  std::vector<std::string> flushed_column_family_names_;
+  std::vector<DB*> flushed_dbs_;
+  int slowdown_count;
+  int stop_count;
+  bool db_closing;
+  std::atomic_bool db_closed;
+  TableFileCreationInfo prev_fc_info_;
+
+ protected:
+  Env* env_;
+  DBFlushTest* test_;
+};
+#endif  // !ROCKSDB_LITE
+
+TEST_F(DBFlushTest, MemPurgeBasic) {
+  Options options = CurrentOptions();
+
+  // The following options are used to enforce several values that
+  // may already exist as default values to make this test resilient
+  // to default value updates in the future.
+  options.statistics = CreateDBStatistics();
+
+  // Record all statistics.
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+
+  // Useful for now as we are trying to compare uncompressed data savings on
+  // flush().
+  options.compression = kNoCompression;
+
+  // Prevent memtable in place updates. Should already be disabled
+  // (from Wiki:
+  //  In place updates can be enabled by toggling on the bool
+  //  inplace_update_support flag. However, this flag is by default set to
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
+  ASSERT_OK(TryReopen(options));
+  uint32_t mempurge_count = 0;
+  uint32_t sst_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string KEY1 = "IamKey1";
+  std::string KEY2 = "IamKey2";
+  std::string KEY3 = "IamKey3";
+  std::string KEY4 = "IamKey4";
+  std::string KEY5 = "IamKey5";
+  std::string KEY6 = "IamKey6";
+  std::string KEY7 = "IamKey7";
+  std::string KEY8 = "IamKey8";
+  std::string KEY9 = "IamKey9";
+  std::string RNDKEY1, RNDKEY2, RNDKEY3;
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  // Heavy overwrite workload,
+  // more than would fit in maximum allowed memtables.
+  Random rnd(719);
+  const size_t NUM_REPEAT = 100;
+  const size_t RAND_KEYS_LENGTH = 57;
+  const size_t RAND_VALUES_LENGTH = 10240;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9, p_rv1,
+      p_rv2, p_rv3;
+
+  // Insert a very first set of keys that will be
+  // mempurged at least once.
+  p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+  ASSERT_OK(Put(KEY1, p_v1));
+  ASSERT_OK(Put(KEY2, p_v2));
+  ASSERT_OK(Put(KEY3, p_v3));
+  ASSERT_OK(Put(KEY4, p_v4));
+  ASSERT_EQ(Get(KEY1), p_v1);
+  ASSERT_EQ(Get(KEY2), p_v2);
+  ASSERT_EQ(Get(KEY3), p_v3);
+  ASSERT_EQ(Get(KEY4), p_v4);
+
+  // Insertion of of K-V pairs, multiple times (overwrites).
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v7 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v8 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v9 = rnd.RandomString(RAND_VALUES_LENGTH);
+
+    ASSERT_OK(Put(KEY5, p_v5));
+    ASSERT_OK(Put(KEY6, p_v6));
+    ASSERT_OK(Put(KEY7, p_v7));
+    ASSERT_OK(Put(KEY8, p_v8));
+    ASSERT_OK(Put(KEY9, p_v9));
+
+    ASSERT_EQ(Get(KEY1), p_v1);
+    ASSERT_EQ(Get(KEY2), p_v2);
+    ASSERT_EQ(Get(KEY3), p_v3);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+    ASSERT_EQ(Get(KEY6), p_v6);
+    ASSERT_EQ(Get(KEY7), p_v7);
+    ASSERT_EQ(Get(KEY8), p_v8);
+    ASSERT_EQ(Get(KEY9), p_v9);
+  }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no SST files created during flush.
+  const uint32_t EXPECTED_SST_COUNT = 0;
+
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+
+  const uint32_t mempurge_count_record = mempurge_count;
+
+  // Insertion of of K-V pairs, no overwrites.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    RNDKEY1 = rnd.RandomString(RAND_KEYS_LENGTH);
+    RNDKEY2 = rnd.RandomString(RAND_KEYS_LENGTH);
+    RNDKEY3 = rnd.RandomString(RAND_KEYS_LENGTH);
+    p_rv1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_rv2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_rv3 = rnd.RandomString(RAND_VALUES_LENGTH);
+
+    ASSERT_OK(Put(RNDKEY1, p_rv1));
+    ASSERT_OK(Put(RNDKEY2, p_rv2));
+    ASSERT_OK(Put(RNDKEY3, p_rv3));
+
+    ASSERT_EQ(Get(KEY1), p_v1);
+    ASSERT_EQ(Get(KEY2), p_v2);
+    ASSERT_EQ(Get(KEY3), p_v3);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+    ASSERT_EQ(Get(KEY6), p_v6);
+    ASSERT_EQ(Get(KEY7), p_v7);
+    ASSERT_EQ(Get(KEY8), p_v8);
+    ASSERT_EQ(Get(KEY9), p_v9);
+    ASSERT_EQ(Get(RNDKEY1), p_rv1);
+    ASSERT_EQ(Get(RNDKEY2), p_rv2);
+    ASSERT_EQ(Get(RNDKEY3), p_rv3);
+  }
+
+  // Assert that at least one flush to storage has been performed
+  ASSERT_GT(sst_count, EXPECTED_SST_COUNT);
+  // (which will consequently increase the number of mempurges recorded too).
+  ASSERT_GE(mempurge_count, mempurge_count_record);
+
+  // Assert that there is no data corruption, even with
+  // a flush to storage.
+  ASSERT_EQ(Get(KEY1), p_v1);
+  ASSERT_EQ(Get(KEY2), p_v2);
+  ASSERT_EQ(Get(KEY3), p_v3);
+  ASSERT_EQ(Get(KEY4), p_v4);
+  ASSERT_EQ(Get(KEY5), p_v5);
+  ASSERT_EQ(Get(KEY6), p_v6);
+  ASSERT_EQ(Get(KEY7), p_v7);
+  ASSERT_EQ(Get(KEY8), p_v8);
+  ASSERT_EQ(Get(KEY9), p_v9);
+  ASSERT_EQ(Get(RNDKEY1), p_rv1);
+  ASSERT_EQ(Get(RNDKEY2), p_rv2);
+  ASSERT_EQ(Get(RNDKEY3), p_rv3);
+
+  Close();
+}
+
+TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+
+  ASSERT_OK(TryReopen(options));
+
+  uint32_t mempurge_count = 0;
+  uint32_t sst_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  Random rnd(117);
+  const size_t NUM_REPEAT = 100;
+  const size_t RAND_VALUES_LENGTH = 10240;
+
+  std::string key, value, p_v1, p_v2, p_v3, p_v3b, p_v4, p_v5;
+  int count = 0;
+  const int EXPECTED_COUNT_FORLOOP = 3;
+  const int EXPECTED_COUNT_END = 4;
+
+  ReadOptions ropt;
+  ropt.pin_data = true;
+  ropt.total_order_seek = true;
+  Iterator* iter = nullptr;
+
+  // Insertion of of K-V pairs, multiple times.
+  // Also insert DeleteRange
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v3b = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY1, p_v1));
+    ASSERT_OK(Put(KEY2, p_v2));
+    ASSERT_OK(Put(KEY3, p_v3));
+    ASSERT_OK(Put(KEY4, p_v4));
+    ASSERT_OK(Put(KEY5, p_v5));
+    ASSERT_OK(Delete(KEY2));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY2,
+                               KEY4));
+    ASSERT_OK(Put(KEY3, p_v3b));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), KEY1,
+                               KEY3));
+    ASSERT_OK(Delete(KEY1));
+
+    ASSERT_EQ(Get(KEY1), NOT_FOUND);
+    ASSERT_EQ(Get(KEY2), NOT_FOUND);
+    ASSERT_EQ(Get(KEY3), p_v3b);
+    ASSERT_EQ(Get(KEY4), p_v4);
+    ASSERT_EQ(Get(KEY5), p_v5);
+
+    iter = db_->NewIterator(ropt);
+    iter->SeekToFirst();
+    count = 0;
+    for (; iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      key = (iter->key()).ToString(false);
+      value = (iter->value()).ToString(false);
+      if (key.compare(KEY3) == 0)
+        ASSERT_EQ(value, p_v3b);
+      else if (key.compare(KEY4) == 0)
+        ASSERT_EQ(value, p_v4);
+      else if (key.compare(KEY5) == 0)
+        ASSERT_EQ(value, p_v5);
+      else
+        ASSERT_EQ(value, NOT_FOUND);
+      count++;
+    }
+
+    // Expected count here is 3: KEY3, KEY4, KEY5.
+    ASSERT_EQ(count, EXPECTED_COUNT_FORLOOP);
+    if (iter) {
+      delete iter;
+    }
+  }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no SST files created during flush.
+  const uint32_t EXPECTED_SST_COUNT = 0;
+
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+
+  // Additional test for the iterator+memPurge.
+  ASSERT_OK(Put(KEY2, p_v2));
+  iter = db_->NewIterator(ropt);
+  iter->SeekToFirst();
+  ASSERT_OK(Put(KEY4, p_v4));
+  count = 0;
+  for (; iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    key = (iter->key()).ToString(false);
+    value = (iter->value()).ToString(false);
+    if (key.compare(KEY2) == 0)
+      ASSERT_EQ(value, p_v2);
+    else if (key.compare(KEY3) == 0)
+      ASSERT_EQ(value, p_v3b);
+    else if (key.compare(KEY4) == 0)
+      ASSERT_EQ(value, p_v4);
+    else if (key.compare(KEY5) == 0)
+      ASSERT_EQ(value, p_v5);
+    else
+      ASSERT_EQ(value, NOT_FOUND);
+    count++;
+  }
+
+  // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
+  ASSERT_EQ(count, EXPECTED_COUNT_END);
+  if (iter) delete iter;
+
+  Close();
+}
+
+// Create a Compaction Fitler that will be invoked
+// at flush time and will update the value of a KV pair
+// if the key string is "lower" than the filter_key_ string.
+class ConditionalUpdateFilter : public CompactionFilter {
+ public:
+  explicit ConditionalUpdateFilter(const std::string* filtered_key)
+      : filtered_key_(filtered_key) {}
+  bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+              std::string* new_value, bool* value_changed) const override {
+    // If key<filtered_key_, update the value of the KV-pair.
+    if (key.compare(*filtered_key_) < 0) {
+      assert(new_value != nullptr);
+      *new_value = NEW_VALUE;
+      *value_changed = true;
+    }
+    return false /*do not remove this KV-pair*/;
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilter"; }
+
+ private:
+  const std::string* filtered_key_;
+};
+
+class ConditionalUpdateFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit ConditionalUpdateFilterFactory(const Slice& filtered_key)
+      : filtered_key_(filtered_key.ToString()) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::unique_ptr<CompactionFilter>(
+        new ConditionalUpdateFilter(&filtered_key_));
+  }
+
+  const char* Name() const override { return "ConditionalUpdateFilterFactory"; }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    // This compaction filter will be invoked
+    // at flush time (and therefore at MemPurge time).
+    return (reason == TableFileCreationReason::kFlush);
+  }
+
+ private:
+  std::string filtered_key_;
+};
+
+TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
+  Options options = CurrentOptions();
+
+  std::string KEY1 = "ThisIsKey1";
+  std::string KEY2 = "ThisIsKey2";
+  std::string KEY3 = "ThisIsKey3";
+  std::string KEY4 = "ThisIsKey4";
+  std::string KEY5 = "ThisIsKey5";
+  std::string KEY6 = "ThisIsKey6";
+  std::string KEY7 = "ThisIsKey7";
+  std::string KEY8 = "ThisIsKey8";
+  std::string KEY9 = "ThisIsKey9";
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
+  // Create a ConditionalUpdate compaction filter
+  // that will update all the values of the KV pairs
+  // where the keys are "lower" than KEY4.
+  options.compaction_filter_factory =
+      std::make_shared<ConditionalUpdateFilterFactory>(KEY4);
+
+  // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+
+  ASSERT_OK(TryReopen(options));
+
+  uint32_t mempurge_count = 0;
+  uint32_t sst_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(53);
+  const size_t NUM_REPEAT = 1000;
+  const size_t RAND_VALUES_LENGTH = 10240;
+  std::string p_v1, p_v2, p_v3, p_v4, p_v5, p_v6, p_v7, p_v8, p_v9;
+
+  p_v1 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v2 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v3 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v4 = rnd.RandomString(RAND_VALUES_LENGTH);
+  p_v5 = rnd.RandomString(RAND_VALUES_LENGTH);
+  ASSERT_OK(Put(KEY1, p_v1));
+  ASSERT_OK(Put(KEY2, p_v2));
+  ASSERT_OK(Put(KEY3, p_v3));
+  ASSERT_OK(Put(KEY4, p_v4));
+  ASSERT_OK(Put(KEY5, p_v5));
+  ASSERT_OK(Delete(KEY1));
+
+  // Insertion of of K-V pairs, multiple times.
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    // Create value strings of arbitrary
+    // length RAND_VALUES_LENGTH bytes.
+    p_v6 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v7 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v8 = rnd.RandomString(RAND_VALUES_LENGTH);
+    p_v9 = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEY6, p_v6));
+    ASSERT_OK(Put(KEY7, p_v7));
+    ASSERT_OK(Put(KEY8, p_v8));
+    ASSERT_OK(Put(KEY9, p_v9));
+
+    ASSERT_OK(Delete(KEY7));
+  }
+
+  // Check that there was at least one mempurge
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+  // Check that there was no SST files created during flush.
+  const uint32_t EXPECTED_SST_COUNT = 0;
+
+  EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+
+  // Verify that the ConditionalUpdateCompactionFilter
+  // updated the values of KEY2 and KEY3, and not KEY4 and KEY5.
+  ASSERT_EQ(Get(KEY1), NOT_FOUND);
+  ASSERT_EQ(Get(KEY2), NEW_VALUE);
+  ASSERT_EQ(Get(KEY3), NEW_VALUE);
+  ASSERT_EQ(Get(KEY4), p_v4);
+  ASSERT_EQ(Get(KEY5), p_v5);
+}
+
+TEST_F(DBFlushTest, MemPurgeWALSupport) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 128KB.
+  options.write_buffer_size = 128 << 10;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+
+  ASSERT_OK(TryReopen(options));
+
+  const size_t KVSIZE = 10;
+
+  do {
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(Put(1, "foo", "v1"));
+    ASSERT_OK(Put(1, "baz", "v5"));
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v1", Get(1, "foo"));
+
+    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    ASSERT_OK(Put(0, "bar", "v2"));
+    ASSERT_OK(Put(1, "bar", "v2"));
+    ASSERT_OK(Put(1, "foo", "v3"));
+    uint32_t mempurge_count = 0;
+    uint32_t sst_count = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::FlushJob:MemPurgeSuccessful",
+        [&](void* /*arg*/) { mempurge_count++; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    std::vector<std::string> keys;
+    for (size_t k = 0; k < KVSIZE; k++) {
+      keys.push_back("IamKey" + std::to_string(k));
+    }
+
+    std::string RNDKEY, RNDVALUE;
+    const std::string NOT_FOUND = "NOT_FOUND";
+
+    // Heavy overwrite workload,
+    // more than would fit in maximum allowed memtables.
+    Random rnd(719);
+    const size_t NUM_REPEAT = 100;
+    const size_t RAND_KEY_LENGTH = 4096;
+    const size_t RAND_VALUES_LENGTH = 1024;
+    std::vector<std::string> values_default(KVSIZE), values_pikachu(KVSIZE);
+
+    // Insert a very first set of keys that will be
+    // mempurged at least once.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+    }
+
+    // Insert keys[0:KVSIZE/2] to
+    // both 'default' and 'pikachu' CFs.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_OK(Put(0, keys[k], values_default[k]));
+      ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+    }
+
+    // Check that the insertion was seamless.
+    for (size_t k = 0; k < KVSIZE / 2; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'default' CF. Will trigger mempurge.
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_default[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
+
+      // Insert K-V into default CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(0, keys[k], values_default[k]));
+      }
+
+      // Check key validity, for all keys, both in
+      // default and pikachu CFs.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      }
+      // Note that at this point, only keys[0:KVSIZE/2]
+      // have been inserted into Pikachu.
+      for (size_t k = 0; k < KVSIZE / 2; k++) {
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
+    }
+
+    // Insertion of of K-V pairs, multiple times (overwrites)
+    // into 'pikachu' CF. Will trigger mempurge.
+    // Check that we keep the older logs for 'default' imm().
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        values_pikachu[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      }
+
+      // Insert K-V into pikachu CF.
+      for (size_t k = KVSIZE / 2; k < KVSIZE; k++) {
+        ASSERT_OK(Put(1, keys[k], values_pikachu[k]));
+      }
+
+      // Check key validity, for all keys,
+      // both in default and pikachu.
+      for (size_t k = 0; k < KVSIZE; k++) {
+        ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+        ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+      }
+    }
+
+    // Check that there was at least one mempurge
+    const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 1;
+    // Check that there was no SST files created during flush.
+    const uint32_t EXPECTED_SST_COUNT = 0;
+
+    EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
+    if (options.experimental_mempurge_threshold ==
+        std::numeric_limits<double>::max()) {
+      EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
+    }
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    // Check that there was no data corruption anywhere,
+    // not in 'default' nor in 'Pikachu' CFs.
+    ASSERT_EQ("v3", Get(1, "foo"));
+    ASSERT_OK(Put(1, "foo", "v4"));
+    ASSERT_EQ("v4", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    // Check keys in 'Default' and 'Pikachu'.
+    // keys[0:KVSIZE/2] were for sure contained
+    // in the imm() at Reopen/recovery time.
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+    // Insertion of random K-V pairs to trigger
+    // a flush in the Pikachu CF.
+    for (size_t j = 0; j < NUM_REPEAT; j++) {
+      RNDKEY = rnd.RandomString(RAND_KEY_LENGTH);
+      RNDVALUE = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(1, RNDKEY, RNDVALUE));
+    }
+    // ASsert than there was at least one flush to storage.
+    EXPECT_GT(sst_count, EXPECTED_SST_COUNT);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v4", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v5", Get(1, "baz"));
+    // Since values in default are held in mutable mem()
+    // and imm(), check if the flush in pikachu didn't
+    // affect these values.
+    for (size_t k = 0; k < KVSIZE; k++) {
+      ASSERT_EQ(Get(0, keys[k]), values_default[k]);
+      ASSERT_EQ(Get(1, keys[k]), values_pikachu[k]);
+    }
+    ASSERT_EQ(Get(1, RNDKEY), RNDVALUE);
+  } while (ChangeWalOptions());
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {

@@ -285,9 +285,13 @@ class DumpManifestHandler : public VersionEditHandler {
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
-      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);

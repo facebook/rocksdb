@@ -562,46 +562,9 @@ bool SerializeSingleOptionHelper(const void* opt_address,
                                           : kNullptrString;
       break;
     }
-    case OptionType::kComparator: {
-      // it's a const pointer of const Comparator*
-      const auto* ptr = static_cast<const Comparator* const*>(opt_address);
-      // Since the user-specified comparator will be wrapped by
-      // InternalKeyComparator, we should persist the user-specified one
-      // instead of InternalKeyComparator.
-      if (*ptr == nullptr) {
-        *value = kNullptrString;
-      } else {
-        const Comparator* root_comp = (*ptr)->GetRootComparator();
-        if (root_comp == nullptr) {
-          root_comp = (*ptr);
-        }
-        *value = root_comp->Name();
-      }
-      break;
-    }
-    case OptionType::kCompactionFilter: {
-      // it's a const pointer of const CompactionFilter*
-      const auto* ptr =
-          static_cast<const CompactionFilter* const*>(opt_address);
-      *value = *ptr ? (*ptr)->Name() : kNullptrString;
-      break;
-    }
-    case OptionType::kCompactionFilterFactory: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<CompactionFilterFactory>*>(
-              opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kMemTableRepFactory: {
       const auto* ptr =
           static_cast<const std::shared_ptr<MemTableRepFactory>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
-    case OptionType::kMergeOperator: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<MergeOperator>*>(opt_address);
       *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
@@ -615,13 +578,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
           *static_cast<const ChecksumType*>(opt_address), value);
-    case OptionType::kFlushBlockPolicyFactory: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
-              opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kEncodingType:
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
@@ -668,10 +624,13 @@ Status StringToMap(const std::string& opts_str,
   }
 
   while (pos < opts.size()) {
-    size_t eq_pos = opts.find('=', pos);
+    size_t eq_pos = opts.find_first_of("={};", pos);
     if (eq_pos == std::string::npos) {
       return Status::InvalidArgument("Mismatched key value pair, '=' expected");
+    } else if (opts[eq_pos] != '=') {
+      return Status::InvalidArgument("Unexpected char in key");
     }
+
     std::string key = trim(opts.substr(pos, eq_pos - pos));
     if (key.empty()) {
       return Status::InvalidArgument("Empty key found");
@@ -1113,19 +1072,37 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     return Status::NotSupported("Cannot serialize option: ", opt_name);
   } else if (serialize_func_ != nullptr) {
     return serialize_func_(config_options, opt_name, opt_addr, opt_value);
-  } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
-    return Status::OK();
   } else if (IsCustomizable()) {
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
     if (custom == nullptr) {
-      *opt_value = kNullptrString;
+      // We do not have a custom object to serialize.
+      // If the option is not mutable and we are doing only mutable options,
+      // we return an empty string (which will cause the option not to be
+      // printed). Otherwise, we return the "nullptr" string, which will result
+      // in "option=nullptr" being printed.
+      if (IsMutable() || !config_options.mutable_options_only) {
+        *opt_value = kNullptrString;
+      } else {
+        *opt_value = "";
+      }
     } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
                !config_options.IsDetailed()) {
       *opt_value = custom->GetId();
     } else {
       ConfigOptions embedded = config_options;
       embedded.delimiter = ";";
-      *opt_value = custom->ToString(embedded);
+      // If this option is mutable, everything inside it should be considered
+      // mutable
+      if (IsMutable()) {
+        embedded.mutable_options_only = false;
+      }
+      std::string value = custom->ToString(embedded);
+      if (!embedded.mutable_options_only ||
+          value.find("=") != std::string::npos) {
+        *opt_value = value;
+      } else {
+        *opt_value = "";
+      }
     }
     return Status::OK();
   } else if (IsConfigurable()) {
@@ -1135,6 +1112,10 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
       embedded.delimiter = ";";
       *opt_value = config->ToString(embedded);
     }
+    return Status::OK();
+  } else if (config_options.mutable_options_only && !IsMutable()) {
+    return Status::OK();
+  } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
     return Status::OK();
   } else {
     return Status::InvalidArgument("Cannot serialize option: ", opt_name);

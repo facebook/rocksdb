@@ -395,7 +395,11 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
       s = directory_to_fsync->Fsync(IOOptions(), nullptr);
     }
   } else {
-    fs->DeleteFile(tmp, IOOptions(), nullptr);
+    fs->DeleteFile(tmp, IOOptions(), nullptr)
+        .PermitUncheckedError();  // NOTE: PermitUncheckedError is acceptable
+                                  // here as we are already handling an error
+                                  // case, and this is just a best-attempt
+                                  // effort at some cleanup
   }
   return s;
 }

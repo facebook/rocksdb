@@ -32,6 +32,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <unordered_map>
 
@@ -45,6 +46,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -61,6 +63,9 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
+#ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/replayer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -95,6 +100,12 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
+#ifdef ROCKSDB_LITE
+#define IF_ROCKSDB_LITE(Then, Else) Then
+#else
+#define IF_ROCKSDB_LITE(Then, Else) Else
+#endif
+
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -114,11 +125,11 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "flush,"
-#ifndef ROCKSDB_LITE
+IF_ROCKSDB_LITE("",
     "compact0,"
     "compact1,"
     "waitforcompaction,"
-#endif
+)
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -208,11 +219,11 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
-#ifndef ROCKSDB_LITE
+IF_ROCKSDB_LITE("",
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
-#endif
+)
     "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
@@ -220,7 +231,9 @@ DEFINE_string(
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
+#ifndef ROCKSDB_LITE
     "\treplay      -- replay the trace file specified with trace_file\n"
+#endif  // ROCKSDB_LITE
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key "
@@ -323,6 +336,62 @@ DEFINE_int32(num_multi_db, 0,
 
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
+
+DEFINE_double(
+    overwrite_probability, 0.0,
+    "Used in 'filluniquerandom' benchmark: for each write operation, "
+    "we give a probability to perform an overwrite instead. The key used for "
+    "the overwrite is randomly chosen from the last 'overwrite_window_size' "
+    "keys "
+    "previously inserted into the DB. "
+    "Valid overwrite_probability values: [0.0, 1.0].");
+
+DEFINE_uint32(overwrite_window_size, 1,
+              "Used in 'filluniquerandom' benchmark. For each write "
+              "operation, when "
+              "the overwrite_probability flag is set by the user, the key used "
+              "to perform "
+              "an overwrite is randomly chosen from the last "
+              "'overwrite_window_size' keys "
+              "previously inserted into the DB. "
+              "Warning: large values can affect throughput. "
+              "Valid overwrite_window_size values: [1, kMaxUint32].");
+
+DEFINE_uint64(
+    disposable_entries_delete_delay, 0,
+    "Minimum delay in microseconds for the series of Deletes "
+    "to be issued. When 0 the insertion of the last disposable entry is "
+    "immediately followed by the issuance of the Deletes. "
+    "(only compatible with fillanddeleteuniquerandom benchmark).");
+
+DEFINE_uint64(disposable_entries_batch_size, 0,
+              "Number of consecutively inserted disposable KV entries "
+              "that will be deleted after 'delete_delay' microseconds. "
+              "A series of Deletes is always issued once all the "
+              "disposable KV entries it targets have been inserted "
+              "into the DB. When 0 no deletes are issued and a "
+              "regular 'filluniquerandom' benchmark occurs. "
+              "(only compatible with fillanddeleteuniquerandom benchmark)");
+
+DEFINE_int32(disposable_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries targeted by "
+             "selective deletes. "
+             "(only compatible with fillanddeleteuniquerandom benchmark)");
+
+DEFINE_uint64(
+    persistent_entries_batch_size, 0,
+    "Number of KV entries being inserted right before the deletes "
+    "targeting the disposable KV entries are issued. These "
+    "persistent keys are not targeted by the deletes, and will always "
+    "remain valid in the DB. (only compatible with "
+    "--benchmarks='fillanddeleteuniquerandom' "
+    "and used when--disposable_entries_batch_size is > 0).");
+
+DEFINE_int32(persistent_entries_value_size, 64,
+             "Size of the values (in bytes) of the entries not targeted by "
+             "deletes. (only compatible with "
+             "--benchmarks='fillanddeleteuniquerandom' "
+             "and used when--disposable_entries_batch_size is > 0).");
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
@@ -556,6 +625,10 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_int64(prepopulate_block_cache, 0,
+             "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
+             "to insert during flush");
+
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "
             "instead of kDataBlockBinarySearch. "
@@ -595,8 +668,9 @@ DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
              "Maximum write buffer for Writable File");
 
-DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
-             " use default settings.");
+DEFINE_int32(bloom_bits, -1,
+             "Bloom filter bits per key. Negative means use default."
+             "Zero disables.");
 
 DEFINE_bool(use_ribbon_filter, false, "Use Ribbon instead of Bloom filter");
 
@@ -820,6 +894,8 @@ DEFINE_bool(fifo_compaction_allow_compaction, true,
 
 DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 
+DEFINE_uint64(fifo_age_for_warm, 0, "age_for_warm for FIFO compaction.");
+
 // Stacked BlobDB Options
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
@@ -926,10 +1002,12 @@ DEFINE_bool(report_bg_io_stats, false,
 DEFINE_bool(use_stderr_info_logger, false,
             "Write info logs to stderr instead of to LOG file. ");
 
+#ifndef ROCKSDB_LITE
+
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
-DEFINE_int32(trace_replay_fast_forward, 1,
-             "Fast forward trace replay, must >= 1. ");
+DEFINE_double(trace_replay_fast_forward, 1.0,
+              "Fast forward trace replay, must > 0.0.");
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
@@ -942,6 +1020,8 @@ DEFINE_int64(
 DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
+
+#endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -1054,7 +1134,7 @@ DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
 DEFINE_int64(report_interval_seconds, 0,
-             "If greater than zero, it will write simple stats in CVS format "
+             "If greater than zero, it will write simple stats in CSV format "
              "to --report_file every N seconds");
 
 DEFINE_string(report_file, "report.csv",
@@ -1067,15 +1147,6 @@ DEFINE_int32(thread_status_per_interval, 0,
 
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
-
-#ifndef ROCKSDB_LITE
-static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
-    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
-  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
-      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
-  return composite_env.get();
-}
-#endif
 
 static bool ValidateRateLimit(const char* flagname, double value) {
   const double EPSILON = 1e-10;
@@ -1111,6 +1182,10 @@ DEFINE_bool(
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum useful payload ratio estimate that triggers a mempurge "
+              "(memtable garbage collection).");
+
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
             "Support in-place memtable update for smaller or same-size values");
@@ -1135,6 +1210,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              " be stalled.");
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
+
+DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
+             "Set refill period on "
+             "rate limiter.");
 
 DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
@@ -1413,6 +1492,7 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
              "position");
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
+DEFINE_bool(report_open_timing, false, "if report open timing");
 DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 DEFINE_bool(read_with_latest_user_timestamp, true,
@@ -1458,6 +1538,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 struct ReportFileOpCounters {
   std::atomic<int> open_counter_;
+  std::atomic<int> delete_counter_;
+  std::atomic<int> rename_counter_;
+  std::atomic<int> flush_counter_;
+  std::atomic<int> sync_counter_;
+  std::atomic<int> fsync_counter_;
+  std::atomic<int> close_counter_;
   std::atomic<int> read_counter_;
   std::atomic<int> append_counter_;
   std::atomic<uint64_t> bytes_read_;
@@ -1471,6 +1557,12 @@ class ReportFileOpEnv : public EnvWrapper {
 
   void reset() {
     counters_.open_counter_ = 0;
+    counters_.delete_counter_ = 0;
+    counters_.rename_counter_ = 0;
+    counters_.flush_counter_ = 0;
+    counters_.sync_counter_ = 0;
+    counters_.fsync_counter_ = 0;
+    counters_.close_counter_ = 0;
     counters_.read_counter_ = 0;
     counters_.append_counter_ = 0;
     counters_.bytes_read_ = 0;
@@ -1507,6 +1599,22 @@ class ReportFileOpEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), counters()));
     }
     return s;
+  }
+
+  Status DeleteFile(const std::string& fname) override {
+    Status s = target()->DeleteFile(fname);
+    if (s.ok()) {
+      counters()->delete_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return s;
+  }
+
+  Status RenameFile(const std::string& s, const std::string& t) override {
+    Status st = target()->RenameFile(s, t);
+    if (st.ok()) {
+      counters()->rename_counter_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return st;
   }
 
   Status NewRandomAccessFile(const std::string& f,
@@ -1565,10 +1673,37 @@ class ReportFileOpEnv : public EnvWrapper {
         return Append(data);
       }
 
-      Status Truncate(uint64_t size) override { return target_->Truncate(size); }
-      Status Close() override { return target_->Close(); }
-      Status Flush() override { return target_->Flush(); }
-      Status Sync() override { return target_->Sync(); }
+      Status Truncate(uint64_t size) override {
+        return target_->Truncate(size);
+      }
+      Status Close() override {
+        Status s = target_->Close();
+        if (s.ok()) {
+          counters_->close_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Flush() override {
+        Status s = target_->Flush();
+        if (s.ok()) {
+          counters_->flush_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Sync() override {
+        Status s = target_->Sync();
+        if (s.ok()) {
+          counters_->sync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
+      Status Fsync() override {
+        Status s = target_->Fsync();
+        if (s.ok()) {
+          counters_->fsync_counter_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+      }
     };
 
     Status s = target()->NewWritableFile(f, r, soptions);
@@ -2245,6 +2380,18 @@ class Stats {
       ReportFileOpCounters* counters = env->counters();
       fprintf(stdout, "Num files opened: %d\n",
               counters->open_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files deleted: %d\n",
+              counters->delete_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num files renamed: %d\n",
+              counters->rename_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Flush(): %d\n",
+              counters->flush_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Sync(): %d\n",
+              counters->sync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Fsync(): %d\n",
+              counters->fsync_counter_.load(std::memory_order_relaxed));
+      fprintf(stdout, "Num Close(): %d\n",
+              counters->close_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Read(): %d\n",
               counters->read_counter_.load(std::memory_order_relaxed));
       fprintf(stdout, "Num Append(): %d\n",
@@ -2432,7 +2579,6 @@ class Benchmark {
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
-  std::shared_ptr<const FilterPolicy> filter_policy_;
   const SliceTransform* prefix_extractor_;
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
@@ -2472,6 +2618,9 @@ class Benchmark {
           recovery_complete_(false) {}
 
     ~ErrorHandlerListener() override {}
+
+    const char* Name() const override { return kClassName(); }
+    static const char* kClassName() { return "ErrorHandlerListener"; }
 
     void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                               Status /*bg_error*/,
@@ -2805,9 +2954,8 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s =
-            ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-                FLAGS_secondary_cache_uri, &secondary_cache);
+        Status s = SecondaryCache::CreateFromString(
+            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,
@@ -2826,13 +2974,6 @@ class Benchmark {
   Benchmark()
       : cache_(NewCache(FLAGS_cache_size)),
         compressed_cache_(NewCache(FLAGS_compressed_cache_size)),
-        filter_policy_(
-            FLAGS_use_ribbon_filter
-                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
-                : FLAGS_bloom_bits >= 0
-                      ? NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                             FLAGS_use_block_based_filter)
-                      : nullptr),
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         key_size_(FLAGS_key_size),
@@ -2918,11 +3059,15 @@ class Benchmark {
     }
   }
 
-  ~Benchmark() {
+  void DeleteDBs() {
     db_.DeleteDBs();
-    for (auto db : multi_dbs_) {
-      db.DeleteDBs();
+    for (const DBWithColumnFamilies& dbwcf : multi_dbs_) {
+      delete dbwcf.db;
     }
+  }
+
+  ~Benchmark() {
+    DeleteDBs();
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
       // Clear cache reference first
@@ -3055,10 +3200,7 @@ class Benchmark {
   }
 
   void ErrorExit() {
-    db_.DeleteDBs();
-    for (size_t i = 0; i < multi_dbs_.size(); i++) {
-      delete multi_dbs_[i].db;
-    }
+    DeleteDBs();
     exit(1);
   }
 
@@ -3160,12 +3302,13 @@ class Benchmark {
       } else if (name == "fillrandom") {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
-      } else if (name == "filluniquerandom") {
+      } else if (name == "filluniquerandom" ||
+                 name == "fillanddeleteuniquerandom") {
         fresh_db = true;
         if (num_threads > 1) {
           fprintf(stderr,
-                  "filluniquerandom multithreaded not supported"
-                  ", use 1 thread");
+                  "filluniquerandom and fillanddeleteuniquerandom "
+                  "multithreaded not supported, use 1 thread");
           num_threads = 1;
         }
         method = &Benchmark::WriteUniqueRandom;
@@ -3334,6 +3477,7 @@ class Benchmark {
         PrintStats("rocksdb.sstables");
       } else if (name == "stats_history") {
         PrintStatsHistory();
+#ifndef ROCKSDB_LITE
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -3344,6 +3488,7 @@ class Benchmark {
           ErrorExit();
         }
         method = &Benchmark::Replay;
+#endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
@@ -3786,6 +3931,7 @@ class Benchmark {
   void InitializeOptionsFromFlags(Options* opts) {
     printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
+    ConfigOptions config_options(options);
 
     assert(db_.db == nullptr);
 
@@ -3820,6 +3966,7 @@ class Benchmark {
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
         FLAGS_fifo_compaction_allow_compaction);
+    options.compaction_options_fifo.age_for_warm = FLAGS_fifo_age_for_warm;
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
@@ -3900,7 +4047,7 @@ class Benchmark {
 
       int bloom_bits_per_key = FLAGS_bloom_bits;
       if (bloom_bits_per_key < 0) {
-        bloom_bits_per_key = 0;
+        bloom_bits_per_key = PlainTableOptions().bloom_bits_per_key;
       }
 
       PlainTableOptions plain_table_options;
@@ -4007,13 +4154,27 @@ class Benchmark {
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.index_block_restart_interval =
           FLAGS_index_block_restart_interval;
-      block_based_options.filter_policy = filter_policy_;
       block_based_options.format_version =
           static_cast<uint32_t>(FLAGS_format_version);
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
+          block_based_options.prepopulate_block_cache;
+      switch (FLAGS_prepopulate_block_cache) {
+        case 0:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kDisable;
+          break;
+        case 1:
+          prepopulate_block_cache =
+              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+          break;
+        default:
+          fprintf(stderr, "Unknown prepopulate block cache mode\n");
+      }
+      block_based_options.prepopulate_block_cache = prepopulate_block_cache;
       if (FLAGS_use_data_block_hash_index) {
         block_based_options.data_block_index_type =
             ROCKSDB_NAMESPACE::BlockBasedTableOptions::kDataBlockBinaryAndHash;
@@ -4110,6 +4271,8 @@ class Benchmark {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
+    options.experimental_mempurge_threshold =
+        FLAGS_experimental_mempurge_threshold;
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
@@ -4134,12 +4297,14 @@ class Benchmark {
     options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
 
     // merge operator options
-    options.merge_operator = MergeOperators::CreateFromStringId(
-        FLAGS_merge_operator);
-    if (options.merge_operator == nullptr && !FLAGS_merge_operator.empty()) {
-      fprintf(stderr, "invalid merge operator: %s\n",
-              FLAGS_merge_operator.c_str());
-      exit(1);
+    if (!FLAGS_merge_operator.empty()) {
+      Status s = MergeOperator::CreateFromString(
+          config_options, FLAGS_merge_operator, &options.merge_operator);
+      if (!s.ok()) {
+        fprintf(stderr, "invalid merge operator[%s]: %s\n",
+                FLAGS_merge_operator.c_str(), s.ToString().c_str());
+        exit(1);
+      }
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
     options.report_bg_io_stats = FLAGS_report_bg_io_stats;
@@ -4235,10 +4400,14 @@ class Benchmark {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }
-      if (FLAGS_bloom_bits >= 0) {
+      if (FLAGS_bloom_bits < 0) {
+        table_options->filter_policy = BlockBasedTableOptions().filter_policy;
+      } else if (FLAGS_bloom_bits == 0) {
+        table_options->filter_policy.reset();
+      } else {
         table_options->filter_policy.reset(
             FLAGS_use_ribbon_filter
-                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
                 : NewBloomFilterPolicy(FLAGS_bloom_bits,
                                        FLAGS_use_block_based_filter));
       }
@@ -4273,7 +4442,7 @@ class Benchmark {
         exit(1);
       }
       options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
+          FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
           FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                     : RateLimiter::Mode::kWritesOnly,
@@ -4327,6 +4496,7 @@ class Benchmark {
 
   void OpenDb(Options options, const std::string& db_name,
       DBWithColumnFamilies* db) {
+    uint64_t open_start = FLAGS_report_open_timing ? FLAGS_env->NowNanos() : 0;
     Status s;
     // Open with column families if necessary.
     if (FLAGS_num_column_families > 1) {
@@ -4467,6 +4637,11 @@ class Benchmark {
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
+    if (FLAGS_report_open_timing) {
+      std::cout << "OpenDb:     "
+                << (FLAGS_env->NowNanos() - open_start) / 1000000.0
+                << " milliseconds\n";
+    }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
@@ -4529,6 +4704,13 @@ class Benchmark {
       }
       assert(false);
       return std::numeric_limits<uint64_t>::max();
+    }
+
+    // Only available for UNIQUE_RANDOM mode.
+    uint64_t Fetch(uint64_t index) {
+      assert(mode_ == UNIQUE_RANDOM);
+      assert(index < values_.size());
+      return values_[index];
     }
 
    private:
@@ -4601,6 +4783,79 @@ class Benchmark {
     Slice begin_key = AllocateKey(&begin_key_guard);
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
+    double p = 0.0;
+    uint64_t num_overwrites = 0, num_unique_keys = 0, num_selective_deletes = 0;
+    // If user set overwrite_probability flag,
+    // check if value is in [0.0,1.0].
+    if (FLAGS_overwrite_probability > 0.0) {
+      p = FLAGS_overwrite_probability > 1.0 ? 1.0 : FLAGS_overwrite_probability;
+      // If overwrite set by user, and UNIQUE_RANDOM mode on,
+      // the overwrite_window_size must be > 0.
+      if (write_mode == UNIQUE_RANDOM && FLAGS_overwrite_window_size == 0) {
+        fprintf(stderr,
+                "Overwrite_window_size must be  strictly greater than 0.\n");
+        ErrorExit();
+      }
+    }
+
+    // Default_random_engine provides slightly
+    // improved throughput over mt19937.
+    std::default_random_engine overwrite_gen{
+        static_cast<unsigned int>(FLAGS_seed)};
+    std::bernoulli_distribution overwrite_decider(p);
+
+    // Inserted key window is filled with the last N
+    // keys previously inserted into the DB (with
+    // N=FLAGS_overwrite_window_size).
+    // We use a deque struct because:
+    // - random access is O(1)
+    // - insertion/removal at beginning/end is also O(1).
+    std::deque<int64_t> inserted_key_window;
+    Random64 reservoir_id_gen(FLAGS_seed);
+
+    // --- Variables used in disposable/persistent keys simulation:
+    // The following variables are used when
+    // disposable_entries_batch_size is >0. We simualte a workload
+    // where the following sequence is repeated multiple times:
+    // "A set of keys S1 is inserted ('disposable entries'), then after
+    // some delay another set of keys S2 is inserted ('persistent entries')
+    // and the first set of keys S1 is deleted. S2 artificially represents
+    // the insertion of hypothetical results from some undefined computation
+    // done on the first set of keys S1. The next sequence can start as soon
+    // as the last disposable entry in the set S1 of this sequence is
+    // inserted, if the delay is non negligible"
+    bool skip_for_loop = false, is_disposable_entry = true;
+    std::vector<uint64_t> disposable_entries_index(num_key_gens, 0);
+    std::vector<uint64_t> persistent_ent_and_del_index(num_key_gens, 0);
+    const uint64_t kNumDispAndPersEntries =
+        FLAGS_disposable_entries_batch_size +
+        FLAGS_persistent_entries_batch_size;
+    if (kNumDispAndPersEntries > 0) {
+      if ((write_mode != UNIQUE_RANDOM) || (writes_per_range_tombstone_ > 0) ||
+          (p > 0.0)) {
+        fprintf(
+            stderr,
+            "Disposable/persistent deletes are not compatible with overwrites "
+            "and DeleteRanges; and are only supported in filluniquerandom.\n");
+        ErrorExit();
+      }
+      if (FLAGS_disposable_entries_value_size < 0 ||
+          FLAGS_persistent_entries_value_size < 0) {
+        fprintf(
+            stderr,
+            "disposable_entries_value_size and persistent_entries_value_size"
+            "have to be positive.\n");
+        ErrorExit();
+      }
+    }
+    Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    std::string random_value;
+    // Queue that stores scheduled timestamp of disposable entries deletes,
+    // along with starting index of disposable entry keys to delete.
+    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
+        num_key_gens);
+    // --- End of variables used in disposable/persistent keys simulation.
+
     std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
@@ -4635,9 +4890,118 @@ class Benchmark {
       int64_t batch_bytes = 0;
 
       for (int64_t j = 0; j < entries_per_batch_; j++) {
-        int64_t rand_num = key_gens[id]->Next();
+        int64_t rand_num = 0;
+        if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+          if ((inserted_key_window.size() > 0) &&
+              overwrite_decider(overwrite_gen)) {
+            num_overwrites++;
+            rand_num = inserted_key_window[reservoir_id_gen.Next() %
+                                           inserted_key_window.size()];
+          } else {
+            num_unique_keys++;
+            rand_num = key_gens[id]->Next();
+            if (inserted_key_window.size() < FLAGS_overwrite_window_size) {
+              inserted_key_window.push_back(rand_num);
+            } else {
+              inserted_key_window.pop_front();
+              inserted_key_window.push_back(rand_num);
+            }
+          }
+        } else if (kNumDispAndPersEntries > 0) {
+          // Check if queue is non-empty and if we need to insert
+          // 'persistent' KV entries (KV entries that are never deleted)
+          // and delete disposable entries previously inserted.
+          if (!disposable_entries_q[id].empty() &&
+              (disposable_entries_q[id].front().first <
+               FLAGS_env->NowMicros())) {
+            // If we need to perform a "merge op" pattern,
+            // we first write all the persistent KV entries not targeted
+            // by deletes, and then we write the disposable entries deletes.
+            if (persistent_ent_and_del_index[id] <
+                FLAGS_persistent_entries_batch_size) {
+              // Generate key to insert.
+              rand_num =
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      FLAGS_disposable_entries_batch_size +
+                                      persistent_ent_and_del_index[id]);
+              persistent_ent_and_del_index[id]++;
+              is_disposable_entry = false;
+              skip_for_loop = false;
+            } else if (persistent_ent_and_del_index[id] <
+                       kNumDispAndPersEntries) {
+              // Find key of the entry to delete.
+              rand_num =
+                  key_gens[id]->Fetch(disposable_entries_q[id].front().second +
+                                      (persistent_ent_and_del_index[id] -
+                                       FLAGS_persistent_entries_batch_size));
+              persistent_ent_and_del_index[id]++;
+              GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+              // For the delete operation, everything happens here and we
+              // skip the rest of the for-loop, which is designed for
+              // inserts.
+              if (FLAGS_num_column_families <= 1) {
+                batch.Delete(key);
+              } else {
+                // We use same rand_num as seed for key and column family so
+                // that we can deterministically find the cfh corresponding to a
+                // particular key while reading the key.
+                batch.Delete(db_with_cfh->GetCfh(rand_num), key);
+              }
+              // A delete only includes Key+Timestamp (no value).
+              batch_bytes += key_size_ + user_timestamp_size_;
+              bytes += key_size_ + user_timestamp_size_;
+              num_selective_deletes++;
+              // Skip rest of the for-loop (j=0, j<entries_per_batch_,j++).
+              skip_for_loop = true;
+            } else {
+              assert(false);  // should never reach this point.
+            }
+            // If disposable_entries_q needs to be updated (ie: when a selective
+            // insert+delete was successfully completed, pop the job out of the
+            // queue).
+            if (!disposable_entries_q[id].empty() &&
+                (disposable_entries_q[id].front().first <
+                 FLAGS_env->NowMicros()) &&
+                persistent_ent_and_del_index[id] == kNumDispAndPersEntries) {
+              disposable_entries_q[id].pop();
+              persistent_ent_and_del_index[id] = 0;
+            }
+
+            // If we are deleting disposable entries, skip the rest of the
+            // for-loop since there is no key-value inserts at this moment in
+            // time.
+            if (skip_for_loop) {
+              continue;
+            }
+
+          }
+          // If no job is in the queue, then we keep inserting disposable KV
+          // entries that will be deleted later by a series of deletes.
+          else {
+            rand_num = key_gens[id]->Fetch(disposable_entries_index[id]);
+            disposable_entries_index[id]++;
+            is_disposable_entry = true;
+            if ((disposable_entries_index[id] %
+                 FLAGS_disposable_entries_batch_size) == 0) {
+              // Skip the persistent KV entries inserts for now
+              disposable_entries_index[id] +=
+                  FLAGS_persistent_entries_batch_size;
+            }
+          }
+        } else {
+          rand_num = key_gens[id]->Next();
+        }
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-        Slice val = gen.Generate();
+        Slice val;
+        if (kNumDispAndPersEntries > 0) {
+          random_value = rnd_disposable_entry.RandomString(
+              is_disposable_entry ? FLAGS_disposable_entries_value_size
+                                  : FLAGS_persistent_entries_value_size);
+          val = Slice(random_value);
+          num_unique_keys++;
+        } else {
+          val = gen.Generate();
+        }
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           // Stacked BlobDB
@@ -4662,6 +5026,23 @@ class Benchmark {
         batch_bytes += val.size() + key_size_ + user_timestamp_size_;
         bytes += val.size() + key_size_ + user_timestamp_size_;
         ++num_written;
+
+        // If all disposable entries have been inserted, then we need to
+        // add in the job queue a call for 'persistent entry insertions +
+        // disposable entry deletions'.
+        if (kNumDispAndPersEntries > 0 && is_disposable_entry &&
+            ((disposable_entries_index[id] % kNumDispAndPersEntries) == 0)) {
+          // Queue contains [timestamp, starting_idx],
+          // timestamp = current_time + delay (minimum aboslute time when to
+          // start inserting the selective deletes) starting_idx = index in the
+          // keygen of the rand_num to generate the key of the first KV entry to
+          // delete (= key of the first selective delete).
+          disposable_entries_q[id].push(std::make_pair(
+              FLAGS_env->NowMicros() +
+                  FLAGS_disposable_entries_delete_delay /* timestamp */,
+              disposable_entries_index[id] - kNumDispAndPersEntries
+              /*starting idx*/));
+        }
         if (writes_per_range_tombstone_ > 0 &&
             num_written > writes_before_delete_range_ &&
             (num_written - writes_before_delete_range_) /
@@ -4762,6 +5143,17 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
       }
+    }
+    if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
+      fprintf(stdout,
+              "Number of unique keys inserted: %" PRIu64
+              ".\nNumber of overwrites: %" PRIu64 "\n",
+              num_unique_keys, num_overwrites);
+    } else if (kNumDispAndPersEntries > 0) {
+      fprintf(stdout,
+              "Number of unique keys inserted (disposable+persistent): %" PRIu64
+              ".\nNumber of 'disposable entry delete': %" PRIu64 "\n",
+              num_written, num_selective_deletes);
     }
     thread->stats.AddBytes(bytes);
   }
@@ -5381,6 +5773,7 @@ class Benchmark {
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
     int64_t read = 0;
+    int64_t bytes = 0;
     int64_t num_multireads = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -5431,6 +5824,7 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (statuses[i].ok()) {
+            bytes += keys[i].size() + values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!statuses[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5446,6 +5840,8 @@ class Benchmark {
         num_multireads++;
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           if (stat_list[i].ok()) {
+            bytes +=
+                keys[i].size() + pin_values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!stat_list[i].IsNotFound()) {
             fprintf(stderr, "MultiGet returned an error: %s\n",
@@ -5468,6 +5864,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 
@@ -5981,13 +6378,14 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
-    Iterator* single_iter = nullptr;
-    std::vector<Iterator*> multi_iters;
-    if (db_.db != nullptr) {
-      single_iter = db_.db->NewIterator(options);
-    } else {
-      for (const auto& db_with_cfh : multi_dbs_) {
-        multi_iters.push_back(db_with_cfh.db->NewIterator(options));
+    std::vector<Iterator*> tailing_iters;
+    if (FLAGS_use_tailing_iterator) {
+      if (db_.db != nullptr) {
+        tailing_iters.push_back(db_.db->NewIterator(options));
+      } else {
+        for (const auto& db_with_cfh : multi_dbs_) {
+          tailing_iters.push_back(db_with_cfh.db->NewIterator(options));
+        }
       }
     }
 
@@ -6021,24 +6419,22 @@ class Benchmark {
         }
       }
 
-      if (!FLAGS_use_tailing_iterator) {
-        if (db_.db != nullptr) {
-          delete single_iter;
-          single_iter = db_.db->NewIterator(options);
-        } else {
-          for (auto iter : multi_iters) {
-            delete iter;
-          }
-          multi_iters.clear();
-          for (const auto& db_with_cfh : multi_dbs_) {
-            multi_iters.push_back(db_with_cfh.db->NewIterator(options));
-          }
-        }
-      }
       // Pick a Iterator to use
-      Iterator* iter_to_use = single_iter;
-      if (single_iter == nullptr) {
-        iter_to_use = multi_iters[thread->rand.Next() % multi_iters.size()];
+      size_t db_idx_to_use =
+          (db_.db == nullptr)
+              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              : 0;
+      std::unique_ptr<Iterator> single_iter;
+      Iterator* iter_to_use;
+      if (FLAGS_use_tailing_iterator) {
+        iter_to_use = tailing_iters[db_idx_to_use];
+      } else {
+        if (db_.db != nullptr) {
+          single_iter.reset(db_.db->NewIterator(options));
+        } else {
+          single_iter.reset(multi_dbs_[db_idx_to_use].db->NewIterator(options));
+        }
+        iter_to_use = single_iter.get();
       }
 
       iter_to_use->Seek(key);
@@ -6070,8 +6466,7 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
-    delete single_iter;
-    for (auto iter : multi_iters) {
+    for (auto iter : tailing_iters) {
       delete iter;
     }
 
@@ -7374,7 +7769,7 @@ class Benchmark {
           fprintf(stdout,
                   "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
                   db.db->GetName().c_str(), k.c_str());
-          sleep(10);
+          FLAGS_env->SleepForMicroseconds(10 * 1000000);
           retry = true;
           break;
         }
@@ -7390,7 +7785,7 @@ class Benchmark {
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
-    sleep(5);
+    FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
     // I am skeptical that this check race free. I hope that checking twice
     // reduces the chance.
@@ -7594,6 +7989,8 @@ class Benchmark {
     }
   }
 
+#ifndef ROCKSDB_LITE
+
   void Replay(ThreadState* thread) {
     if (db_.db != nullptr) {
       Replay(thread, &db_);
@@ -7613,20 +8010,35 @@ class Benchmark {
           s.ToString().c_str());
       exit(1);
     }
-    Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
-                      std::move(trace_reader));
-    replayer.SetFastForward(
-        static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.MultiThreadReplay(
-        static_cast<uint32_t>(FLAGS_trace_replay_threads));
-    if (s.ok()) {
-      fprintf(stdout, "Replay started from trace_file: %s\n",
-              FLAGS_trace_file.c_str());
-    } else {
-      fprintf(stderr, "Starting replay failed. Error: %s\n",
+    std::unique_ptr<Replayer> replayer;
+    s = db_with_cfh->db->NewDefaultReplayer(db_with_cfh->cfh,
+                                            std::move(trace_reader), &replayer);
+    if (!s.ok()) {
+      fprintf(stderr,
+              "Encountered an error creating a default Replayer. "
+              "Error: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+    s = replayer->Prepare();
+    if (!s.ok()) {
+      fprintf(stderr, "Prepare for replay failed. Error: %s\n",
               s.ToString().c_str());
     }
+    s = replayer->Replay(
+        ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
+                      FLAGS_trace_replay_fast_forward),
+        nullptr);
+    replayer.reset();
+    if (s.ok()) {
+      fprintf(stdout, "Replay completed from trace_file: %s\n",
+              FLAGS_trace_file.c_str());
+    } else {
+      fprintf(stderr, "Replay failed. Error: %s\n", s.ToString().c_str());
+    }
   }
+
+#endif  // ROCKSDB_LITE
 };
 
 int db_bench_tool(int argc, char** argv) {
@@ -7693,23 +8105,20 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
-    if (FLAGS_env == nullptr) {
-      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
+  if (env_opts == 1) {
+    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                  &FLAGS_env, &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
-  } else if (!FLAGS_fs_uri.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
-    if (fs == nullptr) {
-      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
-      exit(1);
-    }
-    FLAGS_env = GetCompositeEnv(fs);
   } else if (FLAGS_simulate_hybrid_fs_file != "") {
-    FLAGS_env = GetCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-        FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    //**TODO: Make the simulate fs something that can be loaded
+    // from the ObjectRegistry...
+    static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+        NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+    FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
@@ -7766,13 +8175,6 @@ int db_bench_tool(int argc, char** argv) {
 
   if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
     fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
-    exit(1);
-  }
-
-  if ((FLAGS_enable_blob_files || FLAGS_enable_blob_garbage_collection) &&
-      !FLAGS_merge_operator.empty()) {
-    fprintf(stderr,
-            "Integrated BlobDB is currently incompatible with Merge.\n");
     exit(1);
   }
 

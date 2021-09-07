@@ -785,7 +785,6 @@ class BackupEngineImpl {
   std::unique_ptr<Directory> private_directory_;
 
   static const size_t kDefaultCopyFileBufferSize = 5 * 1024 * 1024LL;  // 5MB
-  mutable size_t copy_file_buffer_size_;
   bool read_only_;
   BackupStatistics backup_statistics_;
   std::unordered_set<std::string> reported_ignored_fields_;
@@ -924,7 +923,6 @@ BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
       options_(options),
       db_env_(db_env),
       backup_env_(options.backup_env != nullptr ? options.backup_env : db_env_),
-      copy_file_buffer_size_(kDefaultCopyFileBufferSize),
       read_only_(read_only) {
   if (options_.backup_rate_limiter == nullptr &&
       options_.backup_rate_limit > 0) {
@@ -1263,11 +1261,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     s = backup_env_->CreateDir(private_dir);
   }
 
-  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
-  if (rate_limiter) {
-    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
-  }
-
   // A set into which we will insert the dst_paths that are calculated for live
   // files and live WAL files.
   // This is used to check whether a live files shares a dst_path with another
@@ -1291,6 +1284,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
             ? true
             : false;
     EnvOptions src_raw_env_options(db_options);
+    RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
     s = checkpoint.CreateCustomCheckpoint(
         db_options,
         [&](const std::string& /*src_dirname*/, const std::string& /*fname*/,
@@ -1700,13 +1694,13 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     DeleteChildren(db_dir);
   }
 
-  RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
-  if (rate_limiter) {
-    copy_file_buffer_size_ =
-        static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
-  }
   Status s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
+  std::string temporary_current_file;
+  std::string final_current_file;
+  std::unique_ptr<Directory> db_dir_for_fsync;
+  std::unique_ptr<Directory> wal_dir_for_fsync;
+
   for (const auto& file_info : backup->GetFiles()) {
     const std::string& file = file_info->filename;
     // 1. get DB filename
@@ -1722,14 +1716,37 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     }
     // 3. Construct the final path
     // kWalFile lives in wal_dir and all the rest live in db_dir
-    dst = ((type == kWalFile) ? wal_dir : db_dir) + "/" + dst;
+    if (type == kWalFile) {
+      dst = wal_dir + "/" + dst;
+      if (options_.sync && !wal_dir_for_fsync) {
+        s = db_env_->NewDirectory(wal_dir, &wal_dir_for_fsync);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    } else {
+      dst = db_dir + "/" + dst;
+      if (options_.sync && !db_dir_for_fsync) {
+        s = db_env_->NewDirectory(db_dir, &db_dir_for_fsync);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    }
+    // For atomicity, initially restore CURRENT file to a temporary name.
+    // This is useful even without options_.sync e.g. in case the restore
+    // process is interrupted.
+    if (type == kCurrentFile) {
+      final_current_file = dst;
+      dst = temporary_current_file = dst + ".tmp";
+    }
 
     ROCKS_LOG_INFO(options_.info_log, "Restoring %s to %s\n", file.c_str(),
                    dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        EnvOptions() /* src_env_options */, false, rate_limiter,
-        0 /* size_limit */);
+        EnvOptions() /* src_env_options */, options_.sync,
+        options_.restore_rate_limiter.get(), 0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
         file_info->checksum_hex);
@@ -1755,6 +1772,31 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
           " while computed checksum is " + result.checksum_hex);
       break;
     }
+  }
+
+  // When enabled, the first Fsync is to ensure all files are fully persisted
+  // before renaming CURRENT.tmp
+  if (s.ok() && db_dir_for_fsync) {
+    ROCKS_LOG_INFO(options_.info_log, "Restore: fsync\n");
+    s = db_dir_for_fsync->Fsync();
+  }
+
+  if (s.ok() && wal_dir_for_fsync) {
+    s = wal_dir_for_fsync->Fsync();
+  }
+
+  if (s.ok() && !temporary_current_file.empty()) {
+    ROCKS_LOG_INFO(options_.info_log, "Restore: atomic rename CURRENT.tmp\n");
+    assert(!final_current_file.empty());
+    s = db_env_->RenameFile(temporary_current_file, final_current_file);
+  }
+
+  if (s.ok() && db_dir_for_fsync && !temporary_current_file.empty()) {
+    // Second Fsync is to ensure the final atomic rename of DB restore is
+    // fully persisted even if power goes out right after restore operation
+    // returns success
+    assert(db_dir_for_fsync);
+    s = db_dir_for_fsync->Fsync();
   }
 
   ROCKS_LOG_INFO(options_.info_log, "Restoring done -- %s\n",
@@ -1863,13 +1905,17 @@ Status BackupEngineImpl::CopyOrCreateFile(
     return s;
   }
 
+  size_t buf_size =
+      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
+                   : kDefaultCopyFileBufferSize;
+
   std::unique_ptr<WritableFileWriter> dest_writer(
       new WritableFileWriter(std::move(dst_file), dst, dst_file_options));
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
   if (!src.empty()) {
     src_reader.reset(new SequentialFileReader(std::move(src_file), src));
-    buf.reset(new char[copy_file_buffer_size_]);
+    buf.reset(new char[buf_size]);
   }
 
   Slice data;
@@ -1879,9 +1925,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
       return Status::Incomplete("Backup stopped");
     }
     if (!src.empty()) {
-      size_t buffer_to_read = (copy_file_buffer_size_ < size_limit)
-                                  ? copy_file_buffer_size_
-                                  : static_cast<size_t>(size_limit);
+      size_t buffer_to_read =
+          (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
       processed_buffer_size += buffer_to_read;
     } else {
@@ -2174,15 +2219,19 @@ Status BackupEngineImpl::ReadFileAndComputeChecksum(
     return s;
   }
 
-  std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
+  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
+  size_t buf_size =
+      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
+                   : kDefaultCopyFileBufferSize;
+  std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
   do {
     if (stop_backup_.load(std::memory_order_acquire)) {
       return Status::Incomplete("Backup stopped");
     }
-    size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
-      copy_file_buffer_size_ : static_cast<size_t>(size_limit);
+    size_t buffer_to_read =
+        (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
 
     if (!s.ok()) {

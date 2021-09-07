@@ -15,6 +15,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
@@ -169,6 +170,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
     fifo_compaction_options_type_info = {
         {"max_table_files_size",
          {offsetof(struct CompactionOptionsFIFO, max_table_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"age_for_warm",
+         {offsetof(struct CompactionOptionsFIFO, age_for_warm),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"ttl",
@@ -535,22 +540,32 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionVerificationType::kNormal, OptionTypeFlags::kNone,
              {0, OptionType::kCompressionType})},
         {"comparator",
-         {offset_of(&ImmutableCFOptions::user_comparator),
-          OptionType::kComparator, OptionVerificationType::kByName,
-          OptionTypeFlags::kCompareLoose,
-          // Parses the string and sets the corresponding comparator
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto old_comparator = static_cast<const Comparator**>(addr);
-            const Comparator* new_comparator = *old_comparator;
-            Status status =
-                opts.registry->NewStaticObject(value, &new_comparator);
-            if (status.ok()) {
-              *old_comparator = new_comparator;
-              return status;
-            }
-            return Status::OK();
-          }}},
+         OptionTypeInfo::AsCustomRawPtr<const Comparator>(
+             offset_of(&ImmutableCFOptions::user_comparator),
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
+             // Serializes a Comparator
+             [](const ConfigOptions& opts, const std::string&, const void* addr,
+                std::string* value) {
+               // it's a const pointer of const Comparator*
+               const auto* ptr = static_cast<const Comparator* const*>(addr);
+
+               // Since the user-specified comparator will be wrapped by
+               // InternalKeyComparator, we should persist the user-specified
+               // one instead of InternalKeyComparator.
+               if (*ptr == nullptr) {
+                 *value = kNullptrString;
+               } else if (opts.mutable_options_only) {
+                 *value = "";
+               } else {
+                 const Comparator* root_comp = (*ptr)->GetRootComparator();
+                 if (root_comp == nullptr) {
+                   root_comp = (*ptr);
+                 }
+                 *value = root_comp->ToString(opts);
+               }
+               return Status::OK();
+             },
+             /* Use the default match function*/ nullptr)},
         {"memtable_insert_with_hint_prefix_extractor",
          {offset_of(
               &ImmutableCFOptions::memtable_insert_with_hint_prefix_extractor),
@@ -646,30 +661,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
           }}},
         {"compaction_filter",
-         {offset_of(&ImmutableCFOptions::compaction_filter),
-          OptionType::kCompactionFilter, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
+             offset_of(&ImmutableCFOptions::compaction_filter),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"compaction_filter_factory",
-         {offset_of(&ImmutableCFOptions::compaction_filter_factory),
-          OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomSharedPtr<CompactionFilterFactory>(
+             offset_of(&ImmutableCFOptions::compaction_filter_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"merge_operator",
-         {offset_of(&ImmutableCFOptions::merge_operator),
-          OptionType::kMergeOperator,
-          OptionVerificationType::kByNameAllowFromNull,
-          OptionTypeFlags::kCompareLoose,
-          // Parses the input value as a MergeOperator, updating the value
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto mop = static_cast<std::shared_ptr<MergeOperator>*>(addr);
-            Status status =
-                opts.registry->NewSharedObject<MergeOperator>(value, mop);
-            // Only support static comparator for now.
-            if (status.ok()) {
-              return status;
-            }
-            return Status::OK();
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+             offset_of(&ImmutableCFOptions::merge_operator),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kCompareLoose | OptionTypeFlags::kAllowNull)},
         {"compaction_style",
          {offset_of(&ImmutableCFOptions::compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal,

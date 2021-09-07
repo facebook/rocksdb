@@ -211,9 +211,9 @@ Compaction::Compaction(
     std::vector<CompactionInputFiles> _inputs, int _output_level,
     uint64_t _target_file_size, uint64_t _max_compaction_bytes,
     uint32_t _output_path_id, CompressionType _compression,
-    CompressionOptions _compression_opts, uint32_t _max_subcompactions,
-    std::vector<FileMetaData*> _grandparents, bool _manual_compaction,
-    double _score, bool _deletion_compaction,
+    CompressionOptions _compression_opts, Temperature _output_temperature,
+    uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
+    bool _manual_compaction, double _score, bool _deletion_compaction,
     CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
@@ -229,6 +229,7 @@ Compaction::Compaction(
       output_path_id_(_output_path_id),
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
+      output_temperature_(_output_temperature),
       deletion_compaction_(_deletion_compaction),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
@@ -237,7 +238,8 @@ Compaction::Compaction(
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
-      compaction_reason_(_compaction_reason) {
+      compaction_reason_(_compaction_reason),
+      notify_on_compaction_completion_(false) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -304,6 +306,12 @@ bool Compaction::IsTrivialMove() const {
        immutable_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
+    return false;
+  }
+
+  if (start_level_ == output_level_) {
+    // It doesn't make sense if compaction picker picks files just to trivial
+    // move to the same level.
     return false;
   }
 
@@ -563,6 +571,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
+
+  // Note: the subcompaction boundary picking logic does not currently guarantee
+  // that all user keys that differ only by timestamp get processed by the same
+  // subcompaction.
+  if (cfd_->user_comparator()->timestamp_size() > 0) {
+    return false;
+  }
+
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
            !IsOutputLevelEmpty();
@@ -571,6 +587,29 @@ bool Compaction::ShouldFormSubcompactions() const {
   } else {
     return false;
   }
+}
+
+bool Compaction::DoesInputReferenceBlobFiles() const {
+  assert(input_version_);
+
+  const VersionStorageInfo* storage_info = input_version_->storage_info();
+  assert(storage_info);
+
+  if (storage_info->GetBlobFiles().empty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    for (const FileMetaData* meta : inputs_[i].files) {
+      assert(meta);
+
+      if (meta->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 uint64_t Compaction::MinInputFileOldestAncesterTime() const {

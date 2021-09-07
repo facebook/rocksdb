@@ -119,7 +119,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
   DBWALTestWithEnrichedEnv()
-      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
@@ -1262,10 +1262,11 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(
-        test->dbname_, &db_options, file_options, table_cache.get(),
-        &write_buffer_manager, &write_controller,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
+                                  table_cache.get(), &write_buffer_manager,
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr,
+                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));

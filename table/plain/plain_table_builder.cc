@@ -58,13 +58,13 @@ extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
     const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
-    const IntTblPropCollectorFactoryRange& int_tbl_prop_collector_factories,
+    const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
     uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
     bool store_index_in_file, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, uint64_t file_number)
     : ioptions_(ioptions),
       moptions_(moptions),
       bloom_block_(num_probes),
@@ -103,6 +103,7 @@ PlainTableBuilder::PlainTableBuilder(
   if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
     ROCKS_LOG_INFO(ioptions_.logger, "db_host_id property will not be set");
   }
+  properties_.orig_file_number = file_number;
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
                                           ? moptions_.prefix_extractor->Name()
                                           : "nullptr";
@@ -112,12 +113,12 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.user_collected_properties
       [PlainTablePropertyNames::kEncodingType] = val;
 
-  for (auto it = int_tbl_prop_collector_factories.first;
-       it != int_tbl_prop_collector_factories.second; ++it) {
-    assert(*it);
+  assert(int_tbl_prop_collector_factories);
+  for (auto& factory : *int_tbl_prop_collector_factories) {
+    assert(factory);
 
     table_properties_collectors_.emplace_back(
-        (*it)->CreateIntTblPropCollector(column_family_id));
+        factory->CreateIntTblPropCollector(column_family_id));
   }
 }
 

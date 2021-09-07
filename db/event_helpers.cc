@@ -5,7 +5,18 @@
 
 #include "db/event_helpers.h"
 
+#include "rocksdb/convenience.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/utilities/customizable_util.h"
+
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
+Status EventListener::CreateFromString(const ConfigOptions& config_options,
+                                       const std::string& id,
+                                       std::shared_ptr<EventListener>* result) {
+  return LoadSharedObject<EventListener>(config_options, id, nullptr, result);
+}
+#endif  // ROCKSDB_LITE
 
 namespace {
 template <class T>
@@ -132,7 +143,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "fast_compression_estimated_data_size"
               << table_properties.fast_compression_estimated_data_size
               << "db_id" << table_properties.db_id << "db_session_id"
-              << table_properties.db_session_id;
+              << table_properties.db_session_id << "orig_file_number"
+              << table_properties.orig_file_number;
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {

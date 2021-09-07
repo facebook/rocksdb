@@ -427,11 +427,20 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     assert(version_set_->manifest_file_size_ > 0);
     version_set_->next_file_number_.store(
         version_edit_params_.next_file_number_ + 1);
-    version_set_->last_allocated_sequence_ =
-        version_edit_params_.last_sequence_;
-    version_set_->last_published_sequence_ =
-        version_edit_params_.last_sequence_;
-    version_set_->last_sequence_ = version_edit_params_.last_sequence_;
+    SequenceNumber last_seq = version_edit_params_.last_sequence_;
+    assert(last_seq != kMaxSequenceNumber);
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_allocated_sequence_.load()) {
+      version_set_->last_allocated_sequence_.store(last_seq);
+    }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_published_sequence_.load()) {
+      version_set_->last_published_sequence_.store(last_seq);
+    }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_sequence_.load()) {
+      version_set_->last_sequence_.store(last_seq);
+    }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
   }
 }
@@ -909,7 +918,10 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
       fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
     }
     assert(cfd->current());
-    fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
+
+    // Print out DebugStrings. Can include non-terminating null characters.
+    fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
+           cfd->current()->DebugString(hex_).size(), stdout);
   }
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64

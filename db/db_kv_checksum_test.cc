@@ -29,7 +29,7 @@ class DbKvChecksumTest
       public ::testing::WithParamInterface<std::tuple<WriteBatchOpType, char>> {
  public:
   DbKvChecksumTest()
-      : DBTestBase("/db_kv_checksum_test", /*env_do_fsync=*/false) {
+      : DBTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
     op_type_ = std::get<0>(GetParam());
     corrupt_byte_addend_ = std::get<1>(GetParam());
   }

@@ -228,7 +228,15 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
   // Execute MultiGet.
   MultiGetContext::Range range = ctx.GetMultiGetRange();
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
   table->MultiGet(ReadOptions(), &range, nullptr);
+
+  ASSERT_GE(perf_ctx->block_read_count - perf_ctx->index_block_read_count -
+                perf_ctx->filter_block_read_count -
+                perf_ctx->compression_dict_block_read_count,
+            1);
+  ASSERT_GE(perf_ctx->block_read_byte, 1);
 
   for (const Status& status : statuses) {
     ASSERT_OK(status);

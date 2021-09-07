@@ -55,14 +55,9 @@ class CorruptionTest : public testing::Test {
     // bug in recovery code. Keep it 4 for now to make the test passes.
     tiny_cache_ = NewLRUCache(100, 4);
     Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
-#endif  //! ROCKSDB_LITE
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    EXPECT_NE(base_env, nullptr);
     env_ = new test::ErrorEnv(base_env);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = env_;

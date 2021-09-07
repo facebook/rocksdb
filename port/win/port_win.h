@@ -347,6 +347,12 @@ using ThreadId = int;
 
 extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
+int64_t GetProcessID();
+
+// Uses platform APIs to generate a 36-character RFC-4122 UUID. Returns
+// true on success or false on failure.
+bool GenerateRfcUuid(std::string* output);
+
 }  // namespace port
 
 

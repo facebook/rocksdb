@@ -284,6 +284,11 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_int32(cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** cache_numshardbits. Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
@@ -320,6 +325,10 @@ DEFINE_uint64(compaction_ttl, 1000,
 
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
+
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum estimated useful payload that triggers a "
+              "mempurge process to collect memtable garbage bytes.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
@@ -410,8 +419,11 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
-DEFINE_bool(use_ribbon_filter, false,
-            "Use Ribbon filter instead of Bloom filter");
+DEFINE_int32(
+    ribbon_starting_level, 999,
+    "Use Bloom filter on levels below specified and Ribbon beginning on level "
+    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
+    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -814,5 +826,20 @@ DEFINE_uint64(user_timestamp_size, 0,
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
              "during DB reopen.");
+
+#ifndef ROCKSDB_LITE
+DEFINE_string(secondary_cache_uri, "",
+              "Full URI for creating a customized secondary cache object");
+#endif  // ROCKSDB_LITE
+DEFINE_int32(open_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file writes "
+             "during DB reopen.");
+DEFINE_int32(open_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file reads "
+             "during DB reopen.");
+DEFINE_int32(injest_error_severity, 1,
+             "The severity of the injested IO Error. 1 is soft error (e.g. "
+             "retryable error), 2 is fatal error, and the default is "
+             "retryable error.");
 
 #endif  // GFLAGS

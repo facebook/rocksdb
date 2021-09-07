@@ -56,10 +56,11 @@ struct BackupEngineOptions {
   // Default: nullptr
   Logger* info_log;
 
-  // If sync == true, we can guarantee you'll get consistent backup even
-  // on a machine crash/reboot. Backup process is slower with sync enabled.
-  // If sync == false, we don't guarantee anything on machine reboot. However,
-  // chances are some of the backups are consistent.
+  // If sync == true, we can guarantee you'll get consistent backup and
+  // restore even on a machine crash/reboot. Backup and restore processes are
+  // slower with sync enabled. If sync == false, we can only guarantee that
+  // other previously synced backups and restores are not modified while
+  // creating a new one.
   // Default: true
   bool sync;
 

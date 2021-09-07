@@ -97,7 +97,9 @@ class DBImplSecondary : public DBImpl {
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
-                                      ReadCallback* read_callback);
+                                      ReadCallback* read_callback,
+                                      bool expose_blob_index = false,
+                                      bool allow_refresh = true);
 
   Status NewIterators(const ReadOptions& options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -277,6 +279,16 @@ class DBImplSecondary : public DBImpl {
                           const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
+
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
+
+    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+
+    Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+    Status MarkCommit(const Slice&) override { return Status::OK(); }
+
+    Status MarkNoop(bool) override { return Status::OK(); }
 
     const std::unordered_set<uint32_t>& column_families() const {
       return column_family_ids_;

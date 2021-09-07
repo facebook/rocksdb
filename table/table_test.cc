@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <stdio.h>
+
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -34,6 +35,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -398,7 +400,7 @@ class TableConstructor : public Constructor {
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
                            false, level_, largest_seqno_, &block_cache_tracer_,
-                           moptions.write_buffer_size),
+                           moptions.write_buffer_size, "", uniq_id_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -3579,9 +3581,9 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3500));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3500));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3525));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3525));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7050));
   c.ResetTableReader();
 }
 
@@ -3627,7 +3629,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
   Random rnd(test::RandomSeed() + 5);
   for (int num_entries = 0; num_entries < 2000;
@@ -3662,7 +3664,7 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
   ASSERT_GT(files, 0);
 }
 #endif  // ROCKSDB_LITE
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class MemTableTest : public testing::Test {
  public:

@@ -601,16 +601,19 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
+        db/blob/blob_fetcher.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
+        db/blob/blob_garbage_meter.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
@@ -687,6 +690,7 @@ set(SOURCES
         env/file_system_tracer.cc
         env/fs_remap.cc
         env/mock_env.cc
+        env/unique_id.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
         file/file_util.cc
@@ -791,9 +795,12 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
+        trace_replay/trace_record_result.cc
+        trace_replay/trace_record.cc
+        trace_replay/trace_replay.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -824,6 +831,7 @@ set(SOURCES
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
+        utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/debug.cc
         utilities/env_mirror.cc
@@ -832,6 +840,7 @@ set(SOURCES
         utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
@@ -851,6 +860,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/trace/replayer_impl.cc
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
@@ -909,13 +919,8 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc)
-  if(NOT MINGW)
-    # Mingw only supports std::thread when using
-    # posix threads.
-    list(APPEND SOURCES
-      port/win/win_thread.cc)
-  endif()
+    port/win/win_logger.cc
+    port/win/win_thread.cc)
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -1146,19 +1151,23 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
+        db/blob/blob_garbage_meter_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
+        db/compaction/clipping_iterator_test.cc
         db/compaction/compaction_job_stats_test.cc
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc
@@ -1363,7 +1372,7 @@ if(WITH_TESTS)
       )
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        gtest_discover_tests(${exename})
+        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
         add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
       endif()
       if("${exename}" MATCHES "env_librados_test")
@@ -1447,4 +1456,9 @@ endif()
 option(WITH_EXAMPLES "build with examples" OFF)
 if(WITH_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+option(WITH_BENCHMARK "build benchmark tests" OFF)
+if(WITH_BENCHMARK)
+  add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()

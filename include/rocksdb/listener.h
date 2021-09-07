@@ -14,6 +14,7 @@
 
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
@@ -92,6 +93,8 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // Compaction in order to move files to temperature
+  kChangeTemperature,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -355,8 +358,17 @@ struct ExternalFileIngestionInfo {
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
-class EventListener {
+class EventListener : public Customizable {
  public:
+  static const char* Type() { return "EventListener"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& id,
+                                 std::shared_ptr<EventListener>* result);
+  const char* Name() const override {
+    // Since EventListeners did not have a name previously, we will assume
+    // an empty name.  Instances should override this method.
+    return "";
+  }
   // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.
