@@ -33,6 +33,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
+#include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
@@ -1217,6 +1218,12 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   BackupID new_backup_id = latest_backup_id_ + 1;
 
+  // `bytes_read` and `bytes_written` stats are enabled based on compile-time
+  // support and cannot be dynamically toggled. So we do not need to worry about
+  // `PerfLevel` here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  uint64_t prev_bytes_read = IOSTATS(bytes_read);
+  uint64_t prev_bytes_written = IOSTATS(bytes_written);
+
   assert(backups_.find(new_backup_id) == backups_.end());
 
   auto private_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id));
@@ -1270,10 +1277,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
   Status disabled = db->DisableFileDeletions();
+  DBOptions db_options = db->GetDBOptions();
+  Statistics* stats = db_options.statistics.get();
   if (s.ok()) {
     CheckpointImpl checkpoint(db);
     uint64_t sequence_number = 0;
-    DBOptions db_options = db->GetDBOptions();
     FileChecksumGenFactory* db_checksum_factory =
         db_options.file_checksum_gen_factory.get();
     const std::string kFileChecksumGenFactoryName =
@@ -1415,8 +1423,28 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (s.ok()) {
     backup_statistics_.IncrementNumberSuccessBackup();
-  }
-  if (!s.ok()) {
+    // here we know that we succeeded and installed the new backup
+    // in the LATEST_BACKUP file
+    latest_backup_id_ = new_backup_id;
+    latest_valid_backup_id_ = new_backup_id;
+    if (new_backup_id_ptr) {
+      *new_backup_id_ptr = new_backup_id;
+    }
+    ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
+
+    // backup_speed is in byte/second
+    double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
+    ROCKS_LOG_INFO(options_.info_log, "Backup number of files: %u",
+                   new_backup->GetNumberFiles());
+    char human_size[16];
+    AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
+    ROCKS_LOG_INFO(options_.info_log, "Backup size: %s", human_size);
+    ROCKS_LOG_INFO(options_.info_log, "Backup time: %" PRIu64 " microseconds",
+                   backup_time);
+    ROCKS_LOG_INFO(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
+    ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s",
+                   backup_statistics_.ToString().c_str());
+  } else {
     backup_statistics_.IncrementNumberFailBackup();
     // clean all the files we might have created
     ROCKS_LOG_INFO(options_.info_log, "Backup failed -- %s",
@@ -1426,30 +1454,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     // delete files that we might have already written
     might_need_garbage_collect_ = true;
     DeleteBackup(new_backup_id).PermitUncheckedError();
-    return s;
   }
 
-  // here we know that we succeeded and installed the new backup
-  // in the LATEST_BACKUP file
-  latest_backup_id_ = new_backup_id;
-  latest_valid_backup_id_ = new_backup_id;
-  if (new_backup_id_ptr) {
-    *new_backup_id_ptr = new_backup_id;
-  }
-  ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
-
-  // backup_speed is in byte/second
-  double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
-  ROCKS_LOG_INFO(options_.info_log, "Backup number of files: %u",
-                 new_backup->GetNumberFiles());
-  char human_size[16];
-  AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
-  ROCKS_LOG_INFO(options_.info_log, "Backup size: %s", human_size);
-  ROCKS_LOG_INFO(options_.info_log, "Backup time: %" PRIu64 " microseconds",
-                 backup_time);
-  ROCKS_LOG_INFO(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
-  ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s",
-                 backup_statistics_.ToString().c_str());
+  RecordTick(stats, BACKUP_READ_BYTES, IOSTATS(bytes_read) - prev_bytes_read);
+  RecordTick(stats, BACKUP_WRITE_BYTES,
+             IOSTATS(bytes_written) - prev_bytes_written);
   return s;
 }
 
