@@ -23,10 +23,10 @@ namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // Avoid including winsock2.h for this definition
-typedef struct timeval {
+struct timeval {
   long tv_sec;
   long tv_usec;
-} timeval;
+};
 
 void gettimeofday(struct timeval* tv, struct timezone* tz);
 

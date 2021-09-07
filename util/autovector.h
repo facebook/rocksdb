@@ -51,25 +51,25 @@ template <class T, size_t kSize = 8>
 class autovector {
  public:
   // General STL-style container member types.
-  typedef T value_type;
-  typedef typename std::vector<T>::difference_type difference_type;
-  typedef typename std::vector<T>::size_type size_type;
-  typedef value_type& reference;
-  typedef const value_type& const_reference;
-  typedef value_type* pointer;
-  typedef const value_type* const_pointer;
+  using value_type = T;
+  using difference_type = typename std::vector<T>::difference_type;
+  using size_type = typename std::vector<T>::size_type;
+  using reference = value_type&;
+  using const_reference = const value_type&;
+  using pointer = value_type*;
+  using const_pointer = const value_type*;
 
   // This class is the base for regular/const iterator
   template <class TAutoVector, class TValueType>
   class iterator_impl {
    public:
     // -- iterator traits
-    typedef iterator_impl<TAutoVector, TValueType> self_type;
-    typedef TValueType value_type;
-    typedef TValueType& reference;
-    typedef TValueType* pointer;
-    typedef typename TAutoVector::difference_type difference_type;
-    typedef std::random_access_iterator_tag iterator_category;
+    using self_type = iterator_impl<TAutoVector, TValueType>;
+    using value_type = TValueType;
+    using reference = TValueType&;
+    using pointer = TValueType*;
+    using difference_type = typename TAutoVector::difference_type;
+    using iterator_category = std::random_access_iterator_tag;
 
     iterator_impl(TAutoVector* vect, size_t index)
         : vect_(vect), index_(index) {};
@@ -175,10 +175,10 @@ class autovector {
     size_t index_ = 0;
   };
 
-  typedef iterator_impl<autovector, value_type> iterator;
-  typedef iterator_impl<const autovector, const value_type> const_iterator;
-  typedef std::reverse_iterator<iterator> reverse_iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+  using iterator = iterator_impl<autovector, value_type>;
+  using const_iterator = iterator_impl<const autovector, const value_type>;
+  using reverse_iterator = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   autovector() : values_(reinterpret_cast<pointer>(buf_)) {}
 
