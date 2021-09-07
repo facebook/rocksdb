@@ -407,8 +407,7 @@ class BackupEngineImpl {
     Status LoadFromFile(
         const std::string& backup_dir,
         const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
-        RateLimiter* rate_limiter,
-        Logger* info_log,
+        RateLimiter* rate_limiter, Logger* info_log,
         std::unordered_set<std::string>* reported_ignored_fields);
     Status StoreToFile(
         bool sync, const TEST_FutureSchemaVersion2Options* test_future_options);
@@ -551,9 +550,8 @@ class BackupEngineImpl {
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
-                             const std::string& file_path, 
-                             RateLimiter* rate_limiter,
-                             std::string* db_id,
+                             const std::string& file_path,
+                             RateLimiter* rate_limiter, std::string* db_id,
                              std::string* db_session_id);
 
   struct CopyOrCreateResult {
@@ -1091,7 +1089,8 @@ Status BackupEngineImpl::Initialize() {
           &abs_path_to_size);
       if (s.ok()) {
         s = backup_iter->second->LoadFromFile(
-            options_.backup_dir, abs_path_to_size, options_.backup_rate_limiter.get(), options_.info_log,
+            options_.backup_dir, abs_path_to_size,
+            options_.backup_rate_limiter.get(), options_.info_log,
             &reported_ignored_fields_);
       }
       if (s.IsCorruption() || s.IsNotSupported()) {
@@ -2053,8 +2052,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, rate_limiter, &db_id,
-                          &db_session_id)
+      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname,
+                          rate_limiter, &db_id, &db_session_id)
           .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
@@ -2312,9 +2311,9 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     } else {
       table_properties = tp.get();
       if (table_properties != nullptr && rate_limiter != nullptr) {
-        // sizeof(*table_properties) is a sufficent but far-from-exact approximation 
-        // of read bytes due to metaindex block, std::string properties and 
-        // varint compression
+        // sizeof(*table_properties) is a sufficent but far-from-exact
+        // approximation of read bytes due to metaindex block, std::string
+        // properties and varint compression
         rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
                               nullptr /* stats */, RateLimiter::OpType::kRead);
       }
@@ -2641,8 +2640,8 @@ const std::string kNonIgnorableFieldPrefix{"ni::"};
 Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir,
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
-    RateLimiter* rate_limiter,
-    Logger* info_log, std::unordered_set<std::string>* reported_ignored_fields) {
+    RateLimiter* rate_limiter, Logger* info_log,
+    std::unordered_set<std::string>* reported_ignored_fields) {
   assert(reported_ignored_fields);
   assert(Empty());
 
