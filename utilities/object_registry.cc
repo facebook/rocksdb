@@ -50,18 +50,19 @@ void ObjectLibrary::Dump(Logger *logger) const {
   std::unique_lock<std::mutex> lock(mu_);
   if (logger != nullptr && !entries_.empty()) {
     ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
-  for (const auto &iter : entries_) {
-    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
-                     iter.first.c_str());
-    bool printed_one = false;
-    for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                       e->Name().c_str());
-      printed_one = true;
+    for (const auto &iter : entries_) {
+      ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
+                       iter.first.c_str());
+      bool printed_one = false;
+      for (const auto &e : iter.second) {
+        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
+                         e->Name().c_str());
+        printed_one = true;
+      }
     }
   }
 }
-
+  
 // Returns the Default singleton instance of the ObjectLibrary
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
