@@ -3675,6 +3675,12 @@ TEST_F(BackupEngineTest, IOStatsFullBackup) {
   size_t expected_bytes_read;
   ASSERT_OK(
       GetSizeOfDBFiles(db_.get(), kBackupCopyFileTypes, &expected_bytes_read));
+  // We currently double read WAL because `GetSortedWalFiles()` does a buffered
+  // read of the first record, which happens to be the whole file.
+  size_t wal_bytes;
+  ASSERT_OK(
+      GetSizeOfDBFiles(db_.get(), {kWalFile}, &wal_bytes));
+  expected_bytes_read += wal_bytes;
   ASSERT_EQ(expected_bytes_read,
             options_.statistics->getTickerCount(BACKUP_READ_BYTES));
 
