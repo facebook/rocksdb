@@ -2312,6 +2312,9 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     } else {
       table_properties = tp.get();
       if (table_properties != nullptr && rate_limiter != nullptr) {
+        // sizeof(*table_properties) is a sufficent but far-from-exact approximation 
+        // of read bytes due to metaindex block, std::string properties and 
+        // varint compression
         rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
                               nullptr /* stats */, RateLimiter::OpType::kRead);
       }
