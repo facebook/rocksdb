@@ -51,8 +51,13 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
+#ifndef ROCKSDB_LITE
 #include "rocksdb/trace_reader_writer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/transaction_log.h"
+#ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/replayer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
@@ -463,6 +468,12 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+
+  using DB::NewDefaultReplayer;
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& handles,
+      std::unique_ptr<TraceReader>&& reader,
+      std::unique_ptr<Replayer>* replayer) override;
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
@@ -1103,6 +1114,8 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static std::string GenerateDbSessionId(Env* env);
+
  protected:
   const std::string dbname_;
   std::string db_id_;
@@ -1740,7 +1753,7 @@ class DBImpl : public DB {
   // specified value, this flush request is considered to have completed its
   // work of flushing this column family. After completing the work for all
   // column families in this request, this flush is considered complete.
-  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+  using FlushRequest = std::vector<std::pair<ColumnFamilyData*, uint64_t>>;
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushRequest* req);
@@ -2002,7 +2015,7 @@ class DBImpl : public DB {
   // accessed from the same write_thread_ without any locks. With
   // two_write_queues writes, where it can be updated in different threads,
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
-  // expesnive mutex_ lock during WAL write, which update log_empty_.
+  // expensive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
   ColumnFamilyHandleImpl* persist_stats_cf_handle_;

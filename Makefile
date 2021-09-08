@@ -525,7 +525,6 @@ ifdef ASSERT_STATUS_CHECKED
 	TESTS_FAILING_ASC = \
 		c_test \
 		db_test \
-		db_test2 \
 		env_test \
 		range_locking_test \
 		testutil_test \
@@ -944,6 +943,7 @@ endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
+	$(MAKE) check-sources
 endif
 
 # TODO add ldb_tests
@@ -1220,6 +1220,9 @@ check-format:
 
 check-buck-targets:
 	buckifier/check_buck_targets.sh
+
+check-sources:
+	build_tools/check-sources.sh
 
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
@@ -1899,6 +1902,8 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
+cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -2363,7 +2368,7 @@ build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

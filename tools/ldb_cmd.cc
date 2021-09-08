@@ -2163,8 +2163,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string
@@ -2192,8 +2191,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string

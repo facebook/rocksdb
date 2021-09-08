@@ -53,6 +53,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "env/unique_id.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -94,6 +95,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
+#include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -103,6 +105,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "utilities/trace/replayer_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -558,7 +561,7 @@ Status DBImpl::CloseHelper() {
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
   // memtables added to imm() dont trigger flushes).
-  if (immutable_db_options_.experimental_allow_mempurge) {
+  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
     Status flush_ret;
     mutex_.Unlock();
     for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
@@ -956,8 +959,13 @@ void DBImpl::DumpStats() {
         // Release DB mutex for gathering cache entry stats. Pass over all
         // column families for this first so that other stats are dumped
         // near-atomically.
-        InstrumentedMutexUnlock u(&mutex_);
-        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+        // Get a ref before unlocking
+        cfd->Ref();
+        {
+          InstrumentedMutexUnlock u(&mutex_);
+          cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+        }
+        cfd->UnrefAndTryDelete();
       }
     }
 
@@ -2290,20 +2298,18 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
       multiget_cf_data;
   size_t cf_start = 0;
   ColumnFamilyHandle* cf = sorted_keys[0]->column_family;
+
   for (size_t i = 0; i < num_keys; ++i) {
     KeyContext* key_ctx = sorted_keys[i];
     if (key_ctx->column_family != cf) {
-      multiget_cf_data.emplace_back(
-          MultiGetColumnFamilyData(cf, cf_start, i - cf_start, nullptr));
+      multiget_cf_data.emplace_back(cf, cf_start, i - cf_start, nullptr);
       cf_start = i;
       cf = key_ctx->column_family;
     }
   }
-  {
-    // multiget_cf_data.emplace_back(
-    // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
-    multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
-  }
+
+  multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
+
   std::function<MultiGetColumnFamilyData*(
       autovector<MultiGetColumnFamilyData,
                  MultiGetContext::MAX_BATCH_SIZE>::iterator&)>
@@ -2363,7 +2369,7 @@ struct CompareKeyContext {
         static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
     uint32_t cfd_id1 = cfh->cfd()->GetID();
     const Comparator* comparator = cfh->cfd()->user_comparator();
-    cfh = static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+    cfh = static_cast<ColumnFamilyHandleImpl*>(rhs->column_family);
     uint32_t cfd_id2 = cfh->cfd()->GetID();
 
     if (cfd_id1 < cfd_id2) {
@@ -2387,39 +2393,24 @@ struct CompareKeyContext {
 void DBImpl::PrepareMultiGetKeys(
     size_t num_keys, bool sorted_input,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-#ifndef NDEBUG
   if (sorted_input) {
-    for (size_t index = 0; index < sorted_keys->size(); ++index) {
-      if (index > 0) {
-        KeyContext* lhs = (*sorted_keys)[index - 1];
-        KeyContext* rhs = (*sorted_keys)[index];
-        ColumnFamilyHandleImpl* cfh =
-            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
-        uint32_t cfd_id1 = cfh->cfd()->GetID();
-        const Comparator* comparator = cfh->cfd()->user_comparator();
-        cfh =
-            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
-        uint32_t cfd_id2 = cfh->cfd()->GetID();
+#ifndef NDEBUG
+    CompareKeyContext key_context_less;
 
-        assert(cfd_id1 <= cfd_id2);
-        if (cfd_id1 < cfd_id2) {
-          continue;
-        }
+    for (size_t index = 1; index < sorted_keys->size(); ++index) {
+      const KeyContext* const lhs = (*sorted_keys)[index - 1];
+      const KeyContext* const rhs = (*sorted_keys)[index];
 
-        // Both keys are from the same column family
-        int cmp = comparator->CompareWithoutTimestamp(
-            *(lhs->key), /*a_has_ts=*/false, *(rhs->key), /*b_has_ts=*/false);
-        assert(cmp <= 0);
-      }
-      index++;
+      // lhs should be <= rhs, or in other words, rhs should NOT be < lhs
+      assert(!key_context_less(rhs, lhs));
     }
-  }
 #endif
-  if (!sorted_input) {
-    CompareKeyContext sort_comparator;
-    std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
-              sort_comparator);
+
+    return;
   }
+
+  std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
+            CompareKeyContext());
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
@@ -3125,7 +3116,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 }
 
 namespace {
-typedef autovector<ColumnFamilyData*, 2> CfdList;
+using CfdList = autovector<ColumnFamilyData*, 2>;
 bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
   for (const ColumnFamilyData* t : list) {
     if (t == cfd) {
@@ -3948,7 +3939,8 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
     return s;
   }
 
-  // If last character is '\n' remove it from identity
+  // If last character is '\n' remove it from identity. (Old implementations
+  // of Env::GenerateUniqueId() would include a trailing '\n'.)
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();
   }
@@ -3960,10 +3952,11 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
   return Status::OK();
 }
 
-void DBImpl::SetDbSessionId() {
-  // GenerateUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated, ~128 bits of entropy
-  std::string uuid = env_->GenerateUniqueId();
+std::string DBImpl::GenerateDbSessionId(Env*) {
+  // GenerateRawUniqueId() generates an identifier that has a negligible
+  // probability of being duplicated. It should have full 128 bits of entropy.
+  uint64_t a, b;
+  GenerateRawUniqueId(&a, &b);
 
   // Hash and reformat that down to a more compact format, 20 characters
   // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
@@ -3972,17 +3965,15 @@ void DBImpl::SetDbSessionId() {
   // * Save ~ dozen bytes per SST file
   // * Shorter shared backup file names (some platforms have low limits)
   // * Visually distinct from DB id format
-  uint64_t a = NPHash64(uuid.data(), uuid.size(), 1234U);
-  uint64_t b = NPHash64(uuid.data(), uuid.size(), 5678U);
-  db_session_id_.resize(20);
-  static const char* const base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  size_t i = 0;
-  for (; i < 10U; ++i, a /= 36U) {
-    db_session_id_[i] = base36[a % 36];
-  }
-  for (; i < 20U; ++i, b /= 36U) {
-    db_session_id_[i] = base36[b % 36];
-  }
+  std::string db_session_id(20U, '\0');
+  char* buf = &db_session_id[0];
+  PutBaseChars<36>(&buf, 10, a, /*uppercase*/ true);
+  PutBaseChars<36>(&buf, 10, b, /*uppercase*/ true);
+  return db_session_id;
+}
+
+void DBImpl::SetDbSessionId() {
+  db_session_id_ = GenerateDbSessionId(env_);
   TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
 }
 
@@ -4376,9 +4367,7 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
 
   return earliest_seq;
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool cache_only,
                                        SequenceNumber lower_bound_seq,
@@ -4947,6 +4936,11 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
 
 Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                       bool use_file_checksum) {
+  // `bytes_read` stat is enabled based on compile-time support and cannot
+  // be dynamically toggled. So we do not need to worry about `PerfLevel`
+  // here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  uint64_t prev_bytes_read = IOSTATS(bytes_read);
+
   Status s;
 
   if (use_file_checksum) {
@@ -5001,6 +4995,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
       }
     }
 
@@ -5015,6 +5012,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
         if (!s.ok()) {
           break;
         }
@@ -5046,6 +5046,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       cfd->UnrefAndTryDelete();
     }
   }
+  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+             IOSTATS(bytes_read) - prev_bytes_read);
   return s;
 }
 
@@ -5120,9 +5122,17 @@ Status DBImpl::EndTrace() {
     s = tracer_->Close();
     tracer_.reset();
   } else {
-    return Status::IOError("No trace file to close");
+    s = Status::IOError("No trace file to close");
   }
   return s;
+}
+
+Status DBImpl::NewDefaultReplayer(
+    const std::vector<ColumnFamilyHandle*>& handles,
+    std::unique_ptr<TraceReader>&& reader,
+    std::unique_ptr<Replayer>* replayer) {
+  replayer->reset(new ReplayerImpl(this, handles, std::move(reader)));
+  return Status::OK();
 }
 
 Status DBImpl::StartBlockCacheTrace(

@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // cache interface is specifically designed for persistent read cache.
 class PersistentCache {
  public:
-  typedef std::vector<std::map<std::string, double>> StatsType;
+  using StatsType = std::vector<std::map<std::string, double>>;
 
   virtual ~PersistentCache() {}
 

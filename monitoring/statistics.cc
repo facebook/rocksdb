@@ -205,6 +205,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.memtable.payload.bytes.at.flush"},
     {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
      "rocksdb.memtable.garbage.bytes.at.flush"},
+    {SECONDARY_CACHE_HITS, "rocksdb.secondary.cache.hits"},
+    {VERIFY_CHECKSUM_READ_BYTES, "rocksdb.verify_checksum.read.bytes"},
+    {BACKUP_READ_BYTES, "rocksdb.backup.read.bytes"},
+    {BACKUP_WRITE_BYTES, "rocksdb.backup.write.bytes"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

@@ -12,6 +12,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/trace_record.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/string_util.h"

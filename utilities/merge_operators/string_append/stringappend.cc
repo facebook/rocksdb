@@ -6,21 +6,36 @@
 
 #include "stringappend.h"
 
-#include <memory>
 #include <assert.h>
 
-#include "rocksdb/slice.h"
+#include <memory>
+
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/utilities/options_type.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    stringappend_merge_type_info = {
+#ifndef ROCKSDB_LITE
+        {"delimiter",
+         {0, OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
 // Constructor: also specify the delimiter character.
 StringAppendOperator::StringAppendOperator(char delim_char)
-    : delim_(1, delim_char) {}
+    : delim_(1, delim_char) {
+  RegisterOptions("Delimiter", &delim_, &stringappend_merge_type_info);
+}
 
 StringAppendOperator::StringAppendOperator(const std::string& delim)
-    : delim_(delim) {}
+    : delim_(delim) {
+  RegisterOptions("Delimiter", &delim_, &stringappend_merge_type_info);
+}
 
 // Implementation for the merge operation (concatenates two strings)
 bool StringAppendOperator::Merge(const Slice& /*key*/,
@@ -46,9 +61,6 @@ bool StringAppendOperator::Merge(const Slice& /*key*/,
   return true;
 }
 
-const char* StringAppendOperator::Name() const  {
-  return "StringAppendOperator";
-}
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator() {
   return std::make_shared<StringAppendOperator>(',');

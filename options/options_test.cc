@@ -30,6 +30,9 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -140,7 +143,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_allow_mempurge", "false"},
+      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -299,7 +302,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
+  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
@@ -395,13 +398,6 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
                                              "merge_operator=" + kMoName + ";",
@@ -936,14 +932,49 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // Ribbon filter policy
+  // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt, "filter_policy=ribbonfilter:5.678;",
+      config_options, table_opt, "filter_policy=ribbonfilter:5.678:-1;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
+  // Ribbon filter policy (default Bloom hybrid)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=ribbonfilter:6.789;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  auto ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
+      new_opt.filter_policy.get());
+  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 0);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
+  // Ribbon filter policy (custom Bloom hybrid)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=ribbonfilter:6.789:5;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
+      new_opt.filter_policy.get());
+  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 5);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+
+  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+
   // Old name
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=experimental_ribbon:6.789;",
@@ -1451,13 +1482,11 @@ TEST_F(OptionsTest, MutableTableOptions) {
   bbtf.reset(NewBlockBasedTableFactory());
   auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
-  ASSERT_FALSE(bbtf->IsPrepared());
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
-  ASSERT_TRUE(bbtf->IsPrepared());
   config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
@@ -2051,7 +2080,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_allow_mempurge", "false"},
+      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
@@ -2204,7 +2233,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_allow_mempurge, false);
+  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
@@ -2281,14 +2310,6 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ObjectLibrary::Default()->Register<MergeOperator>(
-      kMoName,
-      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new BytesXOROperator());
-        return guard->get();
-      });
-
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
@@ -3096,8 +3117,8 @@ void VerifyCFPointerTypedOptions(
 
   // change the name of merge operator back-and-forth
   {
-    auto* merge_operator = dynamic_cast<test::ChanglingMergeOperator*>(
-        base_cf_opt->merge_operator.get());
+    auto* merge_operator = base_cf_opt->merge_operator
+                               ->CheckedCast<test::ChanglingMergeOperator>();
     if (merge_operator != nullptr) {
       name_buffer = merge_operator->Name();
       // change the name  and expect non-ok status
@@ -3114,8 +3135,8 @@ void VerifyCFPointerTypedOptions(
   // change the name of the compaction filter factory back-and-forth
   {
     auto* compaction_filter_factory =
-        dynamic_cast<test::ChanglingCompactionFilterFactory*>(
-            base_cf_opt->compaction_filter_factory.get());
+        base_cf_opt->compaction_filter_factory
+            ->CheckedCast<test::ChanglingCompactionFilterFactory>();
     if (compaction_filter_factory != nullptr) {
       name_buffer = compaction_filter_factory->Name();
       // change the name and expect non-ok status
@@ -3680,21 +3701,28 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
 static void TestAndCompareOption(const ConfigOptions& config_options,
                                  const OptionTypeInfo& opt_info,
                                  const std::string& opt_name, void* base_ptr,
-                                 void* comp_ptr) {
+                                 void* comp_ptr, bool strip = false) {
   std::string result, mismatch;
   ASSERT_OK(opt_info.Serialize(config_options, opt_name, base_ptr, &result));
+  if (strip) {
+    ASSERT_EQ(result.at(0), '{');
+    ASSERT_EQ(result.at(result.size() - 1), '}');
+    result = result.substr(1, result.size() - 2);
+  }
   ASSERT_OK(opt_info.Parse(config_options, opt_name, result, comp_ptr));
   ASSERT_TRUE(opt_info.AreEqual(config_options, opt_name, base_ptr, comp_ptr,
                                 &mismatch));
 }
 
-static void TestAndCompareOption(const ConfigOptions& config_options,
-                                 const OptionTypeInfo& opt_info,
-                                 const std::string& opt_name,
-                                 const std::string& opt_value, void* base_ptr,
-                                 void* comp_ptr) {
+static void TestParseAndCompareOption(const ConfigOptions& config_options,
+                                      const OptionTypeInfo& opt_info,
+                                      const std::string& opt_name,
+                                      const std::string& opt_value,
+                                      void* base_ptr, void* comp_ptr,
+                                      bool strip = false) {
   ASSERT_OK(opt_info.Parse(config_options, opt_name, opt_value, base_ptr));
-  TestAndCompareOption(config_options, opt_info, opt_name, base_ptr, comp_ptr);
+  TestAndCompareOption(config_options, opt_info, opt_name, base_ptr, comp_ptr,
+                       strip);
 }
 
 template <typename T>
@@ -3946,7 +3974,7 @@ TEST_F(OptionTypeInfoTest, TestCustomEnum) {
   ASSERT_FALSE(opt_info.AreEqual(config_options, "Enum", &e1, &e2, &mismatch));
   ASSERT_EQ(mismatch, "Enum");
 
-  TestAndCompareOption(config_options, opt_info, "", "C", &e1, &e2);
+  TestParseAndCompareOption(config_options, opt_info, "", "C", &e1, &e2);
   ASSERT_EQ(e2, TestEnum::kC);
 
   ASSERT_NOK(opt_info.Parse(config_options, "", "D", &e1));
@@ -3957,44 +3985,44 @@ TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
   ConfigOptions config_options;
   for (auto iter : OptionsHelper::compaction_style_string_map) {
     CompactionStyle e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kCompactionStyle),
-                         "CompactionStyle", iter.first, &e1, &e2);
+    TestParseAndCompareOption(config_options,
+                              OptionTypeInfo(0, OptionType::kCompactionStyle),
+                              "CompactionStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (auto iter : OptionsHelper::compaction_pri_string_map) {
     CompactionPri e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kCompactionPri),
-                         "CompactionPri", iter.first, &e1, &e2);
+    TestParseAndCompareOption(config_options,
+                              OptionTypeInfo(0, OptionType::kCompactionPri),
+                              "CompactionPri", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (auto iter : OptionsHelper::compression_type_string_map) {
     CompressionType e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kCompressionType),
-                         "CompressionType", iter.first, &e1, &e2);
+    TestParseAndCompareOption(config_options,
+                              OptionTypeInfo(0, OptionType::kCompressionType),
+                              "CompressionType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (auto iter : OptionsHelper::compaction_stop_style_string_map) {
     CompactionStopStyle e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kCompactionStopStyle),
-                         "CompactionStopStyle", iter.first, &e1, &e2);
+    TestParseAndCompareOption(
+        config_options, OptionTypeInfo(0, OptionType::kCompactionStopStyle),
+        "CompactionStopStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (auto iter : OptionsHelper::checksum_type_string_map) {
     ChecksumType e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kChecksumType),
-                         "CheckSumType", iter.first, &e1, &e2);
+    TestParseAndCompareOption(config_options,
+                              OptionTypeInfo(0, OptionType::kChecksumType),
+                              "CheckSumType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (auto iter : OptionsHelper::encoding_type_string_map) {
     EncodingType e1, e2;
-    TestAndCompareOption(config_options,
-                         OptionTypeInfo(0, OptionType::kEncodingType),
-                         "EncodingType", iter.first, &e1, &e2);
+    TestParseAndCompareOption(config_options,
+                              OptionTypeInfo(0, OptionType::kEncodingType),
+                              "EncodingType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
 }
@@ -4033,15 +4061,17 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   Extended e1, e2;
   ConfigOptions config_options;
   std::string mismatch;
-  TestAndCompareOption(config_options, basic_info, "b", "{i=33;s=33}", &e1.b,
-                       &e2.b);
+  TestParseAndCompareOption(config_options, basic_info, "b", "{i=33;s=33}",
+                            &e1.b, &e2.b);
   ASSERT_EQ(e1.b.i, 33);
   ASSERT_EQ(e1.b.s, "33");
 
-  TestAndCompareOption(config_options, basic_info, "b.i", "44", &e1.b, &e2.b);
+  TestParseAndCompareOption(config_options, basic_info, "b.i", "44", &e1.b,
+                            &e2.b);
   ASSERT_EQ(e1.b.i, 44);
 
-  TestAndCompareOption(config_options, basic_info, "i", "55", &e1.b, &e2.b);
+  TestParseAndCompareOption(config_options, basic_info, "i", "55", &e1.b,
+                            &e2.b);
   ASSERT_EQ(e1.b.i, 55);
 
   e1.b.i = 0;
@@ -4064,17 +4094,18 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   ASSERT_NOK(basic_info.Parse(config_options, "b.j", "44", &e1.b));
   ASSERT_NOK(basic_info.Parse(config_options, "j", "44", &e1.b));
 
-  TestAndCompareOption(config_options, extended_info, "e",
-                       "b={i=55;s=55}; j=22;", &e1, &e2);
+  TestParseAndCompareOption(config_options, extended_info, "e",
+                            "b={i=55;s=55}; j=22;", &e1, &e2);
   ASSERT_EQ(e1.b.i, 55);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "55");
-  TestAndCompareOption(config_options, extended_info, "e.b", "{i=66;s=66;}",
-                       &e1, &e2);
+  TestParseAndCompareOption(config_options, extended_info, "e.b",
+                            "{i=66;s=66;}", &e1, &e2);
   ASSERT_EQ(e1.b.i, 66);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
-  TestAndCompareOption(config_options, extended_info, "e.b.i", "77", &e1, &e2);
+  TestParseAndCompareOption(config_options, extended_info, "e.b.i", "77", &e1,
+                            &e2);
   ASSERT_EQ(e1.b.i, 77);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
@@ -4088,7 +4119,8 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   std::string mismatch;
 
   ConfigOptions config_options;
-  TestAndCompareOption(config_options, vec_info, "v", "a:b:c:d", &vec1, &vec2);
+  TestParseAndCompareOption(config_options, vec_info, "v", "a:b:c:d", &vec1,
+                            &vec2);
   ASSERT_EQ(vec1.size(), 4);
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b");
@@ -4099,8 +4131,8 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   ASSERT_EQ(mismatch, "v");
 
   // Test vectors with inner brackets
-  TestAndCompareOption(config_options, vec_info, "v", "a:{b}:c:d", &vec1,
-                       &vec2);
+  TestParseAndCompareOption(config_options, vec_info, "v", "a:{b}:c:d", &vec1,
+                            &vec2);
   ASSERT_EQ(vec1.size(), 4);
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b");
@@ -4110,14 +4142,33 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   OptionTypeInfo bar_info = OptionTypeInfo::Vector<std::string>(
       0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       {0, OptionType::kString}, '|');
-  TestAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1, &vec2);
+  TestParseAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1,
+                            &vec2);
   // Test vectors with inner vector
-  TestAndCompareOption(config_options, bar_info, "v",
-                       "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2);
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2, false);
   ASSERT_EQ(vec1.size(), 3);
   ASSERT_EQ(vec1[0], "a");
   ASSERT_EQ(vec1[1], "b1|b2");
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
+
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "{a1|a2}|{b1|{c1|c2}}|d1", &vec1, &vec2, true);
+  ASSERT_EQ(vec1.size(), 3);
+  ASSERT_EQ(vec1[0], "a1|a2");
+  ASSERT_EQ(vec1[1], "b1|{c1|c2}");
+  ASSERT_EQ(vec1[2], "d1");
+
+  TestParseAndCompareOption(config_options, bar_info, "v", "{a1}", &vec1, &vec2,
+                            false);
+  ASSERT_EQ(vec1.size(), 1);
+  ASSERT_EQ(vec1[0], "a1");
+
+  TestParseAndCompareOption(config_options, bar_info, "v", "{a1|a2}|{b1|b2}",
+                            &vec1, &vec2, true);
+  ASSERT_EQ(vec1.size(), 2);
+  ASSERT_EQ(vec1[0], "a1|a2");
+  ASSERT_EQ(vec1[1], "b1|b2");
 }
 
 TEST_F(OptionTypeInfoTest, TestStaticType) {
@@ -4185,6 +4236,90 @@ TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
   ASSERT_EQ(opts.env, db_opts.env);
 
   delete mem_env;
+}
+TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
+  ConfigOptions config_options;
+  std::shared_ptr<MergeOperator> merge_op;
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "put", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("put"));
+  ASSERT_STREQ(merge_op->Name(), "PutOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "put_v1", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("PutOperator"));
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "uint64add", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("uint64add"));
+  ASSERT_STREQ(merge_op->Name(), "UInt64AddOperator");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "max", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("max"));
+  ASSERT_STREQ(merge_op->Name(), "MaxOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "bytesxor", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("bytesxor"));
+  ASSERT_STREQ(merge_op->Name(), BytesXOROperator::kClassName());
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "sortlist", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("sortlist"));
+  ASSERT_STREQ(merge_op->Name(), SortList::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappend",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  auto delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, "stringappendtest",
+                                            &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, ",");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappend; delimiter=||", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappend"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "||");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, "id=stringappendtest; delimiter=&&", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("stringappendtest"));
+  ASSERT_STREQ(merge_op->Name(), StringAppendTESTOperator::kClassName());
+  delimiter = merge_op->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
+
+  std::shared_ptr<MergeOperator> copy;
+  std::string mismatch;
+  std::string opts_str = merge_op->ToString(config_options);
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options, opts_str, &copy));
+  ASSERT_TRUE(merge_op->AreEquivalent(config_options, copy.get(), &mismatch));
+  ASSERT_NE(copy, nullptr);
+  delimiter = copy->GetOptions<std::string>("Delimiter");
+  ASSERT_NE(delimiter, nullptr);
+  ASSERT_EQ(*delimiter, "&&");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

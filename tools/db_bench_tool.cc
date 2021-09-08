@@ -63,6 +63,9 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
+#ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/replayer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -228,7 +231,9 @@ IF_ROCKSDB_LITE("",
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
+#ifndef ROCKSDB_LITE
     "\treplay      -- replay the trace file specified with trace_file\n"
+#endif  // ROCKSDB_LITE
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key "
@@ -889,6 +894,8 @@ DEFINE_bool(fifo_compaction_allow_compaction, true,
 
 DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 
+DEFINE_uint64(fifo_age_for_warm, 0, "age_for_warm for FIFO compaction.");
+
 // Stacked BlobDB Options
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
@@ -995,10 +1002,12 @@ DEFINE_bool(report_bg_io_stats, false,
 DEFINE_bool(use_stderr_info_logger, false,
             "Write info logs to stderr instead of to LOG file. ");
 
+#ifndef ROCKSDB_LITE
+
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
-DEFINE_int32(trace_replay_fast_forward, 1,
-             "Fast forward trace replay, must >= 1. ");
+DEFINE_double(trace_replay_fast_forward, 1.0,
+              "Fast forward trace replay, must > 0.0.");
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
@@ -1011,6 +1020,8 @@ DEFINE_int64(
 DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
+
+#endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -1035,19 +1046,6 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
-}
-
-static enum ROCKSDB_NAMESPACE::MemPurgePolicy StringToMemPurgePolicy(
-    const char* mpolicy) {
-  assert(mpolicy);
-  if (!strcasecmp(mpolicy, "kAlways")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlways;
-  } else if (!strcasecmp(mpolicy, "kAlternate")) {
-    return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
-  }
-
-  fprintf(stdout, "Cannot parse mempurge policy '%s'\n", mpolicy);
-  return ROCKSDB_NAMESPACE::MemPurgePolicy::kAlternate;
 }
 
 static std::string ColumnFamilyName(size_t i) {
@@ -1184,11 +1182,9 @@ DEFINE_bool(
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
-DEFINE_bool(experimental_allow_mempurge, false,
-            "Allow memtable garbage collection.");
-
-DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Specify memtable garbage collection policy.");
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum useful payload ratio estimate that triggers a mempurge "
+              "(memtable garbage collection).");
 
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
@@ -1214,6 +1210,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              " be stalled.");
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
+
+DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
+             "Set refill period on "
+             "rate limiter.");
 
 DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
@@ -3477,6 +3477,7 @@ class Benchmark {
         PrintStats("rocksdb.sstables");
       } else if (name == "stats_history") {
         PrintStatsHistory();
+#ifndef ROCKSDB_LITE
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -3487,6 +3488,7 @@ class Benchmark {
           ErrorExit();
         }
         method = &Benchmark::Replay;
+#endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
@@ -3929,6 +3931,7 @@ class Benchmark {
   void InitializeOptionsFromFlags(Options* opts) {
     printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
+    ConfigOptions config_options(options);
 
     assert(db_.db == nullptr);
 
@@ -3963,6 +3966,7 @@ class Benchmark {
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
         FLAGS_fifo_compaction_allow_compaction);
+    options.compaction_options_fifo.age_for_warm = FLAGS_fifo_age_for_warm;
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
@@ -4267,9 +4271,8 @@ class Benchmark {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
-    options.experimental_allow_mempurge = FLAGS_experimental_allow_mempurge;
-    options.experimental_mempurge_policy =
-        StringToMemPurgePolicy(FLAGS_experimental_mempurge_policy.c_str());
+    options.experimental_mempurge_threshold =
+        FLAGS_experimental_mempurge_threshold;
     options.inplace_update_support = FLAGS_inplace_update_support;
     options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
@@ -4294,12 +4297,14 @@ class Benchmark {
     options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
 
     // merge operator options
-    options.merge_operator = MergeOperators::CreateFromStringId(
-        FLAGS_merge_operator);
-    if (options.merge_operator == nullptr && !FLAGS_merge_operator.empty()) {
-      fprintf(stderr, "invalid merge operator: %s\n",
-              FLAGS_merge_operator.c_str());
-      exit(1);
+    if (!FLAGS_merge_operator.empty()) {
+      Status s = MergeOperator::CreateFromString(
+          config_options, FLAGS_merge_operator, &options.merge_operator);
+      if (!s.ok()) {
+        fprintf(stderr, "invalid merge operator[%s]: %s\n",
+                FLAGS_merge_operator.c_str(), s.ToString().c_str());
+        exit(1);
+      }
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
     options.report_bg_io_stats = FLAGS_report_bg_io_stats;
@@ -4437,7 +4442,7 @@ class Benchmark {
         exit(1);
       }
       options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
+          FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
           FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                     : RateLimiter::Mode::kWritesOnly,
@@ -7984,6 +7989,8 @@ class Benchmark {
     }
   }
 
+#ifndef ROCKSDB_LITE
+
   void Replay(ThreadState* thread) {
     if (db_.db != nullptr) {
       Replay(thread, &db_);
@@ -8003,20 +8010,35 @@ class Benchmark {
           s.ToString().c_str());
       exit(1);
     }
-    Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
-                      std::move(trace_reader));
-    replayer.SetFastForward(
-        static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.MultiThreadReplay(
-        static_cast<uint32_t>(FLAGS_trace_replay_threads));
-    if (s.ok()) {
-      fprintf(stdout, "Replay started from trace_file: %s\n",
-              FLAGS_trace_file.c_str());
-    } else {
-      fprintf(stderr, "Starting replay failed. Error: %s\n",
+    std::unique_ptr<Replayer> replayer;
+    s = db_with_cfh->db->NewDefaultReplayer(db_with_cfh->cfh,
+                                            std::move(trace_reader), &replayer);
+    if (!s.ok()) {
+      fprintf(stderr,
+              "Encountered an error creating a default Replayer. "
+              "Error: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+    s = replayer->Prepare();
+    if (!s.ok()) {
+      fprintf(stderr, "Prepare for replay failed. Error: %s\n",
               s.ToString().c_str());
     }
+    s = replayer->Replay(
+        ReplayOptions(static_cast<uint32_t>(FLAGS_trace_replay_threads),
+                      FLAGS_trace_replay_fast_forward),
+        nullptr);
+    replayer.reset();
+    if (s.ok()) {
+      fprintf(stdout, "Replay completed from trace_file: %s\n",
+              FLAGS_trace_file.c_str());
+    } else {
+      fprintf(stderr, "Replay failed. Error: %s\n", s.ToString().c_str());
+    }
   }
+
+#endif  // ROCKSDB_LITE
 };
 
 int db_bench_tool(int argc, char** argv) {

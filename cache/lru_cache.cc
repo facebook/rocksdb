@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -358,7 +360,10 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       if (handle == nullptr) {
         LRU_Insert(e);
       } else {
-        e->Ref();
+        // If caller already holds a ref, no need to take one here
+        if (!e->HasRefs()) {
+          e->Ref();
+        }
         *handle = reinterpret_cast<Cache::Handle*>(e);
       }
     }
@@ -396,11 +401,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   if (e->value) {
     Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
     Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
-    if (s.ok()) {
-      // InsertItem would have taken a reference on the item, so decrement it
-      // here as we expect the caller to already hold a reference
-      e->Unref();
-    } else {
+    if (!s.ok()) {
       // Item is in memory, but not accounted against the cache capacity.
       // When the handle is released, the item should get deleted
       assert(!e->InCache());
@@ -418,7 +419,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     const Slice& key, uint32_t hash,
     const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
-    bool wait) {
+    bool wait, Statistics* stats) {
   LRUHandle* e = nullptr;
   {
     MutexLock l(&mutex_);
@@ -471,11 +472,18 @@ Cache::Handle* LRUCacheShard::Lookup(
           e->Unref();
           e->Free();
           e = nullptr;
+        } else {
+          PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
+          RecordTick(stats, SECONDARY_CACHE_HITS);
         }
       } else {
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure
         e->SetIncomplete(true);
+        // This may be slightly inaccurate, if the lookup eventually fails.
+        // But the probability is very low.
+        PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
+        RecordTick(stats, SECONDARY_CACHE_HITS);
       }
     }
   }

@@ -15,7 +15,6 @@
 #include <array>
 #include <limits>
 #include <random>
-#include <regex>
 #include <string>
 #include <utility>
 
@@ -642,9 +641,22 @@ class BackupEngineTest : public testing::Test {
     CreateLoggerFromOptions(dbname_, logger_options, &logger_)
         .PermitUncheckedError();
 
+    // The sync option is not easily testable in unit tests, but should be
+    // smoke tested across all the other backup tests. However, it is
+    // certainly not worth doubling the runtime of backup tests for it.
+    // Thus, we can enable sync for one of our alternate testing
+    // configurations.
+    constexpr bool kUseSync =
+#ifdef ROCKSDB_MODIFY_NPHASH
+        true;
+#else
+        false;
+#endif  // ROCKSDB_MODIFY_NPHASH
+
     // set up backup db options
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), true, logger_.get(), true));
+        backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
+        logger_.get(), kUseSync));
 
     // most tests will use multi-threaded backups
     backupable_options_->max_background_operations = 7;
@@ -894,7 +906,7 @@ class BackupEngineTest : public testing::Test {
   }
 
   void AssertDirectoryFilesMatchRegex(const std::string& dir,
-                                      const std::regex& pattern,
+                                      const TestRegex& pattern,
                                       const std::string& file_type,
                                       int minimum_count) {
     std::vector<FileAttributes> children;
@@ -902,8 +914,7 @@ class BackupEngineTest : public testing::Test {
     int found_count = 0;
     for (const auto& child : children) {
       if (EndsWith(child.name, file_type)) {
-        ASSERT_TRUE(std::regex_match(child.name, pattern))
-            << "File name " << child.name << " does not match regex.";
+        ASSERT_MATCHES_REGEX(child.name, pattern);
         ++found_count;
       }
     }
@@ -1751,7 +1762,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
     if (sopt == kShareWithChecksum) {
       // Ensure we actually got DB manifest checksums by inspecting
       // shared_checksum file names for hex checksum component
-      std::regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      TestRegex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
       std::vector<FileAttributes> children;
       const std::string dir = backupdir_ + "/shared_checksum";
       ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
@@ -1759,8 +1770,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
         if (child.size_bytes == 0) {
           continue;
         }
-        const std::string match("match");
-        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
+        EXPECT_MATCHES_REGEX(child.name, expected);
       }
     }
     */
@@ -1987,7 +1997,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
 
-  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+  static const std::map<ShareFilesNaming, TestRegex> option_to_expected = {
       {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
       // kFlagIncludeFileSize redundant here
       {kLegacyCrc32cAndFileSize | kFlagIncludeFileSize,
@@ -1997,7 +2007,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
        "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
   };
 
-  const std::string blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
@@ -2006,15 +2016,15 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
-    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(pair.second), ".sst",
-                                   1 /* minimum_count */);
-    if (std::string::npos != pair.second.find("_[0-9]+[.]sst")) {
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", pair.second,
+                                   ".sst", 1 /* minimum_count */);
+    if (std::string::npos != pair.second.GetPattern().find("_[0-9]+[.]sst")) {
       AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
                                          1 /* minimum_count */);
     }
+
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(blobfile_pattern), ".blob",
+                                   blobfile_pattern, ".blob",
                                    1 /* minimum_count */);
   }
 }
@@ -2038,9 +2048,9 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
   CloseDBAndBackupEngine();
 
   // Old names should always be used on old files
-  const std::regex expected("[0-9]+_[0-9]+_[0-9]+[.]sst");
+  const TestRegex sstfile_pattern("[0-9]+_[0-9]+_[0-9]+[.]sst");
 
-  const std::string blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+  const TestRegex blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
 
   for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
     CloseAndReopenDB();
@@ -2049,10 +2059,11 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
-    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
-                                   ".sst", 1 /* minimum_count */);
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(blobfile_pattern), ".blob",
+                                   sstfile_pattern, ".sst",
+                                   1 /* minimum_count */);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   blobfile_pattern, ".blob",
                                    1 /* minimum_count */);
   }
 
@@ -3107,6 +3118,13 @@ TEST_F(BackupEngineTest, Concurrency) {
   //
   // Because of the challenges of integrating this into db_stress,
   // this is a non-deterministic mini-stress test here instead.
+
+  // To check for a race condition in handling buffer size based on byte
+  // burst limit, we need a (generous) rate limiter
+  std::shared_ptr<RateLimiter> limiter{NewGenericRateLimiter(1000000000)};
+  backupable_options_->backup_rate_limiter = limiter;
+  backupable_options_->restore_rate_limiter = limiter;
+
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
 
   static constexpr int keys_iteration = 5000;
@@ -3122,82 +3140,117 @@ TEST_F(BackupEngineTest, Concurrency) {
 
   Options db_opts = options_;
   db_opts.wal_dir = "";
+  db_opts.create_if_missing = false;
   BackupableDBOptions be_opts = *backupable_options_;
   be_opts.destroy_old_data = false;
 
   std::mt19937 rng{std::random_device()()};
 
   std::array<std::thread, 4> read_threads;
+  std::array<std::thread, 4> restore_verify_threads;
   for (uint32_t i = 0; i < read_threads.size(); ++i) {
     uint32_t sleep_micros = rng() % 100000;
-    read_threads[i] = std::thread([this, i, sleep_micros, &db_opts, &be_opts] {
-      test_db_env_->SleepForMicroseconds(sleep_micros);
+    read_threads[i] =
+        std::thread([this, i, sleep_micros, &db_opts, &be_opts,
+                     &restore_verify_threads, &limiter] {
+          test_db_env_->SleepForMicroseconds(sleep_micros);
 
-      // Whether to also re-open the BackupEngine, potentially seeing
-      // additional backups
-      bool reopen = i == 3;
-      // Whether we are going to restore "latest"
-      bool latest = i > 1;
+          // Whether to also re-open the BackupEngine, potentially seeing
+          // additional backups
+          bool reopen = i == 3;
+          // Whether we are going to restore "latest"
+          bool latest = i > 1;
 
-      BackupEngine* my_be;
-      if (reopen) {
-        ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
-      } else {
-        my_be = backup_engine_.get();
-      }
+          BackupEngine* my_be;
+          if (reopen) {
+            ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
+          } else {
+            my_be = backup_engine_.get();
+          }
 
-      // Verify metadata (we don't receive updates from concurrently
-      // creating a new backup)
-      std::vector<BackupInfo> infos;
-      my_be->GetBackupInfo(&infos);
-      const uint32_t count = static_cast<uint32_t>(infos.size());
-      infos.clear();
-      if (reopen) {
-        ASSERT_GE(count, 2U);
-        ASSERT_LE(count, 4U);
-        fprintf(stderr, "Reopen saw %u backups\n", count);
-      } else {
-        ASSERT_EQ(count, 2U);
-      }
-      std::vector<BackupID> ids;
-      my_be->GetCorruptedBackups(&ids);
-      ASSERT_EQ(ids.size(), 0U);
+          // Verify metadata (we don't receive updates from concurrently
+          // creating a new backup)
+          std::vector<BackupInfo> infos;
+          my_be->GetBackupInfo(&infos);
+          const uint32_t count = static_cast<uint32_t>(infos.size());
+          infos.clear();
+          if (reopen) {
+            ASSERT_GE(count, 2U);
+            ASSERT_LE(count, 4U);
+            fprintf(stderr, "Reopen saw %u backups\n", count);
+          } else {
+            ASSERT_EQ(count, 2U);
+          }
+          std::vector<BackupID> ids;
+          my_be->GetCorruptedBackups(&ids);
+          ASSERT_EQ(ids.size(), 0U);
 
-      // Restore one of the backups, or "latest"
-      std::string restore_db_dir = dbname_ + "/restore" + ToString(i);
-      BackupID to_restore;
-      if (latest) {
-        to_restore = count;
-        ASSERT_OK(
-            my_be->RestoreDBFromLatestBackup(restore_db_dir, restore_db_dir));
-      } else {
-        to_restore = i + 1;
-        ASSERT_OK(my_be->VerifyBackup(to_restore, true));
-        ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
-                                             restore_db_dir));
-      }
+          // (Eventually, see below) Restore one of the backups, or "latest"
+          std::string restore_db_dir = dbname_ + "/restore" + ToString(i);
+          DestroyDir(test_db_env_.get(), restore_db_dir).PermitUncheckedError();
+          BackupID to_restore;
+          if (latest) {
+            to_restore = count;
+          } else {
+            to_restore = i + 1;
+          }
 
-      // Open restored DB to verify its contents
-      DB* restored;
-      ASSERT_OK(DB::Open(db_opts, restore_db_dir, &restored));
-      int factor = std::min(static_cast<int>(to_restore), max_factor);
-      AssertExists(restored, 0, factor * keys_iteration);
-      AssertEmpty(restored, factor * keys_iteration,
-                  (factor + 1) * keys_iteration);
-      delete restored;
+          // Open restored DB to verify its contents, but test atomic restore
+          // by doing it async and ensuring we either get OK or InvalidArgument
+          restore_verify_threads[i] =
+              std::thread([this, &db_opts, restore_db_dir, to_restore] {
+                DB* restored;
+                Status s;
+                for (;;) {
+                  s = DB::Open(db_opts, restore_db_dir, &restored);
+                  if (s.IsInvalidArgument()) {
+                    // Restore hasn't finished
+                    test_db_env_->SleepForMicroseconds(1000);
+                    continue;
+                  } else {
+                    // We should only get InvalidArgument if restore is
+                    // incomplete, or OK if complete
+                    ASSERT_OK(s);
+                    break;
+                  }
+                }
+                int factor = std::min(static_cast<int>(to_restore), max_factor);
+                AssertExists(restored, 0, factor * keys_iteration);
+                AssertEmpty(restored, factor * keys_iteration,
+                            (factor + 1) * keys_iteration);
+                delete restored;
+              });
 
-      // Re-verify metadata (we don't receive updates from concurrently
-      // creating a new backup)
-      my_be->GetBackupInfo(&infos);
-      ASSERT_EQ(infos.size(), count);
-      my_be->GetCorruptedBackups(&ids);
-      ASSERT_EQ(ids.size(), 0);
-      // fprintf(stderr, "Finished read thread\n");
+          // (Ok now) Restore one of the backups, or "latest"
+          if (latest) {
+            ASSERT_OK(my_be->RestoreDBFromLatestBackup(restore_db_dir,
+                                                       restore_db_dir));
+          } else {
+            ASSERT_OK(my_be->VerifyBackup(to_restore, true));
+            ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
+                                                 restore_db_dir));
+          }
 
-      if (reopen) {
-        delete my_be;
-      }
-    });
+          // Test for race condition in reconfiguring limiter
+          // FIXME: this could set to a different value in all threads, except
+          // GenericRateLimiter::SetBytesPerSecond has a write-write race
+          // reported by TSAN
+          if (i == 0) {
+            limiter->SetBytesPerSecond(2000000000);
+          }
+
+          // Re-verify metadata (we don't receive updates from concurrently
+          // creating a new backup)
+          my_be->GetBackupInfo(&infos);
+          ASSERT_EQ(infos.size(), count);
+          my_be->GetCorruptedBackups(&ids);
+          ASSERT_EQ(ids.size(), 0);
+          // fprintf(stderr, "Finished read thread\n");
+
+          if (reopen) {
+            delete my_be;
+          }
+        });
   }
 
   BackupEngine* alt_be;
@@ -3229,6 +3282,11 @@ TEST_F(BackupEngineTest, Concurrency) {
   }
 
   delete alt_be;
+
+  for (auto& t : restore_verify_threads) {
+    t.join();
+  }
+
   CloseDBAndBackupEngine();
 }
 
@@ -3508,6 +3566,93 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
+}
+
+// Populates `*total_size` with the size of all files under `backup_dir`.
+// We don't go through `BackupEngine` currently because it's hard to figure out
+// the metadata file size.
+Status GetSizeOfBackupFiles(FileSystem* backup_fs,
+                            const std::string& backup_dir, size_t* total_size) {
+  *total_size = 0;
+  std::vector<std::string> dir_stack = {backup_dir};
+  Status s;
+  while (s.ok() && !dir_stack.empty()) {
+    std::string dir = std::move(dir_stack.back());
+    dir_stack.pop_back();
+    std::vector<std::string> children;
+    s = backup_fs->GetChildren(dir, IOOptions(), &children, nullptr /* dbg */);
+    for (size_t i = 0; s.ok() && i < children.size(); ++i) {
+      std::string path = dir + "/" + children[i];
+      bool is_dir;
+      s = backup_fs->IsDirectory(path, IOOptions(), &is_dir, nullptr /* dbg */);
+      uint64_t file_size = 0;
+      if (s.ok()) {
+        if (is_dir) {
+          dir_stack.emplace_back(std::move(path));
+        } else {
+          s = backup_fs->GetFileSize(path, IOOptions(), &file_size,
+                                     nullptr /* dbg */);
+        }
+      }
+      if (s.ok()) {
+        *total_size += file_size;
+      }
+    }
+  }
+  return s;
+}
+
+TEST_F(BackupEngineTest, IOStats) {
+  // Tests the `BACKUP_READ_BYTES` and `BACKUP_WRITE_BYTES` ticker stats have
+  // the expected values according to the files in the backups.
+
+  // These ticker stats are expected to be populated regardless of `PerfLevel`
+  // in user thread
+  SetPerfLevel(kDisable);
+
+  options_.statistics = CreateDBStatistics();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  FillDB(db_.get(), 0 /* from */, 100 /* to */, kFlushMost);
+
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+
+  size_t orig_backup_files_size;
+  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
+                                 backupdir_, &orig_backup_files_size));
+  size_t expected_bytes_written = orig_backup_files_size;
+  ASSERT_EQ(expected_bytes_written,
+            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+  // Bytes read is more difficult to pin down since there are reads for many
+  // purposes other than creating file, like `GetSortedWalFiles()` to find first
+  // sequence number, or `CreateNewBackup()` thread to find SST file session ID.
+  // So we loosely require there are at least as many reads as needed for
+  // copying, but not as many as twice that.
+  ASSERT_GE(options_.statistics->getTickerCount(BACKUP_READ_BYTES),
+            expected_bytes_written);
+  ASSERT_LT(expected_bytes_written,
+            2 * options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+
+  FillDB(db_.get(), 100 /* from */, 200 /* to */, kFlushMost);
+
+  ASSERT_OK(options_.statistics->Reset());
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+  size_t final_backup_files_size;
+  ASSERT_OK(GetSizeOfBackupFiles(test_backup_env_->GetFileSystem().get(),
+                                 backupdir_, &final_backup_files_size));
+  expected_bytes_written = final_backup_files_size - orig_backup_files_size;
+  ASSERT_EQ(expected_bytes_written,
+            options_.statistics->getTickerCount(BACKUP_WRITE_BYTES));
+  // See above for why these bounds were chosen.
+  ASSERT_GE(options_.statistics->getTickerCount(BACKUP_READ_BYTES),
+            expected_bytes_written);
+  ASSERT_LT(expected_bytes_written,
+            2 * options_.statistics->getTickerCount(BACKUP_READ_BYTES));
 }
 
 }  // anon namespace

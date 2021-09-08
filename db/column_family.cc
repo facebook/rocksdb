@@ -203,7 +203,7 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
 namespace {
 const uint64_t kDefaultTtl = 0xfffffffffffffffe;
 const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
-};  // namespace
+}  // namespace
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {

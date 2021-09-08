@@ -12,6 +12,7 @@
 #include "port/lang.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
+#include "rocksdb/trace_record.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
