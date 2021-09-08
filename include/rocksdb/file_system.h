@@ -1340,13 +1340,6 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
-  // Creates a FileWrapper around the input File object and takes
-  // ownership of the object
-  explicit FSSequentialFileWrapper(std::unique_ptr<FSSequentialFile>&& t)
-      : guard_(std::move(t)) {
-    target_ = guard_.get();
-  }
-
   // Creates a FileWrapper around the input File object and without
   // taking ownership of the object
   explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
@@ -1372,19 +1365,22 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   }
 
  private:
-  std::unique_ptr<FSSequentialFile> guard_;
   FSSequentialFile* target_;
+};
+
+class FSSequentialFileOwnerWrapper : public FSSequentialFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSSequentialFileOwnerWrapper(std::unique_ptr<FSSequentialFile>&& t)
+      : FSSequentialFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSSequentialFile> guard_;
 };
 
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
-  // Creates a FileWrapper around the input File object and takes
-  // ownership of the object
-  explicit FSRandomAccessFileWrapper(std::unique_ptr<FSRandomAccessFile>&& t)
-      : guard_(std::move(t)) {
-    target_ = guard_.get();
-  }
-
   // Creates a FileWrapper around the input File object and without
   // taking ownership of the object
   explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
@@ -1421,15 +1417,20 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   FSRandomAccessFile* target_;
 };
 
-class FSWritableFileWrapper : public FSWritableFile {
+class FSRandomAccessFileOwnerWrapper : public FSRandomAccessFileWrapper {
  public:
   // Creates a FileWrapper around the input File object and takes
   // ownership of the object
-  explicit FSWritableFileWrapper(std::unique_ptr<FSWritableFile>&& t)
-      : guard_(std::move(t)) {
-    target_ = guard_.get();
-  }
+  explicit FSRandomAccessFileOwnerWrapper(
+      std::unique_ptr<FSRandomAccessFile>&& t)
+      : FSRandomAccessFileWrapper(t.get()), guard_(std::move(t)) {}
 
+ private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
+};
+
+class FSWritableFileWrapper : public FSWritableFile {
+ public:
   // Creates a FileWrapper around the input File object and without
   // taking ownership of the object
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
@@ -1526,19 +1527,22 @@ class FSWritableFileWrapper : public FSWritableFile {
   }
 
  private:
-  std::unique_ptr<FSWritableFile> guard_;
   FSWritableFile* target_;
+};
+
+class FSWritableFileOwnerWrapper : public FSWritableFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSWritableFileOwnerWrapper(std::unique_ptr<FSWritableFile>&& t)
+      : FSWritableFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSWritableFile> guard_;
 };
 
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
-  // Creates a FileWrapper around the input File object and takes
-  // ownership of the object
-  explicit FSRandomRWFileWrapper(std::unique_ptr<FSRandomRWFile>&& t)
-      : guard_(std::move(t)) {
-    target_ = guard_.get();
-  }
-
   // Creates a FileWrapper around the input File object and without
   // taking ownership of the object
   explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
@@ -1572,8 +1576,18 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   }
 
  private:
-  std::unique_ptr<FSRandomRWFile> guard_;
   FSRandomRWFile* target_;
+};
+
+class FSRandomRWFileOwnerWrapper : public FSRandomRWFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSRandomRWFileOwnerWrapper(std::unique_ptr<FSRandomRWFile>&& t)
+      : FSRandomRWFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSRandomRWFile> guard_;
 };
 
 class FSDirectoryWrapper : public FSDirectory {

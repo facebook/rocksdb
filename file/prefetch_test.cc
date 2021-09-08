@@ -10,11 +10,11 @@ namespace ROCKSDB_NAMESPACE {
 
 class MockFS;
 
-class MockRandomAccessFile : public FSRandomAccessFileWrapper {
+class MockRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   MockRandomAccessFile(std::unique_ptr<FSRandomAccessFile>& file,
                        bool support_prefetch, std::atomic_int& prefetch_count)
-      : FSRandomAccessFileWrapper(std::move(file)),
+      : FSRandomAccessFileOwnerWrapper(std::move(file)),
         support_prefetch_(support_prefetch),
         prefetch_count_(prefetch_count) {}
 

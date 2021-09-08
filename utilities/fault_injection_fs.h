@@ -150,11 +150,11 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   FaultInjectionTestFS* fs_;
 };
 
-class TestFSSequentialFile : public FSSequentialFileWrapper {
+class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  public:
   explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
                                 FaultInjectionTestFS* fs)
-      : FSSequentialFileWrapper(std::move(f)), fs_(fs) {}
+      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,

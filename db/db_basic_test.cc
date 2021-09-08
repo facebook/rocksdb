@@ -3235,11 +3235,11 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
 // Forward declaration
 class DeadlineFS;
 
-class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+class DeadlineRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   DeadlineRandomAccessFile(DeadlineFS& fs,
                            std::unique_ptr<FSRandomAccessFile>& file)
-      : FSRandomAccessFileWrapper(std::move(file)), fs_(fs) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
                 Slice* result, char* scratch,

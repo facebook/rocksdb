@@ -131,12 +131,12 @@ class FileSystemPtr {
 // for tracing. It overrides methods we are interested in tracing and extends
 // FSSequentialFileWrapper, which forwards all methods that are not explicitly
 // overridden.
-class FSSequentialFileTracingWrapper : public FSSequentialFileWrapper {
+class FSSequentialFileTracingWrapper : public FSSequentialFileOwnerWrapper {
  public:
   FSSequentialFileTracingWrapper(std::unique_ptr<FSSequentialFile>&& t,
                                  std::shared_ptr<IOTracer> io_tracer,
                                  const std::string& file_name)
-      : FSSequentialFileWrapper(std::move(t)),
+      : FSSequentialFileOwnerWrapper(std::move(t)),
         io_tracer_(io_tracer),
         clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
@@ -201,12 +201,12 @@ class FSSequentialFilePtr {
 // binary format for tracing. It overrides methods we are interested in tracing
 // and extends FSRandomAccessFileWrapper, which forwards all methods that are
 // not explicitly overridden.
-class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
+class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileOwnerWrapper {
  public:
   FSRandomAccessFileTracingWrapper(std::unique_ptr<FSRandomAccessFile>&& t,
                                    std::shared_ptr<IOTracer> io_tracer,
                                    const std::string& file_name)
-      : FSRandomAccessFileWrapper(std::move(t)),
+      : FSRandomAccessFileOwnerWrapper(std::move(t)),
         io_tracer_(io_tracer),
         clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
@@ -274,12 +274,12 @@ class FSRandomAccessFilePtr {
 // for tracing. It overrides methods we are interested in tracing and extends
 // FSWritableFileWrapper, which forwards all methods that are not explicitly
 // overridden.
-class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
+class FSWritableFileTracingWrapper : public FSWritableFileOwnerWrapper {
  public:
   FSWritableFileTracingWrapper(std::unique_ptr<FSWritableFile>&& t,
                                std::shared_ptr<IOTracer> io_tracer,
                                const std::string& file_name)
-      : FSWritableFileWrapper(std::move(t)),
+      : FSWritableFileOwnerWrapper(std::move(t)),
         io_tracer_(io_tracer),
         clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
@@ -371,12 +371,12 @@ class FSWritableFilePtr {
 // for tracing. It overrides methods we are interested in tracing and extends
 // FSRandomRWFileWrapper, which forwards all methods that are not explicitly
 // overridden.
-class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
+class FSRandomRWFileTracingWrapper : public FSRandomRWFileOwnerWrapper {
  public:
   FSRandomRWFileTracingWrapper(std::unique_ptr<FSRandomRWFile>&& t,
                                std::shared_ptr<IOTracer> io_tracer,
                                const std::string& file_name)
-      : FSRandomRWFileWrapper(std::move(t)),
+      : FSRandomRWFileOwnerWrapper(std::move(t)),
         io_tracer_(io_tracer),
         clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
