@@ -5,10 +5,10 @@
 //
 
 #ifndef ROCKSDB_LITE
-#include "memtable/hash_linklist_rep.h"
 
 #include <algorithm>
 #include <atomic>
+
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/skiplist.h"
@@ -17,6 +17,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -820,15 +821,77 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
   return x;
 }
 
-} // anon namespace
+struct HashLinkListRepOptions {
+  static const char* kName() { return "HashLinkListRepFactoryOptions"; }
+  size_t bucket_count;
+  uint32_t threshold_use_skiplist;
+  size_t huge_page_tlb_size;
+  int bucket_entries_logging_threshold;
+  bool if_log_bucket_dist_when_flash;
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> hash_linklist_info = {
+    {"bucket_count",
+     {offsetof(struct HashLinkListRepOptions, bucket_count), OptionType::kSizeT,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"threshold",
+     {offsetof(struct HashLinkListRepOptions, threshold_use_skiplist),
+      OptionType::kUInt32T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"huge_page_size",
+     {offsetof(struct HashLinkListRepOptions, huge_page_tlb_size),
+      OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"logging_threshold",
+     {offsetof(struct HashLinkListRepOptions, bucket_entries_logging_threshold),
+      OptionType::kInt, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"log_when_flash",
+     {offsetof(struct HashLinkListRepOptions, if_log_bucket_dist_when_flash),
+      OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+};
+
+class HashLinkListRepFactory : public MemTableRepFactory {
+ public:
+  explicit HashLinkListRepFactory(size_t bucket_count,
+                                  uint32_t threshold_use_skiplist,
+                                  size_t huge_page_tlb_size,
+                                  int bucket_entries_logging_threshold,
+                                  bool if_log_bucket_dist_when_flash) {
+    options_.bucket_count = bucket_count;
+    options_.threshold_use_skiplist = threshold_use_skiplist;
+    options_.huge_page_tlb_size = huge_page_tlb_size;
+    options_.bucket_entries_logging_threshold =
+        bucket_entries_logging_threshold;
+    options_.if_log_bucket_dist_when_flash = if_log_bucket_dist_when_flash;
+    RegisterOptions(&options_, &hash_linklist_info);
+  }
+
+  using MemTableRepFactory::CreateMemTableRep;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, Allocator* allocator,
+      const SliceTransform* transform, Logger* logger) override;
+
+  static const char* kClassName() { return "HashLinkListRepFactory"; }
+  static const char* kNickName() { return "hash_linkedlist"; }
+  virtual const char* Name() const override { return kClassName(); }
+  virtual const char* NickName() const override { return kNickName(); }
+
+ private:
+  HashLinkListRepOptions options_;
+};
+
+}  // namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
-  return new HashLinkListRep(compare, allocator, transform, bucket_count_,
-                             threshold_use_skiplist_, huge_page_tlb_size_,
-                             logger, bucket_entries_logging_threshold_,
-                             if_log_bucket_dist_when_flash_);
+  return new HashLinkListRep(
+      compare, allocator, transform, options_.bucket_count,
+      options_.threshold_use_skiplist, options_.huge_page_tlb_size, logger,
+      options_.bucket_entries_logging_threshold,
+      options_.if_log_bucket_dist_when_flash);
 }
 
 MemTableRepFactory* NewHashLinkListRepFactory(

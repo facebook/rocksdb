@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
@@ -11,15 +10,17 @@
 #include <memory>
 
 #include "db/dbformat.h"
-#include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/plain/plain_table_builder.h"
 #include "table/plain/plain_table_reader.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",
      {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
@@ -151,73 +152,146 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
     return Status::InvalidArgument(s.getState());
   }
 }
+#endif  // ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
+                                             const std::string& /*arg*/) {
+  // The MemTableRepFactory built-in classes will be either a class
+  // (VectorRepFactory) or a nickname (vector), followed optionally by ":#",
+  // where # is the "size" of the factory.
+  auto AsRegex = [](const std::string& name, const std::string& alt) {
+    std::string regex;
+    regex.append("(").append(name);
+    regex.append("|").append(alt).append(")(:[0-9]*)?");
+    return regex;
+  };
+
+  library.Register<MemTableRepFactory>(
+      AsRegex(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(new VectorRepFactory(count));
+        } else {
+          guard->reset(new VectorRepFactory());
+        }
+        return guard->get();
+      });
+  library.Register<MemTableRepFactory>(
+      AsRegex(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t lookahead = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(new SkipListFactory(lookahead));
+        } else {
+          guard->reset(new SkipListFactory());
+        }
+        return guard->get();
+      });
+  library.Register<MemTableRepFactory>(
+      AsRegex("HashLinkListRepFactory", "hash_linkedlist"),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        // Expecting format: hash_linkedlist:<hash_bucket_count>
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(NewHashLinkListRepFactory(hash_bucket_count));
+        } else {
+          guard->reset(NewHashLinkListRepFactory());
+        }
+        return guard->get();
+      });
+  library.Register<MemTableRepFactory>(
+      AsRegex("HashSkipListRepFactory", "prefix_hash"),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        // Expecting format: prefix_hash:<hash_bucket_count>
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(NewHashSkipListRepFactory(hash_bucket_count));
+        } else {
+          guard->reset(NewHashSkipListRepFactory());
+        }
+        return guard->get();
+      });
+  library.Register<MemTableRepFactory>(
+      "cuckoo",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<MemTableRepFactory>* /*guard*/, std::string* errmsg) {
+        *errmsg = "cuckoo hash memtable is not supported anymore.";
+        return nullptr;
+      });
+
+  return 5;
+}
+#endif  // ROCKSDB_LITE
 Status GetMemTableRepFactoryFromString(
-    const std::string& opts_str,
-    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
-  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
-  size_t len = opts_list.size();
-
-  if (opts_list.empty() || opts_list.size() > 2) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                   opts_str);
-  }
-
-  MemTableRepFactory* mem_factory = nullptr;
-
-  if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
-    // Expecting format
-    // skip_list:<lookahead>
-    if (2 == len) {
-      size_t lookahead = ParseSizeT(opts_list[1]);
-      mem_factory = new SkipListFactory(lookahead);
-    } else if (1 == len) {
-      mem_factory = new SkipListFactory();
-    }
-  } else if (opts_list[0] == "prefix_hash" ||
-             opts_list[0] == "HashSkipListRepFactory") {
-    // Expecting format
-    // prfix_hash:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashSkipListRepFactory();
-    }
-  } else if (opts_list[0] == "hash_linkedlist" ||
-             opts_list[0] == "HashLinkListRepFactory") {
-    // Expecting format
-    // hash_linkedlist:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashLinkListRepFactory();
-    }
-  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
-    // Expecting format
-    // vector:<count>
-    if (2 == len) {
-      size_t count = ParseSizeT(opts_list[1]);
-      mem_factory = new VectorRepFactory(count);
-    } else if (1 == len) {
-      mem_factory = new VectorRepFactory();
-    }
-  } else if (opts_list[0] == "cuckoo") {
-    return Status::NotSupported(
-        "cuckoo hash memtable is not supported anymore.");
-  } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
-  }
-
-  if (mem_factory != nullptr) {
-    new_mem_factory->reset(mem_factory);
-  }
-
-  return Status::OK();
+    const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* result) {
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+  return MemTableRepFactory::CreateFromString(config_options, opts_str, result);
 }
 
+Status MemTableRepFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::unique_ptr<MemTableRepFactory>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinMemTableRepFactory(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  } else if (value.empty()) {
+    // No Id and no options.  Clear the object
+    result->reset();
+    return Status::OK();
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+#ifndef ROCKSDB_LITE
+    status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
+                                                 result);
+#else
+    // To make it possible to configure the memtables in LITE mode, the ID
+    // is of the form <name>:<size>, where name is the name of the class and
+    // <size> is the length of the object (e.g. skip_list:10).
+    std::vector<std::string> opts_list = StringSplit(id, ':');
+    if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {
+      status = Status::InvalidArgument("Can't parse memtable_factory option ",
+                                       value);
+    } else if (opts_list[0] == "skip_list" ||
+               opts_list[0] == SkipListFactory::kClassName()) {
+      // Expecting format
+      // skip_list:<lookahead>
+      if (opts_list.size() == 2) {
+        size_t lookahead = ParseSizeT(opts_list[1]);
+        result->reset(new SkipListFactory(lookahead));
+      } else {
+        result->reset(new SkipListFactory());
+      }
+    } else if (!config_options.ignore_unsupported_options) {
+      status = Status::NotSupported("Cannot load object in LITE mode ", id);
+    }
+#endif  // ROCKSDB_LITE
+  }
+  return status;
+}
+
+#ifndef ROCKSDB_LITE
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -259,5 +333,5 @@ const std::string PlainTablePropertyNames::kBloomVersion =
 const std::string PlainTablePropertyNames::kNumBloomBlocks =
     "rocksdb.plain.table.bloom.numblocks";
 
-}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
+}  // namespace ROCKSDB_NAMESPACE
