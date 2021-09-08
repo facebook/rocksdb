@@ -248,7 +248,13 @@ class SstFileReaderTimestampTest : public testing::Test {
     ASSERT_OK(reader.Open(sst_name_));
     ASSERT_OK(reader.VerifyChecksum());
 
-    std::unique_ptr<Iterator> iter(reader.NewIterator(ReadOptions()));
+    const std::string max_ts(options_.comparator->timestamp_size(), '\xff');
+    Slice max_ts_slice(max_ts);
+
+    ReadOptions read_options;
+    read_options.timestamp = &max_ts_slice;
+
+    std::unique_ptr<Iterator> iter(reader.NewIterator(read_options));
     iter->SeekToFirst();
 
     for (size_t i = 0; i + 2 < keys_and_timestamps.size(); i += 3) {
