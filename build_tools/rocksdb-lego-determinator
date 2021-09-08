@@ -594,7 +594,7 @@ ASAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Test RocksDB debug under ASAN',
-'shell':'cd $WORKING_DIR; set -o pipefail && ($SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL) |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
+'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }

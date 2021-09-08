@@ -14,7 +14,7 @@
 #else
 #include <gtest/gtest.h>
 #endif
-#include <rocksdb/utilities/regex.h>
+#include "rocksdb/utilities/regex.h"
 
 // A "skipped" test has a specific meaning in Facebook infrastructure: the
 // test is in good shape and should be run, but something about the

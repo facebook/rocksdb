@@ -44,6 +44,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
