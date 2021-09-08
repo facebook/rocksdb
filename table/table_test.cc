@@ -4824,7 +4824,7 @@ TEST_P(
   constexpr std::size_t kMaxDictBytes = 1024;
   // A small positive kMaxDictBufferBytes leads to a small buffer limit for our
   // testing purpose. 27 is chosen so that buffering two data blocks, each
-  // containing key1, value1 and key2, value2 will exceed buffer limit
+  // containing key1/value1, key2/value2, will exceed buffer limit
   constexpr std::size_t kMaxDictBufferBytes = 27;
 
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -4903,8 +4903,8 @@ TEST_P(
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   // A small kCacheCapacity is chosen so that increase cache reservation for
-  // buffering two data blocks, each containing key1, value1 and key2, a big
-  // value2 will cause cache full
+  // buffering two data blocks, each containing key1/value1, key2/a big
+  // value2, will cause cache full
   constexpr std::size_t kCacheCapacity =
       1 * kSizeDummyEntry + kSizeDummyEntry / 2;
   constexpr std::size_t kMaxDictBytes = 1024;
