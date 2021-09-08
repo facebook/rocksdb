@@ -616,6 +616,7 @@ class BackupEngineTest : public testing::Test {
     EXPECT_OK(Env::Default()->CreateDirIfMissing(backup_chroot));
     dbname_ = "/tempdb";
     backupdir_ = "/tempbk";
+    latest_backup_ = backupdir_ + "/LATEST_BACKUP";
 
     // set up envs
     db_chroot_env_.reset(NewChrootEnv(Env::Default(), db_chroot));
@@ -663,6 +664,10 @@ class BackupEngineTest : public testing::Test {
 
     // delete old files in db
     DestroyDB(dbname_, options_);
+
+    // delete old LATEST_BACKUP file, which some tests create for compatibility
+    // testing.
+    backup_chroot_env_->DeleteFile(latest_backup_).PermitUncheckedError();
   }
 
   DB* OpenDB() {
@@ -943,6 +948,7 @@ class BackupEngineTest : public testing::Test {
   // files
   std::string dbname_;
   std::string backupdir_;
+  std::string latest_backup_;
 
   // logger_ must be above backup_engine_ such that the engine's destructor,
   // which uses a raw pointer to the logger, executes first.
@@ -1853,6 +1859,7 @@ TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   }
   CloseDBAndBackupEngine();
+  ASSERT_OK(file_manager_->WriteToFile(latest_backup_, "4"));
 
   backupable_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
@@ -1860,10 +1867,13 @@ TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
                                        *backupable_options_,
                                        &read_only_backup_engine));
 
-  // assert that data from backup 5 is still here
+  // assert that data from backup 5 is still here (even though LATEST_BACKUP
+  // says 4 is latest)
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/5"));
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/5"));
 
+  // Behavior change: We now ignore LATEST_BACKUP contents. This means that
+  // we should have 5 backups, even if LATEST_BACKUP says 4.
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(5UL, backup_info.size());
