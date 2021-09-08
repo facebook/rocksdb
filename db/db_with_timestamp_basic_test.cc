@@ -16,6 +16,7 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -415,7 +416,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   const std::vector<uint64_t> start_keys = {1, 0};
   const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
@@ -842,7 +844,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
                                                      Timestamp(3, 0)};
@@ -927,7 +930,8 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   std::vector<SequenceNumber> start_seqs;
 
@@ -2235,7 +2239,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   size_t ts_sz = Timestamp(0, 0).size();
   TestComparator test_cmp(ts_sz);
   options.comparator = &test_cmp;
@@ -2313,7 +2318,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   const int kNumKeysPerFile = 1024;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = true;
@@ -2442,7 +2448,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
 
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
@@ -2558,7 +2565,8 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   options.memtable_prefix_bloom_size_ratio = 0.1;
   options.memtable_whole_key_filtering = true;
 
@@ -2725,7 +2733,8 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor = std::get<0>(GetParam());
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
   bbto.index_type = std::get<3>(GetParam());
@@ -2879,7 +2888,8 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor = std::get<0>(GetParam());
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
   bbto.index_type = std::get<3>(GetParam());

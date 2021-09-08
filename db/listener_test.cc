@@ -10,7 +10,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -529,8 +528,8 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
 
   TestCompactionReasonListener* listener = new TestCompactionReasonListener();
   options.listeners.emplace_back(listener);
@@ -595,8 +594,8 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
   Options options;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
 
   TestCompactionReasonListener* listener = new TestCompactionReasonListener();
   options.listeners.emplace_back(listener);
@@ -657,8 +656,8 @@ TEST_F(EventListenerTest, CompactionReasonFIFO) {
   Options options;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
 
   TestCompactionReasonListener* listener = new TestCompactionReasonListener();
   options.listeners.emplace_back(listener);
@@ -925,7 +924,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedFlushTest) {
   options.create_if_missing = true;
   options.env = env_;
   options.listeners.push_back(listener);
-  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   options.paranoid_checks = true;
   DestroyAndReopen(options);
 
@@ -956,7 +955,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   options.env = env_;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.push_back(listener);
-  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(2));
   options.paranoid_checks = true;
   DestroyAndReopen(options);
 
