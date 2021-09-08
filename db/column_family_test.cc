@@ -2975,7 +2975,8 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3020,7 +3021,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3071,7 +3073,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3129,7 +3132,8 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(3));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(3));
   column_family_options_.level0_file_num_compaction_trigger = 2;
   Open();
   CreateColumnFamilies({"one"});
