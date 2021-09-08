@@ -408,6 +408,10 @@ enum Tickers : uint32_t {
   // Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
   VERIFY_CHECKSUM_READ_BYTES,
 
+  // Bytes read/written while creating backups
+  BACKUP_READ_BYTES,
+  BACKUP_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 

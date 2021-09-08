@@ -45,6 +45,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -2642,6 +2643,28 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackRandomDeviceOnly) {
 
   MyStressTest t;
   t.Run();
+}
+
+TEST_F(EnvTest, FailureToCreateLockFile) {
+  auto env = Env::Default();
+  auto fs = env->GetFileSystem();
+  std::string dir = test::PerThreadDBPath(env, "lockdir");
+  std::string file = dir + "/lockfile";
+
+  // Ensure directory doesn't exist
+  ASSERT_OK(DestroyDir(env, dir));
+
+  // Make sure that we can acquire a file lock after the first attempt fails
+  FileLock* lock = nullptr;
+  ASSERT_NOK(fs->LockFile(file, IOOptions(), &lock, /*dbg*/ nullptr));
+  ASSERT_FALSE(lock);
+
+  ASSERT_OK(fs->CreateDir(dir, IOOptions(), /*dbg*/ nullptr));
+  ASSERT_OK(fs->LockFile(file, IOOptions(), &lock, /*dbg*/ nullptr));
+  ASSERT_OK(fs->UnlockFile(lock, IOOptions(), /*dbg*/ nullptr));
+
+  // Clean up
+  ASSERT_OK(DestroyDir(env, dir));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
