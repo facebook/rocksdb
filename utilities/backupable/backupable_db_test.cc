@@ -1853,7 +1853,6 @@ TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   }
   CloseDBAndBackupEngine();
-  ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "4"));
 
   backupable_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
@@ -1861,13 +1860,10 @@ TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
                                        *backupable_options_,
                                        &read_only_backup_engine));
 
-  // assert that data from backup 5 is still here (even though LATEST_BACKUP
-  // says 4 is latest)
+  // assert that data from backup 5 is still here
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/5"));
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/5"));
 
-  // Behavior change: We now ignore LATEST_BACKUP contents. This means that
-  // we should have 5 backups, even if LATEST_BACKUP says 4.
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(5UL, backup_info.size());
