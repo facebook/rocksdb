@@ -534,7 +534,7 @@ am__v_CCH_1 =
 
 %.h.ok: %.h # .h.ok not actually created, so re-checked on each invocation
 # -DROCKSDB_NAMESPACE=42 ensures the namespace header is included
-	$(AM_V_CCH)mkdir -p $(@D) && echo '#include "$<"' | $(CXX) $(CXXFLAGS) -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	$(AM_V_CCH) echo '#include "$<"' | $(CXX) $(CXXFLAGS) -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
 
 check_headers: $(HEADER_OK_FILES)
 

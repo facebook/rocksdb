@@ -336,7 +336,7 @@ jobs:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
       - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test | .circleci/cat_ignore_eagain
-      - run: make V=1 -j8 check_headers | .circleci/cat_ignore_eagain # could be moved to a different build
+      - run: make V=1 -j8 -k check_headers | .circleci/cat_ignore_eagain # could be moved to a different build
       - post-steps
 
   build-linux-gcc-4_8-no_test_run:
