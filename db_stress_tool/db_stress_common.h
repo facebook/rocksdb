@@ -87,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_bool(test_cf_consistency);
+DECLARE_bool(test_myrocks_txns);
 DECLARE_int32(threads);
 DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
@@ -570,6 +571,7 @@ extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern StressTest* CreateMyRocksStyleTxnsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 

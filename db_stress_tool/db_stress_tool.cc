@@ -291,6 +291,14 @@ int db_stress_tool(int argc, char** argv) {
             "batch_protection_bytes_per_key > 0\n");
     exit(1);
   }
+  if (FLAGS_test_myrocks_txns) {
+    if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
+      fprintf(stderr,
+              "-test_myrocks_txns is not compatible with "
+              "-test_bathces_snapshots and -test_cf_consistency\n");
+      exit(1);
+    }
+  }
 
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
@@ -335,6 +343,8 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(CreateBatchedOpsStressTest());
+  } else if (FLAGS_test_myrocks_txns) {
+    stress.reset(CreateMyRocksStyleTxnsStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }

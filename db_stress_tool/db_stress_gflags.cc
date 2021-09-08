@@ -90,6 +90,10 @@ DEFINE_bool(test_cf_consistency, false,
             "multiple column families are consistent. Setting this implies "
             "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
+DEFINE_bool(test_myrocks_txns, false,
+            "If set, runs stress test dedicated to verifying MyRocks-style "
+            "transactions.");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,
