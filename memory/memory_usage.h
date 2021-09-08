@@ -7,6 +7,8 @@
 
 #include <unordered_map>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // Helper methods to estimate memroy usage by std containers.

@@ -10,6 +10,7 @@
 #pragma once
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/db.h"
 
 namespace ROCKSDB_NAMESPACE {
