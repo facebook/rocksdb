@@ -35,13 +35,14 @@
 
 #pragma once
 
-#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
 
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
+
+#include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -51,7 +52,7 @@ class LookupKey;
 class SliceTransform;
 class Logger;
 
-typedef void* KeyHandle;
+using KeyHandle = void*;
 
 extern Slice GetLengthPrefixedSlice(const char* data);
 
@@ -61,7 +62,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
+    using DecodedType = ROCKSDB_NAMESPACE::Slice;
 
     virtual DecodedType decode_key(const char* key) const {
       // The format of key is frozen and can be treated as a part of the API

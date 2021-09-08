@@ -174,8 +174,8 @@ class WriteBatchEntryComparator {
   const ReadableWriteBatch* write_batch_;
 };
 
-typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
-    WriteBatchEntrySkipList;
+using WriteBatchEntrySkipList =
+    SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>;
 
 class WBWIIteratorImpl : public WBWIIterator {
  public:

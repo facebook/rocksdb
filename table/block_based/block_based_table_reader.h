@@ -41,7 +41,7 @@ struct EnvOptions;
 struct ReadOptions;
 class GetContext;
 
-typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
+using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
 
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to

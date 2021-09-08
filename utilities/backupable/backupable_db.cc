@@ -33,6 +33,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
+#include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
@@ -583,6 +584,7 @@ class BackupEngineImpl {
     bool sync;
     RateLimiter* rate_limiter;
     uint64_t size_limit;
+    Statistics* stats;
     std::promise<CopyOrCreateResult> result;
     std::function<void()> progress_callback;
     std::string src_checksum_func_name;
@@ -600,6 +602,7 @@ class BackupEngineImpl {
           sync(false),
           rate_limiter(nullptr),
           size_limit(0),
+          stats(nullptr),
           src_checksum_func_name(kUnknownFileChecksumFuncName),
           src_checksum_hex(""),
           db_id(""),
@@ -622,6 +625,7 @@ class BackupEngineImpl {
       sync = o.sync;
       rate_limiter = o.rate_limiter;
       size_limit = o.size_limit;
+      stats = o.stats;
       result = std::move(o.result);
       progress_callback = std::move(o.progress_callback);
       src_checksum_func_name = std::move(o.src_checksum_func_name);
@@ -634,7 +638,7 @@ class BackupEngineImpl {
     CopyOrCreateWorkItem(
         std::string _src_path, std::string _dst_path, std::string _contents,
         Env* _src_env, Env* _dst_env, EnvOptions _src_env_options, bool _sync,
-        RateLimiter* _rate_limiter, uint64_t _size_limit,
+        RateLimiter* _rate_limiter, uint64_t _size_limit, Statistics* _stats,
         std::function<void()> _progress_callback = []() {},
         const std::string& _src_checksum_func_name =
             kUnknownFileChecksumFuncName,
@@ -649,6 +653,7 @@ class BackupEngineImpl {
           sync(_sync),
           rate_limiter(_rate_limiter),
           size_limit(_size_limit),
+          stats(_stats),
           progress_callback(_progress_callback),
           src_checksum_func_name(_src_checksum_func_name),
           src_checksum_hex(_src_checksum_hex),
@@ -756,8 +761,8 @@ class BackupEngineImpl {
       BackupID backup_id, bool shared, const std::string& src_dir,
       const std::string& fname,  // starts with "/"
       const EnvOptions& src_env_options, RateLimiter* rate_limiter,
-      FileType file_type, uint64_t size_bytes, uint64_t size_limit = 0,
-      bool shared_checksum = false,
+      FileType file_type, uint64_t size_bytes, Statistics* stats,
+      uint64_t size_limit = 0, bool shared_checksum = false,
       std::function<void()> progress_callback = []() {},
       const std::string& contents = std::string(),
       const std::string& src_checksum_func_name = kUnknownFileChecksumFuncName,
@@ -1153,6 +1158,13 @@ Status BackupEngineImpl::Initialize() {
           port::SetCpuPriority(0, priority);
           current_priority = priority;
         }
+        // `bytes_read` and `bytes_written` stats are enabled based on
+        // compile-time support and cannot be dynamically toggled. So we do not
+        // need to worry about `PerfLevel` here, unlike many other
+        // `IOStatsContext` / `PerfContext` stats.
+        uint64_t prev_bytes_read = IOSTATS(bytes_read);
+        uint64_t prev_bytes_written = IOSTATS(bytes_written);
+
         CopyOrCreateResult result;
         result.status = CopyOrCreateFile(
             work_item.src_path, work_item.dst_path, work_item.contents,
@@ -1160,6 +1172,12 @@ Status BackupEngineImpl::Initialize() {
             work_item.sync, work_item.rate_limiter, &result.size,
             &result.checksum_hex, work_item.size_limit,
             work_item.progress_callback);
+
+        RecordTick(work_item.stats, BACKUP_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        RecordTick(work_item.stats, BACKUP_WRITE_BYTES,
+                   IOSTATS(bytes_written) - prev_bytes_written);
+
         result.db_id = work_item.db_id;
         result.db_session_id = work_item.db_session_id;
         if (result.status.ok() && !work_item.src_checksum_hex.empty()) {
@@ -1217,6 +1235,12 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   BackupID new_backup_id = latest_backup_id_ + 1;
 
+  // `bytes_read` and `bytes_written` stats are enabled based on compile-time
+  // support and cannot be dynamically toggled. So we do not need to worry about
+  // `PerfLevel` here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  uint64_t prev_bytes_read = IOSTATS(bytes_read);
+  uint64_t prev_bytes_written = IOSTATS(bytes_written);
+
   assert(backups_.find(new_backup_id) == backups_.end());
 
   auto private_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id));
@@ -1270,10 +1294,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
   Status disabled = db->DisableFileDeletions();
+  DBOptions db_options = db->GetDBOptions();
+  Statistics* stats = db_options.statistics.get();
   if (s.ok()) {
     CheckpointImpl checkpoint(db);
     uint64_t sequence_number = 0;
-    DBOptions db_options = db->GetDBOptions();
     FileChecksumGenFactory* db_checksum_factory =
         db_options.file_checksum_gen_factory.get();
     const std::string kFileChecksumGenFactoryName =
@@ -1337,7 +1362,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                 options_.share_table_files &&
                     (type == kTableFile || type == kBlobFile),
                 src_dirname, fname, src_env_options, rate_limiter, type,
-                size_bytes, size_limit_bytes,
+                size_bytes, db_options.statistics.get(), size_limit_bytes,
                 options_.share_files_with_checksum &&
                     (type == kTableFile || type == kBlobFile),
                 options.progress_callback, "" /* contents */,
@@ -1352,8 +1377,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
               live_dst_paths, backup_items_to_finish, new_backup_id,
               false /* shared */, "" /* src_dir */, fname,
               EnvOptions() /* src_env_options */, rate_limiter, type,
-              contents.size(), 0 /* size_limit */, false /* shared_checksum */,
-              options.progress_callback, contents);
+              contents.size(), db_options.statistics.get(), 0 /* size_limit */,
+              false /* shared_checksum */, options.progress_callback, contents);
         } /* create_file_cb */,
         &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64,
         compare_checksum);
@@ -1415,8 +1440,27 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (s.ok()) {
     backup_statistics_.IncrementNumberSuccessBackup();
-  }
-  if (!s.ok()) {
+    // here we know that we succeeded and installed the new backup
+    latest_backup_id_ = new_backup_id;
+    latest_valid_backup_id_ = new_backup_id;
+    if (new_backup_id_ptr) {
+      *new_backup_id_ptr = new_backup_id;
+    }
+    ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
+
+    // backup_speed is in byte/second
+    double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
+    ROCKS_LOG_INFO(options_.info_log, "Backup number of files: %u",
+                   new_backup->GetNumberFiles());
+    char human_size[16];
+    AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
+    ROCKS_LOG_INFO(options_.info_log, "Backup size: %s", human_size);
+    ROCKS_LOG_INFO(options_.info_log, "Backup time: %" PRIu64 " microseconds",
+                   backup_time);
+    ROCKS_LOG_INFO(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
+    ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s",
+                   backup_statistics_.ToString().c_str());
+  } else {
     backup_statistics_.IncrementNumberFailBackup();
     // clean all the files we might have created
     ROCKS_LOG_INFO(options_.info_log, "Backup failed -- %s",
@@ -1426,30 +1470,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     // delete files that we might have already written
     might_need_garbage_collect_ = true;
     DeleteBackup(new_backup_id).PermitUncheckedError();
-    return s;
   }
 
-  // here we know that we succeeded and installed the new backup
-  // in the LATEST_BACKUP file
-  latest_backup_id_ = new_backup_id;
-  latest_valid_backup_id_ = new_backup_id;
-  if (new_backup_id_ptr) {
-    *new_backup_id_ptr = new_backup_id;
-  }
-  ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
-
-  // backup_speed is in byte/second
-  double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
-  ROCKS_LOG_INFO(options_.info_log, "Backup number of files: %u",
-                 new_backup->GetNumberFiles());
-  char human_size[16];
-  AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
-  ROCKS_LOG_INFO(options_.info_log, "Backup size: %s", human_size);
-  ROCKS_LOG_INFO(options_.info_log, "Backup time: %" PRIu64 " microseconds",
-                 backup_time);
-  ROCKS_LOG_INFO(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
-  ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s",
-                 backup_statistics_.ToString().c_str());
+  RecordTick(stats, BACKUP_READ_BYTES, IOSTATS(bytes_read) - prev_bytes_read);
+  RecordTick(stats, BACKUP_WRITE_BYTES,
+             IOSTATS(bytes_written) - prev_bytes_written);
   return s;
 }
 
@@ -1746,7 +1771,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
         EnvOptions() /* src_env_options */, options_.sync,
-        options_.restore_rate_limiter.get(), 0 /* size_limit */);
+        options_.restore_rate_limiter.get(), 0 /* size_limit */,
+        nullptr /* stats */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
         file_info->checksum_hex);
@@ -1981,7 +2007,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     BackupID backup_id, bool shared, const std::string& src_dir,
     const std::string& fname, const EnvOptions& src_env_options,
     RateLimiter* rate_limiter, FileType file_type, uint64_t size_bytes,
-    uint64_t size_limit, bool shared_checksum,
+    Statistics* stats, uint64_t size_limit, bool shared_checksum,
     std::function<void()> progress_callback, const std::string& contents,
     const std::string& src_checksum_func_name,
     const std::string& src_checksum_str) {
@@ -2176,8 +2202,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     CopyOrCreateWorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
         db_env_, backup_env_, src_env_options, options_.sync, rate_limiter,
-        size_limit, progress_callback, src_checksum_func_name, checksum_hex,
-        db_id, db_session_id);
+        size_limit, stats, progress_callback, src_checksum_func_name,
+        checksum_hex, db_id, db_session_id);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
         backup_env_, temp_dest_path, final_dest_path, dst_relative);
@@ -2870,6 +2896,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
   }
 
   s = backup_meta_file->Append(Slice(buf.str()));
+  IOSTATS_ADD(bytes_written, buf.str().size());
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }

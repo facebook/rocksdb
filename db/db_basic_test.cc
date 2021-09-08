@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
-#include <regex>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -69,11 +68,10 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_EQ(sid2, sid4);
 
   // Expected compact format for session ids (see notes in implementation)
-  std::regex expected("[0-9A-Z]{20}");
-  const std::string match("match");
-  EXPECT_EQ(match, std::regex_replace(sid1, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid2, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid3, expected, match));
+  TestRegex expected("[0-9A-Z]{20}");
+  EXPECT_MATCHES_REGEX(sid1, expected);
+  EXPECT_MATCHES_REGEX(sid2, expected);
+  EXPECT_MATCHES_REGEX(sid3, expected);
 
 #ifndef ROCKSDB_LITE
   Close();

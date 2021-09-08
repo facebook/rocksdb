@@ -235,7 +235,7 @@ struct PersistentCacheConfig {
 // to enable management and stacking of tiers.
 class PersistentCacheTier : public PersistentCache {
  public:
-  typedef std::shared_ptr<PersistentCacheTier> Tier;
+  using Tier = std::shared_ptr<PersistentCacheTier>;
 
   virtual ~PersistentCacheTier() {}
 

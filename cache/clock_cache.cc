@@ -260,7 +260,7 @@ struct CleanupContext {
 class ClockCacheShard final : public CacheShard {
  public:
   // Hash map type.
-  typedef tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey> HashTable;
+  using HashTable = tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey>;
 
   ClockCacheShard();
   ~ClockCacheShard() override;
