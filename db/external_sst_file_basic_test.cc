@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -37,11 +38,11 @@ class ExternalSSTFileBasicTest
     if (s.IsNotSupported()) {
       random_rwfile_supported_ = false;
     } else {
-      assert(s.ok());
+      EXPECT_OK(s);
       random_rwfile_supported_ = true;
     }
     rwfile.reset();
-    assert(env_->DeleteFile(file_path).ok());
+    EXPECT_OK(env_->DeleteFile(file_path));
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
@@ -1472,6 +1473,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
   if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1523,6 +1525,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   if (!verify_checksums_before_ingest || !random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }
   uint64_t props_block_offset = 0;
