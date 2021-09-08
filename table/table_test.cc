@@ -4822,10 +4822,7 @@ TEST_P(
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
   constexpr std::size_t kMaxDictBytes = 1024;
-  // A small positive kMaxDictBufferBytes leads to a small buffer limit for our
-  // testing purpose. 27 is chosen so that buffering two data blocks, each
-  // containing key1/value1, key2/value2, will exceed buffer limit
-  constexpr std::size_t kMaxDictBufferBytes = 27;
+  constexpr std::size_t kMaxDictBufferBytes = 2 * kSizeDummyEntry;
 
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   LRUCacheOptions lo;
@@ -4861,7 +4858,7 @@ TEST_P(
       file_writer.get()));
 
   std::string key1 = "key1";
-  std::string value1 = "val1";
+  std::string value1(kSizeDummyEntry, '0');
   InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
   // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
   // therefore won't trigger any data block's buffering
@@ -4869,7 +4866,7 @@ TEST_P(
   ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 
   std::string key2 = "key2";
-  std::string value2 = "val2";
+  std::string value2(kSizeDummyEntry, '0');
   InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
   // Adding the second key will trigger a flush of the last data block (the one
   // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
@@ -4878,9 +4875,9 @@ TEST_P(
   // Cache reservation will increase for last buffered data block (the one
   // containing key1 and value1) since the buffer limit is not exceeded after
   // the buffering and the cache will not be full after this reservation
-  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
+  EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
   EXPECT_LT(cache->GetPinnedUsage(),
-            1 * kSizeDummyEntry + kMetaDataChargeOverhead);
+            2 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
   std::string key3 = "key3";
   std::string value3 = "val3";
