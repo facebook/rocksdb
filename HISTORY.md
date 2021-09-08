@@ -8,6 +8,7 @@
 * Fix a race in item ref counting in LRUCache when promoting an item from the SecondaryCache.
 * Fix a race in BackupEngine if RateLimiter is reconfigured during concurrent Restore operations.
 * Fix a bug on POSIX in which failure to create a lock file (e.g. out of space) can prevent future LockFile attempts in the same process on the same file from succeeding.
+* Fix a bug that backup_rate_limiter and restore_rate_limiter in BackupEngine could not limit read rates.
 
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.

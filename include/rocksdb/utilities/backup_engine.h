@@ -76,6 +76,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during backup.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "backup_rate_limiter"
   // Default: 0
   uint64_t backup_rate_limit;
 
@@ -86,6 +89,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "restore_rate_limiter"
   // Default: 0
   uint64_t restore_rate_limit;
 
