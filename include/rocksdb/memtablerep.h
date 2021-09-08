@@ -35,13 +35,14 @@
 
 #pragma once
 
-#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
 
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
+
+#include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
 
