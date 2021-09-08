@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.16.5 (09/08/2021)
 ### Bug Fixes
 * Fixed a bug affecting the batched `MultiGet` API when used with keys spanning multiple column families and `sorted_input == false`.
 
