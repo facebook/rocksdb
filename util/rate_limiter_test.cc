@@ -91,29 +91,34 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
 }
 
 TEST_F(RateLimiterTest, GetTotalPendingRequests) {
-  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(20 /* rate_bytes_per_sec */));
+  std::unique_ptr<RateLimiter> limiter(
+      NewGenericRateLimiter(20 /* rate_bytes_per_sec */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-    ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)), 0);
+    ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
+              0);
   }
 
   SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::Request:PostEnqueueRequest",
-        [&](void* arg) {
-          port::Mutex* request_mutex = (port::Mutex*)arg;
-          // We temporarily unlock the mutex so that the following GetTotalPendingRequests() can acquire it
-          request_mutex->Unlock();
-          EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 1);
-          EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 1);
-          // We lock the mutex again so that the request thread can resume running with the mutex locked
-          request_mutex->Lock();
-        });
+      "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
+        port::Mutex* request_mutex = (port::Mutex*)arg;
+        // We temporarily unlock the mutex so that the following
+        // GetTotalPendingRequests() can acquire it
+        request_mutex->Unlock();
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 1);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 1);
+        // We lock the mutex again so that the request thread can resume running
+        // with the mutex locked
+        request_mutex->Lock();
+      });
 
   SyncPoint::GetInstance()->EnableProcessing();
-  limiter->Request(20, Env::IO_USER, nullptr /* stats */, RateLimiter::OpType::kWrite);
+  limiter->Request(20, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 0);
   SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearCallBack("GenericRateLimiter::Request:PostEnqueueRequest");
+  SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest");
 }
 
 TEST_F(RateLimiterTest, Modes) {
