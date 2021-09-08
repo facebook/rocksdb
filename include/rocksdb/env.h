@@ -1209,7 +1209,9 @@ class Logger {
   InfoLogLevel log_level_;
 };
 
-// Identifies a locked file.
+// Identifies a locked file. Except in custom Env/Filesystem implementations,
+// the lifetime of a FileLock object should be managed only by LockFile() and
+// UnlockFile().
 class FileLock {
  public:
   FileLock() {}
