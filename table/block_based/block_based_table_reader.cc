@@ -1728,14 +1728,16 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   {
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
-    if (s.IsTimedOut()) {
+    if (s.ok()) {
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
+                          &direct_io_buf);
+    }
+    if (!s.ok()) {
+      // Discard all the results in this batch if there is any time out
+      // or overall MultiRead error
       for (FSReadRequest& req : read_reqs) {
         req.status = s;
       }
-    } else {
-      // How to handle this status code?
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
-          .PermitUncheckedError();
     }
   }
 
