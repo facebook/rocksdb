@@ -8,6 +8,7 @@
 #include "rocksdb/sst_file_reader.h"
 
 #include <cinttypes>
+#include <utility>
 
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
@@ -193,6 +194,116 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
 
   // Cleanup.
   ASSERT_OK(DestroyDB(db_name, options));
+}
+
+class SstFileReaderTimestampTest : public testing::Test {
+ public:
+  SstFileReaderTimestampTest() {
+    Env* env = Env::Default();
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env, &env_guard_));
+    EXPECT_NE(nullptr, env);
+
+    options_.env = env;
+
+    options_.comparator = test::ComparatorWithU64Ts();
+
+    sst_name_ = test::PerThreadDBPath("sst_file_ts");
+  }
+
+  ~SstFileReaderTimestampTest() {
+    EXPECT_OK(options_.env->DeleteFile(sst_name_));
+  }
+
+  void CreateFile(const std::vector<std::pair<std::string, std::string>>&
+                      keys_and_timestamps) {
+    SstFileWriter writer(soptions_, options_);
+
+    ASSERT_OK(writer.Open(sst_name_));
+
+    for (size_t i = 0; i + 2 < keys_and_timestamps.size(); i += 3) {
+      // Key and timestamp in non-contiguous buffer
+      ASSERT_OK(writer.Put(
+          keys_and_timestamps[i].first, keys_and_timestamps[i].second,
+          keys_and_timestamps[i].first + keys_and_timestamps[i].second));
+
+      // Key and timestamp in contiguous buffer
+      const std::string& key(keys_and_timestamps[i + 1].first);
+      const std::string& ts(keys_and_timestamps[i + 1].second);
+      std::string key_with_ts(key + ts);
+      ASSERT_OK(writer.Put(Slice(key_with_ts.data(), key.size()),
+                           Slice(key_with_ts.data() + key.size(), ts.size()),
+                           key_with_ts));
+
+      ASSERT_OK(writer.Delete(keys_and_timestamps[i + 2].first,
+                              keys_and_timestamps[i + 2].second));
+    }
+
+    ASSERT_OK(writer.Finish());
+  }
+
+  void CheckFile(const std::vector<std::pair<std::string, std::string>>&
+                     keys_and_timestamps) {
+    SstFileReader reader(options_);
+
+    ASSERT_OK(reader.Open(sst_name_));
+    ASSERT_OK(reader.VerifyChecksum());
+
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+
+    for (size_t i = 0; i + 2 < keys_and_timestamps.size(); i += 3) {
+      {
+        ASSERT_TRUE(iter->Valid());
+
+        const std::string& key(keys_and_timestamps[i].first);
+        const std::string& ts(keys_and_timestamps[i].second);
+
+        ASSERT_EQ(iter->key(), key);
+        ASSERT_EQ(iter->timestamp(), ts);
+        ASSERT_EQ(iter->value(), key + ts);
+      }
+
+      iter->Next();
+
+      {
+        ASSERT_TRUE(iter->Valid());
+
+        const std::string& key(keys_and_timestamps[i + 1].first);
+        const std::string& ts(keys_and_timestamps[i + 1].second);
+
+        ASSERT_EQ(iter->key(), key);
+        ASSERT_EQ(iter->timestamp(), ts);
+        ASSERT_EQ(iter->value(), key + ts);
+      }
+
+      iter->Next();
+    }
+
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  void CreateFileAndCheck(
+      const std::vector<std::pair<std::string, std::string>>&
+          keys_and_timestamps) {
+    CreateFile(keys_and_timestamps);
+    CheckFile(keys_and_timestamps);
+  }
+
+ protected:
+  std::shared_ptr<Env> env_guard_;
+  Options options_;
+  EnvOptions soptions_;
+  std::string sst_name_;
+};
+
+TEST_F(SstFileReaderTimestampTest, Basic) {
+  std::vector<std::pair<std::string, std::string>> keys_and_timestamps;
+
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys_and_timestamps.emplace_back(EncodeAsString(i), EncodeAsString(i));
+  }
+
+  CreateFileAndCheck(keys_and_timestamps);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
