@@ -1438,19 +1438,24 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
                        io_options_, &backup_private_directory, nullptr)
         .PermitUncheckedError();
     if (backup_private_directory != nullptr) {
-      io_s = backup_private_directory->Fsync(io_options_, nullptr);
+      io_s = backup_private_directory->FsyncWithDirOptions(io_options_, nullptr,
+                                                           DirFsyncOptions());
     }
     if (io_s.ok() && private_directory_ != nullptr) {
-      io_s = private_directory_->Fsync(io_options_, nullptr);
+      io_s = private_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                     DirFsyncOptions());
     }
     if (io_s.ok() && meta_directory_ != nullptr) {
-      io_s = meta_directory_->Fsync(io_options_, nullptr);
+      io_s = meta_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                  DirFsyncOptions());
     }
     if (io_s.ok() && shared_directory_ != nullptr) {
-      io_s = shared_directory_->Fsync(io_options_, nullptr);
+      io_s = shared_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                    DirFsyncOptions());
     }
     if (io_s.ok() && backup_directory_ != nullptr) {
-      io_s = backup_directory_->Fsync(io_options_, nullptr);
+      io_s = backup_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                    DirFsyncOptions());
     }
   }
 
@@ -1832,15 +1837,17 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     }
   }
 
-  // When enabled, the first Fsync is to ensure all files are fully persisted
-  // before renaming CURRENT.tmp
+  // When enabled, the first FsyncWithDirOptions is to ensure all files are
+  // fully persisted before renaming CURRENT.tmp
   if (io_s.ok() && db_dir_for_fsync) {
     ROCKS_LOG_INFO(options_.info_log, "Restore: fsync\n");
-    io_s = db_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = db_dir_for_fsync->FsyncWithDirOptions(io_options_, nullptr,
+                                                 DirFsyncOptions());
   }
 
   if (io_s.ok() && wal_dir_for_fsync) {
-    io_s = wal_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = wal_dir_for_fsync->FsyncWithDirOptions(io_options_, nullptr,
+                                                  DirFsyncOptions());
   }
 
   if (io_s.ok() && !temporary_current_file.empty()) {
@@ -1851,11 +1858,12 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
   }
 
   if (io_s.ok() && db_dir_for_fsync && !temporary_current_file.empty()) {
-    // Second Fsync is to ensure the final atomic rename of DB restore is
-    // fully persisted even if power goes out right after restore operation
-    // returns success
+    // Second FsyncWithDirOptions is to ensure the final atomic rename of DB
+    // restore is fully persisted even if power goes out right after restore
+    // operation returns success
     assert(db_dir_for_fsync);
-    io_s = db_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = db_dir_for_fsync->FsyncWithDirOptions(
+        io_options_, nullptr, DirFsyncOptions(final_current_file));
   }
 
   ROCKS_LOG_INFO(options_.info_log, "Restoring done -- %s\n",

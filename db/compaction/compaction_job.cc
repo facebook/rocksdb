@@ -763,12 +763,16 @@ Status CompactionJob::Run() {
     constexpr IODebugContext* dbg = nullptr;
 
     if (output_directory_) {
-      io_s = output_directory_->Fsync(IOOptions(), dbg);
+      io_s = output_directory_->FsyncWithDirOptions(
+          IOOptions(), dbg,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
     if (io_s.ok() && wrote_new_blob_files && blob_output_directory_ &&
         blob_output_directory_ != output_directory_) {
-      io_s = blob_output_directory_->Fsync(IOOptions(), dbg);
+      io_s = blob_output_directory_->FsyncWithDirOptions(
+          IOOptions(), dbg,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
   }
   if (io_status_.ok()) {
@@ -2442,7 +2446,8 @@ Status CompactionServiceCompactionJob::Run() {
     constexpr IODebugContext* dbg = nullptr;
 
     if (output_directory_) {
-      io_s = output_directory_->Fsync(IOOptions(), dbg);
+      io_s = output_directory_->FsyncWithDirOptions(IOOptions(), dbg,
+                                                    DirFsyncOptions());
     }
   }
   if (io_status_.ok()) {
