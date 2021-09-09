@@ -97,7 +97,7 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
     ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
               0);
   }
-  // This is a variable for making sure the following callback is called 
+  // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted
   bool nonzero_pending_requests_verified_ = false;
   SyncPoint::GetInstance()->SetCallBack(
