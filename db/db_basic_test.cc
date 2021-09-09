@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -756,7 +757,7 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   Destroy(options);
 
   // Does not exist, and create_if_missing == false: error
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   options.create_if_missing = false;
   Status s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
@@ -768,8 +769,7 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
-  delete db;
-  db = nullptr;
+  // Note: explicit db.reset() not strictly required
 
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
@@ -784,9 +784,6 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
-
-  delete db;
-  db = nullptr;
 }
 
 TEST_F(DBBasicTest, CompactOnFlush) {
