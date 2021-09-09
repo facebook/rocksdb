@@ -158,12 +158,12 @@ class MultiGetContext {
     class Iterator {
      public:
       // -- iterator traits
-      typedef Iterator self_type;
-      typedef KeyContext value_type;
-      typedef KeyContext& reference;
-      typedef KeyContext* pointer;
-      typedef int difference_type;
-      typedef std::forward_iterator_tag iterator_category;
+      using self_type = Iterator;
+      using value_type = KeyContext;
+      using reference = KeyContext&;
+      using pointer = KeyContext*;
+      using difference_type = int;
+      using iterator_category = std::forward_iterator_tag;
 
       Iterator(const Range* range, size_t idx)
           : range_(range), ctx_(range->ctx_), index_(idx) {

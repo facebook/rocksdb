@@ -8,7 +8,7 @@
 
 #include "memkind_kmem_allocator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void* MemkindKmemAllocator::Allocate(size_t size) {
   void* p = memkind_malloc(MEMKIND_DAX_KMEM, size);
@@ -29,5 +29,5 @@ size_t MemkindKmemAllocator::UsableSize(void* p,
 }
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // MEMKIND

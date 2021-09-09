@@ -1365,6 +1365,23 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
   }
 #endif
 }
+  
+TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
+  std::unique_ptr<MemTableRepFactory> result;
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options_, "SpecialSkipListFactory", &result));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options_, SkipListFactory::kClassName(), &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(SkipListFactory::kClassName()));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemTableRepFactory::CreateFromString(
+        config_options_, "SpecialSkipListFactory", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "SpecialSkipListFactory");
+  }
+}
 
 TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
   std::shared_ptr<MergeOperator> result;

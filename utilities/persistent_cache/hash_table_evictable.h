@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 template <class T, class Hash, class Equal>
 class EvictableHashTable : private HashTable<T*, Hash, Equal> {
  public:
-  typedef HashTable<T*, Hash, Equal> hash_table;
+  using hash_table = HashTable<T*, Hash, Equal>;
 
   explicit EvictableHashTable(const size_t capacity = 1024 * 1024,
                               const float load_factor = 2.0,
@@ -141,7 +141,7 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
   port::RWMutex* GetMutex(T* t) { return hash_table::GetMutex(t); }
 
  private:
-  typedef LRUList<T> LRUListType;
+  using LRUListType = LRUList<T>;
 
   typename hash_table::Bucket& GetBucket(const uint64_t h) {
     const uint32_t bucket_idx = h % hash_table::nbuckets_;

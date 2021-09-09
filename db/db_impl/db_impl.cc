@@ -61,8 +61,6 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
-#include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/iostats_context_imp.h"
@@ -3116,7 +3114,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 }
 
 namespace {
-typedef autovector<ColumnFamilyData*, 2> CfdList;
+using CfdList = autovector<ColumnFamilyData*, 2>;
 bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
   for (const ColumnFamilyData* t : list) {
     if (t == cfd) {
@@ -4936,6 +4934,11 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
 
 Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                       bool use_file_checksum) {
+  // `bytes_read` stat is enabled based on compile-time support and cannot
+  // be dynamically toggled. So we do not need to worry about `PerfLevel`
+  // here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  uint64_t prev_bytes_read = IOSTATS(bytes_read);
+
   Status s;
 
   if (use_file_checksum) {
@@ -4990,6 +4993,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
       }
     }
 
@@ -5004,6 +5010,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
         if (!s.ok()) {
           break;
         }
@@ -5035,6 +5044,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       cfd->UnrefAndTryDelete();
     }
   }
+  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+             IOSTATS(bytes_read) - prev_bytes_read);
   return s;
 }
 
