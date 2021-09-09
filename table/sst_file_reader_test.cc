@@ -8,7 +8,6 @@
 #include "rocksdb/sst_file_reader.h"
 
 #include <cinttypes>
-#include <utility>
 
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
@@ -214,85 +213,87 @@ class SstFileReaderTimestampTest : public testing::Test {
     EXPECT_OK(options_.env->DeleteFile(sst_name_));
   }
 
-  void CreateFile(const std::vector<std::pair<std::string, std::string>>&
-                      keys_and_timestamps) {
+  struct KeyValueDesc {
+    KeyValueDesc(std::string k, std::string ts, std::string v)
+        : key(std::move(k)), timestamp(std::move(ts)), value(std::move(v)) {}
+
+    std::string key;
+    std::string timestamp;
+    std::string value;
+  };
+
+  struct InputKeyValueDesc : public KeyValueDesc {
+    InputKeyValueDesc(std::string k, std::string ts, std::string v, bool is_del,
+                      bool use_contig_buf)
+        : KeyValueDesc(std::move(k), std::move(ts), std::move(v)),
+          is_delete(is_del),
+          use_contiguous_buffer(use_contig_buf) {}
+
+    bool is_delete = false;
+    bool use_contiguous_buffer = false;
+  };
+
+  struct OutputKeyValueDesc : public KeyValueDesc {
+    OutputKeyValueDesc(std::string k, std::string ts, std::string v)
+        : KeyValueDesc(std::move(k), std::string(ts), std::string(v)) {}
+  };
+
+  void CreateFile(const std::vector<InputKeyValueDesc>& descs) {
     SstFileWriter writer(soptions_, options_);
 
     ASSERT_OK(writer.Open(sst_name_));
 
-    for (size_t i = 0; i + 2 < keys_and_timestamps.size(); i += 3) {
-      // Key and timestamp in non-contiguous buffer
-      ASSERT_OK(writer.Put(
-          keys_and_timestamps[i].first, keys_and_timestamps[i].second,
-          keys_and_timestamps[i].first + keys_and_timestamps[i].second));
-
-      // Key and timestamp in contiguous buffer
-      const std::string& key(keys_and_timestamps[i + 1].first);
-      const std::string& ts(keys_and_timestamps[i + 1].second);
-      std::string key_with_ts(key + ts);
-      ASSERT_OK(writer.Put(Slice(key_with_ts.data(), key.size()),
-                           Slice(key_with_ts.data() + key.size(), ts.size()),
-                           key_with_ts));
-
-      ASSERT_OK(writer.Delete(keys_and_timestamps[i + 2].first,
-                              keys_and_timestamps[i + 2].second));
+    for (const auto& desc : descs) {
+      if (desc.is_delete) {
+        if (desc.use_contiguous_buffer) {
+          std::string key_with_ts(desc.key + desc.timestamp);
+          ASSERT_OK(writer.Delete(Slice(key_with_ts.data(), desc.key.size()),
+                                  Slice(key_with_ts.data() + desc.key.size(),
+                                        desc.timestamp.size())));
+        } else {
+          ASSERT_OK(writer.Delete(desc.key, desc.timestamp));
+        }
+      } else {
+        if (desc.use_contiguous_buffer) {
+          std::string key_with_ts(desc.key + desc.timestamp);
+          ASSERT_OK(writer.Put(Slice(key_with_ts.data(), desc.key.size()),
+                               Slice(key_with_ts.data() + desc.key.size(),
+                                     desc.timestamp.size()),
+                               desc.value));
+        } else {
+          ASSERT_OK(writer.Put(desc.key, desc.timestamp, desc.value));
+        }
+      }
     }
 
     ASSERT_OK(writer.Finish());
   }
 
-  void CheckFile(const std::vector<std::pair<std::string, std::string>>&
-                     keys_and_timestamps) {
+  void CheckFile(const std::string& timestamp,
+                 const std::vector<OutputKeyValueDesc>& descs) {
     SstFileReader reader(options_);
 
     ASSERT_OK(reader.Open(sst_name_));
     ASSERT_OK(reader.VerifyChecksum());
 
-    const std::string max_ts(options_.comparator->timestamp_size(), '\xff');
-    Slice max_ts_slice(max_ts);
+    Slice ts_slice(timestamp);
 
     ReadOptions read_options;
-    read_options.timestamp = &max_ts_slice;
+    read_options.timestamp = &ts_slice;
 
     std::unique_ptr<Iterator> iter(reader.NewIterator(read_options));
     iter->SeekToFirst();
 
-    for (size_t i = 0; i + 2 < keys_and_timestamps.size(); i += 3) {
-      {
-        ASSERT_TRUE(iter->Valid());
-
-        const std::string& key(keys_and_timestamps[i].first);
-        const std::string& ts(keys_and_timestamps[i].second);
-
-        ASSERT_EQ(iter->key(), key);
-        ASSERT_EQ(iter->timestamp(), ts);
-        ASSERT_EQ(iter->value(), key + ts);
-      }
-
-      iter->Next();
-
-      {
-        ASSERT_TRUE(iter->Valid());
-
-        const std::string& key(keys_and_timestamps[i + 1].first);
-        const std::string& ts(keys_and_timestamps[i + 1].second);
-
-        ASSERT_EQ(iter->key(), key);
-        ASSERT_EQ(iter->timestamp(), ts);
-        ASSERT_EQ(iter->value(), key + ts);
-      }
+    for (const auto& desc : descs) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), desc.key);
+      ASSERT_EQ(iter->timestamp(), desc.timestamp);
+      ASSERT_EQ(iter->value(), desc.value);
 
       iter->Next();
     }
 
     ASSERT_FALSE(iter->Valid());
-  }
-
-  void CreateFileAndCheck(
-      const std::vector<std::pair<std::string, std::string>>&
-          keys_and_timestamps) {
-    CreateFile(keys_and_timestamps);
-    CheckFile(keys_and_timestamps);
   }
 
  protected:
@@ -303,13 +304,45 @@ class SstFileReaderTimestampTest : public testing::Test {
 };
 
 TEST_F(SstFileReaderTimestampTest, Basic) {
-  std::vector<std::pair<std::string, std::string>> keys_and_timestamps;
+  std::vector<InputKeyValueDesc> input_descs;
 
-  for (uint64_t i = 0; i < kNumKeys; i++) {
-    keys_and_timestamps.emplace_back(EncodeAsString(i), EncodeAsString(i));
+  for (uint64_t i = 0; i < kNumKeys; i += 4) {
+    // A Put with key i, timestamp i that gets overwritten by a subsequent Put
+    // with timestamp (i + 1). Note that the comparator uses descending order
+    // for the timestamp part, so we add the later Put first.
+    input_descs.emplace_back(
+        /* key */ EncodeAsString(i), /* timestamp */ EncodeAsUint64(i + 1),
+        /* value */ EncodeAsString(i * 2), /* is_delete */ false,
+        /* use_contiguous_buffer */ false);
+    input_descs.emplace_back(
+        /* key */ EncodeAsString(i), /* timestamp */ EncodeAsUint64(i),
+        /* value */ EncodeAsString(i * 3), /* is_delete */ false,
+        /* use_contiguous_buffer */ true);
+
+    // A Put with key (i + 2), timestamp (i + 2) that gets cancelled out by a
+    // Delete with timestamp (i + 3).  Note that the comparator uses descending
+    // order for the timestamp part, so we add the Delete first.
+    input_descs.emplace_back(/* key */ EncodeAsString(i + 2),
+                             /* timestamp */ EncodeAsUint64(i + 3),
+                             /* value */ std::string(), /* is_delete */ true,
+                             /* use_contiguous_buffer */ (i % 8) == 0);
+    input_descs.emplace_back(
+        /* key */ EncodeAsString(i + 2), /* timestamp */ EncodeAsUint64(i + 2),
+        /* value */ EncodeAsString(i * 5), /* is_delete */ false,
+        /* use_contiguous_buffer */ (i % 8) != 0);
   }
 
-  CreateFileAndCheck(keys_and_timestamps);
+  CreateFile(input_descs);
+
+  std::vector<OutputKeyValueDesc> output_descs;
+
+  for (uint64_t i = 0; i < kNumKeys; i += 4) {
+    output_descs.emplace_back(/* key */ EncodeAsString(i),
+                              /* timestamp */ EncodeAsUint64(i + 1),
+                              /* value */ EncodeAsString(i * 2));
+  }
+
+  CheckFile(EncodeAsUint64(kNumKeys), output_descs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
