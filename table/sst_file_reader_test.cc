@@ -195,6 +195,17 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   ASSERT_OK(DestroyDB(db_name, options));
 }
 
+TEST_F(SstFileReaderTest, TimestampSizeMismatch) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  // Comparator is not timestamp-aware; calls to APIs taking timestamps should
+  // fail.
+  ASSERT_NOK(writer.Put("key", EncodeAsUint64(100), "value"));
+  ASSERT_NOK(writer.Delete("another_key", EncodeAsUint64(200)));
+}
+
 class SstFileReaderTimestampTest : public testing::Test {
  public:
   SstFileReaderTimestampTest() {
@@ -374,13 +385,32 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
   }
 }
 
+TEST_F(SstFileReaderTimestampTest, TimestampsOutOfOrder) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  // Note: KVs that have the same user key disregarding timestamps should be in
+  // descending order of timestamps.
+  ASSERT_OK(writer.Put("key", EncodeAsUint64(1), "value1"));
+  ASSERT_NOK(writer.Put("key", EncodeAsUint64(2), "value2"));
+}
+
 TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
   SstFileWriter writer(soptions_, options_);
 
   ASSERT_OK(writer.Open(sst_name_));
 
-  ASSERT_NOK(writer.Put("key", "not_an_actual_timestamp", "value"));
+  // Comparator expects 64-bit timestamps; timestamps with other sizes as well
+  // as calls to the timestamp-less APIs should be rejected.
+  ASSERT_NOK(writer.Put("key", "not_an_actual_64_bit_timestamp", "value"));
   ASSERT_NOK(writer.Delete("another_key", "timestamp_of_unexpected_size"));
+
+  ASSERT_NOK(writer.Put("key_without_timestamp", "value"));
+  ASSERT_NOK(writer.Merge("another_key_missing_a_timestamp", "merge_operand"));
+  ASSERT_NOK(writer.Delete("yet_another_key_still_no_timestamp"));
+  ASSERT_NOK(writer.DeleteRange("begin_key_timestamp_absent",
+                                "end_key_with_a_complete_lack_of_timestamps"));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
