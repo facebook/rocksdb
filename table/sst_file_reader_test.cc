@@ -334,15 +334,42 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
 
   CreateFile(input_descs);
 
+  // Note: below, we check the results as of each timestamp in the range,
+  // updating the expected result as needed.
   std::vector<OutputKeyValueDesc> output_descs;
 
-  for (uint64_t i = 0; i < kNumKeys; i += 4) {
-    output_descs.emplace_back(/* key */ EncodeAsString(i),
-                              /* timestamp */ EncodeAsUint64(i + 1),
-                              /* value */ EncodeAsString(i * 2));
-  }
+  for (uint64_t i = 0; i < kNumKeys; ++i) {
+    switch (i % 4) {
+      case 0:
+        output_descs.emplace_back(/* key */ EncodeAsString(i),
+                                  /* timestamp */ EncodeAsUint64(i),
+                                  /* value */ EncodeAsString(i * 3));
+        break;
 
-  CheckFile(EncodeAsUint64(kNumKeys), output_descs);
+      case 1:
+        assert(output_descs.back().key == EncodeAsString(i - 1));
+        assert(output_descs.back().timestamp == EncodeAsUint64(i - 1));
+        assert(output_descs.back().value == EncodeAsString((i - 1) * 3));
+        output_descs.back().timestamp = EncodeAsUint64(i);
+        output_descs.back().value = EncodeAsString((i - 1) * 2);
+        break;
+
+      case 2:
+        output_descs.emplace_back(/* key */ EncodeAsString(i),
+                                  /* timestamp */ EncodeAsUint64(i),
+                                  /* value */ EncodeAsString((i - 2) * 5));
+        break;
+
+      case 3:
+        assert(output_descs.back().key == EncodeAsString(i - 1));
+        assert(output_descs.back().timestamp == EncodeAsUint64(i - 1));
+        assert(output_descs.back().value == EncodeAsString((i - 3) * 5));
+        output_descs.pop_back();
+        break;
+    }
+
+    CheckFile(EncodeAsUint64(i), output_descs);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
