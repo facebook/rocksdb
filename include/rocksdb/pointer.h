@@ -41,8 +41,8 @@ class UniquePtrOut {
     *p = nullptr;
   }
 
-  std::unique_ptr<T> &operator*() const { return *p_; }
-  std::unique_ptr<T> *operator->() const noexcept { return p_; }
+  inline std::unique_ptr<T> &operator*() const { return *p_; }
+  inline std::unique_ptr<T> *operator->() const noexcept { return p_; }
 
  private:
   std::unique_ptr<T> *const p_;

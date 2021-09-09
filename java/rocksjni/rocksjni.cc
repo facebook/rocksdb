@@ -30,11 +30,12 @@
 #undef min
 #endif
 
-jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
-                          std::function<ROCKSDB_NAMESPACE::Status(
-                              const ROCKSDB_NAMESPACE::Options&,
-                              const std::string&, ROCKSDB_NAMESPACE::DB**)>
-                              open_fn) {
+jlong rocksdb_open_helper(
+    JNIEnv* env, jlong jopt_handle, jstring jdb_path,
+    std::function<ROCKSDB_NAMESPACE::Status(
+        const ROCKSDB_NAMESPACE::Options&, const std::string&,
+        ROCKSDB_NAMESPACE::UniquePtrOut<DB>)>
+        open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -62,11 +63,12 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
  */
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path,
-                             (ROCKSDB_NAMESPACE::Status(*)(
-                                 const ROCKSDB_NAMESPACE::Options&,
-                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                                 ROCKSDB_NAMESPACE::DB::Open);
+  return rocksdb_open_helper(
+      env, jopt_handle, jdb_path,
+      (ROCKSDB_NAMESPACE::Status(*)(const ROCKSDB_NAMESPACE::Options&,
+                                    const std::string&,
+                                    ROCKSDB_NAMESPACE::UniquePtrOut<DB>)) &
+          ROCKSDB_NAMESPACE::DB::Open);
 }
 
 /*
@@ -82,7 +84,7 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
       env, jopt_handle, jdb_path,
       [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
                                  const std::string& db_path,
-                                 ROCKSDB_NAMESPACE::DB** db) {
+                                 ROCKSDB_NAMESPACE::UniquePtrOut<DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
                                                       error_if_wal_file_exists);
       });
@@ -95,7 +97,7 @@ jlongArray rocksdb_open_helper(
         const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-        ROCKSDB_NAMESPACE::DB**)>
+        ROCKSDB_NAMESPACE::UniquePtrOut<DB>)>
         open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
@@ -191,7 +193,7 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          ROCKSDB_NAMESPACE::UniquePtrOut<DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
             options, db_path, column_families, handles, db,
             error_if_wal_file_exists);
@@ -212,7 +214,7 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
           const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-          ROCKSDB_NAMESPACE::DB**)) &
+          ROCKSDB_NAMESPACE::UniquePtrOut<DB>)) &
           ROCKSDB_NAMESPACE::DB::Open);
 }
 
@@ -235,7 +237,7 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
       env, jopt_handle, jdb_path,
       [secondary_db_path](const ROCKSDB_NAMESPACE::Options& options,
                           const std::string& db_path,
-                          ROCKSDB_NAMESPACE::DB** db) {
+                          ROCKSDB_NAMESPACE::UniquePtrOut<DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(options, db_path,
                                                       secondary_db_path, db);
       });
@@ -271,7 +273,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          ROCKSDB_NAMESPACE::UniquePtrOut<DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
             options, db_path, secondary_db_path, column_families, handles, db);
       });
@@ -2006,7 +2008,7 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
     env->DeleteLocalRef(jresult_flags);
     return nullptr;
   }
-  
+
   env->SetObjectArrayElement(jresults, 0, jresult_flags);
   if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
@@ -2024,7 +2026,8 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
-    env->SetByteArrayRegion(jresult_value, 0, jvalue_len, 
+    env->SetByteArrayRegion(
+        jresult_value, 0, jvalue_len,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.data())));
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
@@ -3053,7 +3056,7 @@ jobjectArray Java_org_rocksdb_RocksDB_getLiveFilesMetaData(
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   std::vector<ROCKSDB_NAMESPACE::LiveFileMetaData> live_files_meta_data;
   db->GetLiveFilesMetaData(&live_files_meta_data);
-  
+
   // convert to Java type
   const jsize jlen = static_cast<jsize>(live_files_meta_data.size());
   jobjectArray jlive_files_meta_data = env->NewObjectArray(
@@ -3186,7 +3189,7 @@ jobject Java_org_rocksdb_RocksDB_getPropertiesOfAllTables(
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
-  
+
   // convert to Java type
   jobject jhash_map = ROCKSDB_NAMESPACE::HashMapJni::construct(
       env, static_cast<uint32_t>(table_properties_collection.size()));
@@ -3364,7 +3367,7 @@ void Java_org_rocksdb_RocksDB_startTrace(
     jlong jtrace_writer_jnicallback_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   ROCKSDB_NAMESPACE::TraceOptions trace_options;
-  trace_options.max_trace_file_size = 
+  trace_options.max_trace_file_size =
       static_cast<uint64_t>(jmax_trace_file_size);
   // transfer ownership of trace writer from Java to C++
   auto trace_writer =
