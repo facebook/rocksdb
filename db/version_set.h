@@ -352,7 +352,7 @@ class VersionStorageInfo {
       const auto& meta = pair.second;
       assert(meta);
 
-      total_blob_bytes += meta->GetTotalBlobBytes();
+      total_blob_bytes += meta->GetBlobFileSize();
     }
 
     return total_blob_bytes;

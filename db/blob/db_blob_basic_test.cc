@@ -397,7 +397,7 @@ TEST_F(DBBlobBasicTest, Properties) {
   const auto& blob_files = current->storage_info()->GetBlobFiles();
   uint64_t expected_live_blob_file_size = 0;
   for (const auto& pair : blob_files) {
-    expected_live_blob_file_size += pair.second->GetTotalBlobBytes();
+    expected_live_blob_file_size += pair.second->GetBlobFileSize();
   }
   ASSERT_EQ(live_blob_file_size, expected_live_blob_file_size);
 
@@ -465,7 +465,7 @@ TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
   const auto& blob_files = current->storage_info()->GetBlobFiles();
   uint64_t current_v_blob_size = 0;
   for (const auto& pair : blob_files) {
-    current_v_blob_size += pair.second->GetTotalBlobBytes();
+    current_v_blob_size += pair.second->GetBlobFileSize();
   }
   ASSERT_EQ(current_v_blob_size, total_blob_file_size);
   delete iter;
