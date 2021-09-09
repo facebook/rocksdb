@@ -16,6 +16,7 @@
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"

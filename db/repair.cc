@@ -62,6 +62,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -73,6 +74,7 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"

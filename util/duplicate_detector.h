@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 
+#include "logging/logging.h"
 #include "util/set_comparator.h"
 
 namespace ROCKSDB_NAMESPACE {

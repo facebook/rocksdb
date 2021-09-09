@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/snapshot_impl.h"
 #include "options/db_options.h"
