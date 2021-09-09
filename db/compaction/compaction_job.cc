@@ -1983,7 +1983,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
   uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime();
+      sub_compact->compaction->MinInputFileOldestAncesterTime(
+          sub_compact->start, sub_compact->end);
   if (oldest_ancester_time == port::kMaxUint64) {
     oldest_ancester_time = current_time;
   }
