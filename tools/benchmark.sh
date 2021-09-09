@@ -254,7 +254,7 @@ function summarize_result {
   else
       wamp=$( echo "scale=1; $sum_wgb / $l0_wgb" | bc )
   fi
-  if [[ "$sum_wgp" == "" ]]; then
+  if [[ "$sum_wgb" == "" ]]; then
       wmb_ps=""
   else
       wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
