@@ -292,12 +292,7 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
   if (FLAGS_test_myrocks_txns) {
-    if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
-      fprintf(stderr,
-              "-test_myrocks_txns is not compatible with "
-              "-test_bathces_snapshots and -test_cf_consistency\n");
-      exit(1);
-    }
+    CheckAndSetOptionsForMyRocksStyleTxnStressTest();
   }
 
 #ifndef NDEBUG

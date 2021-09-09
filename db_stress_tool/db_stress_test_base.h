@@ -32,7 +32,7 @@ class StressTest {
   void InitDb();
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
-  void FinishInitDb(SharedState*);
+  virtual void FinishInitDb(SharedState*);
 
   // Return false if verification fails.
   bool VerifySecondaries();

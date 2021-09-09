@@ -15,6 +15,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: move these to gflags.
+static constexpr size_t kInitNumC = 1000;
+static constexpr int kCARatio = 3;
+static constexpr bool kDoPreload = true;
+
 class MyRocksRecord {
  public:
   static constexpr uint32_t kPrimaryIndexId = 1;
@@ -208,6 +213,10 @@ class MyRocksStyleTxnsStressTest : public StressTest {
 
   ~MyRocksStyleTxnsStressTest() override {}
 
+  void FinishInitDb(SharedState*) override;
+
+  void ReopenAndPreloadDb(SharedState* shared);
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override;
@@ -247,6 +256,26 @@ class MyRocksStyleTxnsStressTest : public StressTest {
                               const std::vector<int64_t>& rand_keys,
                               std::unique_ptr<MutexLock>& lock) override;
 
+  void TestCompactRange(ThreadState* thread, int64_t rand_key,
+                        const Slice& start_key,
+                        ColumnFamilyHandle* column_family) override;
+
+  Status TestBackupRestore(ThreadState* thread,
+                           const std::vector<int>& rand_column_families,
+                           const std::vector<int64_t>& rand_keys) override;
+
+  Status TestCheckpoint(ThreadState* thread,
+                        const std::vector<int>& rand_column_families,
+                        const std::vector<int64_t>& rand_keys) override;
+
+  Status TestApproximateSize(ThreadState* thread, uint64_t iteration,
+                             const std::vector<int>& rand_column_families,
+                             const std::vector<int64_t>& rand_keys) override;
+
+  Status TestCustomOperations(
+      ThreadState* thread,
+      const std::vector<int>& rand_column_families) override;
+
   Status PrimaryKeyUpdateTxn(uint32_t old_pk, uint32_t new_pk);
 
   Status SecondaryKeyUpdateTxn(uint32_t old_sk, uint32_t new_sk);
@@ -254,7 +283,65 @@ class MyRocksStyleTxnsStressTest : public StressTest {
   Status UpdatePrimaryIndexValue(uint32_t pk, uint32_t val_delta);
 
   void VerifyDb(ThreadState* thread) const override;
+
+ private:
+  void PreloadDb(SharedState* shared, size_t num_c);
 };
+
+void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
+  if (FLAGS_enable_compaction_filter) {
+    // TODO (yanqin) enable compaction filter
+  }
+  if (kDoPreload) {
+    ReopenAndPreloadDb(shared);
+  }
+}
+
+void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
+  (void)shared;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  for (const auto* handle : column_families_) {
+    cf_descs.emplace_back(handle->GetName(), ColumnFamilyOptions(options_));
+  }
+  CancelAllBackgroundWork(db_, /*wait=*/true);
+  for (auto* handle : column_families_) {
+    delete handle;
+  }
+  column_families_.clear();
+  delete db_;
+  db_ = nullptr;
+  txn_db_ = nullptr;
+
+  TransactionDBOptions txn_db_opts;
+  txn_db_opts.skip_concurrency_control = true;  // speed-up preloading
+  Status s = TransactionDB::Open(options_, txn_db_opts, FLAGS_db, cf_descs,
+                                 &column_families_, &txn_db_);
+  if (s.ok()) {
+    db_ = txn_db_;
+  } else {
+    fprintf(stderr, "Failed to open db: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+
+  PreloadDb(shared, kInitNumC);
+
+  // Reopen
+  CancelAllBackgroundWork(db_, /*wait=*/true);
+  for (auto* handle : column_families_) {
+    delete handle;
+  }
+  column_families_.clear();
+  s = db_->Close();
+  if (!s.ok()) {
+    fprintf(stderr, "Error during closing db: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+  delete db_;
+  db_ = nullptr;
+  txn_db_ = nullptr;
+
+  Open();
+}
 
 // Used for point-lookup transaction
 Status MyRocksStyleTxnsStressTest::TestGet(
@@ -329,18 +416,121 @@ Status MyRocksStyleTxnsStressTest::TestDeleteRange(
   return Status::NotSupported();
 }
 
-// Not intended for use.
 void MyRocksStyleTxnsStressTest::TestIngestExternalFile(
-    ThreadState* /*thread*/, const std::vector<int>& /*rand_column_families*/,
+    ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& /*rand_keys*/,
-    std::unique_ptr<MutexLock>& /*lock*/) {}
+    std::unique_ptr<MutexLock>& /*lock*/) {
+  // TODO (yanqin)
+  (void)thread;
+  (void)rand_column_families;
+}
+
+void MyRocksStyleTxnsStressTest::TestCompactRange(
+    ThreadState* thread, int64_t /*rand_key*/, const Slice& /*start_key*/,
+    ColumnFamilyHandle* column_family) {
+  // TODO (yanqin).
+  // May use GetRangeHash() for validation before and after DB::CompactRange()
+  // completes.
+  (void)thread;
+  (void)column_family;
+}
+
+Status MyRocksStyleTxnsStressTest::TestBackupRestore(
+    ThreadState* thread, const std::vector<int>& rand_column_families,
+    const std::vector<int64_t>& /*rand_keys*/) {
+  // TODO (yanqin)
+  (void)thread;
+  (void)rand_column_families;
+  return Status::OK();
+}
+
+Status MyRocksStyleTxnsStressTest::TestCheckpoint(
+    ThreadState* thread, const std::vector<int>& rand_column_families,
+    const std::vector<int64_t>& /*rand_keys*/) {
+  // TODO (yanqin)
+  (void)thread;
+  (void)rand_column_families;
+  return Status::OK();
+}
+
+Status MyRocksStyleTxnsStressTest::TestApproximateSize(
+    ThreadState* thread, uint64_t iteration,
+    const std::vector<int>& rand_column_families,
+    const std::vector<int64_t>& /*rand_keys*/) {
+  // TODO (yanqin)
+  (void)thread;
+  (void)iteration;
+  (void)rand_column_families;
+  return Status::OK();
+}
+
+Status MyRocksStyleTxnsStressTest::TestCustomOperations(
+    ThreadState* thread, const std::vector<int>& rand_column_families) {
+  // TODO (yanqin)
+  (void)thread;
+  (void)rand_column_families;
+  return Status::OK();
+}
 
 void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   (void)thread;
 }
 
+void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  wopts.sync = false;
+  Random rnd(shared->GetSeed() + /*random=*/17839);
+  for (size_t i = 0; i < num_c; ++i) {
+    MyRocksRecord record(/*a=*/kCARatio * i, /*b=*/rnd.Next(), /*c=*/i);
+    WriteBatch wb;
+    const auto primary_index_entry = record.EncodePrimaryIndexEntry();
+    Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
+    assert(s.ok());
+    const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
+    s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
+    assert(s.ok());
+    s = txn_db_->Write(wopts, &wb);
+    assert(s.ok());
+  }
+  Status s = db_->Flush(FlushOptions());
+  assert(s.ok());
+}
+
 StressTest* CreateMyRocksStyleTxnsStressTest() {
   return new MyRocksStyleTxnsStressTest();
+}
+
+void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
+  if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
+    fprintf(stderr,
+            "-test_myrocks_txns is not compatible with "
+            "-test_bathces_snapshots and -test_cf_consistency\n");
+    exit(1);
+  }
+  if (!FLAGS_use_txn) {
+    fprintf(stderr, "-use_txn must be true if -test_myrocks_txns\n");
+    exit(1);
+  }
+  if (FLAGS_clear_column_family_one_in > 0) {
+    fprintf(stderr,
+            "-test_myrocks_txns is not compatible with clearing column "
+            "families\n");
+    exit(1);
+  }
+  if (FLAGS_column_families > 2) {
+    fprintf(stderr,
+            "-test_myrocks_txns currently does not use more than two column "
+            "families\n");
+    exit(1);
+  }
+  if (FLAGS_writepercent > 0 || FLAGS_delpercent > 0 ||
+      FLAGS_delrangepercent > 0) {
+    fprintf(stderr,
+            "-test_myrocks_txns requires that -writepercent, -delpercent and "
+            "-delrangepercent be 0\n");
+    exit(1);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

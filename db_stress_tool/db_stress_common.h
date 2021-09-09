@@ -580,5 +580,7 @@ extern std::string NowNanosStr();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
+
+void CheckAndSetOptionsForMyRocksStyleTxnStressTest();
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
