@@ -374,6 +374,15 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
   }
 }
 
+TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  ASSERT_NOK(writer.Put("key", "not_an_actual_timestamp", "value"));
+  ASSERT_NOK(writer.Delete("another_key", "timestamp_of_unexpected_size"));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
