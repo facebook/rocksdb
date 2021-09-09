@@ -27,6 +27,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
+class MemTableRepFactory;
 class ObjectLibrary;
 class Random;
 class SequentialFile;
@@ -853,6 +854,10 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   std::string name_;
 };
 
+// The factory for the hacky skip list mem table that triggers flush after
+// number of entries exceeds a threshold.
+extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
+
 extern const Comparator* ComparatorWithU64Ts();
 
 CompressionType RandomCompressionType(Random* rnd);
@@ -901,5 +906,8 @@ Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
 // Registers the testutil classes with the ObjectLibrary
 int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
 #endif  // ROCKSDB_LITE
+
+// Register the testutil classes with the default ObjectRegistry/Library
+void RegisterTestLibrary(const std::string& arg = "");
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

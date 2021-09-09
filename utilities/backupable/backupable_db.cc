@@ -407,7 +407,7 @@ class BackupEngineImpl {
     Status LoadFromFile(
         const std::string& backup_dir,
         const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
-        Logger* info_log,
+        RateLimiter* rate_limiter, Logger* info_log,
         std::unordered_set<std::string>* reported_ignored_fields);
     Status StoreToFile(
         bool sync, const TEST_FutureSchemaVersion2Options* test_future_options);
@@ -550,7 +550,8 @@ class BackupEngineImpl {
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
-                             const std::string& file_path, std::string* db_id,
+                             const std::string& file_path,
+                             RateLimiter* rate_limiter, std::string* db_id,
                              std::string* db_session_id);
 
   struct CopyOrCreateResult {
@@ -1088,7 +1089,8 @@ Status BackupEngineImpl::Initialize() {
           &abs_path_to_size);
       if (s.ok()) {
         s = backup_iter->second->LoadFromFile(
-            options_.backup_dir, abs_path_to_size, options_.info_log,
+            options_.backup_dir, abs_path_to_size,
+            options_.backup_rate_limiter.get(), options_.info_log,
             &reported_ignored_fields_);
       }
       if (s.IsCorruption() || s.IsNotSupported()) {
@@ -1954,6 +1956,10 @@ Status BackupEngineImpl::CopyOrCreateFile(
       size_t buffer_to_read =
           (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
+      if (rate_limiter != nullptr) {
+        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kRead);
+      }
       processed_buffer_size += buffer_to_read;
     } else {
       data = contents;
@@ -2046,8 +2052,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
-                          &db_session_id)
+      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname,
+                          rate_limiter, &db_id, &db_session_id)
           .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
@@ -2259,7 +2265,10 @@ Status BackupEngineImpl::ReadFileAndComputeChecksum(
     size_t buffer_to_read =
         (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
-
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -2276,6 +2285,7 @@ Status BackupEngineImpl::ReadFileAndComputeChecksum(
 Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
                                              const EnvOptions& src_env_options,
                                              const std::string& file_path,
+                                             RateLimiter* rate_limiter,
                                              std::string* db_id,
                                              std::string* db_session_id) {
   assert(db_id != nullptr || db_session_id != nullptr);
@@ -2300,6 +2310,13 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
       table_properties = sst_reader.GetInitTableProperties();
     } else {
       table_properties = tp.get();
+      if (table_properties != nullptr && rate_limiter != nullptr) {
+        // sizeof(*table_properties) is a sufficent but far-from-exact
+        // approximation of read bytes due to metaindex block, std::string
+        // properties and varint compression
+        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
+                              nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
     }
   } else {
     ROCKS_LOG_INFO(options_.info_log, "Failed to read %s: %s",
@@ -2623,7 +2640,7 @@ const std::string kNonIgnorableFieldPrefix{"ni::"};
 Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir,
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
-    Logger* info_log,
+    RateLimiter* rate_limiter, Logger* info_log,
     std::unordered_set<std::string>* reported_ignored_fields) {
   assert(reported_ignored_fields);
   assert(Empty());
@@ -2645,6 +2662,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   // Failures handled at the end
   std::string line;
   if (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
       if (ver == "2" || StartsWith(ver, "2.")) {
@@ -2658,14 +2679,28 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       return Status::Corruption("Unexpected empty line");
     }
   }
-  if (!line.empty() || backup_meta_reader->ReadLine(&line)) {
+  if (!line.empty()) {
+    timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
+  } else if (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   if (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
   while (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     if (line.empty()) {
       return Status::Corruption("Unexpected empty line");
     }
@@ -2705,6 +2740,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   std::vector<std::shared_ptr<FileInfo>> files;
   bool footer_present = false;
   while (backup_meta_reader->ReadLine(&line)) {
+    if (rate_limiter != nullptr) {
+      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                            RateLimiter::OpType::kRead);
+    }
     std::vector<std::string> components = StringSplit(line, ' ');
 
     if (components.size() < 1) {
@@ -2792,6 +2831,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   if (footer_present) {
     assert(schema_major_version >= 2);
     while (backup_meta_reader->ReadLine(&line)) {
+      if (rate_limiter != nullptr) {
+        rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kRead);
+      }
       if (line.empty()) {
         return Status::Corruption("Unexpected empty line");
       }

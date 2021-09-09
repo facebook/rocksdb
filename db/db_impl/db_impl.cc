@@ -61,8 +61,6 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
-#include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/iostats_context_imp.h"
