@@ -105,6 +105,9 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
         // GetTotalPendingRequests() can acquire it
         request_mutex->Unlock();
         EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 1);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
         EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 1);
         // We lock the mutex again so that the request thread can resume running
         // with the mutex locked
@@ -115,6 +118,9 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
   limiter->Request(20, Env::IO_USER, nullptr /* stats */,
                    RateLimiter::OpType::kWrite);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 0);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearCallBack(
