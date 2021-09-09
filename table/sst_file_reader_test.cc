@@ -306,30 +306,30 @@ class SstFileReaderTimestampTest : public testing::Test {
 TEST_F(SstFileReaderTimestampTest, Basic) {
   std::vector<InputKeyValueDesc> input_descs;
 
-  for (uint64_t i = 0; i < kNumKeys; i += 4) {
-    // A Put with key i, timestamp i that gets overwritten by a subsequent Put
-    // with timestamp (i + 1). Note that the comparator uses descending order
+  for (uint64_t k = 0; k < kNumKeys; k += 4) {
+    // A Put with key k, timestamp k that gets overwritten by a subsequent Put
+    // with timestamp (k + 1). Note that the comparator uses descending order
     // for the timestamp part, so we add the later Put first.
     input_descs.emplace_back(
-        /* key */ EncodeAsString(i), /* timestamp */ EncodeAsUint64(i + 1),
-        /* value */ EncodeAsString(i * 2), /* is_delete */ false,
+        /* key */ EncodeAsString(k), /* timestamp */ EncodeAsUint64(k + 1),
+        /* value */ EncodeAsString(k * 2), /* is_delete */ false,
         /* use_contiguous_buffer */ false);
     input_descs.emplace_back(
-        /* key */ EncodeAsString(i), /* timestamp */ EncodeAsUint64(i),
-        /* value */ EncodeAsString(i * 3), /* is_delete */ false,
+        /* key */ EncodeAsString(k), /* timestamp */ EncodeAsUint64(k),
+        /* value */ EncodeAsString(k * 3), /* is_delete */ false,
         /* use_contiguous_buffer */ true);
 
-    // A Put with key (i + 2), timestamp (i + 2) that gets cancelled out by a
-    // Delete with timestamp (i + 3).  Note that the comparator uses descending
+    // A Put with key (k + 2), timestamp (k + 2) that gets cancelled out by a
+    // Delete with timestamp (k + 3).  Note that the comparator uses descending
     // order for the timestamp part, so we add the Delete first.
-    input_descs.emplace_back(/* key */ EncodeAsString(i + 2),
-                             /* timestamp */ EncodeAsUint64(i + 3),
+    input_descs.emplace_back(/* key */ EncodeAsString(k + 2),
+                             /* timestamp */ EncodeAsUint64(k + 3),
                              /* value */ std::string(), /* is_delete */ true,
-                             /* use_contiguous_buffer */ (i % 8) == 0);
+                             /* use_contiguous_buffer */ (k % 8) == 0);
     input_descs.emplace_back(
-        /* key */ EncodeAsString(i + 2), /* timestamp */ EncodeAsUint64(i + 2),
-        /* value */ EncodeAsString(i * 5), /* is_delete */ false,
-        /* use_contiguous_buffer */ (i % 8) != 0);
+        /* key */ EncodeAsString(k + 2), /* timestamp */ EncodeAsUint64(k + 2),
+        /* value */ EncodeAsString(k * 5), /* is_delete */ false,
+        /* use_contiguous_buffer */ (k % 8) != 0);
   }
 
   CreateFile(input_descs);
@@ -338,37 +338,39 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
   // updating the expected result as needed.
   std::vector<OutputKeyValueDesc> output_descs;
 
-  for (uint64_t i = 0; i < kNumKeys; ++i) {
-    switch (i % 4) {
-      case 0:
-        output_descs.emplace_back(/* key */ EncodeAsString(i),
-                                  /* timestamp */ EncodeAsUint64(i),
-                                  /* value */ EncodeAsString(i * 3));
+  for (uint64_t ts = 0; ts < kNumKeys; ++ts) {
+    const uint64_t k = ts - (ts % 4);
+
+    switch (ts % 4) {
+      case 0:  // Initial Put for key k
+        output_descs.emplace_back(/* key */ EncodeAsString(k),
+                                  /* timestamp */ EncodeAsUint64(ts),
+                                  /* value */ EncodeAsString(k * 3));
         break;
 
-      case 1:
-        assert(output_descs.back().key == EncodeAsString(i - 1));
-        assert(output_descs.back().timestamp == EncodeAsUint64(i - 1));
-        assert(output_descs.back().value == EncodeAsString((i - 1) * 3));
-        output_descs.back().timestamp = EncodeAsUint64(i);
-        output_descs.back().value = EncodeAsString((i - 1) * 2);
+      case 1:  // Second Put for key k
+        assert(output_descs.back().key == EncodeAsString(k));
+        assert(output_descs.back().timestamp == EncodeAsUint64(ts - 1));
+        assert(output_descs.back().value == EncodeAsString(k * 3));
+        output_descs.back().timestamp = EncodeAsUint64(ts);
+        output_descs.back().value = EncodeAsString(k * 2);
         break;
 
-      case 2:
-        output_descs.emplace_back(/* key */ EncodeAsString(i),
-                                  /* timestamp */ EncodeAsUint64(i),
-                                  /* value */ EncodeAsString((i - 2) * 5));
+      case 2:  // Put for key (k + 2)
+        output_descs.emplace_back(/* key */ EncodeAsString(k + 2),
+                                  /* timestamp */ EncodeAsUint64(ts),
+                                  /* value */ EncodeAsString(k * 5));
         break;
 
-      case 3:
-        assert(output_descs.back().key == EncodeAsString(i - 1));
-        assert(output_descs.back().timestamp == EncodeAsUint64(i - 1));
-        assert(output_descs.back().value == EncodeAsString((i - 3) * 5));
+      case 3:  // Delete for key (k + 2)
+        assert(output_descs.back().key == EncodeAsString(k + 2));
+        assert(output_descs.back().timestamp == EncodeAsUint64(ts - 1));
+        assert(output_descs.back().value == EncodeAsString(k * 5));
         output_descs.pop_back();
         break;
     }
 
-    CheckFile(EncodeAsUint64(i), output_descs);
+    CheckFile(EncodeAsUint64(ts), output_descs);
   }
 }
 
