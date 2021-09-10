@@ -217,8 +217,8 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
               << std::endl;
           pri_iteration_order_verified_ = true;
         });
-    SyncPoint::GetInstance()->EnableProcessing();
 
+    SyncPoint::GetInstance()->EnableProcessing();
     limiter->Request(200 /* request max bytes to drain so that refill and order
                            generation will be triggered every time
                            GenericRateLimiter::Request() is called */
@@ -228,18 +228,17 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     ASSERT_EQ(high_pri_iterated_after_mid_low_pri_set_, true);
     ASSERT_EQ(mid_pri_itereated_after_low_pri_set_, true);
     ASSERT_EQ(pri_iteration_order_verified_, true);
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearCallBack(
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearCallBack(
       "GenericRateLimiter::GeneratePriorityIterationOrder::"
       "PreReturnPriIterationOrder");
-  SyncPoint::GetInstance()->ClearCallBack(
+    SyncPoint::GetInstance()->ClearCallBack(
       "GenericRateLimiter::GeneratePriorityIterationOrder::"
       "PostRandomOneInFairnessForMidPri");
-  SyncPoint::GetInstance()->ClearCallBack(
+    SyncPoint::GetInstance()->ClearCallBack(
       "GenericRateLimiter::GeneratePriorityIterationOrder::"
       "PostRandomOneInFairnessForHighPri");
+  }
 }
 
 TEST_F(RateLimiterTest, Rate) {
