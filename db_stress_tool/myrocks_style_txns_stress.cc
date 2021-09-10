@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif  // NDEBUG
@@ -28,9 +29,15 @@ class MyRocksRecord {
   // Used for generating search key to probe primary index.
   static std::string EncodePrimaryKey(uint32_t a);
   // Used for generating search prefix to probe secondary index.
-  static std::string EncodeSecondaryKeyPrefix(uint32_t c);
+  static std::string EncodeSecondaryKey(uint32_t c);
   // Used for generating search key to probe secondary index.
   static std::string EncodeSecondaryKey(uint32_t c, uint32_t a);
+
+  static std::tuple<Status, uint32_t, uint32_t> DecodePrimaryIndexValue(
+      Slice primary_index_value);
+
+  static std::pair<Status, uint32_t> DecodeSecondaryIndexValue(
+      Slice secondary_index_value);
 
   MyRocksRecord() = default;
   MyRocksRecord(uint32_t _a, uint32_t _b, uint32_t _c)
@@ -38,7 +45,13 @@ class MyRocksRecord {
 
   std::pair<std::string, std::string> EncodePrimaryIndexEntry() const;
 
+  std::string EncodePrimaryKey() const;
+
+  std::string EncodePrimaryIndexValue() const;
+
   std::pair<std::string, std::string> EncodeSecondaryIndexEntry() const;
+
+  std::string EncodeSecondaryKey() const;
 
   Status DecodePrimaryIndexEntry(Slice primary_index_key,
                                  Slice primary_index_value);
@@ -87,7 +100,7 @@ std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
   return std::string(buf, sizeof(buf));
 }
 
-std::string MyRocksRecord::EncodeSecondaryKeyPrefix(uint32_t c) {
+std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
   char buf[8];
   EncodeFixed32(buf, kSecondaryIndexId);
   EncodeFixed32(buf + 4, c);
@@ -103,6 +116,35 @@ std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
   Reverse(buf + 4, buf + 8);
   Reverse(buf + 8, buf + 12);
   return std::string(buf, sizeof(buf));
+}
+
+std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
+    Slice primary_index_value) {
+  if (primary_index_value.size() != 8) {
+    return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
+  }
+  const char* const buf = primary_index_value.data();
+  uint32_t b = static_cast<uint32_t>(buf[0]) << 24;
+  b += static_cast<uint32_t>(buf[1]) << 16;
+  b += static_cast<uint32_t>(buf[2]) << 8;
+  b += static_cast<uint32_t>(buf[3]);
+
+  uint32_t c = static_cast<uint32_t>(buf[4]) << 24;
+  c += static_cast<uint32_t>(buf[5]) << 16;
+  c += static_cast<uint32_t>(buf[6]) << 8;
+  c += static_cast<uint32_t>(buf[7]);
+  return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
+}
+
+std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
+    Slice secondary_index_value) {
+  if (secondary_index_value.size() != 4) {
+    return std::make_pair(Status::Corruption(""), 0);
+  }
+  uint32_t crc = 0;
+  bool result = GetFixed32(&secondary_index_value, &crc);
+  assert(result);
+  return std::make_pair(Status::OK(), crc);
 }
 
 std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
@@ -121,6 +163,21 @@ std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
   return std::make_pair(primary_index_key, primary_index_value);
 }
 
+std::string MyRocksRecord::EncodePrimaryKey() const {
+  char buf[8];
+  EncodeFixed32(buf, kPrimaryIndexId);
+  EncodeFixed32(buf + 4, a_);
+  Reverse(buf + 4, buf + 8);
+  return std::string(buf, sizeof(buf));
+}
+
+std::string MyRocksRecord::EncodePrimaryIndexValue() const {
+  char buf[8];
+  EncodeFixed32(buf, b_);
+  EncodeFixed32(buf + 4, c_);
+  return std::string(buf, sizeof(buf));
+}
+
 std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
     const {
   std::string secondary_index_key;
@@ -137,6 +194,16 @@ std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
   uint32_t crc = crc32c::Value(buf, sizeof(buf));
   PutFixed32(&secondary_index_value, crc);
   return std::make_pair(secondary_index_key, secondary_index_value);
+}
+
+std::string MyRocksRecord::EncodeSecondaryKey() const {
+  char buf[12];
+  EncodeFixed32(buf, kSecondaryIndexId);
+  EncodeFixed32(buf + 4, c_);
+  EncodeFixed32(buf + 8, a_);
+  Reverse(buf + 4, buf + 8);
+  Reverse(buf + 8, buf + 12);
+  return std::string(buf, sizeof(buf));
 }
 
 Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
@@ -276,16 +343,30 @@ class MyRocksStyleTxnsStressTest : public StressTest {
       ThreadState* thread,
       const std::vector<int>& rand_column_families) override;
 
-  Status PrimaryKeyUpdateTxn(uint32_t old_pk, uint32_t new_pk);
+  Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
+                             uint32_t new_a);
 
-  Status SecondaryKeyUpdateTxn(uint32_t old_sk, uint32_t new_sk);
+  Status SecondaryKeyUpdateTxn(ThreadState* thread, uint32_t old_c,
+                               uint32_t new_c);
 
-  Status UpdatePrimaryIndexValue(uint32_t pk, uint32_t val_delta);
+  Status UpdatePrimaryIndexValueTxn(ThreadState* thread, uint32_t a,
+                                    uint32_t b_delta);
+
+  Status PointLookupTxn(ThreadState* thread, ReadOptions ropts, uint32_t a);
+
+  Status RangeScanTxn(ThreadState* thread, ReadOptions ropts, uint32_t c);
 
   void VerifyDb(ThreadState* thread) const override;
 
+ protected:
+  uint32_t GeneratePrimaryIndexKeyForPointLookup(ThreadState* thread) const;
+
  private:
   void PreloadDb(SharedState* shared, size_t num_c);
+
+  std::atomic<uint32_t> next_a_{0};
+
+  std::atomic<uint32_t> min_a_{0};
 };
 
 void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
@@ -346,16 +427,13 @@ void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
 // Used for point-lookup transaction
 Status MyRocksStyleTxnsStressTest::TestGet(
     ThreadState* thread, const ReadOptions& read_opts,
-    const std::vector<int>& rand_column_families,
-    const std::vector<int64_t>& rand_keys) {
-  (void)thread;
-  (void)read_opts;
-  (void)rand_column_families;
-  (void)rand_keys;
-  return Status::OK();
+    const std::vector<int>& /*rand_column_families*/,
+    const std::vector<int64_t>& /*rand_keys*/) {
+  uint32_t a = GeneratePrimaryIndexKeyForPointLookup(thread);
+  return PointLookupTxn(thread, read_opts, a);
 }
 
-// Not used
+// Not used.
 std::vector<Status> MyRocksStyleTxnsStressTest::TestMultiGet(
     ThreadState* /*thread*/, const ReadOptions& /*read_opts*/,
     const std::vector<int>& /*rand_column_families*/,
@@ -378,13 +456,10 @@ Status MyRocksStyleTxnsStressTest::TestPrefixScan(
 // does a random sequence of Next/Prev operations.
 Status MyRocksStyleTxnsStressTest::TestIterate(
     ThreadState* thread, const ReadOptions& read_opts,
-    const std::vector<int>& rand_column_families,
-    const std::vector<int64_t>& rand_keys) {
+    const std::vector<int>& /*rand_column_families*/,
+    const std::vector<int64_t>& /*rand_keys*/) {
   (void)thread;
   (void)read_opts;
-  (void)rand_column_families;
-  (void)rand_keys;
-
   return Status::OK();
 }
 
@@ -472,15 +547,314 @@ Status MyRocksStyleTxnsStressTest::TestCustomOperations(
   return Status::OK();
 }
 
+Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
+                                                       uint32_t old_a,
+                                                       uint32_t new_a) {
+  std::string old_pk = MyRocksRecord::EncodePrimaryKey(old_a);
+  std::string new_pk = MyRocksRecord::EncodePrimaryKey(new_a);
+  Transaction* txn = nullptr;
+  WriteOptions wopts;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
+    thread->stats.AddErrors(1);
+    return s;
+  }
+  txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
+
+  const auto defer([&s, thread, txn, this]() {
+    if (s.ok()) {
+      return;
+    }
+    if (s.IsNotFound()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
+    } else if (s.IsBusy()) {
+      // ignore.
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+
+  ReadOptions ropts;
+  std::string value;
+  s = txn->GetForUpdate(ropts, old_pk, &value);
+  if (!s.ok()) {
+    return s;
+  }
+  std::string empty_value;
+  s = txn->GetForUpdate(ropts, new_pk, &empty_value);
+  if (s.ok()) {
+    s = Status::Busy();
+    return s;
+  }
+
+  auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+  s = std::get<0>(result);
+  if (!s.ok()) {
+    return s;
+  }
+  uint32_t b = std::get<1>(result);
+  uint32_t c = std::get<2>(result);
+
+  s = txn->Delete(old_pk);
+  if (!s.ok()) {
+    return s;
+  }
+  s = txn->Put(new_pk, value);
+  if (!s.ok()) {
+    return s;
+  }
+
+  auto* wb = txn->GetWriteBatch();
+  assert(wb);
+
+  std::string old_sk = MyRocksRecord::EncodeSecondaryKey(c, old_a);
+  s = wb->SingleDelete(old_sk);
+  if (!s.ok()) {
+    return s;
+  }
+
+  MyRocksRecord record(new_a, b, c);
+  std::string new_sk;
+  std::string new_crc;
+  std::tie(new_sk, new_crc) = record.EncodeSecondaryIndexEntry();
+  s = wb->Put(new_sk, new_crc);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = CommitTxn(txn);
+  return s;
+}
+
+Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
+                                                         uint32_t old_c,
+                                                         uint32_t new_c) {
+  Transaction* txn = nullptr;
+  WriteOptions wopts;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
+    thread->stats.AddErrors(1);
+    return s;
+  }
+  Iterator* it = nullptr;
+  const auto defer([&s, thread, it, txn, this]() {
+    if (s.ok()) {
+      return;
+    }
+    delete it;
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+
+  txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
+  std::string old_sk_prefix = MyRocksRecord::EncodeSecondaryKey(old_c);
+  std::string iter_ub_str = MyRocksRecord::EncodeSecondaryKey(old_c + 1);
+  Slice iter_ub = iter_ub_str;
+  ReadOptions ropts;
+  ropts.iterate_upper_bound = &iter_ub;
+  it = txn->GetIterator(ropts);
+  it->Seek(old_sk_prefix);
+  if (!it->Valid()) {
+    s = Status::NotFound();
+    return s;
+  }
+  auto* wb = txn->GetWriteBatch();
+  // it->Valid() is true here.
+  do {
+    MyRocksRecord record;
+    s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
+    if (!s.ok()) {
+      break;
+    }
+    // At this point, record.b is not known yet, thus we need to access
+    // primary index.
+    std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
+    std::string value;
+    s = txn->GetForUpdate(ReadOptions(), pk, &value);
+    if (!s.ok()) {
+      // We can also fail verification here.
+      break;
+    }
+    auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+    s = std::get<0>(result);
+    if (!s.ok()) {
+      break;
+    }
+    uint32_t b = std::get<1>(result);
+    uint32_t c = std::get<2>(result);
+    if (c != old_c) {
+      s = Status::Corruption();
+      break;
+    }
+    MyRocksRecord new_rec(record.a_value(), b, new_c);
+    std::string new_primary_index_value = new_rec.EncodePrimaryIndexValue();
+    s = txn->Put(pk, new_primary_index_value);
+    if (!s.ok()) {
+      break;
+    }
+    std::string old_sk = it->key().ToString(/*hex=*/false);
+    std::string new_sk;
+    std::string new_crc;
+    std::tie(new_sk, new_crc) = new_rec.EncodeSecondaryIndexEntry();
+    s = wb->SingleDelete(old_sk);
+    if (!s.ok()) {
+      break;
+    }
+    s = wb->Put(new_sk, new_crc);
+    if (!s.ok()) {
+      break;
+    }
+
+    it->Next();
+  } while (it->Valid());
+  if (!s.ok()) {
+    return s;
+  }
+  s = CommitTxn(txn);
+  return s;
+}
+
+Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
+    ThreadState* thread, uint32_t a, uint32_t b_delta) {
+  std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
+  Transaction* txn = nullptr;
+  WriteOptions wopts;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
+    thread->stats.AddErrors(1);
+    return s;
+  }
+  const auto defer([&s, thread, txn, this]() {
+    if (s.ok()) {
+      return;
+    }
+    if (s.IsNotFound()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
+    } else if (s.IsInvalidArgument()) {
+      // ignored.
+    } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
+               s.IsMergeInProgress()) {
+      // ignored.
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+  ReadOptions ropts;
+  std::string value;
+  s = txn->GetForUpdate(ropts, pk_str, &value);
+  if (!s.ok()) {
+    return s;
+  }
+  auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+  if (!std::get<0>(result).ok()) {
+    return s;
+  }
+  uint32_t b = std::get<1>(result) + b_delta;
+  uint32_t c = std::get<2>(result);
+  MyRocksRecord record(a, b, c);
+  std::string primary_index_value = record.EncodePrimaryIndexValue();
+  s = txn->Put(pk_str, primary_index_value);
+  if (!s.ok()) {
+    return s;
+  }
+  s = CommitTxn(txn);
+  if (s.ok()) {
+    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
+    thread->stats.AddBytesForWrites(
+        /*nwrites=*/1, /*nbytes=*/pk_str.size() + primary_index_value.size());
+  }
+  return s;
+}
+
+Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
+                                                  ReadOptions ropts,
+                                                  uint32_t a) {
+  WriteOptions wopts;
+  Transaction* txn = nullptr;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
+    thread->stats.AddErrors(1);
+    return s;
+  }
+  const auto defer([&s, thread, txn, this]() {
+    if (s.ok()) {
+      return;
+    }
+    if (!s.ok() && !s.IsNotFound()) {
+      thread->stats.AddErrors(1);
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
+    }
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+  std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
+  // pk may or may not exist
+  std::string value;
+  s = txn->Get(ropts, pk_str, &value);
+  if (!s.ok()) {
+    return s;
+  }
+  s = CommitTxn(txn);
+  if (s.ok()) {
+    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
+  }
+  return s;
+}
+
+Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
+                                                ReadOptions ropts, uint32_t c) {
+  // TODO (yanqin)
+  WriteOptions wopts;
+  Transaction* txn = nullptr;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
+    thread->stats.AddErrors(1);
+    return s;
+  }
+  const auto defer([&s, thread, txn, this]() {
+    if (s.ok()) {
+      return;
+    }
+    thread->stats.AddErrors(1);
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+  std::string sk = MyRocksRecord::EncodeSecondaryKey(c);
+  std::unique_ptr<Iterator> iter(txn->GetIterator(ropts));
+  iter->Seek(sk);
+  if (!iter->status().ok()) {
+    s = iter->status();
+    return s;
+  }
+  thread->stats.AddIterations(1);
+  s = CommitTxn(txn);
+  return s;
+}
+
 void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   (void)thread;
+}
+
+uint32_t MyRocksStyleTxnsStressTest::GeneratePrimaryIndexKeyForPointLookup(
+    ThreadState* thread) const {
+  Random& rand = thread->rand;
+  uint32_t next_a = next_a_.load();
+  uint32_t min_a = min_a_.load();
+  assert(next_a > min_a);
+  uint32_t rand_key = (rand.Next() % (next_a - min_a)) + min_a;
+  return rand_key;
 }
 
 void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   WriteOptions wopts;
   wopts.disableWAL = true;
   wopts.sync = false;
-  Random rnd(shared->GetSeed() + /*random=*/17839);
+  Random rnd(shared->GetSeed());
   for (size_t i = 0; i < num_c; ++i) {
     MyRocksRecord record(/*a=*/kCARatio * i, /*b=*/rnd.Next(), /*c=*/i);
     WriteBatch wb;
@@ -495,6 +869,8 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   }
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
+  min_a_.store(0);
+  next_a_.store(num_c * kCARatio);
 }
 
 StressTest* CreateMyRocksStyleTxnsStressTest() {
@@ -518,10 +894,12 @@ void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
             "families\n");
     exit(1);
   }
-  if (FLAGS_column_families > 2) {
+  if (FLAGS_column_families > 1) {
+    // TODO (yanqin) support separating primary index and secondary index in
+    // different column families.
     fprintf(stderr,
-            "-test_myrocks_txns currently does not use more than two column "
-            "families\n");
+            "-test_myrocks_txns currently does not use more than one column "
+            "family\n");
     exit(1);
   }
   if (FLAGS_writepercent > 0 || FLAGS_delpercent > 0 ||
