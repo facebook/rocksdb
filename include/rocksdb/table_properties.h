@@ -26,13 +26,14 @@ namespace ROCKSDB_NAMESPACE {
 //      ++pos) {
 //   ...
 // }
-typedef std::map<std::string, std::string> UserCollectedProperties;
+using UserCollectedProperties = std::map<std::string, std::string>;
 
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {
   static const std::string kDbId;
   static const std::string kDbSessionId;
   static const std::string kDbHostId;
+  static const std::string kOriginalFileNumber;
   static const std::string kDataSize;
   static const std::string kIndexSize;
   static const std::string kIndexPartitions;
@@ -153,6 +154,9 @@ class TablePropertiesCollectorFactory {
 // table.
 struct TableProperties {
  public:
+  // the file number at creation time, or 0 for unknown. When known,
+  // combining with db_session_id must uniquely identify an SST file.
+  uint64_t orig_file_number = 0;
   // the total size of all data blocks.
   uint64_t data_size = 0;
   // the size of index block.

@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <cstdint>
 #include <limits>
 
 #include "db/db_test_util.h"
@@ -33,6 +34,59 @@ TEST_F(RateLimiterTest, OverflowRate) {
 
 TEST_F(RateLimiterTest, StartStop) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(100, 100, 10));
+}
+
+TEST_F(RateLimiterTest, GetTotalBytesThrough) {
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
+      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      10 /* fairness */));
+  for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
+    ASSERT_EQ(limiter->GetTotalBytesThrough(static_cast<Env::IOPriority>(i)),
+              0);
+  }
+
+  std::int64_t request_byte = 10;
+  std::int64_t request_byte_sum = 0;
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    limiter->Request(request_byte, static_cast<Env::IOPriority>(i),
+                     nullptr /* stats */, RateLimiter::OpType::kWrite);
+    request_byte_sum += request_byte;
+  }
+
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    EXPECT_EQ(limiter->GetTotalBytesThrough(static_cast<Env::IOPriority>(i)),
+              request_byte)
+        << "Failed to track total_bytes_through_ correctly when IOPriority = "
+        << static_cast<Env::IOPriority>(i);
+  }
+  EXPECT_EQ(limiter->GetTotalBytesThrough(Env::IO_TOTAL), request_byte_sum)
+      << "Failed to track total_bytes_through_ correctly when IOPriority = "
+         "Env::IO_TOTAL";
+}
+
+TEST_F(RateLimiterTest, GetTotalRequests) {
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
+      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      10 /* fairness */));
+  for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
+    ASSERT_EQ(limiter->GetTotalRequests(static_cast<Env::IOPriority>(i)), 0);
+  }
+
+  std::int64_t total_requests_sum = 0;
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    limiter->Request(10, static_cast<Env::IOPriority>(i), nullptr /* stats */,
+                     RateLimiter::OpType::kWrite);
+    total_requests_sum += 1;
+  }
+
+  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+    EXPECT_EQ(limiter->GetTotalRequests(static_cast<Env::IOPriority>(i)), 1)
+        << "Failed to track total_requests_ correctly when IOPriority = "
+        << static_cast<Env::IOPriority>(i);
+  }
+  EXPECT_EQ(limiter->GetTotalRequests(Env::IO_TOTAL), total_requests_sum)
+      << "Failed to track total_requests_ correctly when IOPriority = "
+         "Env::IO_TOTAL";
 }
 
 TEST_F(RateLimiterTest, Modes) {
@@ -60,12 +114,84 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
+TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
+      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      10 /* fairness */));
+
+  bool possible_random_one_in_fairness_results_for_high_mid_pri[4][2] = {
+      {false, false}, {false, true}, {true, false}, {true, true}};
+  std::vector<Env::IOPriority> possible_priority_iteration_orders[4] = {
+      {Env::IO_USER, Env::IO_HIGH, Env::IO_MID, Env::IO_LOW},
+      {Env::IO_USER, Env::IO_HIGH, Env::IO_LOW, Env::IO_MID},
+      {Env::IO_USER, Env::IO_MID, Env::IO_LOW, Env::IO_HIGH},
+      {Env::IO_USER, Env::IO_LOW, Env::IO_MID, Env::IO_HIGH}};
+
+  for (int i = 0; i < 4; ++i) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForHighPri",
+        [&](void* arg) {
+          bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
+          *high_pri_iterated_after_mid_low_pri =
+              possible_random_one_in_fairness_results_for_high_mid_pri[i][0];
+        });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForMidPri",
+        [&](void* arg) {
+          bool* mid_pri_itereated_after_low_pri = (bool*)arg;
+          *mid_pri_itereated_after_low_pri =
+              possible_random_one_in_fairness_results_for_high_mid_pri[i][1];
+        });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PreReturnPriIterationOrder",
+        [&](void* arg) {
+          std::vector<Env::IOPriority>* pri_iteration_order =
+              (std::vector<Env::IOPriority>*)arg;
+          EXPECT_EQ(*pri_iteration_order, possible_priority_iteration_orders[i])
+              << "Failed to generate priority iteration order correctly when "
+                 "high_pri_iterated_after_mid_low_pri = "
+              << possible_random_one_in_fairness_results_for_high_mid_pri[i][0]
+              << ", mid_pri_itereated_after_low_pri = "
+              << possible_random_one_in_fairness_results_for_high_mid_pri[i][1]
+              << std::endl;
+        });
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    limiter->Request(20 /* request max bytes to drain so that refill and order
+                           generation will be triggered every time
+                           GenericRateLimiter::Request() is called */
+                     ,
+                     Env::IO_USER, nullptr /* stats */,
+                     RateLimiter::OpType::kWrite);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PreReturnPriIterationOrder");
+  SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForMidPri");
+  SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "PostRandomOneInFairnessForHighPri");
+}
+
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
-          request_size(_target_rate / 10),
+        : limiter(NewGenericRateLimiter(_target_rate /* rate_bytes_per_sec */,
+                                        100 * 1000 /* refill_period_us */,
+                                        10 /* fairness */)),
+          request_size(_target_rate /
+                       10 /* refill period here is 1/10 second */),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
     int32_t request_size;
@@ -80,11 +206,24 @@ TEST_F(RateLimiterTest, Rate) {
     Random r((uint32_t)(thread_clock->NowNanos() %
                         std::numeric_limits<uint32_t>::max()));
     while (thread_clock->NowMicros() < until) {
+      for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst * 2) + 1); ++i) {
+        arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
+                              Env::IO_USER, nullptr /* stats */,
+                              RateLimiter::OpType::kWrite);
+      }
+
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
                               Env::IO_HIGH, nullptr /* stats */,
                               RateLimiter::OpType::kWrite);
       }
+
+      for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst / 2 + 1) + 1);
+           ++i) {
+        arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_MID,
+                              nullptr /* stats */, RateLimiter::OpType::kWrite);
+      }
+
       arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW,
                             nullptr /* stats */, RateLimiter::OpType::kWrite);
     }
@@ -175,7 +314,7 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::Refill"}});
+            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
@@ -208,14 +347,13 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
       RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
       true /* auto_tuned */));
 
-  // Use callback to advance time because we need to advance (1) after Request()
-  // has determined the bytes are not available; and (2) before Refill()
-  // computes the next refill time (ensuring refill time in the future allows
-  // the next request to drain the rate limiter).
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Refill", [&](void* /*arg*/) {
-        special_env.SleepForMicroseconds(static_cast<int>(
-            std::chrono::microseconds(kTimePerRefill).count()));
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

@@ -11,6 +11,7 @@
 
 #include "port/win/io_win.h"
 
+#include "env_win.h"
 #include "monitoring/iostats_context_imp.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
@@ -28,10 +29,6 @@ const size_t kSectorSize = 512;
 
 inline bool IsPowerOfTwo(const size_t alignment) {
   return ((alignment) & (alignment - 1)) == 0;
-}
-
-inline bool IsSectorAligned(const size_t off) {
-  return (off & (kSectorSize - 1)) == 0;
 }
 
 inline bool IsAligned(size_t alignment, const void* ptr) {
@@ -184,6 +181,17 @@ size_t GetUniqueIdFromFile(HANDLE /*hFile*/, char* /*id*/,
   // performance. For more details see discussion in
   // https://github.com/facebook/rocksdb/pull/5844.
   return 0;
+}
+
+WinFileData::WinFileData(const std::string& filename, HANDLE hFile,
+                         bool direct_io)
+    : filename_(filename),
+      hFile_(hFile),
+      use_direct_io_(direct_io),
+      sector_size_(WinFileSystem::GetSectorSize(filename)) {}
+
+bool WinFileData::IsSectorAligned(const size_t off) const {
+  return (off & (sector_size_ - 1)) == 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -624,10 +632,8 @@ IOStatus WinSequentialFile::PositionedRead(uint64_t offset, size_t n,
     return IOStatus::NotSupported("This function is only used for direct_io");
   }
 
-  if (!IsSectorAligned(static_cast<size_t>(offset)) || !IsSectorAligned(n)) {
-    return IOStatus::InvalidArgument(
-        "WinSequentialFile::PositionedRead: offset is not properly aligned");
-  }
+  assert(IsSectorAligned(static_cast<size_t>(offset)));
+  assert(IsSectorAligned(static_cast<size_t>(n)));
 
   size_t bytes_read = 0;  // out param
   IOStatus s = PositionedReadInternal(scratch, static_cast<size_t>(n), offset,
@@ -671,7 +677,8 @@ inline IOStatus WinRandomAccessImpl::PositionedReadInternal(
 inline WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
                                                 size_t alignment,
                                                 const FileOptions& options)
-    : file_base_(file_base), alignment_(alignment) {
+    : file_base_(file_base),
+      alignment_(std::max(alignment, file_base->GetSectorSize())) {
   assert(!options.use_mmap_reads);
 }
 
@@ -680,12 +687,8 @@ inline IOStatus WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n,
                                               char* scratch) const {
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
-    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
-        !IsAligned(alignment_, scratch)) {
-      return IOStatus::InvalidArgument(
-          "WinRandomAccessImpl::ReadImpl: offset or scratch is not properly "
-          "aligned");
-    }
+    assert(file_base_->IsSectorAligned(static_cast<size_t>(offset)));
+    assert(IsAligned(alignment_, scratch));
   }
 
   if (n == 0) {
@@ -741,7 +744,7 @@ inline IOStatus WinWritableImpl::PreallocateInternal(uint64_t spaceToReserve) {
 inline WinWritableImpl::WinWritableImpl(WinFileData* file_data,
                                         size_t alignment)
     : file_data_(file_data),
-      alignment_(alignment),
+      alignment_(std::max(alignment, file_data->GetSectorSize())),
       next_write_offset_(0),
       reservedsize_(0) {
   // Query current position in case ReopenWritableFile is called
@@ -774,14 +777,10 @@ inline IOStatus WinWritableImpl::AppendImpl(const Slice& data) {
   if (file_data_->use_direct_io()) {
     // With no offset specified we are appending
     // to the end of the file
-    assert(IsSectorAligned(next_write_offset_));
-    if (!IsSectorAligned(data.size()) ||
-        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
-      s = IOStatus::InvalidArgument(
-          "WriteData must be page aligned, size must be sector aligned");
-    } else {
-      s = pwrite(file_data_, data, next_write_offset_, bytes_written);
-    }
+    assert(file_data_->IsSectorAligned(next_write_offset_));
+    assert(file_data_->IsSectorAligned(data.size()));
+    assert(IsAligned(static_cast<size_t>(GetAlignment()), data.data()));
+    s = pwrite(file_data_, data, next_write_offset_, bytes_written);
   } else {
     DWORD bytesWritten = 0;
     if (!WriteFile(file_data_->GetFileHandle(), data.data(),
@@ -812,12 +811,9 @@ inline IOStatus WinWritableImpl::AppendImpl(const Slice& data) {
 inline IOStatus WinWritableImpl::PositionedAppendImpl(const Slice& data,
                                                       uint64_t offset) {
   if (file_data_->use_direct_io()) {
-    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
-        !IsSectorAligned(data.size()) ||
-        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
-      return IOStatus::InvalidArgument(
-          "Data and offset must be page aligned, size must be sector aligned");
-    }
+    assert(file_data_->IsSectorAligned(static_cast<size_t>(offset)));
+    assert(file_data_->IsSectorAligned(data.size()));
+    assert(IsAligned(static_cast<size_t>(GetAlignment()), data.data()));
   }
 
   size_t bytes_written = 0;
@@ -929,7 +925,7 @@ bool WinWritableFile::use_direct_io() const {
 }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
-  return static_cast<size_t>(GetAlignement());
+  return static_cast<size_t>(GetAlignment());
 }
 
 IOStatus WinWritableFile::Append(const Slice& data,
@@ -1003,7 +999,9 @@ bool WinRandomRWFile::use_direct_io() const {
 }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
-  return static_cast<size_t>(GetAlignement());
+  assert(WinRandomAccessImpl::GetAlignment() ==
+         WinWritableImpl::GetAlignment());
+  return static_cast<size_t>(WinRandomAccessImpl::GetAlignment());
 }
 
 IOStatus WinRandomRWFile::Write(uint64_t offset, const Slice& data,

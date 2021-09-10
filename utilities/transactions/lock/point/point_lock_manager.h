@@ -98,7 +98,7 @@ class DeadlockInfoBufferTempl {
   }
 };
 
-typedef DeadlockInfoBufferTempl<DeadlockPath> DeadlockInfoBuffer;
+using DeadlockInfoBuffer = DeadlockInfoBufferTempl<DeadlockPath>;
 
 struct TrackedTrxInfo {
   autovector<TransactionID> m_neighbors;

@@ -12,6 +12,7 @@
 #include <string>
 
 #include "cache/sharded_cache.h"
+#include "port/lang.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
@@ -56,7 +57,12 @@ struct LRUHandle {
     Cache::DeleterFn deleter;
     const ShardedCache::CacheItemHelper* helper;
   } info_;
-  LRUHandle* next_hash;
+  // An entry is not added to the LRUHandleTable until the secondary cache
+  // lookup is complete, so its safe to have this union.
+  union {
+    LRUHandle* next_hash;
+    SecondaryCacheResultHandle* sec_handle;
+  };
   LRUHandle* next;
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
@@ -75,8 +81,8 @@ struct LRUHandle {
     IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
-    // Can this be inserted into the tiered cache
-    IS_TIERED_CACHE_COMPATIBLE = (1 << 4),
+    // Can this be inserted into the secondary cache
+    IS_SECONDARY_CACHE_COMPATIBLE = (1 << 4),
     // Is the handle still being read from a lower tier
     IS_PENDING = (1 << 5),
     // Has the item been promoted from a lower tier
@@ -84,6 +90,14 @@ struct LRUHandle {
   };
 
   uint8_t flags;
+
+#ifdef __SANITIZE_THREAD__
+  // TSAN can report a false data race on flags, where one thread is writing
+  // to one of the mutable bits and another thread is reading this immutable
+  // bit. So precisely suppress that TSAN warning, we separate out this bit
+  // during TSAN runs.
+  bool is_secondary_cache_compatible_for_tsan;
+#endif  // __SANITIZE_THREAD__
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
   char key_data[1];
@@ -108,7 +122,11 @@ struct LRUHandle {
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
   bool IsSecondaryCacheCompatible() const {
-    return flags & IS_TIERED_CACHE_COMPATIBLE;
+#ifdef __SANITIZE_THREAD__
+    return is_secondary_cache_compatible_for_tsan;
+#else
+    return flags & IS_SECONDARY_CACHE_COMPATIBLE;
+#endif  // __SANITIZE_THREAD__
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsPromoted() const { return flags & IS_PROMOTED; }
@@ -139,12 +157,15 @@ struct LRUHandle {
 
   void SetHit() { flags |= HAS_HIT; }
 
-  void SetSecondaryCacheCompatible(bool tiered) {
-    if (tiered) {
-      flags |= IS_TIERED_CACHE_COMPATIBLE;
+  void SetSecondaryCacheCompatible(bool compat) {
+    if (compat) {
+      flags |= IS_SECONDARY_CACHE_COMPATIBLE;
     } else {
-      flags &= ~IS_TIERED_CACHE_COMPATIBLE;
+      flags &= ~IS_SECONDARY_CACHE_COMPATIBLE;
     }
+#ifdef __SANITIZE_THREAD__
+    is_secondary_cache_compatible_for_tsan = compat;
+#endif  // __SANITIZE_THREAD__
   }
 
   void SetIncomplete(bool incomp) {
@@ -165,10 +186,24 @@ struct LRUHandle {
 
   void Free() {
     assert(refs == 0);
+#ifdef __SANITIZE_THREAD__
+    // Here we can safely assert they are the same without a data race reported
+    assert(((flags & IS_SECONDARY_CACHE_COMPATIBLE) != 0) ==
+           is_secondary_cache_compatible_for_tsan);
+#endif  // __SANITIZE_THREAD__
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {
-      (*info_.helper->del_cb)(key(), value);
+      if (IsPending()) {
+        assert(sec_handle != nullptr);
+        SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
+        tmp_sec_handle->Wait();
+        value = tmp_sec_handle->Value();
+        delete tmp_sec_handle;
+      }
+      if (value) {
+        (*info_.helper->del_cb)(key(), value);
+      }
     }
     delete[] reinterpret_cast<char*>(this);
   }
@@ -284,16 +319,17 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
                                 const ShardedCache::CacheItemHelper* helper,
                                 const ShardedCache::CreateCallback& create_cb,
-                                ShardedCache::Priority priority,
-                                bool wait) override;
+                                ShardedCache::Priority priority, bool wait,
+                                Statistics* stats) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override {
-    return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true);
+    return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true,
+                  nullptr);
   }
   virtual bool Release(Cache::Handle* handle, bool /*useful*/,
                        bool force_erase) override {
     return Release(handle, force_erase);
   }
-  virtual bool IsReady(Cache::Handle* /*handle*/) override { return true; }
+  virtual bool IsReady(Cache::Handle* /*handle*/) override;
   virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
@@ -326,10 +362,23 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   double GetHighPriPoolRatio();
 
  private:
-  Status InsertItem(LRUHandle* item, Cache::Handle** handle);
+  friend class LRUCache;
+  // Insert an item into the hash table and, if handle is null, insert into
+  // the LRU list. Older items are evicted as necessary. If the cache is full
+  // and free_handle_on_fail is true, the item is deleted and handle is set to.
+  Status InsertItem(LRUHandle* item, Cache::Handle** handle,
+                    bool free_handle_on_fail);
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 DeleterFn deleter, const Cache::CacheItemHelper* helper,
                 Cache::Handle** handle, Cache::Priority priority);
+  // Promote an item looked up from the secondary cache to the LRU cache. The
+  // item is only inserted into the hash table and not the LRU list, and only
+  // if the cache is not at full capacity, as is the case during Insert.  The
+  // caller should hold a reference on the LRUHandle. When the caller releases
+  // the last reference, the item is added to the LRU list.
+  // The item is promoted to the high pri or low pri pool as specified by the
+  // caller in Lookup.
+  void Promote(LRUHandle* e);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -416,7 +465,7 @@ class LRUCache
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
-  virtual void WaitAll(std::vector<Handle*>& /*handles*/) override {}
+  virtual void WaitAll(std::vector<Handle*>& handles) override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
@@ -426,6 +475,7 @@ class LRUCache
  private:
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
+  std::shared_ptr<SecondaryCache> secondary_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

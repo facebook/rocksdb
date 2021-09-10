@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
-#include <regex>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -31,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/false) {}
+  DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -69,11 +68,10 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_EQ(sid2, sid4);
 
   // Expected compact format for session ids (see notes in implementation)
-  std::regex expected("[0-9A-Z]{20}");
-  const std::string match("match");
-  EXPECT_EQ(match, std::regex_replace(sid1, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid2, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid3, expected, match));
+  TestRegex expected("[0-9A-Z]{20}");
+  EXPECT_MATCHES_REGEX(sid1, expected);
+  EXPECT_MATCHES_REGEX(sid2, expected);
+  EXPECT_MATCHES_REGEX(sid3, expected);
 
 #ifndef ROCKSDB_LITE
   Close();
@@ -1362,6 +1360,28 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 }
 
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(2, "baz", "xyz"));
+  ASSERT_OK(Put(1, "abc", "def"));
+
+  // Note: keys for the same CF do not form a consecutive range
+  std::vector<int> cfs{1, 2, 1};
+  std::vector<std::string> keys{"foo", "baz", "abc"};
+  std::vector<std::string> values;
+
+  values =
+      MultiGet(cfs, keys, /* snapshot */ nullptr, /* batched */ GetParam());
+
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "bar");
+  ASSERT_EQ(values[1], "xyz");
+  ASSERT_EQ(values[2], "def");
+}
+
 INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Bool());
 
@@ -2576,7 +2596,7 @@ class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
   DBBasicTestTrackWal()
-      : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_basic_test_track_wal", /*env_do_fsync=*/false) {}
 
   int CountWalFiles() {
     VectorLogPtr log_files;
@@ -2733,6 +2753,11 @@ class DBBasicTestMultiGet : public DBTestBase {
       } else {
         EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
+    }
+    // Clear compressed cache, which is always pre-populated
+    if (compressed_cache_) {
+      compressed_cache_->SetCapacity(0);
+      compressed_cache_->SetCapacity(1048576);
     }
   }
 

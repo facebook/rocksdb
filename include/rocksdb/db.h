@@ -39,25 +39,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct Options;
-struct DBOptions;
 struct ColumnFamilyOptions;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
-struct TableProperties;
+struct DBOptions;
 struct ExternalSstFileInfo;
-class WriteBatch;
-class Env;
-class EventListener;
-class StatsHistoryIterator;
-class TraceWriter;
+struct FlushOptions;
+struct Options;
+struct ReadOptions;
+struct TableProperties;
+struct WriteOptions;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
+class Env;
+class EventListener;
 class FileSystem;
+#ifndef ROCKSDB_LITE
+class Replayer;
+#endif
+class StatsHistoryIterator;
+#ifndef ROCKSDB_LITE
+class TraceReader;
+class TraceWriter;
+#endif
+class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -130,8 +136,8 @@ struct GetMergeOperandsOptions {
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
@@ -140,11 +146,15 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
 // and a number of wrapper implementations.
 class DB {
  public:
-  // Open the database with the specified "name".
+  // Open the database with the specified "name" for reads and writes.
   // Stores a pointer to a heap-allocated database in *dbptr and returns
   // OK on success.
-  // Stores nullptr in *dbptr and returns a non-OK status on error.
-  // Caller should delete *dbptr when it is no longer needed.
+  // Stores nullptr in *dbptr and returns a non-OK status on error, including
+  // if the DB is already open (read-write) by another DB object. (This
+  // guarantee depends on options.env->LockFile(), which might not provide
+  // this guarantee in a custom Env implementation.)
+  //
+  // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
@@ -152,6 +162,12 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -164,6 +180,12 @@ class DB {
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
   // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // While a given DB can be simultaneously open via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously open by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -871,7 +893,8 @@ class DB {
     static const std::string kCurrentSuperVersionNumber;
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
-    //      live data in bytes.
+    //      live data in bytes. For BlobDB, it also includes the exact value of
+    //      live bytes in the blob files of the version.
     static const std::string kEstimateLiveDataSize;
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
@@ -891,6 +914,10 @@ class DB {
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
     //      files belong to the latest LSM tree.
     static const std::string kLiveSstFilesSize;
+
+    // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
+    //      of SST files at all certain file temperature
+    static const std::string kLiveSstFilesSizeAtTemperature;
 
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
@@ -940,6 +967,23 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    // "rocksdb.num-blob-files" - returns number of blob files in the current
+    //      version.
+    static const std::string kNumBlobFiles;
+
+    // "rocksdb.blob-stats" - return the total number and size of all blob
+    //      files, and total amount of garbage (bytes) in the blob files in
+    //      the current version.
+    static const std::string kBlobStats;
+
+    // "rocksdb.total-blob-file-size" - returns the total size of all blob
+    //      files over all versions.
+    static const std::string kTotalBlobFileSize;
+
+    // "rocksdb.live-blob-file-size" - returns the total size of all blob
+    //      files in the current version.
+    static const std::string kLiveBlobFileSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -1000,6 +1044,11 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //
+  //  Properties dedicated for BlobDB:
+  //  "rocksdb.num-blob-files"
+  //  "rocksdb.total-blob-file-size"
+  //  "rocksdb.live-blob-file-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -1407,6 +1456,12 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
+  // Obtains the meta data of all column families for the DB.
+  // The returned map contains one entry for each column family indexed by the
+  // name of the column family.
+  virtual void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* /*metadata*/) {}
+
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
   // - Duplicate keys in the new files will overwrite exiting keys (default)
@@ -1606,6 +1661,7 @@ class DB {
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
 #ifndef ROCKSDB_LITE
+
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
@@ -1656,6 +1712,15 @@ class DB {
   virtual Status EndBlockCacheTrace() {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
+
+  // Create a default trace replayer.
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& /*handles*/,
+      std::unique_ptr<TraceReader>&& /*reader*/,
+      std::unique_ptr<Replayer>* /*replayer*/) {
+    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

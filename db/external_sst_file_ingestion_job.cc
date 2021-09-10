@@ -842,6 +842,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     Status status =
         fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
                              &rwfile, nullptr);
+    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::NewRandomRWFile",
+                             &status);
     if (status.ok()) {
       FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_,
                               file_to_ingest->internal_file_path);

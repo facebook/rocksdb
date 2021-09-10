@@ -257,6 +257,7 @@ bool BlockBasedFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -315,6 +316,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
       GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                            nullptr /* lookup_context */, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return std::string("Unable to retrieve filter block");
   }
 

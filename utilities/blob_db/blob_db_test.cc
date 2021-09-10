@@ -871,10 +871,13 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
 
+  Options options;
+  options.disable_auto_compactions = true;
+
   // i = when to take snapshot
   for (int i = 0; i < 4; i++) {
     Destroy();
-    Open(bdb_options);
+    Open(bdb_options, options);
 
     const Snapshot *snapshot = nullptr;
 

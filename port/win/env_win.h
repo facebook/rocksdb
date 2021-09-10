@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
-#include "port/win/win_thread.h"
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
@@ -71,7 +71,7 @@ class WinEnvThreads {
   Env* hosted_env_;
   mutable std::mutex mu_;
   std::vector<ThreadPoolImpl> thread_pools_;
-  std::vector<WindowsThread> threads_to_join_;
+  std::vector<Thread> threads_to_join_;
 };
 
 class WinClock : public SystemClock {
@@ -96,7 +96,7 @@ class WinClock : public SystemClock {
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
  private:
-  typedef VOID(WINAPI* FnGetSystemTimePreciseAsFileTime)(LPFILETIME);
+  using FnGetSystemTimePreciseAsFileTime = VOID(WINAPI*)(LPFILETIME);
 
   uint64_t perf_counter_frequency_;
   uint64_t nano_seconds_per_period_;

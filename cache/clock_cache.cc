@@ -260,7 +260,7 @@ struct CleanupContext {
 class ClockCacheShard final : public CacheShard {
  public:
   // Hash map type.
-  typedef tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey> HashTable;
+  using HashTable = tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey>;
 
   ClockCacheShard();
   ~ClockCacheShard() override;
@@ -280,7 +280,8 @@ class ClockCacheShard final : public CacheShard {
   Cache::Handle* Lookup(const Slice& key, uint32_t hash,
                         const Cache::CacheItemHelper* /*helper*/,
                         const Cache::CreateCallback& /*create_cb*/,
-                        Cache::Priority /*priority*/, bool /*wait*/) override {
+                        Cache::Priority /*priority*/, bool /*wait*/,
+                        Statistics* /*stats*/) override {
     return Lookup(key, hash);
   }
   bool Release(Cache::Handle* handle, bool /*useful*/,

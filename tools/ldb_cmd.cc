@@ -247,6 +247,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new DBFileDumperCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
                                    parsed_params.flags);
+  } else if (parsed_params.cmd == DBLiveFilesMetadataDumperCommand::Name()) {
+    return new DBLiveFilesMetadataDumperCommand(parsed_params.cmd_params,
+                                                parsed_params.option_map,
+                                                parsed_params.flags);
   } else if (parsed_params.cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
@@ -287,16 +291,6 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   return nullptr;
 }
 
-static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
-  return composite_env.get();
-}
-
-static Env* GetCompositeBackupEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_backup_env = NewCompositeEnv(fs);
-  return composite_backup_env.get();
-}
-
 /* Run the command, and return the execute result. */
 void LDBCommand::Run() {
   if (!exec_state_.IsNotStarted()) {
@@ -305,33 +299,13 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-
-    if (!env_uri_.empty() && !fs_uri_.empty()) {
-      std::string err =
-          "Error: you may not specity both "
-          "fs_uri and fs_env.";
-      fprintf(stderr, "%s\n", err.c_str());
-      exec_state_ = LDBCommandExecuteResult::Failed(err);
+    Status s = Env::CreateFromUri(config_options_, env_uri_, fs_uri_, &env,
+                                  &env_guard_);
+    if (!s.ok()) {
+      fprintf(stderr, "%s\n", s.ToString().c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    if (!env_uri_.empty()) {
-      Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-      if (!s.ok() && !s.IsNotFound()) {
-        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
-        return;
-      }
-    } else if (!fs_uri_.empty()) {
-      std::shared_ptr<FileSystem> fs;
-      Status s = FileSystem::Load(fs_uri_, &fs);
-      if (fs == nullptr) {
-        fprintf(stderr, "error: %s\n", s.ToString().c_str());
-        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
-        return;
-      }
-      env = GetCompositeEnv(fs);
-    }
-
     options_.env = env;
   }
 
@@ -730,11 +704,13 @@ void LDBCommand::PrepareOptions() {
       db_ = nullptr;
       return;
     }
-    if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
-      options_.wal_dir = db_path_;
-      fprintf(
-          stderr,
-          "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+    if (!options_.wal_dir.empty()) {
+      if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
+        options_.wal_dir = db_path_;
+        fprintf(
+            stderr,
+            "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+      }
     }
 
     // If merge operator is not set, set a string append operator.
@@ -2187,8 +2163,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string
@@ -2216,8 +2191,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string
@@ -3105,20 +3079,26 @@ void CheckPointCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
+const std::string RepairCommand::ARG_VERBOSE = "verbose";
+
 RepairCommand::RepairCommand(const std::vector<std::string>& /*params*/,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_VERBOSE})) {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
+}
 
 void RepairCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(RepairCommand::Name());
+  ret.append(" [--" + ARG_VERBOSE + "]");
   ret.append("\n");
 }
 
 void RepairCommand::OverrideBaseOptions() {
   LDBCommand::OverrideBaseOptions();
-  options_.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
+  auto level = verbose_ ? InfoLogLevel::INFO_LEVEL : InfoLogLevel::WARN_LEVEL;
+  options_.info_log.reset(new StderrLogger(level));
 }
 
 void RepairCommand::DoCommand() {
@@ -3218,19 +3198,17 @@ void BackupCommand::DoCommand() {
   }
   fprintf(stdout, "open db OK\n");
 
-  Env* custom_env = nullptr;
-  if (!backup_fs_uri_.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(backup_fs_uri_, &fs);
-    if (fs == nullptr) {
+  Env* custom_env = backup_env_guard_.get();
+  if (custom_env == nullptr) {
+    Status s =
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
+    if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    custom_env = GetCompositeBackupEnv(fs);
-  } else {
-    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-    assert(custom_env != nullptr);
   }
+  assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
@@ -3265,19 +3243,17 @@ void RestoreCommand::Help(std::string& ret) {
 }
 
 void RestoreCommand::DoCommand() {
-  Env* custom_env = nullptr;
-  if (!backup_fs_uri_.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(backup_fs_uri_, &fs);
-    if (fs == nullptr) {
+  Env* custom_env = backup_env_guard_.get();
+  if (custom_env == nullptr) {
+    Status s =
+        Env::CreateFromUri(config_options_, backup_env_uri_, backup_fs_uri_,
+                           &custom_env, &backup_env_guard_);
+    if (!s.ok()) {
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
     }
-    custom_env = GetCompositeBackupEnv(fs);
-  } else {
-    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-    assert(custom_env != nullptr);
   }
+  assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
@@ -3386,6 +3362,11 @@ void DBFileDumperCommand::DoCommand() {
   // remove the trailing '\n'
   manifest_filename.resize(manifest_filename.size() - 1);
   std::string manifest_filepath = db_->GetName() + "/" + manifest_filename;
+  // Correct concatenation of filepath and filename:
+  // Check that there is no double slashes (or more!) when concatenation
+  // happens.
+  manifest_filepath = NormalizePath(manifest_filepath);
+
   std::cout << manifest_filepath << std::endl;
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
@@ -3395,7 +3376,11 @@ void DBFileDumperCommand::DoCommand() {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + fileMetadata.name;
+    std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+    // Correct concatenation of filepath and filename:
+    // Check that there is no double slashes (or more!) when concatenation
+    // happens.
+    filename = NormalizePath(filename);
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
     DumpSstFile(options_, filename, false, true);
@@ -3410,15 +3395,133 @@ void DBFileDumperCommand::DoCommand() {
   if (!s.ok()) {
     std::cerr << "Error when getting WAL files" << std::endl;
   } else {
+    std::string wal_dir;
+    if (options_.wal_dir.empty()) {
+      wal_dir = db_->GetName();
+    } else {
+      wal_dir = NormalizePath(options_.wal_dir + "/");
+    }
     for (auto& wal : wal_files) {
       // TODO(qyang): option.wal_dir should be passed into ldb command
-      std::string filename = db_->GetOptions().wal_dir + wal->PathName();
+      std::string filename = wal_dir + wal->PathName();
       std::cout << filename << std::endl;
       // TODO(myabandeh): allow configuring is_write_commited
       DumpWalFile(options_, filename, true, true, true /* is_write_commited */,
                   &exec_state_);
     }
   }
+}
+
+const std::string DBLiveFilesMetadataDumperCommand::ARG_SORT_BY_FILENAME =
+    "sort_by_filename";
+
+DBLiveFilesMetadataDumperCommand::DBLiveFilesMetadataDumperCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_SORT_BY_FILENAME})) {
+  sort_by_filename_ = IsFlagPresent(flags, ARG_SORT_BY_FILENAME);
+}
+
+void DBLiveFilesMetadataDumperCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(DBLiveFilesMetadataDumperCommand::Name());
+  ret.append(" [--" + ARG_SORT_BY_FILENAME + "] ");
+  ret.append("\n");
+}
+
+void DBLiveFilesMetadataDumperCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status s;
+
+  std::cout << "Live SST Files:" << std::endl;
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  if (sort_by_filename_) {
+    // Sort metadata vector by filename.
+    std::sort(metadata.begin(), metadata.end(),
+              [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
+                std::string aName = a.db_path + a.name;
+                std::string bName = b.db_path + b.name;
+                return (aName.compare(bName) < 0);
+              });
+    for (auto& fileMetadata : metadata) {
+      // The fileMetada.name alwasy starts with "/",
+      // however fileMetada.db_path is the string provided by
+      // the user as an input. Therefore we check if we can
+      // concantenate the two string sdirectly or if we need to
+      // drop a possible extra "/" at the end of fileMetadata.db_path.
+      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+      // Drops any repeating '/' character that could happen during
+      // concatenation of db path and file name.
+      filename = NormalizePath(filename);
+      std::string cf = fileMetadata.column_family_name;
+      int level = fileMetadata.level;
+      std::cout << filename << " : level " << level << ", column family '" << cf
+                << "'" << std::endl;
+    }
+  } else {
+    std::map<std::string, std::map<int, std::vector<std::string>>>
+        filesPerLevelPerCf;
+    // Collect live files metadata.
+    // Store filenames into a 2D map, that will automatically
+    // sort by column family (first key) and by level (second key).
+    for (auto& fileMetadata : metadata) {
+      std::string cf = fileMetadata.column_family_name;
+      int level = fileMetadata.level;
+      if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
+        filesPerLevelPerCf.emplace(cf,
+                                   std::map<int, std::vector<std::string>>());
+      }
+      if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
+        filesPerLevelPerCf[cf].emplace(level, std::vector<std::string>());
+      }
+
+      // The fileMetada.name alwasy starts with "/",
+      // however fileMetada.db_path is the string provided by
+      // the user as an input. Therefore we check if we can
+      // concantenate the two string sdirectly or if we need to
+      // drop a possible extra "/" at the end of fileMetadata.db_path.
+      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
+      // Drops any repeating '/' character that could happen during
+      // concatenation of db path and file name.
+      filename = NormalizePath(filename);
+      filesPerLevelPerCf[cf][level].push_back(filename);
+    }
+    // For each column family,
+    // iterate through the levels and print out the live SST file names.
+    for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
+         it++) {
+      // it->first: Column Family name (string)
+      // it->second: map[level]={SST files...}.
+      std::cout << "===== Column Family: " << it->first
+                << " =====" << std::endl;
+
+      // For simplicity, create reference to the inner map (level={live SST
+      // files}).
+      std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
+      int maxLevel = filesPerLevel.rbegin()->first;
+
+      // Even if the first few levels are empty, they are printed out.
+      for (int level = 0; level <= maxLevel; level++) {
+        std::cout << "---------- level " << level << " ----------" << std::endl;
+        if (filesPerLevel.find(level) != filesPerLevel.end()) {
+          std::vector<std::string>& fileList = filesPerLevel[level];
+
+          // Locally sort by filename for better information display.
+          std::sort(fileList.begin(), fileList.end());
+          for (const std::string& filename : fileList) {
+            std::cout << filename << std::endl;
+          }
+        }
+      }  // End of for-loop over levels.
+    }    // End of for-loop over filesPerLevelPerCf.
+  }      // End of else ("not sort_by_filename").
+  std::cout << "------------------------------" << std::endl;
 }
 
 void WriteExternalSstFilesCommand::Help(std::string& ret) {

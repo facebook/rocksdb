@@ -51,31 +51,56 @@ namespace ROCKSDB_NAMESPACE {
 template <class Stats>
 class CacheEntryStatsCollector {
  public:
-  // Gathers stats and saves results into `stats`
-  void GetStats(Stats *stats, int maximum_age_in_seconds = 180) {
+  // Gather and save stats if saved stats are too old. (Use GetStats() to
+  // read saved stats.)
+  //
+  // Maximum allowed age for a "hit" on saved results is determined by the
+  // two interval parameters. Both set to 0 forces a re-scan. For example
+  // with min_interval_seconds=300 and min_interval_factor=100, if the last
+  // scan took 10s, we would only rescan ("miss") if the age in seconds of
+  // the saved results is > max(300, 100*10).
+  // Justification: scans can vary wildly in duration, e.g. from 0.02 sec
+  // to as much as 20 seconds, so we want to be able to cap the absolute
+  // and relative frequency of scans.
+  void CollectStats(int min_interval_seconds, int min_interval_factor) {
     // Waits for any pending reader or writer (collector)
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(working_mutex_);
 
-    // Maximum allowed age is nominally given by the parameter, but
-    // to limit the possibility of accidental repeated scans, impose
-    // a minimum TTL of 1 second.
     uint64_t max_age_micros =
-        static_cast<uint64_t>(std::max(maximum_age_in_seconds, 1)) * 1000000U;
+        static_cast<uint64_t>(std::max(min_interval_seconds, 0)) * 1000000U;
+
+    if (last_end_time_micros_ > last_start_time_micros_ &&
+        min_interval_factor > 0) {
+      max_age_micros = std::max(
+          max_age_micros, min_interval_factor * (last_end_time_micros_ -
+                                                 last_start_time_micros_));
+    }
 
     uint64_t start_time_micros = clock_->NowMicros();
     if ((start_time_micros - last_end_time_micros_) > max_age_micros) {
       last_start_time_micros_ = start_time_micros;
-      saved_stats_.BeginCollection(cache_, clock_, start_time_micros);
+      working_stats_.BeginCollection(cache_, clock_, start_time_micros);
 
-      cache_->ApplyToAllEntries(saved_stats_.GetEntryCallback(), {});
+      cache_->ApplyToAllEntries(working_stats_.GetEntryCallback(), {});
+      TEST_SYNC_POINT_CALLBACK(
+          "CacheEntryStatsCollector::GetStats:AfterApplyToAllEntries", nullptr);
 
       uint64_t end_time_micros = clock_->NowMicros();
       last_end_time_micros_ = end_time_micros;
-      saved_stats_.EndCollection(cache_, clock_, end_time_micros);
+      working_stats_.EndCollection(cache_, clock_, end_time_micros);
     } else {
-      saved_stats_.SkippedCollection();
+      working_stats_.SkippedCollection();
     }
-    // Copy to caller
+
+    // Save so that we don't need to wait for an outstanding collection in
+    // order to make of copy of the last saved stats
+    std::lock_guard<std::mutex> lock2(saved_mutex_);
+    saved_stats_ = working_stats_;
+  }
+
+  // Gets saved stats, regardless of age
+  void GetStats(Stats *stats) {
+    std::lock_guard<std::mutex> lock(saved_mutex_);
     *stats = saved_stats_;
   }
 
@@ -109,9 +134,11 @@ class CacheEntryStatsCollector {
         // usage to go flaky. Fix the problem somehow so we can use an
         // accurate charge.
         size_t charge = 0;
-        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h);
+        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h,
+                                 Cache::Priority::HIGH);
         if (!s.ok()) {
           assert(h == nullptr);
+          delete new_ptr;
           return s;
         }
       }
@@ -128,6 +155,7 @@ class CacheEntryStatsCollector {
  private:
   explicit CacheEntryStatsCollector(Cache *cache, SystemClock *clock)
       : saved_stats_(),
+        working_stats_(),
         last_start_time_micros_(0),
         last_end_time_micros_(/*pessimistic*/ 10000000),
         cache_(cache),
@@ -137,10 +165,14 @@ class CacheEntryStatsCollector {
     delete static_cast<CacheEntryStatsCollector *>(value);
   }
 
-  std::mutex mutex_;
+  std::mutex saved_mutex_;
   Stats saved_stats_;
+
+  std::mutex working_mutex_;
+  Stats working_stats_;
   uint64_t last_start_time_micros_;
   uint64_t last_end_time_micros_;
+
   Cache *const cache_;
   SystemClock *const clock_;
 };

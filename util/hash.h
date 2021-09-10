@@ -10,7 +10,7 @@
 // Common hash functions with convenient interfaces. If hashing a
 // statically-sized input in a performance-critical context, consider
 // calling a specific hash implementation directly, such as
-// XXH3p_64bits from xxhash.h.
+// XXH3_64bits from xxhash.h.
 //
 // Since this is a very common header, implementation details are kept
 // out-of-line. Out-of-lining also aids in tracking the time spent in
@@ -62,6 +62,10 @@ inline uint64_t NPHash64(const char* data, size_t n) {
   return Hash64(data, n);
 #endif
 }
+
+// Convenient and equivalent version of Hash128 without depending on 128-bit
+// scalars
+void Hash2x64(const char* data, size_t n, uint64_t* high64, uint64_t* low64);
 
 // Stable/persistent 32-bit hash. Moderate quality and high speed on
 // small inputs.

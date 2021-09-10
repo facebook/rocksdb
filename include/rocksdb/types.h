@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 using ColumnFamilyId = uint32_t;
 
 // Represents a sequence number in a WAL file.
-typedef uint64_t SequenceNumber;
+using SequenceNumber = uint64_t;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
@@ -54,28 +54,5 @@ enum EntryType {
   kEntryDeleteWithTimestamp,
   kEntryOther,
 };
-
-// <user key, sequence number, and entry type> tuple.
-struct FullKey {
-  Slice user_key;
-  SequenceNumber sequence;
-  EntryType type;
-
-  FullKey() : sequence(0) {}  // Intentionally left uninitialized (for speed)
-  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
-
-  void clear() {
-    user_key.clear();
-    sequence = 0;
-    type = EntryType::kEntryPut;
-  }
-};
-
-// Parse slice representing internal key to FullKey
-// Parsed FullKey is valid for as long as the memory pointed to by
-// internal_key is alive.
-bool ParseFullKey(const Slice& internal_key, FullKey* result);
 
 }  // namespace ROCKSDB_NAMESPACE

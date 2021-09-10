@@ -206,6 +206,6 @@ Slice PlainTableIndexBuilder::FillIndexes(
 
 const std::string PlainTableIndexBuilder::kPlainTableIndexBlock =
     "PlainTableIndexBlock";
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

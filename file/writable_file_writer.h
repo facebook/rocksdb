@@ -144,6 +144,8 @@ class WritableFileWriter {
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
   bool checksum_finalized_;
   bool perform_data_verification_;
+  uint32_t buffered_data_crc32c_checksum_;
+  bool buffered_data_with_checksum_;
 
  public:
   WritableFileWriter(
@@ -153,7 +155,8 @@ class WritableFileWriter {
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
-      bool perform_data_verification = false)
+      bool perform_data_verification = false,
+      bool buffered_data_with_checksum = false)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
@@ -171,7 +174,9 @@ class WritableFileWriter {
         listeners_(),
         checksum_generator_(nullptr),
         checksum_finalized_(false),
-        perform_data_verification_(perform_data_verification) {
+        perform_data_verification_(perform_data_verification),
+        buffered_data_crc32c_checksum_(0),
+        buffered_data_with_checksum_(buffered_data_with_checksum) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -210,7 +215,9 @@ class WritableFileWriter {
 
   std::string file_name() const { return file_name_; }
 
-  IOStatus Append(const Slice& data);
+  // When this Append API is called, if the crc32c_checksum is not provided, we
+  // will calculate the checksum internally.
+  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0);
 
   IOStatus Pad(const size_t pad_bytes);
 
@@ -251,9 +258,11 @@ class WritableFileWriter {
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
   IOStatus WriteDirect();
+  IOStatus WriteDirectWithChecksum();
 #endif  // !ROCKSDB_LITE
   // Normal write
   IOStatus WriteBuffered(const char* data, size_t size);
+  IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
 };

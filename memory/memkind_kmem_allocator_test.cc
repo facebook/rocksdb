@@ -14,7 +14,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 TEST(MemkindKmemAllocatorTest, Allocate) {
   MemkindKmemAllocator allocator;
   void* p;
@@ -84,7 +84,7 @@ TEST(MemkindKmemAllocatorTest, DatabaseBlockCache) {
   ASSERT_OK(s);
   ASSERT_OK(DestroyDB(dbname, options));
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

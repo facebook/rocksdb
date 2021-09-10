@@ -56,10 +56,11 @@ struct BackupEngineOptions {
   // Default: nullptr
   Logger* info_log;
 
-  // If sync == true, we can guarantee you'll get consistent backup even
-  // on a machine crash/reboot. Backup process is slower with sync enabled.
-  // If sync == false, we don't guarantee anything on machine reboot. However,
-  // chances are some of the backups are consistent.
+  // If sync == true, we can guarantee you'll get consistent backup and
+  // restore even on a machine crash/reboot. Backup and restore processes are
+  // slower with sync enabled. If sync == false, we can only guarantee that
+  // other previously synced backups and restores are not modified while
+  // creating a new one.
   // Default: true
   bool sync;
 
@@ -75,6 +76,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during backup.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "backup_rate_limiter"
   // Default: 0
   uint64_t backup_rate_limit;
 
@@ -85,6 +89,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "restore_rate_limiter"
   // Default: 0
   uint64_t restore_rate_limit;
 
@@ -284,7 +291,7 @@ struct BackupFileInfo {
   uint64_t size;
 };
 
-typedef uint32_t BackupID;
+using BackupID = uint32_t;
 
 struct BackupInfo {
   BackupID backup_id = 0U;

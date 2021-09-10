@@ -31,6 +31,14 @@ Status FileTraceReader::Close() {
   return Status::OK();
 }
 
+Status FileTraceReader::Reset() {
+  if (file_reader_ == nullptr) {
+    return Status::IOError("TraceReader is closed.");
+  }
+  offset_ = 0;
+  return Status::OK();
+}
+
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
   Status s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,

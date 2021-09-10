@@ -235,7 +235,7 @@ void Java_org_rocksdb_Slice_removePrefix0(JNIEnv* /*env*/, jobject /*jobj*/,
  */
 void Java_org_rocksdb_DirectSlice_setLength0(JNIEnv* /*env*/, jobject /*jobj*/,
                                              jlong handle, jint length) {
-  auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  auto* slice = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(handle);
   slice->size_ = length;
 }
 

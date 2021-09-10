@@ -23,6 +23,7 @@
 #include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/cachable_entry.h"
@@ -262,6 +263,8 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string live_sst_files_size_at_temperature =
+    "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
 static const std::string aggregated_table_properties =
@@ -278,6 +281,10 @@ static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 static const std::string options_statistics = "options-statistics";
+static const std::string num_blob_files = "num-blob-files";
+static const std::string blob_stats = "blob-stats";
+static const std::string total_blob_file_size = "total-blob-file-size";
+static const std::string live_blob_file_size = "live-blob-file-size";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -369,6 +376,15 @@ const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
+const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
+    rocksdb_prefix + live_sst_files_size_at_temperature;
+const std::string DB::Properties::kNumBlobFiles =
+    rocksdb_prefix + num_blob_files;
+const std::string DB::Properties::kBlobStats = rocksdb_prefix + blob_stats;
+const std::string DB::Properties::kTotalBlobFileSize =
+    rocksdb_prefix + total_blob_file_size;
+const std::string DB::Properties::kLiveBlobFileSize =
+    rocksdb_prefix + live_blob_file_size;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -394,7 +410,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kDBStats,
          {false, &InternalStats::HandleDBStats, nullptr, nullptr, nullptr}},
         {DB::Properties::kBlockCacheEntryStats,
-         {false, &InternalStats::HandleBlockCacheEntryStats, nullptr,
+         {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
           &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
@@ -482,6 +498,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
+        {DB::Properties::kLiveSstFilesSizeAtTemperature,
+         {true, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
+          nullptr, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -510,8 +529,19 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
           nullptr}},
         {DB::Properties::kOptionsStatistics,
-         {false, nullptr, nullptr, nullptr,
+         {true, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
+        {DB::Properties::kNumBlobFiles,
+         {false, nullptr, &InternalStats::HandleNumBlobFiles, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobStats,
+         {false, &InternalStats::HandleBlobStats, nullptr, nullptr, nullptr}},
+        {DB::Properties::kTotalBlobFileSize,
+         {false, nullptr, &InternalStats::HandleTotalBlobFileSize, nullptr,
+          nullptr}},
+        {DB::Properties::kLiveBlobFileSize,
+         {false, nullptr, &InternalStats::HandleLiveBlobFileSize, nullptr,
+          nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -526,28 +556,50 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       number_levels_(num_levels),
       clock_(clock),
       cfd_(cfd),
-      started_at_(clock->NowMicros()) {}
-
-Status InternalStats::CollectCacheEntryStats() {
-  using Collector = CacheEntryStatsCollector<CacheEntryRoleStats>;
-  Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+      started_at_(clock->NowMicros()) {
+  Cache* block_cache = nullptr;
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (ok) {
-    // Extract or create stats collector.
-    std::shared_ptr<Collector> collector;
-    Status s = Collector::GetShared(block_cache, clock_, &collector);
+    assert(block_cache);
+    // Extract or create stats collector. Could fail in rare cases.
+    Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
+        block_cache, clock_, &cache_entry_stats_collector_);
     if (s.ok()) {
-      // TODO: use a max age like stats_dump_period_sec / 2, but it's
-      // difficult to access that setting from here with just cfd_
-      collector->GetStats(&cache_entry_stats);
+      assert(cache_entry_stats_collector_);
     } else {
-      // Block cache likely under pressure. Scanning could make it worse,
-      // so skip.
+      assert(!cache_entry_stats_collector_);
     }
-    return s;
   } else {
-    return Status::NotFound("block cache not configured");
+    assert(!block_cache);
   }
+}
+
+void InternalStats::TEST_GetCacheEntryRoleStats(CacheEntryRoleStats* stats,
+                                                bool foreground) {
+  CollectCacheEntryStats(foreground);
+  if (cache_entry_stats_collector_) {
+    cache_entry_stats_collector_->GetStats(stats);
+  }
+}
+
+void InternalStats::CollectCacheEntryStats(bool foreground) {
+  // This function is safe to call from any thread because
+  // cache_entry_stats_collector_ field is const after constructor
+  // and ->GetStats does its own synchronization, which also suffices for
+  // cache_entry_stats_.
+
+  if (!cache_entry_stats_collector_) {
+    return;  // nothing to do (e.g. no block cache)
+  }
+
+  // For "background" collections, strictly cap the collection time by
+  // expanding effective cache TTL. For foreground, be more aggressive about
+  // getting latest data.
+  int min_interval_seconds = foreground ? 10 : 180;
+  // 1/500 = max of 0.2% of one CPU thread
+  int min_interval_factor = foreground ? 10 : 500;
+  cache_entry_stats_collector_->CollectStats(min_interval_seconds,
+                                             min_interval_factor);
 }
 
 std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
@@ -573,7 +625,8 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   ++collection_count;
   role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
-  str << cache->Name() << "@" << static_cast<void*>(cache);
+  str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
+      << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
 }
@@ -638,21 +691,90 @@ void InternalStats::CacheEntryRoleStats::ToMap(
 
 bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
                                                Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
-  if (!s.ok()) {
+  if (!cache_entry_stats_collector_) {
     return false;
   }
-  *value = cache_entry_stats.ToString(clock_);
+  CollectCacheEntryStats(/*foreground*/ true);
+  CacheEntryRoleStats stats;
+  cache_entry_stats_collector_->GetStats(&stats);
+  *value = stats.ToString(clock_);
   return true;
 }
 
 bool InternalStats::HandleBlockCacheEntryStatsMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
-  Status s = CollectCacheEntryStats();
-  if (!s.ok()) {
+  if (!cache_entry_stats_collector_) {
     return false;
   }
-  cache_entry_stats.ToMap(values, clock_);
+  CollectCacheEntryStats(/*foreground*/ true);
+  CacheEntryRoleStats stats;
+  cache_entry_stats_collector_->GetStats(&stats);
+  stats.ToMap(values, clock_);
+  return true;
+}
+
+bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
+                                                        Slice suffix) {
+  uint64_t temperature;
+  bool ok = ConsumeDecimalNumber(&suffix, &temperature) && suffix.empty();
+  if (!ok) {
+    return false;
+  }
+
+  uint64_t size = 0;
+  const auto* vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); level++) {
+    for (const auto& file_meta : vstorage->LevelFiles(level)) {
+      if (static_cast<uint8_t>(file_meta->temperature) == temperature) {
+        size += file_meta->fd.GetFileSize();
+      }
+    }
+  }
+
+  *value = ToString(size);
+  return true;
+}
+
+bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
+                                       Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  const auto& blob_files = vstorage->GetBlobFiles();
+  *value = blob_files.size();
+  return true;
+}
+
+bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
+  std::ostringstream oss;
+  auto* current_version = cfd_->current();
+  const auto& blob_files = current_version->storage_info()->GetBlobFiles();
+  uint64_t current_num_blob_files = blob_files.size();
+  uint64_t current_file_size = 0;
+  uint64_t current_garbage_size = 0;
+  for (const auto& pair : blob_files) {
+    const auto& meta = pair.second;
+    current_file_size += meta->GetTotalBlobBytes();
+    current_garbage_size += meta->GetGarbageBlobBytes();
+  }
+  oss << "Current version number: " << current_version->GetVersionNumber()
+      << "\n"
+      << "Number of blob files: " << current_num_blob_files << "\n"
+      << "Total size of blob files: " << current_file_size << "\n"
+      << "Total size of garbage in blob files: " << current_garbage_size
+      << std::endl;
+  value->append(oss.str());
+  return true;
+}
+
+bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
+  *value = cfd_->GetTotalBlobFileSize();
+  return true;
+}
+
+bool InternalStats::HandleLiveBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  *value = vstorage->GetTotalBlobFileSize();
   return true;
 }
 
@@ -1112,7 +1234,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
 }
 
-bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
+bool InternalStats::GetBlockCacheForStats(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory.get();
   assert(table_factory != nullptr);
@@ -1124,7 +1246,7 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
                                              Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1135,7 +1257,7 @@ bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
                                           Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1146,7 +1268,7 @@ bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
                                                 Version* /*version*/) {
   Cache* block_cache;
-  bool ok = HandleBlockCacheStat(&block_cache);
+  bool ok = GetBlockCacheForStats(&block_cache);
   if (!ok) {
     return false;
   }
@@ -1493,7 +1615,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            vstorage->GetTotalBlobFileSize() / kGB);
   value->append(buf);
 
-  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  uint64_t now_micros = clock_->NowMicros();
+  double seconds_up = (now_micros - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
@@ -1608,13 +1731,20 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   cf_stats_snapshot_.comp_stats = compaction_stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
 
-  Status s = CollectCacheEntryStats();
-  if (s.ok()) {
-    value->append(cache_entry_stats.ToString(clock_));
-  } else {
-    value->append("Block cache: ");
-    value->append(s.ToString());
-    value->append("\n");
+  // Do not gather cache entry stats during CFStats because DB
+  // mutex is held. Only dump last cached collection (rely on DB
+  // periodic stats dump to update)
+  if (cache_entry_stats_collector_) {
+    CacheEntryRoleStats stats;
+    // thread safe
+    cache_entry_stats_collector_->GetStats(&stats);
+
+    constexpr uint64_t kDayInMicros = uint64_t{86400} * 1000000U;
+
+    // Skip if stats are extremely old (> 1 day, incl not yet populated)
+    if (now_micros - stats.last_end_time_micros_ < kDayInMicros) {
+      value->append(stats.ToString(clock_));
+    }
   }
 }
 

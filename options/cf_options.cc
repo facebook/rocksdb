@@ -15,6 +15,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
@@ -169,6 +170,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
     fifo_compaction_options_type_info = {
         {"max_table_files_size",
          {offsetof(struct CompactionOptionsFIFO, max_table_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"age_for_warm",
+         {offsetof(struct CompactionOptionsFIFO, age_for_warm),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"ttl",
@@ -474,8 +479,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* not yet supported
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
-        typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-            TablePropertiesCollectorFactories;
+        using TablePropertiesCollectorFactories =
+            std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>;
         UpdateStatus (*inplace_callback)(char* existing_value,
                                          uint34_t* existing_value_size,
                                          Slice delta_value,
@@ -539,8 +544,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offset_of(&ImmutableCFOptions::user_comparator),
              OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
              // Serializes a Comparator
-             [](const ConfigOptions& /*opts*/, const std::string&,
-                const void* addr, std::string* value) {
+             [](const ConfigOptions& opts, const std::string&, const void* addr,
+                std::string* value) {
                // it's a const pointer of const Comparator*
                const auto* ptr = static_cast<const Comparator* const*>(addr);
 
@@ -549,12 +554,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // one instead of InternalKeyComparator.
                if (*ptr == nullptr) {
                  *value = kNullptrString;
+               } else if (opts.mutable_options_only) {
+                 *value = "";
                } else {
                  const Comparator* root_comp = (*ptr)->GetRootComparator();
                  if (root_comp == nullptr) {
                    root_comp = (*ptr);
                  }
-                 *value = root_comp->Name();
+                 *value = root_comp->ToString(opts);
                }
                return Status::OK();
              },
@@ -566,21 +573,33 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"memtable_factory",
          {offset_of(&ImmutableCFOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+          OptionType::kCustomizable, OptionVerificationType::kByName,
+          OptionTypeFlags::kShared,
+          [](const ConfigOptions& opts, const std::string&,
+             const std::string& value, void* addr) {
+            std::unique_ptr<MemTableRepFactory> factory;
+            auto* shared =
+                static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+            Status s =
+                MemTableRepFactory::CreateFromString(opts, value, &factory);
+            if (s.ok()) {
+              shared->reset(factory.release());
+            }
+            return s;
+          }}},
         {"memtable",
          {offset_of(&ImmutableCFOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kAlias,
-          OptionTypeFlags::kNone,
-          // Parses the value string and updates the memtable_factory
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared,
+          [](const ConfigOptions& opts, const std::string&,
              const std::string& value, void* addr) {
-            std::unique_ptr<MemTableRepFactory> new_mem_factory;
-            Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
+            std::unique_ptr<MemTableRepFactory> factory;
+            auto* shared =
+                static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+            Status s =
+                MemTableRepFactory::CreateFromString(opts, value, &factory);
             if (s.ok()) {
-              auto memtable_factory =
-                  static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
-              memtable_factory->reset(new_mem_factory.release());
+              shared->reset(factory.release());
             }
             return s;
           }}},
@@ -654,30 +673,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
           }}},
         {"compaction_filter",
-         {offset_of(&ImmutableCFOptions::compaction_filter),
-          OptionType::kCompactionFilter, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
+             offset_of(&ImmutableCFOptions::compaction_filter),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"compaction_filter_factory",
-         {offset_of(&ImmutableCFOptions::compaction_filter_factory),
-          OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomSharedPtr<CompactionFilterFactory>(
+             offset_of(&ImmutableCFOptions::compaction_filter_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"merge_operator",
-         {offset_of(&ImmutableCFOptions::merge_operator),
-          OptionType::kMergeOperator,
-          OptionVerificationType::kByNameAllowFromNull,
-          OptionTypeFlags::kCompareLoose,
-          // Parses the input value as a MergeOperator, updating the value
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto mop = static_cast<std::shared_ptr<MergeOperator>*>(addr);
-            Status status =
-                opts.registry->NewSharedObject<MergeOperator>(value, mop);
-            // Only support static comparator for now.
-            if (status.ok()) {
-              return status;
-            }
-            return Status::OK();
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+             offset_of(&ImmutableCFOptions::merge_operator),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kCompareLoose | OptionTypeFlags::kAllowNull)},
         {"compaction_style",
          {offset_of(&ImmutableCFOptions::compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal,
