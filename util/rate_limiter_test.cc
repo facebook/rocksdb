@@ -25,11 +25,11 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO(yhchiang): the rate will not be accurate when we run test in parallel.
 class RateLimiterTest : public testing::Test {
-  protected:
-    ~RateLimiterTest() override {
-      SyncPoint::GetInstance()->DisableProcessing();
-      SyncPoint::GetInstance()->ClearAllCallBacks();
-    }
+ protected:
+  ~RateLimiterTest() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
 };
 
 TEST_F(RateLimiterTest, OverflowRate) {
@@ -97,8 +97,8 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
 }
 
 TEST_F(RateLimiterTest, GetTotalPendingRequests) {
-  std::unique_ptr<RateLimiter> limiter(
-      NewGenericRateLimiter(200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
@@ -175,13 +175,13 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
       {Env::IO_USER, Env::IO_HIGH, Env::IO_LOW, Env::IO_MID},
       {Env::IO_USER, Env::IO_MID, Env::IO_LOW, Env::IO_HIGH},
       {Env::IO_USER, Env::IO_LOW, Env::IO_MID, Env::IO_HIGH}};
-  
+
   for (int i = 0; i < 4; ++i) {
     // These are variables for making sure the following callbacks are called
     // and the assertion in the last callback is indeed excuted
     bool high_pri_iterated_after_mid_low_pri_set_ = false;
     bool mid_pri_itereated_after_low_pri_set_ = false;
-    bool pri_iteration_order_verified_= false;
+    bool pri_iteration_order_verified_ = false;
     SyncPoint::GetInstance()->SetCallBack(
         "GenericRateLimiter::GeneratePriorityIterationOrder::"
         "PostRandomOneInFairnessForHighPri",
@@ -230,14 +230,14 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     ASSERT_EQ(pri_iteration_order_verified_, true);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PreReturnPriIterationOrder");
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PreReturnPriIterationOrder");
     SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PostRandomOneInFairnessForMidPri");
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForMidPri");
     SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PostRandomOneInFairnessForHighPri");
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForHighPri");
   }
 }
 
@@ -430,7 +430,8 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack("GenericRateLimiter::Request:PostTimedWait");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
