@@ -24,7 +24,13 @@
 namespace ROCKSDB_NAMESPACE {
 
 // TODO(yhchiang): the rate will not be accurate when we run test in parallel.
-class RateLimiterTest : public testing::Test {};
+class RateLimiterTest : public testing::Test {
+  protected:
+    ~RateLimiterTest() override {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+};
 
 TEST_F(RateLimiterTest, OverflowRate) {
   GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
