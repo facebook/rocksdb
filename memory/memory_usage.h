@@ -5,7 +5,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <unordered_map>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 

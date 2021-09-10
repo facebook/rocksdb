@@ -34,8 +34,7 @@ class FileTraceReader : public TraceReader {
 // FileTraceWriter allows writing RocksDB traces to a file.
 class FileTraceWriter : public TraceWriter {
  public:
-  explicit FileTraceWriter(std::unique_ptr<WritableFileWriter>&& file_writer)
-      : file_writer_(std::move(file_writer)) {}
+  explicit FileTraceWriter(std::unique_ptr<WritableFileWriter>&& file_writer);
   ~FileTraceWriter();
 
   virtual Status Write(const Slice& data) override;
