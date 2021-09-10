@@ -120,6 +120,8 @@ static Status NewManagedObject(
           return object->ConfigureFromMap(config_options, opt_map);
         });
 #else
+    (void)result;
+    (void)opt_map;
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
