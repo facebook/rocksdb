@@ -39,14 +39,14 @@ TEST_F(RateLimiterTest, StartStop) {
 
 TEST_F(RateLimiterTest, GetTotalBytesThrough) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
-      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalBytesThrough(static_cast<Env::IOPriority>(i)),
               0);
   }
 
-  std::int64_t request_byte = 10;
+  std::int64_t request_byte = 200;
   std::int64_t request_byte_sum = 0;
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     limiter->Request(request_byte, static_cast<Env::IOPriority>(i),
@@ -67,7 +67,7 @@ TEST_F(RateLimiterTest, GetTotalBytesThrough) {
 
 TEST_F(RateLimiterTest, GetTotalRequests) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
-      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalRequests(static_cast<Env::IOPriority>(i)), 0);
@@ -75,7 +75,7 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
 
   std::int64_t total_requests_sum = 0;
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-    limiter->Request(10, static_cast<Env::IOPriority>(i), nullptr /* stats */,
+    limiter->Request(200, static_cast<Env::IOPriority>(i), nullptr /* stats */,
                      RateLimiter::OpType::kWrite);
     total_requests_sum += 1;
   }
@@ -92,7 +92,8 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
 
 TEST_F(RateLimiterTest, GetTotalPendingRequests) {
   std::unique_ptr<RateLimiter> limiter(
-      NewGenericRateLimiter(20 /* rate_bytes_per_sec */));
+      NewGenericRateLimiter(200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
               0);
@@ -118,7 +119,7 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
       });
 
   SyncPoint::GetInstance()->EnableProcessing();
-  limiter->Request(20, Env::IO_USER, nullptr /* stats */,
+  limiter->Request(200, Env::IO_USER, nullptr /* stats */,
                    RateLimiter::OpType::kWrite);
   ASSERT_EQ(nonzero_pending_requests_verified_, true);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
