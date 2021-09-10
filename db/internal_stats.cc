@@ -755,12 +755,9 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
     current_file_size += meta->GetBlobFileSize();
     current_garbage_size += meta->GetGarbageBlobBytes();
   }
-  oss << "Current version number: " << current_version->GetVersionNumber()
-      << "\n"
-      << "Number of blob files: " << current_num_blob_files << "\n"
-      << "Total size of blob files: " << current_file_size << "\n"
-      << "Total size of garbage in blob files: " << current_garbage_size
-      << std::endl;
+  oss << "Number of blob files: " << current_num_blob_files
+      << "\nTotal size of blob files: " << current_file_size
+      << "\nTotal size of garbage in blob files: " << current_garbage_size;
   value->append(oss.str());
   return true;
 }
