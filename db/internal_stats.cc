@@ -757,7 +757,8 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
   }
   oss << "Number of blob files: " << current_num_blob_files
       << "\nTotal size of blob files: " << current_file_size
-      << "\nTotal size of garbage in blob files: " << current_garbage_size;
+      << "\nTotal size of garbage in blob files: " << current_garbage_size
+      << '\n';
   value->append(oss.str());
   return true;
 }

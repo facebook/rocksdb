@@ -448,7 +448,8 @@ TEST_F(DBBlobBasicTest, Properties) {
   std::ostringstream oss;
   oss << "Number of blob files: 2\nTotal size of blob files: "
       << total_expected_size
-      << "\nTotal size of garbage in blob files: " << expected_garbage_size;
+      << "\nTotal size of garbage in blob files: " << expected_garbage_size
+      << '\n';
 
   ASSERT_EQ(blob_stats, oss.str());
 }
@@ -497,8 +498,8 @@ TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
   // we should have three blob files of the same size with one blob each.
   // The version kept alive by the iterator contains the first and the second
   // blob file, while the final version contains the second and the third blob
-  // file. (The second blob file is shared by the two versions and should be
-  // counted only once.)
+  // file. (The second blob file is thus shared by the two versions but should
+  // be counted only once.)
   uint64_t total_blob_file_size = 0;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
                                   &total_blob_file_size));
