@@ -1365,7 +1365,7 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
   }
 #endif
 }
-  
+
 TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
   std::unique_ptr<MemTableRepFactory> result;
   ASSERT_NOK(MemTableRepFactory::CreateFromString(
