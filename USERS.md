@@ -115,3 +115,9 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 ## ArangoDB
 [ArangoDB](https://www.arangodb.com/) is a native multi-model database with flexible data models for documents, graphs, and key-values, for building high performance applications using a convenient SQL-like query language or JavaScript extensions. It uses RocksDB as its sotrage engine.
 
+## Milvus
+[Milvus](https://milvus.io/) is an open source vector database for unstructured data. It uses RocksDB not only as one of the supported kv storage engines, but also as a message queue.
+
+## Others
+More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).
+

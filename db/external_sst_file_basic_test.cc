@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -23,9 +24,25 @@ class ExternalSSTFileBasicTest
  public:
   ExternalSSTFileBasicTest()
       : DBTestBase("external_sst_file_basic_test", /*env_do_fsync=*/true) {
-    sst_files_dir_ = dbname_ + "/sst_files/";
+    sst_files_dir_ = dbname_ + "_sst_files/";
     fault_injection_test_env_.reset(new FaultInjectionTestEnv(env_));
     DestroyAndRecreateExternalSSTFilesDir();
+
+    // Check if the Env supports RandomRWFile
+    std::string file_path = sst_files_dir_ + "test_random_rw_file";
+    std::unique_ptr<WritableFile> wfile;
+    assert(env_->NewWritableFile(file_path, &wfile, EnvOptions()).ok());
+    wfile.reset();
+    std::unique_ptr<RandomRWFile> rwfile;
+    Status s = env_->NewRandomRWFile(file_path, &rwfile, EnvOptions());
+    if (s.IsNotSupported()) {
+      random_rwfile_supported_ = false;
+    } else {
+      EXPECT_OK(s);
+      random_rwfile_supported_ = true;
+    }
+    rwfile.reset();
+    EXPECT_OK(env_->DeleteFile(file_path));
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
@@ -169,6 +186,7 @@ class ExternalSSTFileBasicTest
  protected:
   std::string sst_files_dir_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
+  bool random_rwfile_supported_;
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -1096,12 +1114,31 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
        "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
 
   for (size_t i = 0; i < test_cases.size(); i++) {
+    bool no_sync = false;
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].first, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(false);
     });
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].second, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(true);
     });
+    if (i == 0) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
+    if (i == 2) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::NewRandomRWFile", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
     SyncPoint::GetInstance()->EnableProcessing();
 
     DestroyAndReopen(options);
@@ -1127,7 +1164,12 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     if (i == 2) {
       ingest_opt.write_global_seqno = true;
     }
-    ASSERT_NOK(db_->IngestExternalFile({file_name}, ingest_opt));
+    Status s = db_->IngestExternalFile({file_name}, ingest_opt);
+    if (no_sync) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_NOK(s);
+    }
     db_->ReleaseSnapshot(snapshot);
 
     SyncPoint::GetInstance()->DisableProcessing();
@@ -1430,6 +1472,10 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+  if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
+    return;
+  }
   SyncPoint::GetInstance()->DisableProcessing();
   int file_id = 0;
   EnvOptions env_options;
@@ -1478,7 +1524,8 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
-  if (!verify_checksums_before_ingest) {
+  if (!verify_checksums_before_ingest || !random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }
   uint64_t props_block_offset = 0;
@@ -1625,8 +1672,17 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
