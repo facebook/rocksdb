@@ -3600,6 +3600,14 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
       }
     }
   }
+  // For BlobDB, the result also includes the exact value of live bytes in the
+  // blob files of the version.
+  const auto& blobFiles = GetBlobFiles();
+  for (const auto& pair : blobFiles) {
+    const auto& meta = pair.second;
+    size += meta->GetTotalBlobBytes();
+    size -= meta->GetGarbageBlobBytes();
+  }
   return size;
 }
 
@@ -5679,6 +5687,25 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     }
   }
   return total_files_size;
+}
+
+uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
+  std::unordered_set<uint64_t> unique_blob_files;
+  uint64_t all_v_blob_file_size = 0;
+  for (auto* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
+    // iterate all the versions
+    auto* vstorage = v->storage_info();
+    const auto& blob_files = vstorage->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      if (unique_blob_files.find(pair.first) == unique_blob_files.end()) {
+        // find Blob file that has not been counted
+        unique_blob_files.insert(pair.first);
+        const auto& meta = pair.second;
+        all_v_blob_file_size += meta->GetTotalBlobBytes();
+      }
+    }
+  }
+  return all_v_blob_file_size;
 }
 
 Status VersionSet::VerifyFileMetadata(const std::string& fpath,

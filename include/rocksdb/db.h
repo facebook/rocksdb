@@ -893,7 +893,8 @@ class DB {
     static const std::string kCurrentSuperVersionNumber;
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
-    //      live data in bytes.
+    //      live data in bytes. For BlobDB, it also includes the exact value of
+    //      live bytes in the blob files of the version.
     static const std::string kEstimateLiveDataSize;
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
@@ -966,6 +967,23 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    // "rocksdb.num-blob-files" - returns number of blob files in the current
+    //      version.
+    static const std::string kNumBlobFiles;
+
+    // "rocksdb.blob-stats" - return the total number and size of all blob
+    //      files, and total amount of garbage (bytes) in the blob files in
+    //      the current version.
+    static const std::string kBlobStats;
+
+    // "rocksdb.total-blob-file-size" - returns the total size of all blob
+    //      files over all versions.
+    static const std::string kTotalBlobFileSize;
+
+    // "rocksdb.live-blob-file-size" - returns the total size of all blob
+    //      files in the current version.
+    static const std::string kLiveBlobFileSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -1026,6 +1044,11 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //
+  //  Properties dedicated for BlobDB:
+  //  "rocksdb.num-blob-files"
+  //  "rocksdb.total-blob-file-size"
+  //  "rocksdb.live-blob-file-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
