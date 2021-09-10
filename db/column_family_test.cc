@@ -195,8 +195,10 @@ class ColumnFamilyTestBase : public testing::Test {
           cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
-    return DB::OpenForReadOnly(db_options_, dbname_, column_families, &handles_,
-                               &db_);
+    Status s = DB::OpenForReadOnly(db_options_, dbname_, column_families,
+                                   &handles_, &db_);
+    assert(db_ || !s.ok());  // help clang-analyze
+    return s;
   }
 
 #ifndef ROCKSDB_LITE  // ReadOnlyDB is not supported
@@ -210,6 +212,7 @@ class ColumnFamilyTestBase : public testing::Test {
   void Open(std::vector<std::string> cf,
             std::vector<ColumnFamilyOptions> options = {}) {
     ASSERT_OK(TryOpen(cf, options));
+    assert(db_);  // help clang-analyze
   }
 
   void Open() {
