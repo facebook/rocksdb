@@ -17,6 +17,7 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/flush_block_policy.h"
@@ -1064,6 +1065,135 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_FALSE(mc.AreEquivalent(options, &mc2, &mismatch));
   ASSERT_EQ(mismatch, "immutable");
 }
+
+TEST_F(CustomizableTest, CustomManagedObjects) {
+  std::shared_ptr<TestCustomizable> object1, object2;
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=1;bool=true", &object1));
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_1", &object2));
+  ASSERT_EQ(object1, object2);
+  auto* opts = object2->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 1);
+  ASSERT_EQ(opts->b, true);
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_2", &object2));
+  ASSERT_NE(object1, object2);
+  object1.reset();
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=2;bool=false", &object1));
+  opts = object1->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 2);
+  ASSERT_EQ(opts->b, false);
+}
+
+TEST_F(CustomizableTest, CreateManagedObjects) {
+  class ManagedCustomizable : public Customizable {
+   public:
+    static const char* Type() { return "ManagedCustomizable"; }
+    static const char* kClassName() { return "Managed"; }
+    const char* Name() const override { return kClassName(); }
+    std::string GetId() const override { return id_; }
+    ManagedCustomizable() { id_ = GenerateIndividualId(); }
+    static Status CreateFromString(
+        const ConfigOptions& opts, const std::string& value,
+        std::shared_ptr<ManagedCustomizable>* result) {
+      return LoadManagedObject<ManagedCustomizable>(opts, value, result);
+    }
+
+   private:
+    std::string id_;
+  };
+
+  config_options_.registry->AddLibrary("Managed")
+      ->Register<ManagedCustomizable>(
+          "Managed(@.*)?", [](const std::string& /*name*/,
+                              std::unique_ptr<ManagedCustomizable>* guard,
+                              std::string* /* msg */) {
+            guard->reset(new ManagedCustomizable());
+            return guard->get();
+          });
+
+  std::shared_ptr<ManagedCustomizable> mc1, mc2, mc3, obj;
+  // Create a "deadbeef" customizable
+  std::string deadbeef =
+      std::string(ManagedCustomizable::kClassName()) + "@0xdeadbeef#0001";
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &mc1));
+  // Create an object with the base/class name
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, ManagedCustomizable::kClassName(), &mc2));
+  // Creating another with the base name returns a different object
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, ManagedCustomizable::kClassName(), &mc3));
+  // At this point, there should be 4 managed objects (deadbeef, mc1, 2, and 3)
+  std::vector<std::shared_ptr<ManagedCustomizable>> objects;
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 4U);
+  objects.clear();
+  // Three separate object, none of them equal
+  ASSERT_NE(mc1, mc2);
+  ASSERT_NE(mc1, mc3);
+  ASSERT_NE(mc2, mc3);
+
+  // Creating another object with "deadbeef" object
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc1, obj);
+  // Create another with the IDs of the instances
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc1->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc1, obj);
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc2->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc2, obj);
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc3->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc3, obj);
+
+  // Now get rid of deadbeef.  2 Objects left (m2+m3)
+  mc1.reset();
+  ASSERT_EQ(
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(deadbeef),
+      nullptr);
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 2U);
+  objects.clear();
+
+  // Associate deadbeef with #2
+  ASSERT_OK(config_options_.registry->SetManagedObject(deadbeef, mc2));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc2, obj);
+  obj.reset();
+
+  // Get the ID of mc2 and then reset it.  1 Object left
+  std::string mc2id = mc2->GetId();
+  mc2.reset();
+  ASSERT_EQ(
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(mc2id),
+      nullptr);
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 1U);
+  objects.clear();
+
+  // Create another object with the old mc2id.
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, mc2id, &mc2));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, mc2id, &obj));
+  ASSERT_EQ(mc2, obj);
+
+  // For good measure, create another deadbeef object
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &mc1));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc1, obj);
+}
+
 #endif  // !ROCKSDB_LITE
 
 namespace {
@@ -1482,6 +1612,7 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
 #endif  // GFLAGS
