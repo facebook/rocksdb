@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -568,10 +569,13 @@ enum StatsLevel : uint8_t {
 //  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 //  HistogramData hist;
 //  options.statistics->histogramData(FLUSH_TIME, &hist);
-class Statistics {
+class Statistics : public Customizable {
  public:
   virtual ~Statistics() {}
   static const char* Type() { return "Statistics"; }
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& value,
+                                 std::shared_ptr<Statistics>* result);
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
