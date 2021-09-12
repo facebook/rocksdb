@@ -61,11 +61,10 @@ class ProtectionInfo {
 
   Status GetStatus() const;
   ProtectionInfoKVOT<T> ProtectKVOT(const Slice& key, const Slice& value,
-                                    ValueType op_type,
-                                    const Slice& timestamp) const;
+                                    ValueType op_type) const;
   ProtectionInfoKVOT<T> ProtectKVOT(const SliceParts& key,
-                                    const SliceParts& value, ValueType op_type,
-                                    const Slice& timestamp) const;
+                                    const SliceParts& value,
+                                    ValueType op_type) const;
 
  private:
   friend class ProtectionInfoKVOT<T>;
@@ -222,9 +221,9 @@ Status ProtectionInfo<T>::GetStatus() const {
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(
-    const Slice& key, const Slice& value, ValueType op_type,
-    const Slice& timestamp) const {
+ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const Slice& key,
+                                                     const Slice& value,
+                                                     ValueType op_type) const {
   T val = GetVal();
   val = val ^ static_cast<T>(GetSliceNPHash64(key, ProtectionInfo<T>::kSeedK));
   val =
@@ -232,15 +231,13 @@ ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  val = val ^
-        static_cast<T>(GetSliceNPHash64(timestamp, ProtectionInfo<T>::kSeedT));
   return ProtectionInfoKVOT<T>(val);
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(
-    const SliceParts& key, const SliceParts& value, ValueType op_type,
-    const Slice& timestamp) const {
+ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const SliceParts& key,
+                                                     const SliceParts& value,
+                                                     ValueType op_type) const {
   T val = GetVal();
   val = val ^
         static_cast<T>(GetSlicePartsNPHash64(key, ProtectionInfo<T>::kSeedK));
@@ -249,8 +246,6 @@ ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  val = val ^
-        static_cast<T>(GetSliceNPHash64(timestamp, ProtectionInfo<T>::kSeedT));
   return ProtectionInfoKVOT<T>(val);
 }
 
