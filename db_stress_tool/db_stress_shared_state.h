@@ -11,6 +11,7 @@
 #pragma once
 
 #include "db_stress_tool/db_stress_stat.h"
+#include "db_stress_tool/expected_state.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/sync_point.h"
@@ -23,7 +24,7 @@ DECLARE_uint64(log2_keys_per_lock);
 DECLARE_int32(threads);
 DECLARE_int32(column_families);
 DECLARE_int32(nooverwritepercent);
-DECLARE_string(expected_values_path);
+DECLARE_string(expected_values_dir);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -81,6 +82,7 @@ class SharedState {
         verification_failure_(false),
         should_stop_test_(false),
         no_overwrite_ids_(FLAGS_column_families),
+        expected_state_manager_(nullptr),
         values_(nullptr),
         printing_verification_results_(false) {
     // Pick random keys in each column family that will not experience
@@ -110,50 +112,31 @@ class SharedState {
     }
     delete[] permutation;
 
-    size_t expected_values_size =
-        sizeof(std::atomic<uint32_t>) * FLAGS_column_families * max_key_;
     bool values_init_needed = false;
     Status status;
-    if (!FLAGS_expected_values_path.empty()) {
+    if (!FLAGS_expected_values_dir.empty()) {
       if (!std::atomic<uint32_t>{}.is_lock_free()) {
         status = Status::InvalidArgument(
-            "Cannot use --expected_values_path on platforms without lock-free "
+            "Cannot use --expected_values_dir on platforms without lock-free "
             "std::atomic<uint32_t>");
       }
       if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
         status = Status::InvalidArgument(
-            "Cannot use --expected_values_path on when "
+            "Cannot use --expected_values_dir on when "
             "--clear_column_family_one_in is greater than zero.");
       }
-      uint64_t size = 0;
-      Env* default_env = Env::Default();
       if (status.ok()) {
-        status = default_env->GetFileSize(FLAGS_expected_values_path, &size);
-      }
-      std::unique_ptr<WritableFile> wfile;
-      if (status.ok() && size == 0) {
-        const EnvOptions soptions;
-        status = default_env->NewWritableFile(FLAGS_expected_values_path,
-                                              &wfile, soptions);
-      }
-      if (status.ok() && size == 0) {
-        std::string buf(expected_values_size, '\0');
-        status = wfile->Append(buf);
-        values_init_needed = true;
+        expected_state_manager_.reset(new ExpectedStateManager(
+            FLAGS_expected_values_dir, FLAGS_max_key, FLAGS_column_families));
+        status = expected_state_manager_->Open();
       }
       if (status.ok()) {
-        status = default_env->NewMemoryMappedFileBuffer(
-            FLAGS_expected_values_path, &expected_mmap_buffer_);
-      }
-      if (status.ok()) {
-        assert(expected_mmap_buffer_->GetLen() == expected_values_size);
-        values_ = static_cast<std::atomic<uint32_t>*>(
-            expected_mmap_buffer_->GetBase());
-        assert(values_ != nullptr);
+        values_ = expected_state_manager_->REMOVEME_GetValues();
+        values_init_needed = expected_state_manager_->REMOVEME_ValuesNeedInit();
       } else {
-        fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
-                FLAGS_expected_values_path.c_str(), status.ToString().c_str());
-        assert(values_ == nullptr);
+        fprintf(stderr,
+                "Failed setting up expected state dir '%s' with error: %s\n",
+                FLAGS_expected_values_dir.c_str(), status.ToString().c_str());
       }
     }
     if (values_ == nullptr) {
@@ -395,6 +378,7 @@ class SharedState {
   // Keys that should not be overwritten
   std::unordered_set<size_t> no_overwrite_ids_;
 
+  std::unique_ptr<ExpectedStateManager> expected_state_manager_;
   std::atomic<uint32_t>* values_;
   std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable

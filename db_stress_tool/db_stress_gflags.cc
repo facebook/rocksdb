@@ -448,12 +448,12 @@ DEFINE_string(secondaries_base, "",
 DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
-    expected_values_path, "",
-    "File where the array of expected uint32_t values will be stored. If "
+    expected_values_dir, "",
+    "Dir where file with array of expected uint32_t values will be stored. If "
     "provided and non-empty, the DB state will be verified against these "
     "values after recovery. --max_key and --column_family must be kept the "
     "same across invocations of this program that use the same "
-    "--expected_values_path.");
+    "--expected_values_dir.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
