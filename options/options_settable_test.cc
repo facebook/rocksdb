@@ -41,7 +41,7 @@ class OptionsSettableTest : public testing::Test {
 };
 
 const char kSpecialChar = 'z';
-typedef std::vector<std::pair<size_t, size_t>> OffsetGap;
+using OffsetGap = std::vector<std::pair<size_t, size_t>>;
 
 void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& excluded,

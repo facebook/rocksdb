@@ -575,6 +575,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
+  ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 }
 
 TEST_F(OptionsTest, CompressionOptionsFromString) {
@@ -1137,14 +1138,14 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
 
   ASSERT_OK(GetMemTableRepFactoryFromString("skip_list", &new_mem_factory));
   ASSERT_OK(GetMemTableRepFactoryFromString("skip_list:16", &new_mem_factory));
-  ASSERT_EQ(std::string(new_mem_factory->Name()), "SkipListFactory");
+  ASSERT_STREQ(new_mem_factory->Name(), "SkipListFactory");
   ASSERT_NOK(GetMemTableRepFactoryFromString("skip_list:16:invalid_opt",
                                              &new_mem_factory));
 
   ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash", &new_mem_factory));
   ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash:1000",
                                             &new_mem_factory));
-  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashSkipListRepFactory");
+  ASSERT_STREQ(new_mem_factory->Name(), "HashSkipListRepFactory");
   ASSERT_NOK(GetMemTableRepFactoryFromString("prefix_hash:1000:invalid_opt",
                                              &new_mem_factory));
 
@@ -1169,6 +1170,99 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
   ASSERT_NOK(GetMemTableRepFactoryFromString("bad_factory", &new_mem_factory));
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(OptionsTest, MemTableRepFactoryCreateFromString) {
+  std::unique_ptr<MemTableRepFactory> new_mem_factory = nullptr;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "skip_list",
+                                                 &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "skip_list:16",
+                                                 &new_mem_factory));
+  ASSERT_STREQ(new_mem_factory->Name(), "SkipListFactory");
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("skip_list"));
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("SkipListFactory"));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "skip_list:16:invalid_opt", &new_mem_factory));
+
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "invalid_opt=10", &new_mem_factory));
+
+  // Test a reset
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "",
+                                                 &new_mem_factory));
+  ASSERT_EQ(new_mem_factory, nullptr);
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "invalid_opt=10", &new_mem_factory));
+
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options, "id=skip_list; lookahead=32", &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "prefix_hash",
+                                                 &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options, "prefix_hash:1000", &new_mem_factory));
+  ASSERT_STREQ(new_mem_factory->Name(), "HashSkipListRepFactory");
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("prefix_hash"));
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("HashSkipListRepFactory"));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "prefix_hash:1000:invalid_opt", &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options,
+      "id=prefix_hash; bucket_count=32; skiplist_height=64; "
+      "branching_factor=16",
+      &new_mem_factory));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options,
+      "id=prefix_hash; bucket_count=32; skiplist_height=64; "
+      "branching_factor=16; invalid=unknown",
+      &new_mem_factory));
+
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options, "hash_linkedlist", &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options, "hash_linkedlist:1000", &new_mem_factory));
+  ASSERT_STREQ(new_mem_factory->Name(), "HashLinkListRepFactory");
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("hash_linkedlist"));
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("HashLinkListRepFactory"));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "hash_linkedlist:1000:invalid_opt", &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options,
+      "id=hash_linkedlist; bucket_count=32; threshold=64; huge_page_size=16; "
+      "logging_threshold=12; log_when_flash=true",
+      &new_mem_factory));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options,
+      "id=hash_linkedlist; bucket_count=32; threshold=64; huge_page_size=16; "
+      "logging_threshold=12; log_when_flash=true; invalid=unknown",
+      &new_mem_factory));
+
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "vector",
+                                                 &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(config_options, "vector:1024",
+                                                 &new_mem_factory));
+  ASSERT_STREQ(new_mem_factory->Name(), "VectorRepFactory");
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("vector"));
+  ASSERT_TRUE(new_mem_factory->IsInstanceOf("VectorRepFactory"));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "vector:1024:invalid_opt", &new_mem_factory));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options, "id=vector; count=42", &new_mem_factory));
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, "id=vector; invalid=unknown", &new_mem_factory));
+#endif  // ROCKSDB_LITE
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(config_options, "cuckoo",
+                                                  &new_mem_factory));
+  // CuckooHash memtable is already removed.
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(config_options, "cuckoo:1024",
+                                                  &new_mem_factory));
+
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(config_options, "bad_factory",
+                                                  &new_mem_factory));
+}
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
 TEST_F(OptionsTest, GetOptionsFromStringTest) {
@@ -2454,7 +2548,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             "memtable=skip_list:10;arena_block_size=1024",
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
-  ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
+  ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 }
 
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
@@ -2649,6 +2743,14 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   ASSERT_EQ(new_opt.encoding_type, EncodingType::kPrefix);
   ASSERT_TRUE(new_opt.full_scan_mode);
   ASSERT_TRUE(new_opt.store_index_in_file);
+
+  std::unordered_map<std::string, std::string> opt_map;
+  ASSERT_OK(StringToMap(
+      "user_key_len=55;bloom_bits_per_key=10;huge_page_tlb_size=8;", &opt_map));
+  ASSERT_OK(GetPlainTableOptionsFromMap(table_opt, opt_map, &new_opt));
+  ASSERT_EQ(new_opt.user_key_len, 55u);
+  ASSERT_EQ(new_opt.bloom_bits_per_key, 10);
+  ASSERT_EQ(new_opt.huge_page_tlb_size, 8);
 
   // unknown option
   ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,

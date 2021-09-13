@@ -81,7 +81,7 @@ IOStatus SimulatedHybridFileSystem::NewRandomAccessFile(
   }
   IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   result->reset(
-      new SimulatedHybridRaf(result->release(), rate_limiter_, temperature));
+      new SimulatedHybridRaf(std::move(*result), rate_limiter_, temperature));
   return s;
 }
 

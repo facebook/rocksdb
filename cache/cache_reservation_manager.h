@@ -67,8 +67,9 @@ class CacheReservationManager {
   // [cache_allocated_size_ * 3/4, cache_allocated_size) when delayed_decrease
   // is set true.
   //
-  // On inserting dummy entries, it returns Status::OK() if all dummy entry
-  // insertions succeed. Otherwise, it returns the first non-ok status;
+  // @param new_memory_used The number of bytes used by new memory
+  // @return On inserting dummy entries, it returns Status::OK() if all dummy
+  // entry insertions succeed. Otherwise, it returns the first non-ok status;
   // On releasing dummy entries, it always returns Status::OK().
   // On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);

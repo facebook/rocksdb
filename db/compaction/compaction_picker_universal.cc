@@ -157,9 +157,9 @@ struct SmallestKeyHeapComparator {
   const Comparator* ucmp_;
 };
 
-typedef std::priority_queue<InputFileInfo, std::vector<InputFileInfo>,
-                            SmallestKeyHeapComparator>
-    SmallestKeyHeap;
+using SmallestKeyHeap =
+    std::priority_queue<InputFileInfo, std::vector<InputFileInfo>,
+                        SmallestKeyHeapComparator>;
 
 // This function creates the heap that is used to find if the files are
 // overlapping during universal compaction when the allow_trivial_move

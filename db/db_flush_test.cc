@@ -18,6 +18,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/fault_injection_env.h"
@@ -139,7 +140,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // scheduled in the low-pri (compaction) thread pool.
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   Reopen(options);
   env_->SetBackgroundThreads(0, Env::HIGH);
 
@@ -2320,7 +2321,7 @@ TEST_P(DBAtomicFlushTest, TriggerFlushAndClose) {
   options.create_if_missing = true;
   options.atomic_flush = atomic_flush;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysTriggerFlush));
+      test::NewSpecialSkipListFactory(kNumKeysTriggerFlush));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   for (int i = 0; i != kNumKeysTriggerFlush; ++i) {
