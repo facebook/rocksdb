@@ -22,6 +22,7 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/secondary_cache.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -1218,6 +1219,27 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
+class TestStatistics : public StatisticsImpl {
+ public:
+  TestStatistics() : StatisticsImpl(nullptr) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Test"; }
+};
+
+class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  TestFlushBlockPolicyFactory() {}
+
+  static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
@@ -1260,23 +1282,7 @@ class MockCipher : public BlockCipher {
   Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
-#endif  // ROCKSDB_LITE
 
-class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
- public:
-  TestFlushBlockPolicyFactory() {}
-
-  static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
-  const char* Name() const override { return kClassName(); }
-
-  FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& /*table_options*/,
-      const BlockBuilder& /*data_block_builder*/) const override {
-    return nullptr;
-  }
-};
-
-#ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
@@ -1302,6 +1308,14 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
   // Load any locally defined objects here
+  library.Register<Statistics>(
+      TestStatistics::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestStatistics());
+        return guard->get();
+      });
+
   library.Register<EncryptionProvider>(
       "Mock(://test)?",
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
@@ -1430,6 +1444,56 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
     ASSERT_STREQ(result->Name(),
                  test::SimpleSuffixReverseComparator::kClassName());
   }
+}
+
+TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
+  std::shared_ptr<Statistics> stats;
+  ASSERT_NOK(Statistics::CreateFromString(
+      config_options_, TestStatistics::kClassName(), &stats));
+  ASSERT_OK(
+      Statistics::CreateFromString(config_options_, "BasicStatistics", &stats));
+  ASSERT_NE(stats, nullptr);
+  ASSERT_EQ(stats->Name(), std::string("BasicStatistics"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetDBOptionsFromString(config_options_, db_opts_,
+                                    "statistics=Test", &db_opts_));
+  ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                   "statistics=BasicStatistics", &db_opts_));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_STREQ(db_opts_.statistics->Name(), "BasicStatistics");
+
+  if (RegisterTests("test")) {
+    ASSERT_OK(Statistics::CreateFromString(
+        config_options_, TestStatistics::kClassName(), &stats));
+    ASSERT_NE(stats, nullptr);
+    ASSERT_STREQ(stats->Name(), TestStatistics::kClassName());
+
+    ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                     "statistics=Test", &db_opts_));
+    ASSERT_NE(db_opts_.statistics, nullptr);
+    ASSERT_STREQ(db_opts_.statistics->Name(), TestStatistics::kClassName());
+
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_, "statistics={id=Test;inner=BasicStatistics}",
+        &db_opts_));
+    ASSERT_NE(db_opts_.statistics, nullptr);
+    ASSERT_STREQ(db_opts_.statistics->Name(), TestStatistics::kClassName());
+    auto* inner = db_opts_.statistics->GetOptions<std::shared_ptr<Statistics>>(
+        "StatisticsOptions");
+    ASSERT_NE(inner, nullptr);
+    ASSERT_NE(inner->get(), nullptr);
+    ASSERT_STREQ(inner->get()->Name(), "BasicStatistics");
+
+    ASSERT_OK(Statistics::CreateFromString(
+        config_options_, "id=BasicStatistics;inner=Test", &stats));
+    ASSERT_NE(stats, nullptr);
+    ASSERT_STREQ(stats->Name(), "BasicStatistics");
+    inner = stats->GetOptions<std::shared_ptr<Statistics>>("StatisticsOptions");
+    ASSERT_NE(inner, nullptr);
+    ASSERT_NE(inner->get(), nullptr);
+    ASSERT_STREQ(inner->get()->Name(), TestStatistics::kClassName());
+  }
+#endif
 }
 
 TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
@@ -1567,7 +1631,7 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   std::shared_ptr<TableFactory> table;
   std::shared_ptr<FlushBlockPolicyFactory> result;
   ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, "TestFlushBlockPolicyFactory", &result));
+      config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
 
   ASSERT_OK(
       FlushBlockPolicyFactory::CreateFromString(config_options_, "", &result));
@@ -1595,16 +1659,17 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
                FlushBlockEveryKeyPolicyFactory::kClassName());
   if (RegisterTests("Test")) {
     ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-        config_options_, "TestFlushBlockPolicyFactory", &result));
+        config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
     ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "TestFlushBlockPolicyFactory");
+    ASSERT_STREQ(result->Name(), TestFlushBlockPolicyFactory::kClassName());
     ASSERT_OK(TableFactory::CreateFromString(
-        config_options_, table_opts + "TestFlushBlockPolicyFactory", &table));
+        config_options_, table_opts + TestFlushBlockPolicyFactory::kClassName(),
+        &table));
     bbto = table->GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(bbto, nullptr);
     ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
     ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
-                 "TestFlushBlockPolicyFactory");
+                 TestFlushBlockPolicyFactory::kClassName());
   }
 #endif  // ROCKSDB_LITE
 }

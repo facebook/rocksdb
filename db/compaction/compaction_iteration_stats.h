@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "rocksdb/rocksdb_namespace.h"
 
 struct CompactionIterationStats {

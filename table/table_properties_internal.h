@@ -6,7 +6,7 @@
 #pragma once
 
 #include "rocksdb/status.h"
-#include "rocksdb/iterator.h"
+#include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 

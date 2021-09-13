@@ -5588,6 +5588,7 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
 namespace {
 class DummyOldStats : public Statistics {
  public:
+  const char* Name() const override { return "DummyOldStats"; }
   uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
   void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
     num_rt++;
