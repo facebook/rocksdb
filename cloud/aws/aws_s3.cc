@@ -936,7 +936,8 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
             Aws::Utils::ARRAY_ALLOCATION_TAG, destination,
             std::ios_base::out | std::ios_base::trunc);
       }
-      return new IOStreamWithOwnedBuf<WritableFileStreamBuf>(
+      return Aws::New<IOStreamWithOwnedBuf<WritableFileStreamBuf>>(
+          Aws::Utils::ARRAY_ALLOCATION_TAG,
           std::unique_ptr<WritableFileStreamBuf>(new WritableFileStreamBuf(
               std::unique_ptr<WritableFileWriter>(new WritableFileWriter(
                   std::move(file), destination, foptions)))));
