@@ -19,24 +19,50 @@ namespace ROCKSDB_NAMESPACE {
 // key.
 class ExpectedState {
  public:
-  explicit ExpectedState(std::string expected_state_file_path, size_t max_key,
-                         size_t num_column_families);
+  explicit ExpectedState(size_t max_key, size_t num_column_families);
 
-  ~ExpectedState();
+  virtual ~ExpectedState() {}
 
-  Status Open();
+  virtual Status Open() = 0;
 
   std::atomic<uint32_t>* REMOVEME_GetValues() { return values_; }
   bool REMOVEME_ValuesNeedInit() { return REMOVEME_values_need_init_; }
 
  private:
-  const std::string expected_state_file_path_;
   const size_t max_key_;
   const size_t num_column_families_;
 
-  std::unique_ptr<MemoryMappedFileBuffer> expected_state_mmap_buffer_;
+ protected:
+  size_t GetValuesLen() {
+    return sizeof(std::atomic<uint32_t>) * num_column_families_ * max_key_;
+  }
   std::atomic<uint32_t>* values_;
   bool REMOVEME_values_need_init_;
+};
+
+// A `FileExpectedState` implements `ExpectedState` backed by a file.
+class FileExpectedState : public ExpectedState {
+ public:
+  explicit FileExpectedState(std::string expected_state_file_path,
+                             size_t max_key, size_t num_column_families);
+
+  Status Open() override;
+
+ private:
+  const std::string expected_state_file_path_;
+  std::unique_ptr<MemoryMappedFileBuffer> expected_state_mmap_buffer_;
+};
+
+// An `AnonExpectedState` implements `ExpectedState` backed by a memory
+// allocation.
+class AnonExpectedState : public ExpectedState {
+ public:
+  explicit AnonExpectedState(size_t max_key, size_t num_column_families);
+
+  Status Open() override;
+
+ private:
+  std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
 };
 
 // An `ExpectedStateManager` manages a directory containing data about the

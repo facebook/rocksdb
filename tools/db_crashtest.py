@@ -184,7 +184,7 @@ def setup_expected_values_dir():
             prefix=expected_dir_prefix)
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_tmpdir + "/" + expected_dir_name
+        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
         if os.path.exists(expected_values_dir):
             shutil.rmtree(expected_values_dir)
         os.mkdir(expected_values_dir)

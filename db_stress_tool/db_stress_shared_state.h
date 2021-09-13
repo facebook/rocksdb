@@ -115,6 +115,11 @@ class SharedState {
     bool values_init_needed = false;
     Status status;
     if (!FLAGS_expected_values_dir.empty()) {
+      // TODO: We should introduce a way to explicitly disable verification
+      // during shutdown. When that is disabled and FLAGS_expected_values_dir
+      // is empty (disabling verification at startup), we can skip tracking
+      // expected state. Only then should we permit such cases as the following
+      // two.
       if (!std::atomic<uint32_t>{}.is_lock_free()) {
         status = Status::InvalidArgument(
             "Cannot use --expected_values_dir on platforms without lock-free "
@@ -125,27 +130,21 @@ class SharedState {
             "Cannot use --expected_values_dir on when "
             "--clear_column_family_one_in is greater than zero.");
       }
-      if (status.ok()) {
-        expected_state_manager_.reset(new ExpectedStateManager(
-            FLAGS_expected_values_dir, FLAGS_max_key, FLAGS_column_families));
-        status = expected_state_manager_->Open();
-      }
-      if (status.ok()) {
-        values_ = expected_state_manager_->REMOVEME_GetValues();
-        values_init_needed = expected_state_manager_->REMOVEME_ValuesNeedInit();
-      } else {
-        fprintf(stderr,
-                "Failed setting up expected state dir '%s' with error: %s\n",
-                FLAGS_expected_values_dir.c_str(), status.ToString().c_str());
-      }
     }
-    if (values_ == nullptr) {
-      values_allocation_.reset(
-          new std::atomic<uint32_t>[FLAGS_column_families * max_key_]);
-      values_ = &values_allocation_[0];
-      values_init_needed = true;
+    if (status.ok()) {
+      expected_state_manager_.reset(new ExpectedStateManager(
+          FLAGS_expected_values_dir, FLAGS_max_key, FLAGS_column_families));
+      status = expected_state_manager_->Open();
     }
-    assert(values_ != nullptr);
+    if (status.ok()) {
+      values_ = expected_state_manager_->REMOVEME_GetValues();
+      values_init_needed = expected_state_manager_->REMOVEME_ValuesNeedInit();
+    } else {
+      fprintf(stderr, "Failed setting up expected state with error: %s\n",
+              status.ToString().c_str());
+      exit(1);
+    }
+    assert(status.ok() && values_ != nullptr);
     if (values_init_needed) {
       for (int i = 0; i < FLAGS_column_families; ++i) {
         for (int j = 0; j < max_key_; ++j) {
@@ -380,7 +379,6 @@ class SharedState {
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
   std::atomic<uint32_t>* values_;
-  std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;

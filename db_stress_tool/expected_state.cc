@@ -9,20 +9,19 @@ namespace ROCKSDB_NAMESPACE {
 
 const std::string ExpectedStateManager::kLatestFilename = "LATEST.state";
 
-ExpectedState::ExpectedState(std::string expected_state_file_path,
-                             size_t max_key, size_t num_column_families)
-    : expected_state_file_path_(std::move(expected_state_file_path)),
-      max_key_(max_key),
+ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
+    : max_key_(max_key),
       num_column_families_(num_column_families),
-      expected_state_mmap_buffer_(nullptr),
       values_(nullptr),
       REMOVEME_values_need_init_(false) {}
 
-ExpectedState::~ExpectedState() {}
+FileExpectedState::FileExpectedState(std::string expected_state_file_path,
+                                     size_t max_key, size_t num_column_families)
+    : ExpectedState(max_key, num_column_families),
+      expected_state_file_path_(expected_state_file_path) {}
 
-Status ExpectedState::Open() {
-  size_t expected_values_size =
-      sizeof(std::atomic<uint32_t>) * num_column_families_ * max_key_;
+Status FileExpectedState::Open() {
+  size_t expected_values_size = GetValuesLen();
 
   Env* default_env = Env::Default();
 
@@ -62,6 +61,18 @@ Status ExpectedState::Open() {
   return status;
 }
 
+AnonExpectedState::AnonExpectedState(size_t max_key, size_t num_column_families)
+    : ExpectedState(max_key, num_column_families) {}
+
+Status AnonExpectedState::Open() {
+  values_allocation_.reset(
+      new std::atomic<uint32_t>[GetValuesLen() /
+                                sizeof(std::atomic<uint32_t>)]);
+  values_ = &values_allocation_[0];
+  REMOVEME_values_need_init_ = true;
+  return Status::OK();
+}
+
 ExpectedStateManager::ExpectedStateManager(std::string expected_state_dir_path,
                                            size_t max_key,
                                            size_t num_column_families)
@@ -74,17 +85,17 @@ ExpectedStateManager::~ExpectedStateManager() {}
 
 Status ExpectedStateManager::Open() {
   if (expected_state_dir_path_ == "") {
-    return Status::InvalidArgument(
-        "ExpectedStateManager does not support empty dir name");
-  }
-  std::string expected_state_dir_path_slash =
-      expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
-                                             : expected_state_dir_path_ + "/";
-  std::string expected_state_file_path =
-      expected_state_dir_path_slash + kLatestFilename;
+    latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
+  } else {
+    std::string expected_state_dir_path_slash =
+        expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
+                                               : expected_state_dir_path_ + "/";
+    std::string expected_state_file_path =
+        expected_state_dir_path_slash + kLatestFilename;
 
-  latest_.reset(new ExpectedState(std::move(expected_state_file_path), max_key_,
-                                  num_column_families_));
+    latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
+                                        max_key_, num_column_families_));
+  }
   return latest_->Open();
 }
 
