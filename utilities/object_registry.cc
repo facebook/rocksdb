@@ -193,7 +193,7 @@ void ObjectRegistry::Dump(Logger *logger) const {
       bool printed_one = false;
       for (const auto &plugin : plugins_) {
         ROCKS_LOG_HEADER(logger, "%s%s", (printed_one) ? ", " : " ",
-                           plugin.c_str());
+                         plugin.c_str());
         printed_one = true;
       }
       ROCKS_LOG_HEADER(logger, "\n");
