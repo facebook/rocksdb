@@ -72,6 +72,19 @@ class GenericRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
+  virtual int64_t GetTotalPendingRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    MutexLock g(&request_mutex_);
+    if (pri == Env::IO_TOTAL) {
+      int64_t total_pending_requests_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_pending_requests_sum += static_cast<int64_t>(queue_[i].size());
+      }
+      return total_pending_requests_sum;
+    }
+    return static_cast<int64_t>(queue_[pri].size());
+  }
+
   virtual int64_t GetBytesPerSecond() const override {
     return rate_bytes_per_sec_;
   }

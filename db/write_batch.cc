@@ -149,9 +149,7 @@ class TimestampAssigner : public WriteBatch::Handler {
         prot_info_(prot_info) {}
   explicit TimestampAssigner(const std::vector<Slice>& ts_list,
                              WriteBatch::ProtectionInfo* prot_info)
-      : timestamps_(ts_list), prot_info_(prot_info) {
-    SanityCheck();
-  }
+      : timestamps_(ts_list), prot_info_(prot_info) {}
   ~TimestampAssigner() override {}
 
   Status PutCF(uint32_t, const Slice& key, const Slice&) override {
@@ -211,20 +209,14 @@ class TimestampAssigner : public WriteBatch::Handler {
   }
 
  private:
-  void SanityCheck() const {
-    assert(!timestamps_.empty());
-#ifndef NDEBUG
-    const size_t ts_sz = timestamps_[0].size();
-    for (size_t i = 1; i != timestamps_.size(); ++i) {
-      assert(ts_sz == timestamps_[i].size());
-    }
-#endif  // !NDEBUG
-  }
-
   void AssignTimestamp(const Slice& key) {
     assert(timestamps_.empty() || idx_ < timestamps_.size());
     const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
     size_t ts_sz = ts.size();
+    if (ts_sz == 0) {
+      // This key does not have timestamp, so skip.
+      return;
+    }
     char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
     if (prot_info_ != nullptr) {
       Slice old_ts(ptr, ts_sz), new_ts(ts.data(), ts_sz);
@@ -254,23 +246,16 @@ struct SavePoints {
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(0) {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
                    ? reserved_bytes
                    : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
-  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
-    reserved_bytes : WriteBatchInternal::kHeader);
-  rep_.resize(WriteBatchInternal::kHeader);
-}
-
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
                        size_t protection_bytes_per_key)
-    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
+    : content_flags_(0), max_bytes_(max_bytes), rep_() {
   // Currently `protection_bytes_per_key` can only be enabled at 8 bytes per
   // entry.
   assert(protection_bytes_per_key == 0 || protection_bytes_per_key == 8);
@@ -284,23 +269,18 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
-    : content_flags_(ContentFlags::DEFERRED),
-      max_bytes_(0),
-      rep_(rep),
-      timestamp_size_(0) {}
+    : content_flags_(ContentFlags::DEFERRED), max_bytes_(0), rep_(rep) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(std::move(rep)),
-      timestamp_size_(0) {}
+      rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_),
-      timestamp_size_(src.timestamp_size_) {
+      rep_(src.rep_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
     save_points_->stack = src.save_points_->stack;
@@ -317,8 +297,7 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       prot_info_(std::move(src.prot_info_)),
-      rep_(std::move(src.rep_)),
-      timestamp_size_(src.timestamp_size_) {}
+      rep_(std::move(src.rep_)) {}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {
@@ -817,15 +796,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSlice(&b->rep_, key);
-  } else {
-    PutVarint32(&b->rep_,
-                static_cast<uint32_t>(key.size() + b->timestamp_size_));
-    b->rep_.append(key.data(), key.size());
-    b->rep_.append(timestamp);
-  }
+  PutLengthPrefixedSlice(&b->rep_, key);
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -839,7 +810,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // inserted into memtable.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, timestamp)
+            .ProtectKVOT(key, value, kTypeValue)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -886,12 +857,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSliceParts(&b->rep_, key);
-  } else {
-    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
   PutLengthPrefixedSliceParts(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -901,7 +867,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeValue, timestamp)
+            .ProtectKVOT(key, value, kTypeValue)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -978,15 +944,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSlice(&b->rep_, key);
-  } else {
-    PutVarint32(&b->rep_,
-                static_cast<uint32_t>(key.size() + b->timestamp_size_));
-    b->rep_.append(key.data(), key.size());
-    b->rep_.append(timestamp);
-  }
+  PutLengthPrefixedSlice(&b->rep_, key);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -995,7 +953,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, "" /* value */, kTypeDeletion, timestamp)
+            .ProtectKVOT(key, "" /* value */, kTypeDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1016,12 +974,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  std::string timestamp(b->timestamp_size_, '\0');
-  if (0 == b->timestamp_size_) {
-    PutLengthPrefixedSliceParts(&b->rep_, key);
-  } else {
-    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -1032,7 +985,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
         ProtectionInfo64()
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */, 0 /* _num_parts */),
-                         kTypeDeletion, timestamp)
+                         kTypeDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1062,11 +1015,10 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   if (b->prot_info_ != nullptr) {
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(key, "" /* value */,
-                                                          kTypeSingleDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(key, "" /* value */, kTypeSingleDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1100,7 +1052,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */,
                                     0 /* _num_parts */) /* value */,
-                         kTypeSingleDeletion, "" /* timestamp */)
+                         kTypeSingleDeletion)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1132,11 +1084,10 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(begin_key, end_key,
-                                                          kTypeRangeDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(begin_key, end_key, kTypeRangeDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1167,11 +1118,10 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVOT(begin_key, end_key,
-                                                          kTypeRangeDeletion,
-                                                          "" /* timestamp */)
-                                             .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVOT(begin_key, end_key, kTypeRangeDeletion)
+            .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1210,7 +1160,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeMerge)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1248,7 +1198,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeMerge)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1281,7 +1231,7 @@ Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVOT(key, value, kTypeBlobIndex, "" /* timestamp */)
+            .ProtectKVOT(key, value, kTypeBlobIndex)
             .ProtectC(column_family_id));
   }
   return save.commit();

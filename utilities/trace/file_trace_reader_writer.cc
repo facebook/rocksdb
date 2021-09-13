@@ -84,6 +84,10 @@ Status FileTraceReader::Read(std::string* data) {
   return s;
 }
 
+FileTraceWriter::FileTraceWriter(
+    std::unique_ptr<WritableFileWriter>&& file_writer)
+    : file_writer_(std::move(file_writer)) {}
+
 FileTraceWriter::~FileTraceWriter() { Close().PermitUncheckedError(); }
 
 Status FileTraceWriter::Close() {
