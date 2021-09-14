@@ -23,23 +23,46 @@ class ExpectedState {
 
   virtual ~ExpectedState() {}
 
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
   virtual Status Open() = 0;
 
+  // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf);
 
+  // @param pending True if the update may have started but is not yet
+  //    guaranteed finished. This is useful for crash-recovery testing when the
+  //    process may crash before updating the expected values array.
+  //
+  // Requires external locking covering `key` in `cf`.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending);
 
+  // Requires external locking covering `key` in `cf`.
   uint32_t Get(int cf, int64_t key) const;
 
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool Delete(int cf, int64_t key, bool pending);
 
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool SingleDelete(int cf, int64_t key, bool pending);
 
+  // @param pending See comment above Put()
+  // Returns number of keys deleted by the call.
+  //
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
   int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending);
 
+  // Requires external locking covering `key` in `cf`.
   bool Exists(int cf, int64_t key);
 
  private:
+  // Requires external locking covering `key` in `cf`.
   std::atomic<uint32_t>& Value(int cf, int64_t key) const {
     return values_[cf * max_key_ + key];
   }
@@ -52,6 +75,8 @@ class ExpectedState {
     return sizeof(std::atomic<uint32_t>) * num_column_families_ * max_key_;
   }
 
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
   void Reset();
 
   std::atomic<uint32_t>* values_;
@@ -63,6 +88,8 @@ class FileExpectedState : public ExpectedState {
   explicit FileExpectedState(std::string expected_state_file_path,
                              size_t max_key, size_t num_column_families);
 
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
   Status Open() override;
 
  private:
@@ -76,6 +103,8 @@ class AnonExpectedState : public ExpectedState {
  public:
   explicit AnonExpectedState(size_t max_key, size_t num_column_families);
 
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
   Status Open() override;
 
  private:
@@ -92,34 +121,50 @@ class ExpectedStateManager {
 
   ~ExpectedStateManager();
 
-  // The following APIs are not thread-safe and require external synchronization
-  // for the entire object.
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
   Status Open();
 
-  // The following APIs are not thread-safe and require external synchronization
-  // for the affected keys only. For example, `Put("a", ...)` and
-  // `Put("b", ...)` could be executed in parallel with no external
-  // synchronization.
+  // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
 
+  // @param pending True if the update may have started but is not yet
+  //    guaranteed finished. This is useful for crash-recovery testing when the
+  //    process may crash before updating the expected values array.
+  //
+  // Requires external locking covering `key` in `cf`.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
     return latest_->Put(cf, key, value_base, pending);
   }
 
+  // Requires external locking covering `key` in `cf`.
   uint32_t Get(int cf, int64_t key) const { return latest_->Get(cf, key); }
 
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool Delete(int cf, int64_t key, bool pending) {
     return latest_->Delete(cf, key, pending);
   }
 
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool SingleDelete(int cf, int64_t key, bool pending) {
     return latest_->SingleDelete(cf, key, pending);
   }
 
+  // @param pending See comment above Put()
+  // Returns number of keys deleted by the call.
+  //
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
   int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
     return latest_->DeleteRange(cf, begin_key, end_key, pending);
   }
 
+  // Requires external locking covering `key` in `cf`.
   bool Exists(int cf, int64_t key) { return latest_->Exists(cf, key); }
 
  private:
