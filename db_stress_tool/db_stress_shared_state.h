@@ -297,7 +297,7 @@ class SharedState {
   }
 
   bool ShouldVerifyAtBeginning() const {
-    return expected_mmap_buffer_.get() != nullptr;
+    return !FLAGS_expected_values_dir.empty();
   }
 
   bool PrintingVerificationResults() {
@@ -341,7 +341,6 @@ class SharedState {
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
-  std::unique_ptr<MemoryMappedFileBuffer> expected_mmap_buffer_;
   std::atomic<bool> printing_verification_results_;
 };
 
