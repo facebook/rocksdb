@@ -25,19 +25,36 @@ class ExpectedState {
 
   virtual Status Open() = 0;
 
-  std::atomic<uint32_t>* REMOVEME_GetValues() { return values_; }
-  bool REMOVEME_ValuesNeedInit() { return REMOVEME_values_need_init_; }
+  void ClearColumnFamily(int cf);
+
+  void Put(int cf, int64_t key, uint32_t value_base, bool pending);
+
+  uint32_t Get(int cf, int64_t key) const;
+
+  bool Delete(int cf, int64_t key, bool pending);
+
+  bool SingleDelete(int cf, int64_t key, bool pending);
+
+  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending);
+
+  bool Exists(int cf, int64_t key);
 
  private:
+  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
+    return values_[cf * max_key_ + key];
+  }
+
   const size_t max_key_;
   const size_t num_column_families_;
 
  protected:
-  size_t GetValuesLen() {
+  size_t GetValuesLen() const {
     return sizeof(std::atomic<uint32_t>) * num_column_families_ * max_key_;
   }
+
+  void Reset();
+
   std::atomic<uint32_t>* values_;
-  bool REMOVEME_values_need_init_;
 };
 
 // A `FileExpectedState` implements `ExpectedState` backed by a file.
@@ -79,15 +96,31 @@ class ExpectedStateManager {
   // for the entire object.
   Status Open();
 
-  std::atomic<uint32_t>* REMOVEME_GetValues() {
-    return latest_->REMOVEME_GetValues();
-  }
-  bool REMOVEME_ValuesNeedInit() { return latest_->REMOVEME_ValuesNeedInit(); }
-
   // The following APIs are not thread-safe and require external synchronization
   // for the affected keys only. For example, `Put("a", ...)` and
   // `Put("b", ...)` could be executed in parallel with no external
   // synchronization.
+  void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
+
+  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
+    return latest_->Put(cf, key, value_base, pending);
+  }
+
+  uint32_t Get(int cf, int64_t key) const { return latest_->Get(cf, key); }
+
+  bool Delete(int cf, int64_t key, bool pending) {
+    return latest_->Delete(cf, key, pending);
+  }
+
+  bool SingleDelete(int cf, int64_t key, bool pending) {
+    return latest_->SingleDelete(cf, key, pending);
+  }
+
+  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
+    return latest_->DeleteRange(cf, begin_key, end_key, pending);
+  }
+
+  bool Exists(int cf, int64_t key) { return latest_->Exists(cf, key); }
 
  private:
   static const std::string kLatestFilename;

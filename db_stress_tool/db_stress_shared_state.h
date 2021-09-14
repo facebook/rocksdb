@@ -83,7 +83,6 @@ class SharedState {
         should_stop_test_(false),
         no_overwrite_ids_(FLAGS_column_families),
         expected_state_manager_(nullptr),
-        values_(nullptr),
         printing_verification_results_(false) {
     // Pick random keys in each column family that will not experience
     // overwrite
@@ -112,14 +111,13 @@ class SharedState {
     }
     delete[] permutation;
 
-    bool values_init_needed = false;
     Status status;
+    // TODO: We should introduce a way to explicitly disable verification
+    // during shutdown. When that is disabled and FLAGS_expected_values_dir
+    // is empty (disabling verification at startup), we can skip tracking
+    // expected state. Only then should we permit bypassing the below feature
+    // compatibility checks.
     if (!FLAGS_expected_values_dir.empty()) {
-      // TODO: We should introduce a way to explicitly disable verification
-      // during shutdown. When that is disabled and FLAGS_expected_values_dir
-      // is empty (disabling verification at startup), we can skip tracking
-      // expected state. Only then should we permit such cases as the following
-      // two.
       if (!std::atomic<uint32_t>{}.is_lock_free()) {
         status = Status::InvalidArgument(
             "Cannot use --expected_values_dir on platforms without lock-free "
@@ -136,21 +134,10 @@ class SharedState {
           FLAGS_expected_values_dir, FLAGS_max_key, FLAGS_column_families));
       status = expected_state_manager_->Open();
     }
-    if (status.ok()) {
-      values_ = expected_state_manager_->REMOVEME_GetValues();
-      values_init_needed = expected_state_manager_->REMOVEME_ValuesNeedInit();
-    } else {
+    if (!status.ok()) {
       fprintf(stderr, "Failed setting up expected state with error: %s\n",
               status.ToString().c_str());
       exit(1);
-    }
-    assert(status.ok() && values_ != nullptr);
-    if (values_init_needed) {
-      for (int i = 0; i < FLAGS_column_families; ++i) {
-        for (int j = 0; j < max_key_; ++j) {
-          Delete(i, j, false /* pending */);
-        }
-      }
     }
 
     if (FLAGS_test_batches_snapshots) {
@@ -255,59 +242,38 @@ class SharedState {
     }
   }
 
-  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
-    return values_[cf * max_key_ + key];
-  }
-
   void ClearColumnFamily(int cf) {
-    std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
-              DELETION_SENTINEL);
+    return expected_state_manager_->ClearColumnFamily(cf);
   }
 
   // @param pending True if the update may have started but is not yet
   //    guaranteed finished. This is useful for crash-recovery testing when the
   //    process may crash before updating the expected values array.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    if (!pending) {
-      // prevent expected-value update from reordering before Write
-      std::atomic_thread_fence(std::memory_order_release);
-    }
-    Value(cf, key).store(pending ? UNKNOWN_SENTINEL : value_base,
-                         std::memory_order_relaxed);
-    if (pending) {
-      // prevent Write from reordering before expected-value update
-      std::atomic_thread_fence(std::memory_order_release);
-    }
+    return expected_state_manager_->Put(cf, key, value_base, pending);
   }
 
-  uint32_t Get(int cf, int64_t key) const { return Value(cf, key); }
+  uint32_t Get(int cf, int64_t key) const {
+    return expected_state_manager_->Get(cf, key);
+  }
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
   bool Delete(int cf, int64_t key, bool pending) {
-    if (Value(cf, key) == DELETION_SENTINEL) {
-      return false;
-    }
-    Put(cf, key, DELETION_SENTINEL, pending);
-    return true;
+    return expected_state_manager_->Delete(cf, key, pending);
   }
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
   bool SingleDelete(int cf, int64_t key, bool pending) {
-    return Delete(cf, key, pending);
+    return expected_state_manager_->Delete(cf, key, pending);
   }
 
   // @param pending See comment above Put()
   // Returns number of keys deleted by the call.
   int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
-    int covered = 0;
-    for (int64_t key = begin_key; key < end_key; ++key) {
-      if (Delete(cf, key, pending)) {
-        ++covered;
-      }
-    }
-    return covered;
+    return expected_state_manager_->DeleteRange(cf, begin_key, end_key,
+                                                pending);
   }
 
   bool AllowsOverwrite(int64_t key) {
@@ -315,13 +281,7 @@ class SharedState {
   }
 
   bool Exists(int cf, int64_t key) {
-    // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
-    // is disallowed can't be accidentally added a second time, in which case
-    // SingleDelete wouldn't be able to properly delete the key. It does allow
-    // the case where a SingleDelete might be added which covers nothing, but
-    // that's not a correctness issue.
-    uint32_t expected_value = Value(cf, key).load();
-    return expected_value != DELETION_SENTINEL;
+    return expected_state_manager_->Exists(cf, key);
   }
 
   uint32_t GetSeed() const { return seed_; }
@@ -378,7 +338,6 @@ class SharedState {
   std::unordered_set<size_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
-  std::atomic<uint32_t>* values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
