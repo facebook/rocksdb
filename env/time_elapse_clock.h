@@ -26,13 +26,14 @@ class TimeElapseSystemClock : public SystemClockWrapper {
   // Do not modify in the env of a running DB (could cause deadlock)
   std::atomic<bool> time_elapse_only_sleep_;
   bool no_slowdown_;
-  
+
  public:
-  explicit TimeElapseSystemClock(const std::shared_ptr<SystemClock>& base, bool time_elapse_only_sleep = false);
+  explicit TimeElapseSystemClock(const std::shared_ptr<SystemClock>& base,
+                                 bool time_elapse_only_sleep = false);
 
   static const char* kClassName() { return "TimeElapseSystemClock"; }
   const char* Name() const override { return kClassName(); }
-  
+
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_++;
     if (no_slowdown_ || time_elapse_only_sleep_) {
@@ -54,7 +55,7 @@ class TimeElapseSystemClock : public SystemClockWrapper {
     assert(no_slowdown_);
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
-  
+
   void SetTimeElapseOnlySleep(bool enabled) {
     // We cannot set these before destroying the last DB because they might
     // cause a deadlock or similar without the appropriate options set in
@@ -62,13 +63,13 @@ class TimeElapseSystemClock : public SystemClockWrapper {
     time_elapse_only_sleep_ = enabled;
     no_slowdown_ = enabled;
   }
-  
+
   bool IsTimeElapseOnlySleep() const { return time_elapse_only_sleep_.load(); }
   void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
   bool UseMockSleep() const { return no_slowdown_; }
-  
+
   int GetSleepCounter() const { return sleep_counter_.load(); }
-  
+
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (time_elapse_only_sleep_) {
@@ -87,7 +88,7 @@ class TimeElapseSystemClock : public SystemClockWrapper {
     cpu_counter_++;
     return SystemClockWrapper::CPUNanos();
   }
-  
+
   virtual uint64_t CPUMicros() override {
     cpu_counter_++;
     return SystemClockWrapper::CPUMicros();
@@ -97,7 +98,6 @@ class TimeElapseSystemClock : public SystemClockWrapper {
     return (time_elapse_only_sleep_ ? 0 : SystemClockWrapper::NowNanos()) +
            addon_microseconds_.load() * 1000;
   }
-  
 
   virtual uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : SystemClockWrapper::NowMicros()) +
@@ -111,4 +111,4 @@ class TimeElapseSystemClock : public SystemClockWrapper {
     sleep_counter_.store(0);
   }
 };
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
