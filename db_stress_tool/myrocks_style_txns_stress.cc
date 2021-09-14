@@ -26,6 +26,9 @@ class MyRocksRecord {
   static constexpr uint32_t kPrimaryIndexId = 1;
   static constexpr uint32_t kSecondaryIndexId = 2;
 
+  static_assert(kPrimaryIndexId < kSecondaryIndexId,
+                "kPrimaryIndexId must be smaller than kSecondaryIndexId");
+
   // Used for generating search key to probe primary index.
   static std::string EncodePrimaryKey(uint32_t a);
   // Used for generating search prefix to probe secondary index.
@@ -95,6 +98,7 @@ class MyRocksRecord {
 std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, a);
   Reverse(buf + 4, buf + 8);
   return std::string(buf, sizeof(buf));
@@ -103,6 +107,7 @@ std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
 std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
   char buf[8];
   EncodeFixed32(buf, kSecondaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c);
   Reverse(buf + 4, buf + 8);
   return std::string(buf, sizeof(buf));
@@ -111,6 +116,7 @@ std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
 std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c);
   EncodeFixed32(buf + 8, a);
   Reverse(buf + 4, buf + 8);
@@ -152,6 +158,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
   std::string primary_index_key;
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, a_);
   Reverse(buf + 4, buf + 8);
   primary_index_key.assign(buf, sizeof(buf));
@@ -166,6 +173,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
 std::string MyRocksRecord::EncodePrimaryKey() const {
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, a_);
   Reverse(buf + 4, buf + 8);
   return std::string(buf, sizeof(buf));
@@ -183,6 +191,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
   std::string secondary_index_key;
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
   EncodeFixed32(buf + 8, a_);
   Reverse(buf + 4, buf + 8);
@@ -199,6 +208,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
 std::string MyRocksRecord::EncodeSecondaryKey() const {
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
   EncodeFixed32(buf + 8, a_);
   Reverse(buf + 4, buf + 8);
@@ -212,14 +222,19 @@ Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
     assert(false);
     return Status::Corruption("Primary index key length is not 8");
   }
-  uint32_t index_id = 0;
-  bool result = GetFixed32(&primary_index_key, &index_id);
-  assert(result);
+
+  const char* const index_id_buf = primary_index_key.data();
+  uint32_t index_id = static_cast<uint32_t>(index_id_buf[0]) << 24;
+  index_id += static_cast<uint32_t>(index_id_buf[1]) << 16;
+  index_id += static_cast<uint32_t>(index_id_buf[2]) << 8;
+  index_id += static_cast<uint32_t>(index_id_buf[3]);
+  primary_index_key.remove_prefix(sizeof(uint32_t));
   if (index_id != kPrimaryIndexId) {
     std::ostringstream oss;
     oss << "Unexpected primary index id: " << index_id;
     return Status::Corruption(oss.str());
   }
+
   const char* const buf = primary_index_key.data();
   a_ = static_cast<uint32_t>(buf[0]) << 24;
   a_ += static_cast<uint32_t>(buf[1]) << 16;
@@ -241,14 +256,19 @@ Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
   }
   uint32_t crc =
       crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
-  uint32_t index_id = 0;
-  bool result = GetFixed32(&secondary_index_key, &index_id);
-  assert(result);
+
+  const char* const index_id_buf = secondary_index_key.data();
+  uint32_t index_id = static_cast<uint32_t>(index_id_buf[0]) << 24;
+  index_id += static_cast<uint32_t>(index_id_buf[1]) << 16;
+  index_id += static_cast<uint32_t>(index_id_buf[2]) << 8;
+  index_id += static_cast<uint32_t>(index_id_buf[3]);
+  secondary_index_key.remove_prefix(sizeof(uint32_t));
   if (index_id != kSecondaryIndexId) {
     std::ostringstream oss;
     oss << "Unexpected secondary index id: " << index_id;
     return Status::Corruption(oss.str());
   }
+
   const char* const buf = secondary_index_key.data();
   c_ = static_cast<uint32_t>(buf[0]) << 24;
   c_ += static_cast<uint32_t>(buf[1]) << 16;
@@ -837,7 +857,22 @@ Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
 }
 
 void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
-  (void)thread;
+  if (thread->shared->HasVerificationFailedYet()) {
+    return;
+  }
+  const Snapshot* const snapshot = db_->GetSnapshot();
+  assert(snapshot);
+
+  ReadOptions ropts;
+  ropts.snapshot = snapshot;
+  ropts.total_order_seek = true;
+
+  // TODO (yanqin) with a probability, we can use either forward or backward
+  // iterator.
+  // We can either verify entries count or checksum. We can also verify that
+  // primary index and secondary index contain the same data.
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 uint32_t MyRocksStyleTxnsStressTest::GeneratePrimaryIndexKeyForPointLookup(
