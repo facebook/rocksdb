@@ -489,6 +489,7 @@ function run_change {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
+       --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
@@ -569,6 +570,7 @@ function run_readwhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
+       --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
@@ -592,6 +594,7 @@ function run_rangewhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
+       --merge_operator=\"put\" \
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
