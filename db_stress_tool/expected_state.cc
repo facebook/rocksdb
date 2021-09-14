@@ -75,7 +75,7 @@ bool ExpectedState::Exists(int cf, int64_t key) {
 void ExpectedState::Reset() {
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Delete(i, j, false /* pending */);
+      Delete(static_cast<int>(i), j, false /* pending */);
     }
   }
 }
