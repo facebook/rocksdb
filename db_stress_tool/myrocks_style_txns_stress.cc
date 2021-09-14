@@ -46,6 +46,14 @@ class MyRocksRecord {
   MyRocksRecord(uint32_t _a, uint32_t _b, uint32_t _c)
       : a_(_a), b_(_b), c_(_c) {}
 
+  bool operator==(const MyRocksRecord& other) const {
+    return a_ == other.a_ && b_ == other.b_ && c_ == other.c_;
+  }
+
+  bool operator!=(const MyRocksRecord& other) const {
+    return !(*this == other);
+  }
+
   std::pair<std::string, std::string> EncodePrimaryIndexEntry() const;
 
   std::string EncodePrimaryKey() const;
@@ -66,11 +74,15 @@ class MyRocksRecord {
   uint32_t b_value() const { return b_; }
   uint32_t c_value() const { return c_; }
 
+  void SetA(uint32_t _a) { a_ = _a; }
+  void SetB(uint32_t _b) { b_ = _b; }
+  void SetC(uint32_t _c) { c_ = _c; }
+
   std::string ToString() const {
     std::string ret("(");
     ret.append(std::to_string(a_));
     ret.append(",");
-    ret.append(std::to_string(c_));
+    ret.append(std::to_string(b_));
     ret.append(",");
     ret.append(std::to_string(c_));
     ret.append(")");
@@ -130,15 +142,15 @@ std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
     return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
   }
   const char* const buf = primary_index_value.data();
-  uint32_t b = static_cast<uint32_t>(buf[0]) << 24;
-  b += static_cast<uint32_t>(buf[1]) << 16;
-  b += static_cast<uint32_t>(buf[2]) << 8;
-  b += static_cast<uint32_t>(buf[3]);
+  uint32_t b = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
 
-  uint32_t c = static_cast<uint32_t>(buf[4]) << 24;
-  c += static_cast<uint32_t>(buf[5]) << 16;
-  c += static_cast<uint32_t>(buf[6]) << 8;
-  c += static_cast<uint32_t>(buf[7]);
+  uint32_t c = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
   return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
 }
 
@@ -165,7 +177,9 @@ std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
 
   std::string primary_index_value;
   EncodeFixed32(buf, b_);
+  Reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
+  Reverse(buf + 4, buf + 8);
   primary_index_value.assign(buf, sizeof(buf));
   return std::make_pair(primary_index_key, primary_index_value);
 }
@@ -224,10 +238,14 @@ Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
   }
 
   const char* const index_id_buf = primary_index_key.data();
-  uint32_t index_id = static_cast<uint32_t>(index_id_buf[0]) << 24;
-  index_id += static_cast<uint32_t>(index_id_buf[1]) << 16;
-  index_id += static_cast<uint32_t>(index_id_buf[2]) << 8;
-  index_id += static_cast<uint32_t>(index_id_buf[3]);
+  uint32_t index_id =
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
+              << 16;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
+              << 8;
+  index_id +=
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
   primary_index_key.remove_prefix(sizeof(uint32_t));
   if (index_id != kPrimaryIndexId) {
     std::ostringstream oss;
@@ -236,10 +254,10 @@ Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
   }
 
   const char* const buf = primary_index_key.data();
-  a_ = static_cast<uint32_t>(buf[0]) << 24;
-  a_ += static_cast<uint32_t>(buf[1]) << 16;
-  a_ += static_cast<uint32_t>(buf[2]) << 8;
-  a_ += static_cast<uint32_t>(buf[3]);
+  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
 
   if (primary_index_value.size() != 8) {
     return Status::Corruption("Primary index value length is not 8");
@@ -258,10 +276,14 @@ Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
       crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
 
   const char* const index_id_buf = secondary_index_key.data();
-  uint32_t index_id = static_cast<uint32_t>(index_id_buf[0]) << 24;
-  index_id += static_cast<uint32_t>(index_id_buf[1]) << 16;
-  index_id += static_cast<uint32_t>(index_id_buf[2]) << 8;
-  index_id += static_cast<uint32_t>(index_id_buf[3]);
+  uint32_t index_id =
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
+              << 16;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
+              << 8;
+  index_id +=
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
   secondary_index_key.remove_prefix(sizeof(uint32_t));
   if (index_id != kSecondaryIndexId) {
     std::ostringstream oss;
@@ -270,15 +292,16 @@ Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
   }
 
   const char* const buf = secondary_index_key.data();
-  c_ = static_cast<uint32_t>(buf[0]) << 24;
-  c_ += static_cast<uint32_t>(buf[1]) << 16;
-  c_ += static_cast<uint32_t>(buf[2]) << 8;
-  c_ += static_cast<uint32_t>(buf[3]);
+  assert(secondary_index_key.size() == 8);
+  c_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
 
-  a_ = static_cast<uint32_t>(buf[4]) << 24;
-  a_ += static_cast<uint32_t>(buf[5]) << 16;
-  a_ += static_cast<uint32_t>(buf[6]) << 8;
-  a_ += static_cast<uint32_t>(buf[7]);
+  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
 
   if (secondary_index_value.size() != 4) {
     return Status::Corruption("Secondary index value length is not 4");
@@ -862,17 +885,94 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
   const Snapshot* const snapshot = db_->GetSnapshot();
   assert(snapshot);
-
-  ReadOptions ropts;
-  ropts.snapshot = snapshot;
-  ropts.total_order_seek = true;
+  ManagedSnapshot snapshot_guard(db_, snapshot);
 
   // TODO (yanqin) with a probability, we can use either forward or backward
-  // iterator.
-  // We can either verify entries count or checksum. We can also verify that
-  // primary index and secondary index contain the same data.
+  // iterator in subsequent checks. We can also use more advanced features in
+  // range scan. For now, let's just use simple forward iteration with
+  // total_order_seek = true.
 
-  db_->ReleaseSnapshot(snapshot);
+  // First, iterate primary index.
+  size_t primary_index_entries_count = 0;
+  {
+    char buf[4];
+    EncodeFixed32(buf, MyRocksRecord::kPrimaryIndexId + 1);
+    std::reverse(buf, buf + sizeof(buf));
+    std::string iter_ub_str(buf, sizeof(buf));
+    Slice iter_ub = iter_ub_str;
+
+    ReadOptions ropts;
+    ropts.snapshot = snapshot;
+    ropts.total_order_seek = true;
+    ropts.iterate_upper_bound = &iter_ub;
+
+    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      ++primary_index_entries_count;
+    }
+  }
+
+  // Second, iterate secondary index.
+  size_t secondary_index_entries_count = 0;
+  {
+    char buf[4];
+    EncodeFixed32(buf, MyRocksRecord::kSecondaryIndexId);
+    std::reverse(buf, buf + sizeof(buf));
+    const std::string start_key(buf, sizeof(buf));
+
+    ReadOptions ropts;
+    ropts.snapshot = snapshot;
+    ropts.total_order_seek = true;
+
+    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+    for (it->Seek(start_key); it->Valid(); it->Next()) {
+      ++secondary_index_entries_count;
+      MyRocksRecord record;
+      Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
+      if (!s.ok()) {
+        VerificationAbort(thread->shared, "Cannot decode secondary index entry",
+                          s);
+        return;
+      }
+      // After decoding secondary index entry, we know a and c. Crc is verified
+      // in decoding phase.
+      //
+      // Form a primary key and search in the primary index.
+      std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
+      std::string value;
+      s = db_->Get(ReadOptions(), pk, &value);
+      if (!s.ok()) {
+        std::ostringstream oss;
+        oss << "Error searching pk " << Slice(pk).ToString(/*hex=*/true) << ". "
+            << s.ToString();
+        VerificationAbort(thread->shared, oss.str(), s);
+        return;
+      }
+      auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+      s = std::get<0>(result);
+      if (!s.ok()) {
+        std::ostringstream oss;
+        oss << "Error decoding primary index value "
+            << Slice(value).ToString(/*hex=*/true) << ". " << s.ToString();
+        VerificationAbort(thread->shared, oss.str(), s);
+      }
+      uint32_t c_in_primary = std::get<2>(result);
+      if (c_in_primary != record.c_value()) {
+        std::ostringstream oss;
+        oss << "Pk/sk mismatch. pk: (c=" << c_in_primary
+            << "), sk: (c=" << record.c_value() << ")";
+        VerificationAbort(thread->shared, oss.str(), s);
+      }
+    }
+  }
+
+  if (secondary_index_entries_count != primary_index_entries_count) {
+    std::ostringstream oss;
+    oss << "Pk/sk mismatch: primary index has " << primary_index_entries_count
+        << " entries. Secondary index has " << secondary_index_entries_count
+        << " entries.";
+    VerificationAbort(thread->shared, oss.str(), Status::OK());
+  }
 }
 
 uint32_t MyRocksStyleTxnsStressTest::GeneratePrimaryIndexKeyForPointLookup(
@@ -901,6 +1001,15 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
     assert(s.ok());
     s = txn_db_->Write(wopts, &wb);
     assert(s.ok());
+
+    // TODO (yanqin): make the following check optional, especially when data
+    // size is large.
+    MyRocksRecord tmp_rec;
+    tmp_rec.SetB(record.b_value());
+    s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
+                                          secondary_index_entry.second);
+    assert(s.ok());
+    assert(tmp_rec == record);
   }
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
