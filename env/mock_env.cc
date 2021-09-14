@@ -12,16 +12,77 @@
 #include <algorithm>
 #include <chrono>
 
+#include "env/time_elapse_clock.h"
 #include "file/filename.h"
 #include "port/sys_time.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+int64_t MaybeCurrentTime(const std::shared_ptr<SystemClock>& clock) {
+  int64_t time = 1337346000;  // arbitrary fallback default
+  clock->GetCurrentTime(&time).PermitUncheckedError();
+  return time;
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> time_elapse_type_info = {
+#ifndef ROCKSDB_LITE
+    {"time_elapse_only_sleep",
+     {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kCompareNever,
+      [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+         const std::string& value, void* addr) {
+        auto clock = static_cast<TimeElapseSystemClock*>(addr);
+        clock->SetTimeElapseOnlySleep(ParseBoolean("", value));
+        return Status::OK();
+      },
+      [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+         const void* addr, std::string* value) {
+        const auto clock = static_cast<const TimeElapseSystemClock*>(addr);
+        *value = clock->IsTimeElapseOnlySleep() ? "true" : "false";
+        return Status::OK();
+      },
+      nullptr}},
+#endif  // ROCKSDB_LITE
+};
+static std::unordered_map<std::string, OptionTypeInfo> mock_sleep_type_info = {
+#ifndef ROCKSDB_LITE
+    {"mock_sleep",
+     {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kCompareNever,
+      [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+         const std::string& value, void* addr) {
+        auto clock = static_cast<TimeElapseSystemClock*>(addr);
+        clock->SetMockSleep(ParseBoolean("", value));
+        return Status::OK();
+      },
+      [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+         const void* addr, std::string* value) {
+        const auto clock = static_cast<const TimeElapseSystemClock*>(addr);
+        *value = clock->UseMockSleep() ? "true" : "false";
+        return Status::OK();
+      },
+      nullptr}},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+
+TimeElapseSystemClock::TimeElapseSystemClock(
+    const std::shared_ptr<SystemClock>& base, bool time_elapse_only_sleep)
+    : SystemClockWrapper(base),
+      maybe_starting_time_(MaybeCurrentTime(base)),
+      time_elapse_only_sleep_(time_elapse_only_sleep),
+      no_slowdown_(time_elapse_only_sleep) {
+  RegisterOptions("", this, &time_elapse_type_info);
+  RegisterOptions("", this, &mock_sleep_type_info);
+}
 
 class MemFile {
  public:
@@ -1045,7 +1106,12 @@ MockEnv::MockEnv(Env* env, const std::shared_ptr<FileSystem>& fs,
     : CompositeEnvWrapper(env, fs, clock) {}
 
 MockEnv* MockEnv::Create(Env* env) {
-  auto clock = std::make_shared<FakeSleepSystemClock>(env->GetSystemClock());
+  auto clock =
+      std::make_shared<TimeElapseSystemClock>(env->GetSystemClock(), true);
+  return MockEnv::Create(env, clock);
+}
+
+MockEnv* MockEnv::Create(Env* env, const std::shared_ptr<SystemClock>& clock) {
   auto fs = std::make_shared<MockFileSystem>(clock);
   return new MockEnv(env, fs, clock);
 }

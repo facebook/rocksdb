@@ -38,7 +38,7 @@
 #include "db/db_impl/db_impl.h"
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
-#include "env/mock_env.h"
+#include "env/time_elapse_clock.h"
 #include "env/unique_id.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
@@ -2493,21 +2493,21 @@ TEST_F(CreateEnvTest, CreateMockSystemClock) {
       });
 
   ASSERT_OK(SystemClock::CreateFromString(
-      config_options_, FakeSleepSystemClock::kClassName(), &mock));
+      config_options_, TimeElapseSystemClock::kClassName(), &mock));
   ASSERT_NE(mock, nullptr);
-  ASSERT_STREQ(mock->Name(), FakeSleepSystemClock::kClassName());
+  ASSERT_STREQ(mock->Name(), TimeElapseSystemClock::kClassName());
   ASSERT_EQ(mock->Inner(), SystemClock::Default().get());
   std::string opts_str = mock->ToString(config_options_);
   std::string mismatch;
   ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
 
-  std::string id = std::string("id=") + FakeSleepSystemClock::kClassName() +
+  std::string id = std::string("id=") + TimeElapseSystemClock::kClassName() +
                    ";target=" + MockSystemClock::kClassName();
 
   ASSERT_OK(SystemClock::CreateFromString(config_options_, id, &mock));
   ASSERT_NE(mock, nullptr);
-  ASSERT_STREQ(mock->Name(), FakeSleepSystemClock::kClassName());
+  ASSERT_STREQ(mock->Name(), TimeElapseSystemClock::kClassName());
   ASSERT_NE(mock->Inner(), nullptr);
   ASSERT_STREQ(mock->Inner()->Name(), MockSystemClock::kClassName());
   ASSERT_EQ(mock->Inner()->Inner(), SystemClock::Default().get());
@@ -2515,7 +2515,7 @@ TEST_F(CreateEnvTest, CreateMockSystemClock) {
   ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_OK(SystemClock::CreateFromString(
-      config_options_, FakeSleepSystemClock::kClassName(), &mock));
+      config_options_, TimeElapseSystemClock::kClassName(), &mock));
 }
 #endif  // ROCKSDB_LITE
 

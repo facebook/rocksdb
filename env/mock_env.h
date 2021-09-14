@@ -19,43 +19,10 @@
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
-// A SystemClock that fakes sleeps.
-class FakeSleepSystemClock : public SystemClockWrapper {
- public:
-  explicit FakeSleepSystemClock(const std::shared_ptr<SystemClock>& c)
-      : SystemClockWrapper(c), fake_sleep_micros_(0) {}
-
-  void SleepForMicroseconds(int micros) override {
-    fake_sleep_micros_.fetch_add(static_cast<uint64_t>(micros));
-  }
-
-  static const char* kClassName() { return "FakeSleepSystemClock"; }
-  const char* Name() const override { return kClassName(); }
-
-  Status GetCurrentTime(int64_t* unix_time) override {
-    auto s = SystemClockWrapper::GetCurrentTime(unix_time);
-    if (s.ok()) {
-      auto fake_time = fake_sleep_micros_.load() / (1000 * 1000);
-      *unix_time += fake_time;
-    }
-    return s;
-  }
-
-  uint64_t NowMicros() override {
-    return SystemClockWrapper::NowMicros() + fake_sleep_micros_.load();
-  }
-
-  uint64_t NowNanos() override {
-    return SystemClockWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
-  }
-
- private:
-  std::atomic<int64_t> fake_sleep_micros_;
-};
-
 class MockEnv : public CompositeEnvWrapper {
  public:
   static MockEnv* Create(Env* base);
+  static MockEnv* Create(Env* base, const std::shared_ptr<SystemClock>& clock);
 
   Status CorruptBuffer(const std::string& fname);
  private:

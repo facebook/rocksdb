@@ -12,7 +12,7 @@
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
-#include "env/mock_env.h"
+#include "env/time_elapse_clock.h"
 #include "env/unique_id.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
@@ -1179,10 +1179,10 @@ std::string SystemClockWrapper::SerializeOptions(
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
   library.Register<SystemClock>(
-      FakeSleepSystemClock::kClassName(),
+      TimeElapseSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new FakeSleepSystemClock(nullptr));
+        guard->reset(new TimeElapseSystemClock(SystemClock::Default()));
         return guard->get();
       });
   size_t num_types;
