@@ -118,6 +118,9 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 ## Milvus
 [Milvus](https://milvus.io/) is an open source vector database for unstructured data. It uses RocksDB not only as one of the supported kv storage engines, but also as a message queue.
 
+## Kafka
+[Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
+
 ## Others
 More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).
 
