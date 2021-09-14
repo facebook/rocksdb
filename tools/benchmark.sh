@@ -246,14 +246,7 @@ function summarize_result {
   l0_wgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $9 }' )
   sum_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $9 }' )
   sum_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.1f", $3 / 1024.0 }' )
-  if [[ "$l0_wgb" == "" ]]; then
-      l0_wgb="0.0"
-  fi
-  if [[ "$l0_wgb" == "0.0" ]]; then
-      wamp="0.0"
-  else
-      wamp=$( echo "scale=1; $sum_wgb / $l0_wgb" | bc )
-  fi
+  wamp=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.1f", $12 }' )
   if [[ "$sum_wgb" == "" ]]; then
       wmb_ps=""
   else
