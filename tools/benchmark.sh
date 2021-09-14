@@ -183,23 +183,22 @@ const_params="
 
 l0_config="
   --level0_file_num_compaction_trigger=4 \
-  --level0_slowdown_writes_trigger=27 \
-  --level0_stop_writes_trigger=36"
+  --level0_stop_writes_trigger=20"
 
 if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
 fi
 
 params_w="$l0_config \
-          --max_background_compactions=27 \
-          --max_write_buffer_number=10 \
-          --max_background_flushes=9 \
+          --max_background_compactions=16 \
+          --max_write_buffer_number=8 \
+          --max_background_flushes=7 \
           $const_params"
 
-params_bulkload="--max_background_compactions=27 \
-                 --max_write_buffer_number=10 \
+params_bulkload="--max_background_compactions=16 \
+                 --max_write_buffer_number=8 \
                  --allow_concurrent_memtable_write=false \
-                 --max_background_flushes=9 \
+                 --max_background_flushes=7 \
                  --level0_file_num_compaction_trigger=$((10 * M)) \
                  --level0_slowdown_writes_trigger=$((10 * M)) \
                  --level0_stop_writes_trigger=$((10 * M)) \
@@ -467,7 +466,6 @@ function run_fillseq {
        --disable_wal=$1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
     echo $cmd | tee -a $log_file_name
