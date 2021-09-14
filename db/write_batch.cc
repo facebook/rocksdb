@@ -219,7 +219,8 @@ class TimestampAssigner : public WriteBatch::Handler {
     }
     if (prot_info_ != nullptr) {
       SliceParts old_key(&key, 1);
-      std::array<Slice, 2> new_key_cmpts{{key.data(), key.size() - ts_sz}, ts};
+      Slice key_no_ts(key.data(), key.size() - ts_sz);
+      std::array<Slice, 2> new_key_cmpts{{key_no_ts, ts}};
       SliceParts new_key(new_key_cmpts.data(), 2);
       prot_info_->entries_[idx_].UpdateK(old_key, new_key);
     }
