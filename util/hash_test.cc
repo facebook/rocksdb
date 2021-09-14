@@ -21,6 +21,7 @@ using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Hash;
 using ROCKSDB_NAMESPACE::Hash128;
+using ROCKSDB_NAMESPACE::Hash2x64;
 using ROCKSDB_NAMESPACE::Hash64;
 using ROCKSDB_NAMESPACE::Lower32of64;
 using ROCKSDB_NAMESPACE::Lower64of128;
@@ -286,6 +287,12 @@ TEST(HashTest, Hash128Misc) {
       // Must be same as unseeded Hash128 and GetSliceHash128
       EXPECT_EQ(here, Hash128(str.data(), size));
       EXPECT_EQ(here, GetSliceHash128(Slice(str.data(), size)));
+      {
+        uint64_t hi, lo;
+        Hash2x64(str.data(), size, &hi, &lo);
+        EXPECT_EQ(Lower64of128(here), lo);
+        EXPECT_EQ(Upper64of128(here), hi);
+      }
 
       // Upper and Lower must reconstruct hash
       EXPECT_EQ(here,

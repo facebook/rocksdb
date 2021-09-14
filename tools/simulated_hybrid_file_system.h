@@ -59,12 +59,12 @@ class SimulatedHybridFileSystem : public FileSystemWrapper {
 
 // Simulated random access file that can control IOPs and latency to simulate
 // specific storage media
-class SimulatedHybridRaf : public FSRandomAccessFileWrapper {
+class SimulatedHybridRaf : public FSRandomAccessFileOwnerWrapper {
  public:
-  SimulatedHybridRaf(FSRandomAccessFile* t,
+  SimulatedHybridRaf(std::unique_ptr<FSRandomAccessFile>&& t,
                      std::shared_ptr<RateLimiter> rate_limiter,
                      Temperature temperature)
-      : FSRandomAccessFileWrapper(t),
+      : FSRandomAccessFileOwnerWrapper(std::move(t)),
         rate_limiter_(rate_limiter),
         temperature_(temperature) {}
 

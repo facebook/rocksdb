@@ -22,6 +22,7 @@
 #include "rocksdb/trace_record_result.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -1264,7 +1265,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumL0Files;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
+      test::NewSpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
   options.num_levels = 2;
   options.target_file_size_base = kL0FileBytes;
   options.target_file_size_multiplier = 2;
@@ -1484,7 +1485,7 @@ TEST_P(PresetCompressionDictTest, Flush) {
     options.compression_opts.max_dict_bytes = kDictLen;
     options.compression_opts.max_dict_buffer_bytes = kBlockLen;
   }
-  options.memtable_factory.reset(new SpecialSkipListFactory(kKeysPerFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kKeysPerFile));
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions bbto;
   bbto.block_size = kBlockLen;
@@ -1684,9 +1685,9 @@ class CompactionCompressionListener : public EventListener {
     int bottommost_level = 0;
     for (int level = 0; level < db->NumberLevels(); level++) {
       std::string files_at_level;
-      ASSERT_TRUE(
-          db->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                          &files_at_level));
+      ASSERT_TRUE(db->GetProperty(
+          "rocksdb.num-files-at-level" + ROCKSDB_NAMESPACE::ToString(level),
+          &files_at_level));
       if (files_at_level != "0") {
         bottommost_level = level;
       }
@@ -2319,8 +2320,8 @@ INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, MaxCompactionBytesTest) {
   Options options = CurrentOptions();
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 200 << 10;
   options.arena_block_size = 4 << 10;
@@ -3945,7 +3946,8 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     Options options = CurrentOptions();
     options.compression = kNoCompression;
     options.level0_file_num_compaction_trigger = kNumL0Files;
-    options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+    options.memtable_factory.reset(
+        test::NewSpecialSkipListFactory(kNumKeysPerFile));
     options.new_table_reader_for_compaction_inputs = true;
     // takes roughly one second, split into 100 x 10ms intervals. Each interval
     // permits 5.12KB, which is smaller than the block size, so this test
@@ -5586,6 +5588,7 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
 namespace {
 class DummyOldStats : public Statistics {
  public:
+  const char* Name() const override { return "DummyOldStats"; }
   uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
   void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
     num_rt++;

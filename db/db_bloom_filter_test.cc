@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -2171,7 +2172,8 @@ TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
   Options options = CurrentOptions();
   constexpr size_t kNumKeys = 10000;
   static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeys + 10));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeys + 10));
   options.create_if_missing = true;
   constexpr size_t kPrefixLength = 4;
   options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));

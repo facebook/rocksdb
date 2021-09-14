@@ -63,8 +63,8 @@ struct SstFileWriter::Rep {
   std::string db_session_id;
   uint64_t next_file_number = 1;
 
-  Status Add(const Slice& user_key, const Slice& value,
-             const ValueType value_type) {
+  Status AddImpl(const Slice& user_key, const Slice& value,
+                 ValueType value_type) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
@@ -80,23 +80,14 @@ struct SstFileWriter::Rep {
       }
     }
 
-    // TODO(tec) : For external SST files we could omit the seqno and type.
-    switch (value_type) {
-      case ValueType::kTypeValue:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeValue /* Put */);
-        break;
-      case ValueType::kTypeMerge:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeMerge /* Merge */);
-        break;
-      case ValueType::kTypeDeletion:
-        ikey.Set(user_key, 0 /* Sequence Number */,
-                 ValueType::kTypeDeletion /* Delete */);
-        break;
-      default:
-        return Status::InvalidArgument("Value type is not supported");
-    }
+    assert(value_type == kTypeValue || value_type == kTypeMerge ||
+           value_type == kTypeDeletion ||
+           value_type == kTypeDeletionWithTimestamp);
+
+    constexpr SequenceNumber sequence_number = 0;
+
+    ikey.Set(user_key, sequence_number, value_type);
+
     builder->Add(ikey.Encode(), value);
 
     // update file info
@@ -108,7 +99,42 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status Add(const Slice& user_key, const Slice& value, ValueType value_type) {
+    if (internal_comparator.timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    return AddImpl(user_key, value, value_type);
+  }
+
+  Status Add(const Slice& user_key, const Slice& timestamp, const Slice& value,
+             ValueType value_type) {
+    const size_t timestamp_size = timestamp.size();
+
+    if (internal_comparator.timestamp_size() != timestamp_size) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    const size_t user_key_size = user_key.size();
+
+    if (user_key.data() + user_key_size == timestamp.data()) {
+      Slice user_key_with_ts(user_key.data(), user_key_size + timestamp_size);
+      return AddImpl(user_key_with_ts, value, value_type);
+    }
+
+    std::string user_key_with_ts;
+    user_key_with_ts.reserve(user_key_size + timestamp_size);
+    user_key_with_ts.append(user_key.data(), user_key_size);
+    user_key_with_ts.append(timestamp.data(), timestamp_size);
+
+    return AddImpl(user_key_with_ts, value, value_type);
+  }
+
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (internal_comparator.timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
@@ -294,12 +320,22 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeValue);
 }
 
+Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
+                          const Slice& value) {
+  return rep_->Add(user_key, timestamp, value, ValueType::kTypeValue);
+}
+
 Status SstFileWriter::Merge(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeMerge);
 }
 
 Status SstFileWriter::Delete(const Slice& user_key) {
   return rep_->Add(user_key, Slice(), ValueType::kTypeDeletion);
+}
+
+Status SstFileWriter::Delete(const Slice& user_key, const Slice& timestamp) {
+  return rep_->Add(user_key, timestamp, Slice(),
+                   ValueType::kTypeDeletionWithTimestamp);
 }
 
 Status SstFileWriter::DeleteRange(const Slice& begin_key,

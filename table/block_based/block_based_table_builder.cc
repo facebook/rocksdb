@@ -21,6 +21,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
 #include "memory/memory_allocator.h"
@@ -312,7 +314,7 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-
+  std::unique_ptr<CacheReservationManager> cache_rev_mng;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
@@ -443,6 +445,12 @@ struct BlockBasedTableBuilder::Rep {
     } else {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
+    }
+    if (table_options.no_block_cache) {
+      cache_rev_mng.reset(nullptr);
+    } else {
+      cache_rev_mng.reset(
+          new CacheReservationManager(table_options.block_cache));
     }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
@@ -589,11 +597,11 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Use a vector of BlockRep as a buffer for a determined number
   // of BlockRep structures. All data referenced by pointers in
   // BlockRep will be freed when this vector is destructed.
-  typedef std::vector<BlockRep> BlockRepBuffer;
+  using BlockRepBuffer = std::vector<BlockRep>;
   BlockRepBuffer block_rep_buf;
   // Use a thread-safe queue for concurrent access from block
   // building thread and writer thread.
-  typedef WorkQueue<BlockRep*> BlockRepPool;
+  using BlockRepPool = WorkQueue<BlockRep*>;
   BlockRepPool block_rep_pool;
 
   // Use BlockRepSlot to keep block order in write thread.
@@ -617,7 +625,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Compression queue will pass references to BlockRep in block_rep_buf,
   // and those references are always valid before the destruction of
   // block_rep_buf.
-  typedef WorkQueue<BlockRep*> CompressQueue;
+  using CompressQueue = WorkQueue<BlockRep*>;
   CompressQueue compress_queue;
   std::vector<port::Thread> compress_thread_pool;
 
@@ -625,7 +633,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // and those references are always valid before the corresponding
   // BlockRep::slot is destructed, which is before the destruction of
   // block_rep_buf.
-  typedef WorkQueue<BlockRepSlot*> WriteQueue;
+  using WriteQueue = WorkQueue<BlockRepSlot*>;
   WriteQueue write_queue;
   std::unique_ptr<port::Thread> write_thread;
 
@@ -896,10 +904,24 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       r->first_key_in_next_block = &key;
       Flush();
+      if (r->state == Rep::State::kBuffered) {
+        bool exceeds_buffer_limit =
+            (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
+        bool is_cache_full = false;
 
-      if (r->state == Rep::State::kBuffered && r->buffer_limit != 0 &&
-          r->data_begin_offset > r->buffer_limit) {
-        EnterUnbuffered();
+        // Increase cache reservation for the last buffered data block
+        // only if the block is not going to be unbuffered immediately
+        // and there exists a cache reservation manager
+        if (!exceeds_buffer_limit && r->cache_rev_mng != nullptr) {
+          Status s = r->cache_rev_mng->UpdateCacheReservation<
+              CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+              r->data_begin_offset);
+          is_cache_full = s.IsIncomplete();
+        }
+
+        if (exceeds_buffer_limit || is_cache_full) {
+          EnterUnbuffered();
+        }
       }
 
       // Add item to index block.
@@ -1910,10 +1932,16 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
                                         r->pending_handle);
       }
     }
-
     std::swap(iter, next_block_iter);
   }
   r->data_block_buffers.clear();
+  r->data_begin_offset = 0;
+  if (r->cache_rev_mng != nullptr) {
+    Status s = r->cache_rev_mng->UpdateCacheReservation<
+        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+        r->data_begin_offset);
+    s.PermitUncheckedError();
+  }
 }
 
 Status BlockBasedTableBuilder::Finish() {

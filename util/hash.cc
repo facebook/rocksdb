@@ -113,4 +113,11 @@ Unsigned128 Hash128(const char* data, size_t n) {
   return (Unsigned128{h.high64} << 64) | (h.low64);
 }
 
+void Hash2x64(const char* data, size_t n, uint64_t* high64, uint64_t* low64) {
+  // Same as seed = 0
+  auto h = XXH3_128bits(data, n);
+  *high64 = h.high64;
+  *low64 = h.low64;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

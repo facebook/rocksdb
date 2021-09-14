@@ -53,6 +53,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "env/unique_id.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -60,8 +61,6 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
-#include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/iostats_context_imp.h"
@@ -3115,7 +3114,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 }
 
 namespace {
-typedef autovector<ColumnFamilyData*, 2> CfdList;
+using CfdList = autovector<ColumnFamilyData*, 2>;
 bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
   for (const ColumnFamilyData* t : list) {
     if (t == cfd) {
@@ -3938,7 +3937,8 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
     return s;
   }
 
-  // If last character is '\n' remove it from identity
+  // If last character is '\n' remove it from identity. (Old implementations
+  // of Env::GenerateUniqueId() would include a trailing '\n'.)
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();
   }
@@ -3950,10 +3950,11 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
   return Status::OK();
 }
 
-std::string DBImpl::GenerateDbSessionId(Env* env) {
-  // GenerateUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated, ~128 bits of entropy
-  std::string uuid = env->GenerateUniqueId();
+std::string DBImpl::GenerateDbSessionId(Env*) {
+  // GenerateRawUniqueId() generates an identifier that has a negligible
+  // probability of being duplicated. It should have full 128 bits of entropy.
+  uint64_t a, b;
+  GenerateRawUniqueId(&a, &b);
 
   // Hash and reformat that down to a more compact format, 20 characters
   // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
@@ -3962,18 +3963,10 @@ std::string DBImpl::GenerateDbSessionId(Env* env) {
   // * Save ~ dozen bytes per SST file
   // * Shorter shared backup file names (some platforms have low limits)
   // * Visually distinct from DB id format
-  uint64_t a = NPHash64(uuid.data(), uuid.size(), 1234U);
-  uint64_t b = NPHash64(uuid.data(), uuid.size(), 5678U);
-  std::string db_session_id;
-  db_session_id.resize(20);
-  static const char* const base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  size_t i = 0;
-  for (; i < 10U; ++i, a /= 36U) {
-    db_session_id[i] = base36[a % 36];
-  }
-  for (; i < 20U; ++i, b /= 36U) {
-    db_session_id[i] = base36[b % 36];
-  }
+  std::string db_session_id(20U, '\0');
+  char* buf = &db_session_id[0];
+  PutBaseChars<36>(&buf, 10, a, /*uppercase*/ true);
+  PutBaseChars<36>(&buf, 10, b, /*uppercase*/ true);
   return db_session_id;
 }
 
@@ -4941,6 +4934,11 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
 
 Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                       bool use_file_checksum) {
+  // `bytes_read` stat is enabled based on compile-time support and cannot
+  // be dynamically toggled. So we do not need to worry about `PerfLevel`
+  // here, unlike many other `IOStatsContext` / `PerfContext` stats.
+  uint64_t prev_bytes_read = IOSTATS(bytes_read);
+
   Status s;
 
   if (use_file_checksum) {
@@ -4995,6 +4993,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
       }
     }
 
@@ -5009,6 +5010,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+                   IOSTATS(bytes_read) - prev_bytes_read);
+        prev_bytes_read = IOSTATS(bytes_read);
         if (!s.ok()) {
           break;
         }
@@ -5040,6 +5044,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       cfd->UnrefAndTryDelete();
     }
   }
+  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
+             IOSTATS(bytes_read) - prev_bytes_read);
   return s;
 }
 
