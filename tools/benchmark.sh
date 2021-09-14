@@ -2,21 +2,75 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 
+# Exit Codes
 EXIT_INVALID_ARGS=1
 EXIT_NOT_COMPACTION_TEST=2
 EXIT_UNKNOWN_JOB=3
 
+# Size Constants
+K=1024
+M=$((1024 * K))
+G=$((1024 * M))
+T=$((1024 * G))
+
+function display_usage() {
+  echo "useage: benchmark.sh [--help] <test>"
+  echo ""
+  echo "These are the available benchmark tests:"
+  echo -e "\tbulkload"
+  echo -e "\tfillseq_disable_wal\t\tSequentially fill the database with no WAL"
+  echo -e "\tfillseq_enable_wal\t\tSequentially fill the database with WAL"
+  echo -e "\toverwrite"
+  echo -e "\tupdaterandom"
+  echo -e "\treadrandom"
+  echo -e "\tmergerandom"
+  echo -e "\tfilluniquerandom"
+  echo -e "\tmultireadrandom"
+  echo -e "\tfwdrange"
+  echo -e "\trevrange"
+  echo -e "\treadwhilewriting"
+  echo -e "\treadwhilemerging"
+  echo -e "\tfwdrangewhilewriting"
+  echo -e "\trevrangewhilewriting"
+  echo -e "\tfwdrangewhilemerging"
+  echo -e "\trevrangewhilemerging"
+  echo -e "\trandomtransaction"
+  echo -e "\tuniversal_compaction"
+  echo -e "\tdebug"
+  echo ""
+  echo "Enviroment Variables:"
+  echo -e "\tJOB_ID\t\tAn identifier for the benchmark job, will appear in the results"
+  echo -e "\tDB_DIR\t\t\t\tPath to write the database data directory"
+  echo -e "\tWAL_DIR\t\t\t\tPath to write the database WAL directory"
+  echo -e "\tOUTPUT_DIR\t\t\tPath to write the benchmark results to (default: /tmp)"
+  echo -e "\tNUM_KEYS\t\t\tThe number of keys to use in the benchmark"
+  echo -e "\tKEY_SIZE\t\t\tThe size of the keys to use in the benchmark (default: 20 bytes)"
+  echo -e "\tVALUE_SIZE\t\t\tThe size of the values to use in the benchmark (default: 400 bytes)"
+  echo -e "\tBLOCK_SIZE\t\t\tThe size of the database blocks in the benchmark (default: 8 KB)"
+  echo -e "\tDB_BENCH_NO_SYNC\t\tDisable fsync on the WAL"
+  echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
+  echo -e "\tMB_WRITE_PER_SEC"
+  echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
+  echo -e "\tCACHE_SIZE\t\t\t(default: 16GB)"
+  echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
+  echo -e "\tCOMPRESSION_TYPE\t\t(default: zstd)"
+  echo -e "\tDURATION"
+}
+
 if [ $# -lt 1 ]; then
-  echo -n "./benchmark.sh [bulkload/fillseq_disable_wal/fillseq_enable_wal/overwrite/"
-  echo    "updaterandom/readrandom/mergerandom/filluniquerandom/multireadrandom/"
-  echo    "fwdrange/revrange/readwhilewriting/readwhilemerging/"
-  echo    "fwdrangewhilewriting/revrangewhilewriting/fwdrangewhilemerging/revrangewhilemerging/"
-  echo    "randomtransaction/universal_compaction/debug]"
+  display_usage
   exit $EXIT_INVALID_ARGS
 fi
 bench_cmd=$1
 shift
 bench_args=$*
+
+if [[ "$bench_cmd" == "--help" ]]; then
+  display_usage
+  exit
+fi
+
+job_id=${JOB_ID}
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from
@@ -25,12 +79,6 @@ if [ "$COMPACTION_TEST" == "1" -a "$bench_cmd" != "universal_compaction" ]; then
   echo "Skipping $1 because it's not a compaction test."
   exit $EXIT_NOT_COMPACTION_TEST
 fi
-
-# size constants
-K=1024
-M=$((1024 * K))
-G=$((1024 * M))
-T=$((1024 * G))
 
 if [ -z $DB_DIR ]; then
   echo "DB_DIR is not defined"
@@ -42,10 +90,13 @@ if [ -z $WAL_DIR ]; then
   exit $EXIT_INVALID_ARGS
 fi
 
-output_dir=${OUTPUT_DIR:-/tmp/}
+output_dir=${OUTPUT_DIR:-/tmp}
 if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
 fi
+
+report="$output_dir/report.tsv"
+schedule="$output_dir/schedule.txt"
 
 # all multithreaded tests run with sync=1 unless
 # $DB_BENCH_NO_SYNC is defined
@@ -155,6 +206,23 @@ params_univ_compact="$const_params \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
+function month_to_num() {
+    local date_str=$1
+    date_str="${date_str/Jan/01}"
+    date_str="${date_str/Feb/02}"
+    date_str="${date_str/Mar/03}"
+    date_str="${date_str/Apr/04}"
+    date_str="${date_str/May/05}"
+    date_str="${date_str/Jun/06}"
+    date_str="${date_str/Jul/07}"
+    date_str="${date_str/Aug/08}"
+    date_str="${date_str/Sep/09}"
+    date_str="${date_str/Oct/10}"
+    date_str="${date_str/Nov/11}"
+    date_str="${date_str/Dec/12}"
+    echo $date_str
+}
+
 function summarize_result {
   test_out=$1
   test_name=$2
@@ -164,37 +232,55 @@ function summarize_result {
   # that "Compaction Stats" is written to stdout at least once. If it won't
   # happen then empty output from grep when searching for "Sum" will cause
   # syntax errors.
+  version=$( grep ^RocksDB: $test_out | awk '{ print $3 }' )
+  date=$( grep ^Date: $test_out | awk '{ print $6 "-" $3 "-" $4 "T" $5 ".000" }' )
+  iso_date=$( month_to_num $date )
+  tz=$( date "+%z" )
+  iso_tz="${tz:0:3}:${tz:3:2}"
+  iso_date="$iso_date$iso_tz"
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
   stall_time=$( grep "^Cumulative stall" $test_out | tail -1  | awk '{  print $3 }' )
   stall_pct=$( grep "^Cumulative stall" $test_out| tail -1  | awk '{  print $5 }' )
   ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
   mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
-  lo_wgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $9 }' )
+  l0_wgb=$( grep "^  L0" $test_out | tail -1 | awk '{ print $9 }' )
   sum_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $9 }' )
   sum_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.1f", $3 / 1024.0 }' )
-  if [ "$lo_wgb" = "" ]; then
-      lo_wgb="0.0"
+  if [[ "$l0_wgb" == "" ]]; then
+      l0_wgb="0.0"
   fi
-  if [ "$lo_wgb" = "0.0" ]; then
+  if [[ "$l0_wgb" == "0.0" ]]; then
       wamp="0.0"
   else
-      wamp=$( echo "scale=1; $sum_wgb / $lo_wgb" | bc )
+      wamp=$( echo "scale=1; $sum_wgb / $l0_wgb" | bc )
   fi
-  wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
+  if [[ "$sum_wgb" == "" ]]; then
+      wmb_ps=""
+  else
+      wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
+  fi
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   p75=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $5 }' )
   p99=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $7 }' )
   p999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $9 }' )
   p9999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $11 }' )
-  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$lo_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name" \
-    >> $output_dir/report.txt
+
+  # if the report TSV (Tab Separate Values) file does not yet exist, create it and write the header row to it
+  if [ ! -f "$report" ]; then
+    echo -e "ops_sec\tmb_sec\ttotal_size_gb\tlevel0_size_gb\tsum_gb\twrite_amplification\twrite_mbps\tusec_op\tpercentile_50\tpercentile_75\tpercentile_99\tpercentile_99.9\tpercentile_99.99\tuptime\tstall_time\tstall_percent\ttest_name\ttest_date\trocksdb_version\tjob_id" \
+      >> $report
+  fi
+
+  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$l0_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name\t$iso_date\t$version\t$job_id" \
+    >> $report
 }
 
 function run_bulkload {
   # This runs with a vector memtable and the WAL disabled to load faster. It is still crash safe and the
   # client can discover where to restart a load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys"
+  log_file_name=$output_dir/benchmark_bulkload_fillrandom.log
   cmd="./db_bench --benchmarks=fillrandom \
        --use_existing_db=0 \
        --disable_auto_compactions=1 \
@@ -205,19 +291,31 @@ function run_bulkload {
        --allow_concurrent_memtable_write=false \
        --disable_wal=1 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
-  echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/benchmark_bulkload_fillrandom.log bulkload fillrandom
+  summarize_result $log_file_name bulkload fillrandom
+
   echo "Compacting..."
+  log_file_name=$output_dir/benchmark_bulkload_compact.log
   cmd="./db_bench --benchmarks=compact \
        --use_existing_db=1 \
        --disable_auto_compactions=1 \
        --sync=0 \
        $params_w \
        --threads=1 \
-       2>&1 | tee -a $output_dir/benchmark_bulkload_compact.log"
-  echo $cmd | tee $output_dir/benchmark_bulkload_compact.log
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 }
 
@@ -235,8 +333,7 @@ function run_manual_compaction_worker {
   # load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys for manual compaction."
 
-  fillrandom_output_file=$output_dir/benchmark_man_compact_fillrandom_$3.log
-  man_compact_output_log=$output_dir/benchmark_man_compact_$3.log
+  log_file_name=$output_dir/benchmark_man_compact_fillrandom_$3.log
 
   if [ "$2" == "1" ]; then
     extra_params=$params_univ_compact
@@ -259,14 +356,21 @@ function run_manual_compaction_worker {
        --disable_wal=1 \
        --max_background_compactions=$4 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $fillrandom_output_file"
+       2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $fillrandom_output_file
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
-  summarize_result $fillrandom_output_file man_compact_fillrandom_$3 fillrandom
+  summarize_result $log_file_namefillrandom_output_file man_compact_fillrandom_$3 fillrandom
 
   echo "Compacting with $3 subcompactions specified ..."
+
+  log_file_name=$output_dir/benchmark_man_compact_$3.log
 
   # This is the part we're really interested in. Given that compact benchmark
   # doesn't output regular statistics then we'll just use the time command to
@@ -283,9 +387,14 @@ function run_manual_compaction_worker {
        --subcompactions=$3 \
        --max_background_compactions=$4 \
        ;}
-       2>&1 | tee -a $man_compact_output_log"
+       2>&1 | tee -a $log_file_name"
 
-  echo $cmd | tee $man_compact_output_log
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
   # Can't use summarize_result here. One way to analyze the results is to run
@@ -325,10 +434,10 @@ function run_fillseq {
   # Make sure that we'll have unique names for all the files so that data won't
   # be overwritten.
   if [ $1 == 1 ]; then
-    log_file_name=$output_dir/benchmark_fillseq.wal_disabled.v${value_size}.log
+    log_file_name="${output_dir}/benchmark_fillseq.wal_disabled.v${value_size}.log"
     test_name=fillseq.wal_disabled.v${value_size}
   else
-    log_file_name=$output_dir/benchmark_fillseq.wal_enabled.v${value_size}.log
+    log_file_name="${output_dir}/benchmark_fillseq.wal_enabled.v${value_size}.log"
     test_name=fillseq.wal_enabled.v${value_size}
   fi
 
@@ -344,7 +453,13 @@ function run_fillseq {
        --disable_wal=$1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
-  echo $cmd | tee $log_file_name
+  
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 
   # The constant "fillseq" which we pass to db_bench is the benchmark name.
@@ -354,7 +469,7 @@ function run_fillseq {
 function run_change {
   operation=$1
   echo "Do $num_keys random $operation"
-  out_name="benchmark_${operation}.t${num_threads}.s${syncval}.log"
+  log_file_name="$output_dir/benchmark_${operation}.t${num_threads}.s${syncval}.log"
   cmd="./db_bench --benchmarks=$operation \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -362,59 +477,80 @@ function run_change {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/${out_name} ${operation}.t${num_threads}.s${syncval} $operation
+  summarize_result $log_file_name ${operation}.t${num_threads}.s${syncval} $operation
 }
 
 function run_filluniquerandom {
   echo "Loading $num_keys unique keys randomly"
+  log_file_name=$output_dir/benchmark_filluniquerandom.log
   cmd="./db_bench --benchmarks=filluniquerandom \
        --use_existing_db=0 \
        --sync=0 \
        $params_w \
        --threads=1 \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/benchmark_filluniquerandom.log"
-  echo $cmd | tee $output_dir/benchmark_filluniquerandom.log
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/benchmark_filluniquerandom.log filluniquerandom filluniquerandom
+  summarize_result $log_file_name filluniquerandom filluniquerandom
 }
 
 function run_readrandom {
   echo "Reading $num_keys random keys"
-  out_name="benchmark_readrandom.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_readrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=readrandom \
        --use_existing_db=1 \
        $params_w \
        --threads=$num_threads \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/${out_name} readrandom.t${num_threads} readrandom
+  summarize_result $log_file_name readrandom.t${num_threads} readrandom
 }
 
 function run_multireadrandom {
   echo "Multi-Reading $num_keys random keys"
-  out_name="benchmark_multireadrandom.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_multireadrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=multireadrandom \
        --use_existing_db=1 \
        --threads=$num_threads \
        --batch_size=10 \
        $params_w \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/${out_name} multireadrandom.t${num_threads} multireadrandom
+  summarize_result $log_file_name multireadrandom.t${num_threads} multireadrandom
 }
 
 function run_readwhile {
   operation=$1
   echo "Reading $num_keys random keys while $operation"
-  out_name="benchmark_readwhile${operation}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_readwhile${operation}.t${num_threads}.log"
   cmd="./db_bench --benchmarks=readwhile${operation} \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -422,17 +558,22 @@ function run_readwhile {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/${out_name} readwhile${operation}.t${num_threads} readwhile${operation}
+  summarize_result $log_file_name readwhile${operation}.t${num_threads} readwhile${operation}
 }
 
 function run_rangewhile {
   operation=$1
   full_name=$2
   reverse_arg=$3
-  out_name="benchmark_${full_name}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
   echo "Range scan $num_keys random keys while ${operation} for reverse_iter=${reverse_arg}"
   cmd="./db_bench --benchmarks=seekrandomwhile${operation} \
        --use_existing_db=1 \
@@ -443,16 +584,16 @@ function run_rangewhile {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  echo $cmd | tee $log_file_name
   eval $cmd
-  summarize_result $output_dir/${out_name} ${full_name}.t${num_threads} seekrandomwhile${operation}
+  summarize_result $log_file_name ${full_name}.t${num_threads} seekrandomwhile${operation}
 }
 
 function run_range {
   full_name=$1
   reverse_arg=$2
-  out_name="benchmark_${full_name}.t${num_threads}.log"
+  log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
   echo "Range scan $num_keys random keys for reverse_iter=${reverse_arg}"
   cmd="./db_bench --benchmarks=seekrandom \
        --use_existing_db=1 \
@@ -461,21 +602,32 @@ function run_range {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
-       2>&1 | tee -a $output_dir/${out_name}"
-  echo $cmd | tee $output_dir/${out_name}
+       2>&1 | tee -a $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
-  summarize_result $output_dir/${out_name} ${full_name}.t${num_threads} seekrandom
+  summarize_result $log_file_name ${full_name}.t${num_threads} seekrandom
 }
 
 function run_randomtransaction {
   echo "..."
+  log_file_name=$output_dir/benchmark_randomtransaction.log
   cmd="./db_bench $params_r --benchmarks=randomtransaction \
        --num=$num_keys \
        --transaction_db \
        --threads=5 \
        --transaction_sets=5 \
-       2>&1 | tee $output_dir/benchmark_randomtransaction.log"
-  echo $cmd | tee $output_dir/benchmark_rangescanwhilewriting.log
+       2>&1 | tee $log_file_name"
+  if [[ "$job_id" != "" ]]; then
+    echo "Job ID: ${job_id}" > $log_file_name
+    echo $cmd | tee -a $log_file_name
+  else
+    echo $cmd | tee $log_file_name
+  fi
   eval $cmd
 }
 
@@ -483,8 +635,6 @@ function now() {
   echo `date +"%s"`
 }
 
-report="$output_dir/report.txt"
-schedule="$output_dir/schedule.txt"
 
 echo "===== Benchmark ====="
 
@@ -494,7 +644,7 @@ IFS=',' read -a jobs <<< $bench_cmd
 for job in ${jobs[@]}; do
 
   if [ $job != debug ]; then
-    echo "Start $job at `date`" | tee -a $schedule
+    echo "Starting $job (ID: $job_id) at `date`" | tee -a $schedule
   fi
 
   start=$(now)
@@ -552,10 +702,10 @@ for job in ${jobs[@]}; do
   end=$(now)
 
   if [ $job != debug ]; then
-    echo "Complete $job in $((end-start)) seconds" | tee -a $schedule
+    echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest"
-  tail -1 $output_dir/report.txt
+  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest\tDate\tVersion\tJob-ID"
+  tail -1 $report
 
 done
