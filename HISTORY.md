@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.24.2 (2021-09-16)
+### Bug Fixes
+* Add checks for validity of the IO uring completion queue entries, and fail the BlockBasedTableReader MultiGet sub-batch if there's an invalid completion
+
 ## 6.24.1 (2021-08-31)
 ### Bug Fixes
 * Fix a race in item ref counting in LRUCache when promoting an item from the SecondaryCache.
