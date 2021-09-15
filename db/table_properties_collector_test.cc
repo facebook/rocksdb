@@ -40,7 +40,7 @@ class TablePropertiesTest : public testing::Test,
 namespace {
 static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
-static const std::string kTestLevel = 1;
+static const int kTestLevel = 1;
 
 void MakeBuilder(
     const Options& options, const ImmutableOptions& ioptions,
