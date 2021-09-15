@@ -18,6 +18,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -284,15 +285,9 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
-struct BackupFileInfo {
-  // File name and path relative to the backup_dir directory.
-  std::string relative_filename;
-
-  // Size of the file in bytes, not including filesystem overheads.
-  uint64_t size;
-};
-
 using BackupID = uint32_t;
+
+using BackupFileInfo = FileStorageInfo;
 
 struct BackupInfo {
   BackupID backup_id = 0U;

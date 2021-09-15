@@ -29,7 +29,6 @@ class CheckpointImpl : public Checkpoint {
   // Checkpoint logic can be customized by providing callbacks for link, copy,
   // or create.
   Status CreateCustomCheckpoint(
-      const DBOptions& db_options,
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname, FileType type)>
           link_file_cb,

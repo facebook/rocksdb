@@ -3119,6 +3119,12 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& /*opts*/,
+      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* /*files*/) override {
+    return Status::OK();
+  }
+
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
     return Status::OK();
   }

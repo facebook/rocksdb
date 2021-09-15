@@ -1447,6 +1447,12 @@ class DB {
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
+  // Get information about all live filees that make up a DB, for making
+  // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) = 0;
+
   // Obtains the meta data of the specified column family of the DB.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
@@ -1513,7 +1519,7 @@ class DB {
   // this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB.
+  //     an existing DB using Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a

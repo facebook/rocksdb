@@ -6,10 +6,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stdint.h>
 #include <algorithm>
-#include <cinttypes>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
+
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
@@ -18,7 +20,10 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/metadata.h"
+#include "rocksdb/types.h"
 #include "test_util/sync_point.h"
+#include "util/file_checksum_helper.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -154,6 +159,206 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
+
+namespace {
+
+struct FilesStorageInfoImpl : public OnDemandSequence<FileStorageInfo> {
+  std::vector<FileStorageInfo> infos;
+
+  size_t size() override { return infos.size(); }
+
+  FileStorageInfo operator[](size_t n) override { return infos[n]; }
+};
+
+}  // namespace
+
+Status DBImpl::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) {
+  Status s;
+  std::vector<std::string> live_files;
+  uint64_t manifest_file_size = 0;
+  uint64_t min_log_num = port::kMaxUint64;
+  VectorLogPtr live_wal_files;
+
+  // This implementation was migrated from Checkpoint.
+  // TODO: refactor to take advantage of being inside DBImpl to get
+  // consistent view on things
+
+  bool flush_memtable = true;
+  if (!immutable_db_options_.allow_2pc) {
+    if (opts.wal_size_for_flush == port::kMaxUint64) {
+      flush_memtable = false;
+    } else if (opts.wal_size_for_flush > 0) {
+      // If out standing log files are small, we skip the flush.
+      s = GetSortedWalFiles(live_wal_files);
+
+      if (!s.ok()) {
+        return s;
+      }
+
+      // Don't flush column families if total log size is smaller than
+      // log_size_for_flush. We copy the log files instead.
+      // We may be able to cover 2PC case too.
+      uint64_t total_wal_size = 0;
+      for (auto& wal : live_wal_files) {
+        total_wal_size += wal->SizeFileBytes();
+      }
+      if (total_wal_size < opts.wal_size_for_flush) {
+        flush_memtable = false;
+      }
+      live_wal_files.clear();
+    }
+  }
+
+  // this will return live_files prefixed with "/"
+  s = GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+
+  if (!GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
+    return Status::InvalidArgument("cannot get the min log number to keep.");
+  }
+  // Between GetLiveFiles and getting min_log_num, flush might happen
+  // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
+  // not get the new MANIFEST size, the deleted WALs might not be reflected in
+  // the checkpoint's MANIFEST.
+  //
+  // If we get min_log_num before the above GetLiveFiles, then there might
+  // be too many unnecessary WALs to be included in the checkpoint.
+  //
+  // Ideally, min_log_num should be got together with manifest_file_size in
+  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
+  // which is a public API.
+  s = GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
+
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
+
+  if (s.ok()) {
+    s = FlushWAL(false /* sync */);
+  }
+
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
+
+  // if we have more than one column family, we need to also get WAL files
+  if (s.ok()) {
+    s = GetSortedWalFiles(live_wal_files);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<FilesStorageInfoImpl> result{new FilesStorageInfoImpl};
+
+  size_t wal_size = live_wal_files.size();
+
+  // process live files, non-table, non-blob files first
+  std::string manifest_fname;
+  for (auto& live_file : live_files) {
+    if (!s.ok()) {
+      break;
+    }
+    uint64_t number;
+    FileType type;
+    bool ok = ParseFileName(live_file, &number, &type);
+    if (!ok) {
+      s = Status::Corruption("Can't parse file name. This is very bad");
+      break;
+    }
+    // we should only get sst, blob, options, manifest and current files here
+    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
+           type == kCurrentFile || type == kOptionsFile);
+    assert(live_file.size() > 0 && live_file[0] == '/');
+    if (type == kDescriptorFile) {
+      manifest_fname = live_file;
+    }
+
+    result->infos.emplace_back();
+    FileStorageInfo& info = result->infos.back();
+    info.relative_filename = live_file.substr(1);
+    info.directory = GetName();  // FIXME: support db_paths/cf_paths
+    info.file_number = number;
+    info.file_type = type;
+    if (type == kDescriptorFile) {
+      info.size = manifest_file_size;
+      info.trim_to_size = true;
+    } else if (type == kCurrentFile) {
+      info.size = 0;
+      info.trim_to_size = true;
+    } else {
+      // FIXME: temporary hack causing extra IO. We can at least avoid this
+      // for table and blob files using version metadata.
+      s = env_->GetFileSize(info.directory + "/" + info.relative_filename,
+                            &info.size);
+    }
+    // TODO: info.temperature
+  }
+
+  // get checksum info for table and blob files.
+  // get table and blob file checksums if get_live_table_checksum is true
+  std::unique_ptr<FileChecksumList> checksum_list;
+
+  if (s.ok() && opts.include_checksum_info) {
+    checksum_list.reset(NewFileChecksumList());
+    // should succeed even without checksum info present, else manifest
+    // is corrupt
+    s = GetFileChecksumsFromManifest(GetEnv(), GetName() + manifest_fname,
+                                     manifest_file_size, checksum_list.get());
+  }
+
+  // get checksum info
+  if (opts.include_checksum_info) {
+    for (FileStorageInfo& info : result->infos) {
+      info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+      info.file_checksum = kUnknownFileChecksum;
+
+      // we ignore the checksums either they are not required or we failed to
+      // obtain the checksum list for old table files that have no file
+      // checksums
+      Status search = checksum_list->SearchOneFileChecksum(
+          info.file_number, &info.file_checksum, &info.file_checksum_func_name);
+
+      // could be a legacy file lacking checksum info. overall OK if
+      // not found
+      if (!search.ok()) {
+        assert(info.file_checksum_func_name == kUnknownFileChecksumFuncName);
+        assert(info.file_checksum == kUnknownFileChecksum);
+      }
+    }
+  }
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Number of log files %" ROCKSDB_PRIszt, live_wal_files.size());
+
+  // Link WAL files. Copy exact size of last one because it is the only one
+  // that has changes after the last flush.
+  auto wal_dir = immutable_db_options_.GetWalDir();
+  for (size_t i = 0; s.ok() && i < wal_size; ++i) {
+    if ((live_wal_files[i]->Type() == kAliveLogFile) &&
+        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
+      result->infos.emplace_back();
+      FileStorageInfo& info = result->infos.back();
+      auto f = live_wal_files[i]->PathName();
+      assert(!f.empty() && f[0] == '/');
+      info.relative_filename = f.substr(1);
+      info.directory = wal_dir;
+      info.file_number = live_wal_files[i]->LogNumber();
+      info.file_type = kWalFile;
+      info.size = live_wal_files[i]->SizeFileBytes();
+      // Only last should need to be trimmed
+      info.trim_to_size = (i + 1 == wal_size);
+      if (opts.include_checksum_info) {
+        info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+        info.file_checksum = kUnknownFileChecksum;
+      }
+    }
+  }
+
+  *files = std::move(result);
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

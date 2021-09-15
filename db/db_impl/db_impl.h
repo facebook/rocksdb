@@ -406,6 +406,10 @@ class DBImpl : public DB {
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override;
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) override;
+
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
