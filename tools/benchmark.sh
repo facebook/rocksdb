@@ -463,7 +463,7 @@ function run_change {
   operation=$1
   echo "Do $num_keys random $operation"
   log_file_name="$output_dir/benchmark_${operation}.t${num_threads}.s${syncval}.log"
-  cmd="./db_bench --benchmarks=$operation \
+  cmd="./db_bench --benchmarks=$operation,waitforcompaction \
        --use_existing_db=1 \
        --sync=$syncval \
        $params_w \
@@ -650,7 +650,7 @@ for job in ${jobs[@]}; do
   elif [ $job = overwrite ]; then
     syncval="0"
     params_w="$params_w \
-        --writes=125000000 \
+        --writes=$(($num_keys / $num_threads)) \
         --subcompactions=4 \
         --soft_pending_compaction_bytes_limit=$((1 * T)) \
         --hard_pending_compaction_bytes_limit=$((4 * T)) "
