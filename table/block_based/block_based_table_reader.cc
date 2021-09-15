@@ -992,6 +992,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of index
+  // WART: this might be redundant (unnecessary cache hit) if !pin_index,
+  // depending on prepopulate_block_cache option
   const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
@@ -1020,6 +1022,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of filter
+  // WART: this might be redundant (unnecessary cache hit) if !pin_filter,
+  // depending on prepopulate_block_cache option
   const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
