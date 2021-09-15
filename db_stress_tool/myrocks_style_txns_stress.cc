@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: move these to gflags.
 static constexpr size_t kInitNumC = 1000;
-static constexpr int kCARatio = 3;
+static constexpr int kInitialCARatio = 3;
 static constexpr bool kDoPreload = true;
 
 class MyRocksRecord {
@@ -408,8 +408,6 @@ class MyRocksStyleTxnsStressTest : public StressTest {
   void PreloadDb(SharedState* shared, size_t num_c);
 
   std::atomic<uint32_t> next_a_{0};
-
-  std::atomic<uint32_t> min_a_{0};
 };
 
 void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
@@ -978,43 +976,43 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
 uint32_t MyRocksStyleTxnsStressTest::GeneratePrimaryIndexKeyForPointLookup(
     ThreadState* thread) const {
   Random& rand = thread->rand;
-  uint32_t next_a = next_a_.load();
-  uint32_t min_a = min_a_.load();
-  assert(next_a > min_a);
-  uint32_t rand_key = (rand.Next() % (next_a - min_a)) + min_a;
-  return rand_key;
+  // TODO (yanqin)
+  return rand.Next();
 }
 
 void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
+  // TODO (yanqin) maybe parallelize.
   WriteOptions wopts;
   wopts.disableWAL = true;
   wopts.sync = false;
   Random rnd(shared->GetSeed());
-  for (size_t i = 0; i < num_c; ++i) {
-    MyRocksRecord record(/*a=*/kCARatio * i, /*b=*/rnd.Next(), /*c=*/i);
-    WriteBatch wb;
-    const auto primary_index_entry = record.EncodePrimaryIndexEntry();
-    Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
-    assert(s.ok());
-    const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
-    s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
-    assert(s.ok());
-    s = txn_db_->Write(wopts, &wb);
-    assert(s.ok());
+  for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
+    for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
+         ++a) {
+      MyRocksRecord record(a, /*b=*/rnd.Next(), c);
+      WriteBatch wb;
+      const auto primary_index_entry = record.EncodePrimaryIndexEntry();
+      Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
+      assert(s.ok());
+      const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
+      s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
+      assert(s.ok());
+      s = txn_db_->Write(wopts, &wb);
+      assert(s.ok());
 
-    // TODO (yanqin): make the following check optional, especially when data
-    // size is large.
-    MyRocksRecord tmp_rec;
-    tmp_rec.SetB(record.b_value());
-    s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
-                                          secondary_index_entry.second);
-    assert(s.ok());
-    assert(tmp_rec == record);
+      // TODO (yanqin): make the following check optional, especially when data
+      // size is large.
+      MyRocksRecord tmp_rec;
+      tmp_rec.SetB(record.b_value());
+      s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
+                                            secondary_index_entry.second);
+      assert(s.ok());
+      assert(tmp_rec == record);
+    }
   }
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
-  min_a_.store(0);
-  next_a_.store(num_c * kCARatio);
+  next_a_.store((num_c + 1) * kInitialCARatio);
 }
 
 StressTest* CreateMyRocksStyleTxnsStressTest() {
