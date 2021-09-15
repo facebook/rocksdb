@@ -11,13 +11,12 @@
 // K = key
 // V = value
 // O = optype aka value type
-// T = timestamp
 // S = seqno
 // C = CF ID
 //
 // Then, for example, a class that protects an entry consisting of key, value,
-// optype, timestamp, and CF ID (i.e., a `WriteBatch` entry) would be named
-// `ProtectionInfoKVOTC`.
+// optype, and CF ID (i.e., a `WriteBatch` entry) would be named
+// `ProtectionInfoKVOC`.
 //
 // The `ProtectionInfo.*` classes are templated on the integer type used to hold
 // the XOR of hashes for each field. Only unsigned integer types are supported,
@@ -42,17 +41,17 @@ namespace ROCKSDB_NAMESPACE {
 template <typename T>
 class ProtectionInfo;
 template <typename T>
-class ProtectionInfoKVOT;
+class ProtectionInfoKVO;
 template <typename T>
-class ProtectionInfoKVOTC;
+class ProtectionInfoKVOC;
 template <typename T>
-class ProtectionInfoKVOTS;
+class ProtectionInfoKVOS;
 
 // Aliases for 64-bit protection infos.
 using ProtectionInfo64 = ProtectionInfo<uint64_t>;
-using ProtectionInfoKVOT64 = ProtectionInfoKVOT<uint64_t>;
-using ProtectionInfoKVOTC64 = ProtectionInfoKVOTC<uint64_t>;
-using ProtectionInfoKVOTS64 = ProtectionInfoKVOTS<uint64_t>;
+using ProtectionInfoKVO64 = ProtectionInfoKVO<uint64_t>;
+using ProtectionInfoKVOC64 = ProtectionInfoKVOC<uint64_t>;
+using ProtectionInfoKVOS64 = ProtectionInfoKVOS<uint64_t>;
 
 template <typename T>
 class ProtectionInfo {
@@ -60,16 +59,16 @@ class ProtectionInfo {
   ProtectionInfo<T>() = default;
 
   Status GetStatus() const;
-  ProtectionInfoKVOT<T> ProtectKVOT(const Slice& key, const Slice& value,
-                                    ValueType op_type) const;
-  ProtectionInfoKVOT<T> ProtectKVOT(const SliceParts& key,
-                                    const SliceParts& value,
-                                    ValueType op_type) const;
+  ProtectionInfoKVO<T> ProtectKVO(const Slice& key, const Slice& value,
+                                  ValueType op_type) const;
+  ProtectionInfoKVO<T> ProtectKVO(const SliceParts& key,
+                                  const SliceParts& value,
+                                  ValueType op_type) const;
 
  private:
-  friend class ProtectionInfoKVOT<T>;
-  friend class ProtectionInfoKVOTS<T>;
-  friend class ProtectionInfoKVOTC<T>;
+  friend class ProtectionInfoKVO<T>;
+  friend class ProtectionInfoKVOS<T>;
+  friend class ProtectionInfoKVOC<T>;
 
   // Each field is hashed with an independent value so we can catch fields being
   // swapped. Per the `NPHash64()` docs, using consecutive seeds is a pitfall,
@@ -81,9 +80,8 @@ class ProtectionInfo {
   static const uint64_t kSeedK = 0;
   static const uint64_t kSeedV = 0xD28AAD72F49BD50B;
   static const uint64_t kSeedO = 0xA5155AE5E937AA16;
-  static const uint64_t kSeedT = 0x77A00858DDD37F21;
-  static const uint64_t kSeedS = 0x4A2AB5CBD26F542C;
-  static const uint64_t kSeedC = 0x1CB5633EC70B2937;
+  static const uint64_t kSeedS = 0x77A00858DDD37F21;
+  static const uint64_t kSeedC = 0x4A2AB5CBD26F542C;
 
   ProtectionInfo<T>(T val) : val_(val) {
     static_assert(sizeof(ProtectionInfo<T>) == sizeof(T), "");
@@ -96,32 +94,31 @@ class ProtectionInfo {
 };
 
 template <typename T>
-class ProtectionInfoKVOT {
+class ProtectionInfoKVO {
  public:
-  ProtectionInfoKVOT<T>() = default;
+  ProtectionInfoKVO<T>() = default;
 
-  ProtectionInfo<T> StripKVOT(const Slice& key, const Slice& value,
-                              ValueType op_type, const Slice& timestamp) const;
-  ProtectionInfo<T> StripKVOT(const SliceParts& key, const SliceParts& value,
-                              ValueType op_type, const Slice& timestamp) const;
+  ProtectionInfo<T> StripKVO(const Slice& key, const Slice& value,
+                             ValueType op_type) const;
+  ProtectionInfo<T> StripKVO(const SliceParts& key, const SliceParts& value,
+                             ValueType op_type) const;
 
-  ProtectionInfoKVOTC<T> ProtectC(ColumnFamilyId column_family_id) const;
-  ProtectionInfoKVOTS<T> ProtectS(SequenceNumber sequence_number) const;
+  ProtectionInfoKVOC<T> ProtectC(ColumnFamilyId column_family_id) const;
+  ProtectionInfoKVOS<T> ProtectS(SequenceNumber sequence_number) const;
 
   void UpdateK(const Slice& old_key, const Slice& new_key);
   void UpdateK(const SliceParts& old_key, const SliceParts& new_key);
   void UpdateV(const Slice& old_value, const Slice& new_value);
   void UpdateV(const SliceParts& old_value, const SliceParts& new_value);
   void UpdateO(ValueType old_op_type, ValueType new_op_type);
-  void UpdateT(const Slice& old_timestamp, const Slice& new_timestamp);
 
  private:
   friend class ProtectionInfo<T>;
-  friend class ProtectionInfoKVOTS<T>;
-  friend class ProtectionInfoKVOTC<T>;
+  friend class ProtectionInfoKVOS<T>;
+  friend class ProtectionInfoKVOC<T>;
 
-  ProtectionInfoKVOT<T>(T val) : info_(val) {
-    static_assert(sizeof(ProtectionInfoKVOT<T>) == sizeof(T), "");
+  ProtectionInfoKVO<T>(T val) : info_(val) {
+    static_assert(sizeof(ProtectionInfoKVO<T>) == sizeof(T), "");
   }
 
   T GetVal() const { return info_.GetVal(); }
@@ -131,85 +128,79 @@ class ProtectionInfoKVOT {
 };
 
 template <typename T>
-class ProtectionInfoKVOTC {
+class ProtectionInfoKVOC {
  public:
-  ProtectionInfoKVOTC<T>() = default;
+  ProtectionInfoKVOC<T>() = default;
 
-  ProtectionInfoKVOT<T> StripC(ColumnFamilyId column_family_id) const;
+  ProtectionInfoKVO<T> StripC(ColumnFamilyId column_family_id) const;
 
   void UpdateK(const Slice& old_key, const Slice& new_key) {
-    kvot_.UpdateK(old_key, new_key);
+    kvo_.UpdateK(old_key, new_key);
   }
   void UpdateK(const SliceParts& old_key, const SliceParts& new_key) {
-    kvot_.UpdateK(old_key, new_key);
+    kvo_.UpdateK(old_key, new_key);
   }
   void UpdateV(const Slice& old_value, const Slice& new_value) {
-    kvot_.UpdateV(old_value, new_value);
+    kvo_.UpdateV(old_value, new_value);
   }
   void UpdateV(const SliceParts& old_value, const SliceParts& new_value) {
-    kvot_.UpdateV(old_value, new_value);
+    kvo_.UpdateV(old_value, new_value);
   }
   void UpdateO(ValueType old_op_type, ValueType new_op_type) {
-    kvot_.UpdateO(old_op_type, new_op_type);
-  }
-  void UpdateT(const Slice& old_timestamp, const Slice& new_timestamp) {
-    kvot_.UpdateT(old_timestamp, new_timestamp);
+    kvo_.UpdateO(old_op_type, new_op_type);
   }
   void UpdateC(ColumnFamilyId old_column_family_id,
                ColumnFamilyId new_column_family_id);
 
  private:
-  friend class ProtectionInfoKVOT<T>;
+  friend class ProtectionInfoKVO<T>;
 
-  ProtectionInfoKVOTC<T>(T val) : kvot_(val) {
-    static_assert(sizeof(ProtectionInfoKVOTC<T>) == sizeof(T), "");
+  ProtectionInfoKVOC<T>(T val) : kvo_(val) {
+    static_assert(sizeof(ProtectionInfoKVOC<T>) == sizeof(T), "");
   }
 
-  T GetVal() const { return kvot_.GetVal(); }
-  void SetVal(T val) { kvot_.SetVal(val); }
+  T GetVal() const { return kvo_.GetVal(); }
+  void SetVal(T val) { kvo_.SetVal(val); }
 
-  ProtectionInfoKVOT<T> kvot_;
+  ProtectionInfoKVO<T> kvo_;
 };
 
 template <typename T>
-class ProtectionInfoKVOTS {
+class ProtectionInfoKVOS {
  public:
-  ProtectionInfoKVOTS<T>() = default;
+  ProtectionInfoKVOS<T>() = default;
 
-  ProtectionInfoKVOT<T> StripS(SequenceNumber sequence_number) const;
+  ProtectionInfoKVO<T> StripS(SequenceNumber sequence_number) const;
 
   void UpdateK(const Slice& old_key, const Slice& new_key) {
-    kvot_.UpdateK(old_key, new_key);
+    kvo_.UpdateK(old_key, new_key);
   }
   void UpdateK(const SliceParts& old_key, const SliceParts& new_key) {
-    kvot_.UpdateK(old_key, new_key);
+    kvo_.UpdateK(old_key, new_key);
   }
   void UpdateV(const Slice& old_value, const Slice& new_value) {
-    kvot_.UpdateV(old_value, new_value);
+    kvo_.UpdateV(old_value, new_value);
   }
   void UpdateV(const SliceParts& old_value, const SliceParts& new_value) {
-    kvot_.UpdateV(old_value, new_value);
+    kvo_.UpdateV(old_value, new_value);
   }
   void UpdateO(ValueType old_op_type, ValueType new_op_type) {
-    kvot_.UpdateO(old_op_type, new_op_type);
-  }
-  void UpdateT(const Slice& old_timestamp, const Slice& new_timestamp) {
-    kvot_.UpdateT(old_timestamp, new_timestamp);
+    kvo_.UpdateO(old_op_type, new_op_type);
   }
   void UpdateS(SequenceNumber old_sequence_number,
                SequenceNumber new_sequence_number);
 
  private:
-  friend class ProtectionInfoKVOT<T>;
+  friend class ProtectionInfoKVO<T>;
 
-  ProtectionInfoKVOTS<T>(T val) : kvot_(val) {
-    static_assert(sizeof(ProtectionInfoKVOTS<T>) == sizeof(T), "");
+  ProtectionInfoKVOS<T>(T val) : kvo_(val) {
+    static_assert(sizeof(ProtectionInfoKVOS<T>) == sizeof(T), "");
   }
 
-  T GetVal() const { return kvot_.GetVal(); }
-  void SetVal(T val) { kvot_.SetVal(val); }
+  T GetVal() const { return kvo_.GetVal(); }
+  void SetVal(T val) { kvo_.SetVal(val); }
 
-  ProtectionInfoKVOT<T> kvot_;
+  ProtectionInfoKVO<T> kvo_;
 };
 
 template <typename T>
@@ -221,9 +212,9 @@ Status ProtectionInfo<T>::GetStatus() const {
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const Slice& key,
-                                                     const Slice& value,
-                                                     ValueType op_type) const {
+ProtectionInfoKVO<T> ProtectionInfo<T>::ProtectKVO(const Slice& key,
+                                                   const Slice& value,
+                                                   ValueType op_type) const {
   T val = GetVal();
   val = val ^ static_cast<T>(GetSliceNPHash64(key, ProtectionInfo<T>::kSeedK));
   val =
@@ -231,13 +222,13 @@ ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const Slice& key,
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  return ProtectionInfoKVOT<T>(val);
+  return ProtectionInfoKVO<T>(val);
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const SliceParts& key,
-                                                     const SliceParts& value,
-                                                     ValueType op_type) const {
+ProtectionInfoKVO<T> ProtectionInfo<T>::ProtectKVO(const SliceParts& key,
+                                                   const SliceParts& value,
+                                                   ValueType op_type) const {
   T val = GetVal();
   val = val ^
         static_cast<T>(GetSlicePartsNPHash64(key, ProtectionInfo<T>::kSeedK));
@@ -246,12 +237,11 @@ ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(const SliceParts& key,
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  return ProtectionInfoKVOT<T>(val);
+  return ProtectionInfoKVO<T>(val);
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateK(const Slice& old_key,
-                                    const Slice& new_key) {
+void ProtectionInfoKVO<T>::UpdateK(const Slice& old_key, const Slice& new_key) {
   T val = GetVal();
   val = val ^
         static_cast<T>(GetSliceNPHash64(old_key, ProtectionInfo<T>::kSeedK));
@@ -261,8 +251,8 @@ void ProtectionInfoKVOT<T>::UpdateK(const Slice& old_key,
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateK(const SliceParts& old_key,
-                                    const SliceParts& new_key) {
+void ProtectionInfoKVO<T>::UpdateK(const SliceParts& old_key,
+                                   const SliceParts& new_key) {
   T val = GetVal();
   val = val ^ static_cast<T>(
                   GetSlicePartsNPHash64(old_key, ProtectionInfo<T>::kSeedK));
@@ -272,8 +262,8 @@ void ProtectionInfoKVOT<T>::UpdateK(const SliceParts& old_key,
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateV(const Slice& old_value,
-                                    const Slice& new_value) {
+void ProtectionInfoKVO<T>::UpdateV(const Slice& old_value,
+                                   const Slice& new_value) {
   T val = GetVal();
   val = val ^
         static_cast<T>(GetSliceNPHash64(old_value, ProtectionInfo<T>::kSeedV));
@@ -283,8 +273,8 @@ void ProtectionInfoKVOT<T>::UpdateV(const Slice& old_value,
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateV(const SliceParts& old_value,
-                                    const SliceParts& new_value) {
+void ProtectionInfoKVO<T>::UpdateV(const SliceParts& old_value,
+                                   const SliceParts& new_value) {
   T val = GetVal();
   val = val ^ static_cast<T>(
                   GetSlicePartsNPHash64(old_value, ProtectionInfo<T>::kSeedV));
@@ -294,8 +284,8 @@ void ProtectionInfoKVOT<T>::UpdateV(const SliceParts& old_value,
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateO(ValueType old_op_type,
-                                    ValueType new_op_type) {
+void ProtectionInfoKVO<T>::UpdateO(ValueType old_op_type,
+                                   ValueType new_op_type) {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(reinterpret_cast<char*>(&old_op_type),
                                       sizeof(old_op_type),
@@ -307,20 +297,9 @@ void ProtectionInfoKVOT<T>::UpdateO(ValueType old_op_type,
 }
 
 template <typename T>
-void ProtectionInfoKVOT<T>::UpdateT(const Slice& old_timestamp,
-                                    const Slice& new_timestamp) {
-  T val = GetVal();
-  val = val ^ static_cast<T>(
-                  GetSliceNPHash64(old_timestamp, ProtectionInfo<T>::kSeedT));
-  val = val ^ static_cast<T>(
-                  GetSliceNPHash64(new_timestamp, ProtectionInfo<T>::kSeedT));
-  SetVal(val);
-}
-
-template <typename T>
-ProtectionInfo<T> ProtectionInfoKVOT<T>::StripKVOT(
-    const Slice& key, const Slice& value, ValueType op_type,
-    const Slice& timestamp) const {
+ProtectionInfo<T> ProtectionInfoKVO<T>::StripKVO(const Slice& key,
+                                                 const Slice& value,
+                                                 ValueType op_type) const {
   T val = GetVal();
   val = val ^ static_cast<T>(GetSliceNPHash64(key, ProtectionInfo<T>::kSeedK));
   val =
@@ -328,15 +307,13 @@ ProtectionInfo<T> ProtectionInfoKVOT<T>::StripKVOT(
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  val = val ^
-        static_cast<T>(GetSliceNPHash64(timestamp, ProtectionInfo<T>::kSeedT));
   return ProtectionInfo<T>(val);
 }
 
 template <typename T>
-ProtectionInfo<T> ProtectionInfoKVOT<T>::StripKVOT(
-    const SliceParts& key, const SliceParts& value, ValueType op_type,
-    const Slice& timestamp) const {
+ProtectionInfo<T> ProtectionInfoKVO<T>::StripKVO(const SliceParts& key,
+                                                 const SliceParts& value,
+                                                 ValueType op_type) const {
   T val = GetVal();
   val = val ^
         static_cast<T>(GetSlicePartsNPHash64(key, ProtectionInfo<T>::kSeedK));
@@ -345,34 +322,32 @@ ProtectionInfo<T> ProtectionInfoKVOT<T>::StripKVOT(
   val = val ^
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
-  val = val ^
-        static_cast<T>(GetSliceNPHash64(timestamp, ProtectionInfo<T>::kSeedT));
   return ProtectionInfo<T>(val);
 }
 
 template <typename T>
-ProtectionInfoKVOTC<T> ProtectionInfoKVOT<T>::ProtectC(
+ProtectionInfoKVOC<T> ProtectionInfoKVO<T>::ProtectC(
     ColumnFamilyId column_family_id) const {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(
                   reinterpret_cast<char*>(&column_family_id),
                   sizeof(column_family_id), ProtectionInfo<T>::kSeedC));
-  return ProtectionInfoKVOTC<T>(val);
+  return ProtectionInfoKVOC<T>(val);
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfoKVOTC<T>::StripC(
+ProtectionInfoKVO<T> ProtectionInfoKVOC<T>::StripC(
     ColumnFamilyId column_family_id) const {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(
                   reinterpret_cast<char*>(&column_family_id),
                   sizeof(column_family_id), ProtectionInfo<T>::kSeedC));
-  return ProtectionInfoKVOT<T>(val);
+  return ProtectionInfoKVO<T>(val);
 }
 
 template <typename T>
-void ProtectionInfoKVOTC<T>::UpdateC(ColumnFamilyId old_column_family_id,
-                                     ColumnFamilyId new_column_family_id) {
+void ProtectionInfoKVOC<T>::UpdateC(ColumnFamilyId old_column_family_id,
+                                    ColumnFamilyId new_column_family_id) {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(
                   reinterpret_cast<char*>(&old_column_family_id),
@@ -384,28 +359,28 @@ void ProtectionInfoKVOTC<T>::UpdateC(ColumnFamilyId old_column_family_id,
 }
 
 template <typename T>
-ProtectionInfoKVOTS<T> ProtectionInfoKVOT<T>::ProtectS(
+ProtectionInfoKVOS<T> ProtectionInfoKVO<T>::ProtectS(
     SequenceNumber sequence_number) const {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(reinterpret_cast<char*>(&sequence_number),
                                       sizeof(sequence_number),
                                       ProtectionInfo<T>::kSeedS));
-  return ProtectionInfoKVOTS<T>(val);
+  return ProtectionInfoKVOS<T>(val);
 }
 
 template <typename T>
-ProtectionInfoKVOT<T> ProtectionInfoKVOTS<T>::StripS(
+ProtectionInfoKVO<T> ProtectionInfoKVOS<T>::StripS(
     SequenceNumber sequence_number) const {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(reinterpret_cast<char*>(&sequence_number),
                                       sizeof(sequence_number),
                                       ProtectionInfo<T>::kSeedS));
-  return ProtectionInfoKVOT<T>(val);
+  return ProtectionInfoKVO<T>(val);
 }
 
 template <typename T>
-void ProtectionInfoKVOTS<T>::UpdateS(SequenceNumber old_sequence_number,
-                                     SequenceNumber new_sequence_number) {
+void ProtectionInfoKVOS<T>::UpdateS(SequenceNumber old_sequence_number,
+                                    SequenceNumber new_sequence_number) {
   T val = GetVal();
   val = val ^ static_cast<T>(NPHash64(
                   reinterpret_cast<char*>(&old_sequence_number),
