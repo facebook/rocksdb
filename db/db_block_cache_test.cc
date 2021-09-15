@@ -506,8 +506,10 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
   }
   // Verify compaction not counted
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr, /*end=*/nullptr));
-  EXPECT_EQ(kNumBlocks, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(kNumBlocks,
+            options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
 }
 
 // This test cache data, index and filter blocks during flush.
@@ -546,8 +548,10 @@ TEST_F(DBBlockCacheTest, WarmCacheWithBlocksDuringFlush) {
               options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
   }
   // Verify compaction not counted
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr, /*end=*/nullptr));
-  EXPECT_EQ(kNumBlocks, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(kNumBlocks,
+            options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
   // Index and filter blocks are automatically warmed when the new table file
   // is automatically opened at the end of compaction. This is not easily
   // disabled so results in the new index and filter blocks being warmed.
