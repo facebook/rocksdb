@@ -22,8 +22,8 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-inline void IOStatsAddIfPositiveByTemperature(Temperature file_temperature,
-                                              size_t value) {
+inline void IOStatsAddBytesIfPositiveByTemperature(Temperature file_temperature,
+                                                   size_t value) {
   switch (file_temperature) {
     case Temperature::kHot:
       IOSTATS_ADD_IF_POSITIVE(file_io_stats_by_temperature.hot_file_bytes_read,
@@ -40,6 +40,28 @@ inline void IOStatsAddIfPositiveByTemperature(Temperature file_temperature,
     default:
       IOSTATS_ADD_IF_POSITIVE(
           file_io_stats_by_temperature.unknown_file_bytes_read, value);
+      break;
+  }
+}
+
+inline void IOStatsAddCountIfPositiveByTemperature(Temperature file_temperature,
+                                                   size_t value) {
+  switch (file_temperature) {
+    case Temperature::kHot:
+      IOSTATS_ADD_IF_POSITIVE(file_io_stats_by_temperature.hot_file_read_count,
+                              value);
+      break;
+    case Temperature::kWarm:
+      IOSTATS_ADD_IF_POSITIVE(file_io_stats_by_temperature.warm_file_read_count,
+                              value);
+      break;
+    case Temperature::kCold:
+      IOSTATS_ADD_IF_POSITIVE(file_io_stats_by_temperature.cold_file_read_count,
+                              value);
+      break;
+    default:
+      IOSTATS_ADD_IF_POSITIVE(
+          file_io_stats_by_temperature.unknown_file_read_count, value);
       break;
   }
 }
@@ -204,7 +226,8 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
     IOSTATS_ADD(bytes_read, result->size());
-    IOStatsAddIfPositiveByTemperature(file_temperature_, result->size());
+    IOStatsAddBytesIfPositiveByTemperature(file_temperature_, result->size());
+    IOStatsAddCountIfPositiveByTemperature(file_temperature_, 1);
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -370,8 +393,9 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       }
 #endif  // ROCKSDB_LITE
       IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
-      IOStatsAddIfPositiveByTemperature(file_temperature_,
-                                        read_reqs[i].result.size());
+      IOStatsAddBytesIfPositiveByTemperature(file_temperature_,
+                                             read_reqs[i].result.size());
+      IOStatsAddCountIfPositiveByTemperature(file_temperature_, 1);
     }
     SetPerfLevel(prev_perf_level);
   }

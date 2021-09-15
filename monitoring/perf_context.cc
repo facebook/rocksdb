@@ -128,7 +128,6 @@ PerfContext::PerfContext(const PerfContext& other) {
     *level_to_perf_context = *other.level_to_perf_context;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
-  file_access_count_by_temperature = other.file_access_count_by_temperature;
 #endif
 }
 
@@ -227,7 +226,6 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
     other.level_to_perf_context = nullptr;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
-  file_access_count_by_temperature = other.file_access_count_by_temperature;
 #endif
 }
 
@@ -328,7 +326,6 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
     *level_to_perf_context = *other.level_to_perf_context;
   }
   per_level_perf_context_enabled = other.per_level_perf_context_enabled;
-  file_access_count_by_temperature = other.file_access_count_by_temperature;
 #endif
   return *this;
 }
@@ -421,7 +418,6 @@ void PerfContext::Reset() {
       kv.second.Reset();
     }
   }
-  file_access_count_by_temperature.Reset();
 #endif
 }
 
@@ -448,15 +444,6 @@ void PerfContextByLevel::Reset() {
   bloom_filter_full_true_positive = 0;
   block_cache_hit_count = 0;
   block_cache_miss_count = 0;
-#endif
-}
-
-void FileAccessByTemperature::Reset() {
-#ifndef NPERF_CONTEXT
-  hot_file_read_count = 0;
-  warm_file_read_count = 0;
-  cold_file_read_count = 0;
-  unknown_file_read_count = 0;
 #endif
 }
 
@@ -545,10 +532,6 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(iter_next_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_prev_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_seek_cpu_nanos);
-  PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.hot_file_read_count);
-  PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.warm_file_read_count);
-  PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.cold_file_read_count);
-  PERF_CONTEXT_OUTPUT(file_access_count_by_temperature.unknown_file_read_count);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);

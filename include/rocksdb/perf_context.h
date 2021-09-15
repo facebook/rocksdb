@@ -41,21 +41,6 @@ struct PerfContextByLevel {
   void Reset();  // reset all performance counters to zero
 };
 
-// EXPERIMENTAL: the perf context for tiered storage. It matches with each item
-// in Temperature class.
-struct FileAccessByTemperature {
-  // total number of block reads to Temperature::kHot file
-  uint64_t hot_file_read_count = 0;
-  // total number of block reads to Temperature::kWarm file
-  uint64_t warm_file_read_count = 0;
-  // total number of block reads to Temperature::kCold file
-  uint64_t cold_file_read_count = 0;
-  // total number of block reads to Temperature::kUnknown file
-  uint64_t unknown_file_read_count = 0;
-  // reset all the counters to 0.
-  void Reset();
-};
-
 struct PerfContext {
   ~PerfContext();
 
@@ -246,8 +231,6 @@ struct PerfContext {
 
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
-
-  FileAccessByTemperature file_access_count_by_temperature;
 };
 
 // If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,

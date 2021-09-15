@@ -43,7 +43,6 @@ class BlockFetcher {
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
-               Temperature file_temperature = Temperature::kUnknown,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
                bool for_compaction = false)
@@ -61,7 +60,6 @@ class BlockFetcher {
         block_size_with_trailer_(block_size(handle_)),
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
-        file_temperature_(file_temperature),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {
@@ -102,7 +100,6 @@ class BlockFetcher {
   const size_t block_size_with_trailer_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
-  Temperature file_temperature_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
   IOStatus io_status_;
@@ -131,27 +128,4 @@ class BlockFetcher {
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void CheckBlockChecksum();
 };
-
-inline void PerfConterAddByTemperature(Temperature file_temperature,
-                                       size_t value) {
-  switch (file_temperature) {
-    case Temperature::kHot:
-      PERF_COUNTER_ADD(file_access_count_by_temperature.hot_file_read_count,
-                       value);
-      break;
-    case Temperature::kWarm:
-      PERF_COUNTER_ADD(file_access_count_by_temperature.warm_file_read_count,
-                       value);
-      break;
-    case Temperature::kCold:
-      PERF_COUNTER_ADD(file_access_count_by_temperature.cold_file_read_count,
-                       value);
-      break;
-    default:
-      PERF_COUNTER_ADD(file_access_count_by_temperature.unknown_file_read_count,
-                       value);
-      break;
-  }
-}
-
 }  // namespace ROCKSDB_NAMESPACE

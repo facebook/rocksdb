@@ -103,8 +103,7 @@ class BlockBasedTable : public TableReader {
                      BlockCacheTracer* const block_cache_tracer = nullptr,
                      size_t max_file_size_for_l0_meta_pin = 0,
                      const std::string& cur_db_session_id = "",
-                     uint64_t cur_file_num = 0,
-                     Temperature file_temperature = Temperature::kUnknown);
+                     uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -534,8 +533,7 @@ struct BlockBasedTable::Rep {
   Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
-      uint64_t _file_size, int _level, const bool _immortal_table,
-      Temperature _file_temperature)
+      uint64_t _file_size, int _level, const bool _immortal_table)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -549,8 +547,7 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table),
-        file_temperature(_file_temperature) {}
+        immortal_table(_immortal_table) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -629,8 +626,6 @@ struct BlockBasedTable::Rep {
   bool index_value_is_full = true;
 
   const bool immortal_table;
-
-  Temperature file_temperature;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
     return (block_type == BlockType::kFilter ||
