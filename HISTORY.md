@@ -23,6 +23,7 @@
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
 * Add a public API RateLimiter::GetTotalPendingRequests() for the total number of requests that are pending for bytes in the rate limiter.
+* Made Statistics extend the Customizable class and added a CreateFromString method.  Implementations of Statistics need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
