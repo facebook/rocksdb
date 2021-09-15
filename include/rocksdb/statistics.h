@@ -578,6 +578,7 @@ class Statistics : public Customizable {
                                  std::shared_ptr<Statistics>* result);
   // Default name of empty, for backwards compatibility.  Derived classes should
   // override this method.
+  // This default implementation will likely be removed in a future release
   const char* Name() const override { return ""; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,

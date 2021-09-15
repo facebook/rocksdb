@@ -57,7 +57,6 @@ TEST_F(StatisticsTest, NoNameStats) {
       RegisterOptions("", &inner, &no_name_opt_info);
     }
 
-    static const char* kClassName() { return "NoNameStatistics"; }
     uint64_t getTickerCount(uint32_t /*tickerType*/) const override {
       return 0;
     }
