@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: benchmark.sh exists in the current directory
-# After execution of this script, log files are generated in $output_dir.
-# report.txt provides a high level statistics
+# After the execution of this script, log files are available in $output_dir.
+# report.txt provides high level statistics.
 
-# This should be run from the parent of the tools directory. The command line is:
+# Should be run from the parent of the tools directory. The command line is:
 #   [$env_vars] tools/run_blob_bench.sh
 #
-# This runs the following sequence of tests for various value sizes, with and
-# without blob files enabled:
-#   step 1) load - bulkload, compact, overwrite
-#   step 2) read-write - readwhilewriting, seekwhilewriting
-#   step 3) read-only - readrandom, seekrandom
+# This runs the following sequence of tests:
+#   phase 1) write-only - bulkload+compact, overwrite+waitforcompaction
+#   phase 2) read-write - readwhilewriting, fwdrangewhilewriting
+#   phase 3) read-only - readrandom, fwdrange
 #
 
 # Exit Codes
@@ -54,14 +53,14 @@ blob_compression_type=${BLOB_COMPRESSION_TYPE:-lz4}
 enable_blob_garbage_collection=${ENABLE_BLOB_GC:-1}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 
-write_buffer_size=${WRITE_BUFFER_SIZE:-$blob_file_size}
+write_buffer_size=${WRITE_BUFFER_SIZE:-$((1 * G))}
 
-target_file_size_base=$blob_file_size
+target_file_size_base=${TARGET_FILE_SIZE_BASE:-$((1 * G))}
 if [ "$enable_blob_files" == "1" ]; then
   target_file_size_base=$(($blob_file_size / $value_size * 32))
 fi
 
-max_bytes_for_level_base=$((8 * $target_file_size_base))
+max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * $target_file_size_base))}
 
 echo "======================== Value size: $value_size, blob files: $enable_blob_files, GC cutoff: $blob_garbage_collection_age_cutoff ========================"
 
