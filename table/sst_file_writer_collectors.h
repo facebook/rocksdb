@@ -78,7 +78,7 @@ class SstFileWriterPropertiesCollectorFactory
       : version_(version), global_seqno_(global_seqno) {}
 
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
+      uint32_t /*column_family_id*/, int /* file_level */) override {
     return new SstFileWriterPropertiesCollector(version_, global_seqno_);
   }
 

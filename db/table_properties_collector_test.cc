@@ -206,7 +206,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
     }
   }
   IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
+      uint32_t /*column_family_id*/, int /* file_level */) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
