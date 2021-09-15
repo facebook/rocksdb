@@ -726,6 +726,10 @@ static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   return true;
 }
 
+DEFINE_bool(allow_io_polling, false,
+            "If the environment supports it, allow MultiRead IOs to spend CPU"
+            " cycles on IO polling in order to improve IO latency");
+
 DEFINE_bool(verify_checksum, true,
             "Verify checksum for every block read"
             " from storage");
@@ -5751,6 +5755,7 @@ class Benchmark {
     int64_t num_multireads = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
+    options.allow_io_polling = FLAGS_allow_io_polling;
     std::vector<Slice> keys;
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);

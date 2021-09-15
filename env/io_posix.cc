@@ -9,8 +9,10 @@
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
+
 #include <errno.h>
 #include <fcntl.h>
+
 #include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
@@ -603,8 +605,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
-                                          size_t num_reqs,
+IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
   if (use_direct_io()) {
@@ -633,11 +634,10 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
-  IOStatus ios = IOStatus::OK();
-
   struct WrappedReadRequest {
     FSReadRequest* req;
-    struct iovec iov;
+    void* buf;
+    size_t len;
     size_t finished_len;
     explicit WrappedReadRequest(FSReadRequest* r) : req(r), finished_len(0) {}
   };
@@ -665,112 +665,111 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
         rep_to_submit = &req_wraps[reqs_off++];
       }
       assert(rep_to_submit->req->len > rep_to_submit->finished_len);
-      rep_to_submit->iov.iov_base =
+      rep_to_submit->buf =
           rep_to_submit->req->scratch + rep_to_submit->finished_len;
-      rep_to_submit->iov.iov_len =
+      rep_to_submit->len =
           rep_to_submit->req->len - rep_to_submit->finished_len;
 
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
-      io_uring_prep_readv(
-          sqe, fd_, &rep_to_submit->iov, 1,
+      io_uring_prep_read(
+          sqe, fd_, rep_to_submit->buf, rep_to_submit->len,
           rep_to_submit->req->offset + rep_to_submit->finished_len);
       io_uring_sqe_set_data(sqe, rep_to_submit);
     }
     incomplete_rq_list.clear();
 
-    ssize_t ret =
-        io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    ssize_t ret;
+    if (options.allow_io_polling) {
+      // Submit IOs and poll for their completion below
+      ret = io_uring_submit(iu);
+    } else {
+      // Submit IOs and wait until they all have completed
+      ret = io_uring_submit_and_wait(iu, this_reqs);
+    }
     TEST_SYNC_POINT_CALLBACK(
-        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
-        &ret);
+        "PosixRandomAccessFile::MultiRead:io_uring_submit:return1", &ret);
     TEST_SYNC_POINT_CALLBACK(
-        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
-        iu);
+        "PosixRandomAccessFile::MultiRead:io_uring_submit:return2", iu);
 
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
       // If error happens and we submitted fewer than expected, it is an
       // exception case and we don't retry here. We should still consume
       // what is is submitted in the ring.
-      for (ssize_t i = 0; i < ret; i++) {
-        struct io_uring_cqe* cqe = nullptr;
-        io_uring_wait_cqe(iu, &cqe);
-        if (cqe != nullptr) {
-          io_uring_cqe_seen(iu, cqe);
-        }
-      }
-      return IOStatus::IOError("io_uring_submit_and_wait() requested " +
+      struct io_uring_cqe* cqes[ret];
+      io_uring_wait_cqe_nr(iu, cqes, static_cast<unsigned int>(ret));
+      io_uring_cq_advance(iu, static_cast<unsigned int>(ret));
+      return IOStatus::IOError("io_uring_submit() requested " +
                                ToString(this_reqs) + " but returned " +
                                ToString(ret));
     }
 
-    for (size_t i = 0; i < this_reqs; i++) {
-      struct io_uring_cqe* cqe = nullptr;
-      WrappedReadRequest* req_wrap;
-
-      // We could use the peek variant here, but this seems safer in terms
-      // of our initial wait not reaping all completions
-      ret = io_uring_wait_cqe(iu, &cqe);
+    size_t cqes_left = this_reqs;
+    while (cqes_left > 0) {
+      struct io_uring_cqe* cqes[cqes_left];
+      size_t completed = io_uring_peek_batch_cqe(iu, cqes, cqes_left);
       TEST_SYNC_POINT_CALLBACK(
-          "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
-      if (ret) {
-        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+          "PosixRandomAccessFile::MultiRead:io_uring_peek_batch_cqe:return",
+          &completed);
 
-        if (cqe != nullptr) {
-          io_uring_cqe_seen(iu, cqe);
-        }
-        continue;
-      }
+      cqes_left -= completed;
+      for (size_t i = 0; i < completed; i++) {
+        struct io_uring_cqe* cqe = cqes[i];
+        WrappedReadRequest* req_wrap;
 
-      req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
-      FSReadRequest* req = req_wrap->req;
-      if (cqe->res < 0) {
-        req->result = Slice(req->scratch, 0);
-        req->status = IOError("Req failed", filename_, cqe->res);
-      } else {
-        size_t bytes_read = static_cast<size_t>(cqe->res);
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
-        if (bytes_read == req_wrap->iov.iov_len) {
-          req->result = Slice(req->scratch, req->len);
-          req->status = IOStatus::OK();
-        } else if (bytes_read == 0) {
-          // cqe->res == 0 can means EOF, or can mean partial results. See
-          // comment
-          // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
-          // Fall back to pread in this case.
-          if (use_direct_io() &&
-              !IsSectorAligned(req_wrap->finished_len,
-                               GetRequiredBufferAlignment())) {
-            // Bytes reads don't fill sectors. Should only happen at the end
-            // of the file.
-            req->result = Slice(req->scratch, req_wrap->finished_len);
-            req->status = IOStatus::OK();
-          } else {
-            Slice tmp_slice;
-            req->status =
-                Read(req->offset + req_wrap->finished_len,
-                     req->len - req_wrap->finished_len, options, &tmp_slice,
-                     req->scratch + req_wrap->finished_len, dbg);
-            req->result =
-                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
-          }
-        } else if (bytes_read < req_wrap->iov.iov_len) {
-          assert(bytes_read > 0);
-          assert(bytes_read + req_wrap->finished_len < req->len);
-          req_wrap->finished_len += bytes_read;
-          incomplete_rq_list.push_back(req_wrap);
-        } else {
+        req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+        FSReadRequest* req = req_wrap->req;
+        if (cqe->res < 0) {
           req->result = Slice(req->scratch, 0);
-          req->status = IOError("Req returned more bytes than requested",
-                                filename_, cqe->res);
+          req->status = IOError("Req failed", filename_, cqe->res);
+        } else {
+          size_t bytes_read = static_cast<size_t>(cqe->res);
+          TEST_SYNC_POINT_CALLBACK(
+              "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
+          if (bytes_read == req_wrap->len) {
+            req->result = Slice(req->scratch, req->len);
+            req->status = IOStatus::OK();
+          } else if (bytes_read == 0) {
+            // cqe->res == 0 can means EOF, or can mean partial results. See
+            // comment
+            // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+            // Fall back to pread in this case.
+            if (use_direct_io() &&
+                !IsSectorAligned(req_wrap->finished_len,
+                                 GetRequiredBufferAlignment())) {
+              // Bytes reads don't fill sectors. Should only happen at the end
+              // of the file.
+              req->result = Slice(req->scratch, req_wrap->finished_len);
+              req->status = IOStatus::OK();
+            } else {
+              Slice tmp_slice;
+              req->status =
+                  Read(req->offset + req_wrap->finished_len,
+                       req->len - req_wrap->finished_len, options, &tmp_slice,
+                       req->scratch + req_wrap->finished_len, dbg);
+              req->result = Slice(req->scratch,
+                                  req_wrap->finished_len + tmp_slice.size());
+            }
+          } else if (bytes_read < req_wrap->len) {
+            assert(bytes_read > 0);
+            assert(bytes_read + req_wrap->finished_len < req->len);
+            req_wrap->finished_len += bytes_read;
+            incomplete_rq_list.push_back(req_wrap);
+          } else {
+            req->result = Slice(req->scratch, 0);
+            req->status = IOError("Req returned more bytes than requested",
+                                  filename_, cqe->res);
+          }
         }
       }
-      io_uring_cqe_seen(iu, cqe);
+
+      io_uring_cq_advance(iu, completed);
     }
+
+    assert(cqes_left == 0);
   }
-  return ios;
+  return IOStatus::OK();
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif

@@ -90,6 +90,10 @@ struct IOOptions {
   // Type of data being read/written
   IOType type;
 
+  // If set and the environment supports it, the environment may spend CPU
+  // cycles on IO polling in order to improve IO latency.
+  bool allow_io_polling;
+
   IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
 
@@ -228,7 +232,7 @@ class FileSystem {
                                  const std::string& value,
                                  std::shared_ptr<FileSystem>* result);
 
-  // Return a default fie_system suitable for the current operating
+  // Return a default file_system suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
   // implementation instead of relying on this default file_system
   //
