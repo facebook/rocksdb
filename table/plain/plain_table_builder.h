@@ -120,8 +120,6 @@ class PlainTableBuilder: public TableBuilder {
 
   const SliceTransform* prefix_extractor_;
 
-  bool level_at_creation_;
-
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
     return GetPrefixFromUserKey(GetUserKey(target));

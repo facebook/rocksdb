@@ -75,8 +75,7 @@ PlainTableBuilder::PlainTableBuilder(
       encoder_(encoding_type, user_key_len, moptions.prefix_extractor.get(),
                index_sparseness),
       store_index_in_file_(store_index_in_file),
-      prefix_extractor_(moptions.prefix_extractor.get()),
-      level_at_creation_(level_at_creation) {
+      prefix_extractor_(moptions.prefix_extractor.get()) {
   // Build index block and save it in the file if hash_table_ratio > 0
   if (store_index_in_file_) {
     assert(hash_table_ratio > 0 || IsTotalOrderMode());
