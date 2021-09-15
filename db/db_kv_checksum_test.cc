@@ -34,10 +34,9 @@ class DbKvChecksumTest
     corrupt_byte_addend_ = std::get<1>(GetParam());
   }
 
-  std::pair<WriteBatch, Status> GetWriteBatch(size_t ts_sz,
-                                              ColumnFamilyHandle* cf_handle) {
+  std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle) {
     Status s;
-    WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */, ts_sz,
+    WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */,
                   8 /* protection_bytes_per_entry */);
     switch (op_type_) {
       case WriteBatchOpType::kPut:
@@ -151,8 +150,7 @@ TEST_P(DbKvChecksumTest, MemTableAddCorrupted) {
     Reopen(options);
 
     SyncPoint::GetInstance()->EnableProcessing();
-    auto batch_and_status =
-        GetWriteBatch(0 /* ts_sz */, nullptr /* cf_handle */);
+    auto batch_and_status = GetWriteBatch(nullptr /* cf_handle */);
     ASSERT_OK(batch_and_status.second);
     ASSERT_TRUE(
         db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
@@ -183,7 +181,7 @@ TEST_P(DbKvChecksumTest, MemTableAddWithColumnFamilyCorrupted) {
     ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
 
     SyncPoint::GetInstance()->EnableProcessing();
-    auto batch_and_status = GetWriteBatch(0 /* ts_sz */, handles_[1]);
+    auto batch_and_status = GetWriteBatch(handles_[1]);
     ASSERT_OK(batch_and_status.second);
     ASSERT_TRUE(
         db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());

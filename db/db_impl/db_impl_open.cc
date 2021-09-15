@@ -1434,8 +1434,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                       meta.fd.GetFileSize(), s.ToString().c_str());
       mutex_.Lock();
 
-      io_s.PermitUncheckedError();  // TODO(AR) is this correct, or should we
-                                    // return io_s if not ok()?
+      // TODO(AR) is this ok?
+      if (!io_s.ok() && s.ok()) {
+        s = io_s;
+      }
     }
   }
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);

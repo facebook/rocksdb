@@ -20,8 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 // of configuring the objects.
 class ConfigurableHelper {
  public:
-  constexpr static const char* kIdPropName = "id";
-  constexpr static const char* kIdPropSuffix = ".id";
   // Configures the input Configurable object based on the parameters.
   // On successful completion, the Configurable is updated with the settings
   // from the opt_map.

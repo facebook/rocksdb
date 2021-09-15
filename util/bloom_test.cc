@@ -1195,6 +1195,96 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                                         BloomFilterPolicy::kFastLocalBloom,
                                         BloomFilterPolicy::kStandard128Ribbon));
 
+static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
+  union {
+    uint64_t key_value;
+    char key_bytes[8];
+  };
+
+  const unsigned kNumKeys = 1000;
+
+  Slice key_slice{key_bytes, 8};
+  for (key_value = 0; key_value < kNumKeys; ++key_value) {
+    builder->AddKey(key_slice);
+  }
+
+  std::unique_ptr<const char[]> buf;
+  auto filter = builder->Finish(&buf);
+  return filter.size() * /*bits per byte*/ 8 / (1.0 * kNumKeys);
+}
+
+static void SetTestingLevel(int levelish, FilterBuildingContext* ctx) {
+  if (levelish == -1) {
+    // Flush is treated as level -1 for this option but actually level 0
+    ctx->level_at_creation = 0;
+    ctx->reason = TableFileCreationReason::kFlush;
+  } else {
+    ctx->level_at_creation = levelish;
+    ctx->reason = TableFileCreationReason::kCompaction;
+  }
+}
+
+TEST(RibbonTest, RibbonTestLevelThreshold) {
+  BlockBasedTableOptions opts;
+  FilterBuildingContext ctx(opts);
+  // A few settings
+  for (CompactionStyle cs : {kCompactionStyleLevel, kCompactionStyleUniversal,
+                             kCompactionStyleFIFO, kCompactionStyleNone}) {
+    ctx.compaction_style = cs;
+    for (int bloom_before_level : {-1, 0, 1, 10}) {
+      std::vector<std::unique_ptr<const FilterPolicy> > policies;
+      policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
+
+      if (bloom_before_level == -1) {
+        // Also test old API
+        policies.emplace_back(NewExperimentalRibbonFilterPolicy(10));
+      }
+
+      if (bloom_before_level == 0) {
+        // Also test old API and new API default
+        policies.emplace_back(NewRibbonFilterPolicy(10));
+      }
+
+      for (std::unique_ptr<const FilterPolicy>& policy : policies) {
+        // Claim to be generating filter for this level
+        SetTestingLevel(bloom_before_level, &ctx);
+
+        std::unique_ptr<FilterBitsBuilder> builder{
+            policy->GetBuilderWithContext(ctx)};
+
+        // Must be Ribbon (more space efficient than 10 bits per key)
+        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+
+        if (bloom_before_level >= 0) {
+          // Claim to be generating filter for previous level
+          SetTestingLevel(bloom_before_level - 1, &ctx);
+
+          builder.reset(policy->GetBuilderWithContext(ctx));
+
+          if (cs == kCompactionStyleLevel || cs == kCompactionStyleUniversal) {
+            // Level is considered.
+            // Must be Bloom (~ 10 bits per key)
+            ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+          } else {
+            // Level is ignored under non-traditional compaction styles.
+            // Must be Ribbon (more space efficient than 10 bits per key)
+            ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+          }
+        }
+
+        // Like SST file writer
+        ctx.level_at_creation = -1;
+        ctx.reason = TableFileCreationReason::kMisc;
+
+        builder.reset(policy->GetBuilderWithContext(ctx));
+
+        // Must be Ribbon (more space efficient than 10 bits per key)
+        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+      }
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

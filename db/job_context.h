@@ -12,8 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "db/log_writer.h"
 #include "db/column_family.h"
+#include "db/log_writer.h"
+#include "db/version_set.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -117,7 +118,7 @@ struct JobContext {
       }
     }
     return memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
-           sv_have_sth;
+           job_snapshot != nullptr || sv_have_sth;
   }
 
   // Structure to store information for candidate files to delete.

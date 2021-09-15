@@ -459,7 +459,7 @@ static bool isPCLMULQDQ() {
 #endif  // HAVE_POWER8
 #endif  // HAVE_ARM64_CRC
 
-typedef uint32_t (*Function)(uint32_t, const char*, size_t);
+using Function = uint32_t (*)(uint32_t, const char*, size_t);
 
 #if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
 uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
@@ -1320,7 +1320,7 @@ struct gf_powers_memo<0, m> {
 
 template <typename T, T... Ints>
 struct integer_sequence {
-  typedef T value_type;
+  using value_type = T;
   static constexpr size_t size() { return sizeof...(Ints); }
 };
 
