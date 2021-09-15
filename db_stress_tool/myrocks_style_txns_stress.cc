@@ -10,6 +10,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/defer.h"
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif  // NDEBUG
@@ -207,6 +208,8 @@ class InvariantChecker {
 
 // Implementation of MyRocks-style records and transactions
 
+// MyRocksRecord methods
+//
 std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
@@ -296,7 +299,9 @@ std::string MyRocksRecord::EncodePrimaryKey() const {
 std::string MyRocksRecord::EncodePrimaryIndexValue() const {
   char buf[8];
   EncodeFixed32(buf, b_);
+  std::reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
+  std::reverse(buf + 4, buf + 8);
   return std::string(buf, sizeof(buf));
 }
 
@@ -417,6 +422,8 @@ Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
   return Status::OK();
 }
 
+// MyRocksStyleTxnsStressTest methods
+//
 void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
@@ -506,9 +513,8 @@ Status MyRocksStyleTxnsStressTest::TestIterate(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
-  (void)thread;
-  (void)read_opts;
-  return Status::OK();
+  uint32_t c = thread->rand.Next() % kInitNumC;
+  return RangeScanTxn(thread, read_opts, c);
 }
 
 // Not intended for use.
@@ -589,10 +595,35 @@ Status MyRocksStyleTxnsStressTest::TestApproximateSize(
 
 Status MyRocksStyleTxnsStressTest::TestCustomOperations(
     ThreadState* thread, const std::vector<int>& rand_column_families) {
-  // TODO (yanqin)
-  (void)thread;
   (void)rand_column_families;
-  return Status::OK();
+  // Randomly choose from 0, 1, and 2.
+  // TODO (yanqin) allow user to configure probability of each operation.
+  uint32_t rand = thread->rand.Uniform(3);
+  Status s;
+  if (0 == rand) {
+    // Update primary key.
+  } else if (1 == rand) {
+    // Update secondary key.
+    uint32_t old_c = thread->rand.Next() % kInitNumC;
+    int count = 0;
+    uint32_t new_c = 0;
+    do {
+      ++count;
+      new_c = thread->rand.Next() % kInitNumC;
+    } while (count < 100 && new_c == old_c);
+    if (count >= 100) {
+      // If we reach here, it means our random number generator has a serious
+      // problem, or kInitNumC is chosen poorly.
+      std::terminate();
+    }
+    s = SecondaryKeyUpdateTxn(thread, old_c, new_c);
+  } else if (2 == rand) {
+    // Update primary index value.
+  } else {
+    // Should never reach here.
+    assert(false);
+  }
+  return s;
 }
 
 Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
@@ -610,7 +641,7 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   }
   txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
 
-  const auto defer([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
       return;
     }
@@ -687,20 +718,44 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     thread->stats.AddErrors(1);
     return s;
   }
+
   Iterator* it = nullptr;
-  const auto defer([&s, thread, it, txn, this]() {
+  const Defer cleanup([&s, thread, &it, txn, this]() {
+    delete it;
     if (s.ok()) {
       return;
+    } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
+               s.IsMergeInProgress()) {
+      // ww-conflict detected, or
+      // lock cannot be acquired, or
+      // memtable history is not large enough for conflict checking, or
+      // Merge operation cannot be resolved.
+      // TODO (yanqin) add stats for other cases?
+    } else if (s.IsNotFound()) {
+      // ignore.
+    } else {
+      thread->stats.AddErrors(1);
     }
-    delete it;
     RollbackTxn(txn).PermitUncheckedError();
   });
 
-  txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
+  // TODO (yanqin) try SetSnapshotOnNextOperation(). We currently need to take
+  // a snapshot here because we will later verify that point lookup in the
+  // primary index using GetForUpdate() returns the same value for 'c' as the
+  // iterator. The iterator does not need a snapshot though, because it will be
+  // assigned the current latest (published) sequence in the db, which will be
+  // no smaller than the snapshot created here. The GetForUpdate will perform
+  // ww conflict checking to ensure GetForUpdate() (using the snapshot) sees
+  // the same data as this iterator.
+  txn->SetSnapshot();
   std::string old_sk_prefix = MyRocksRecord::EncodeSecondaryKey(old_c);
   std::string iter_ub_str = MyRocksRecord::EncodeSecondaryKey(old_c + 1);
   Slice iter_ub = iter_ub_str;
   ReadOptions ropts;
+  if (thread->rand.OneIn(2)) {
+    ropts.snapshot = txn->GetSnapshot();
+  }
+  ropts.total_order_seek = true;
   ropts.iterate_upper_bound = &iter_ub;
   it = txn->GetIterator(ropts);
   it->Seek(old_sk_prefix);
@@ -709,31 +764,46 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
   auto* wb = txn->GetWriteBatch();
-  // it->Valid() is true here.
   do {
+    thread->stats.AddIterations(1);
+
     MyRocksRecord record;
     s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
+      VerificationAbort(thread->shared, "Cannot decode secondary key", s);
       break;
     }
     // At this point, record.b is not known yet, thus we need to access
     // primary index.
     std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
     std::string value;
-    s = txn->GetForUpdate(ReadOptions(), pk, &value);
-    if (!s.ok()) {
+    ReadOptions read_opts;
+    read_opts.snapshot = txn->GetSnapshot();
+    s = txn->GetForUpdate(read_opts, pk, &value);
+    if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
+        s.IsMergeInProgress()) {
+      // Write conflict, or cannot acquire lock, or memtable size is not large
+      // enough, or merge cannot be resolved.
+      break;
+    } else if (!s.ok()) {
       // We can also fail verification here.
+      VerificationAbort(thread->shared, "pk should exist, but does not", s);
       break;
     }
     auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
+      VerificationAbort(thread->shared, "Cannot decode primary index value", s);
       break;
     }
     uint32_t b = std::get<1>(result);
     uint32_t c = std::get<2>(result);
     if (c != old_c) {
+      std::ostringstream oss;
+      oss << "c in primary index does not match secondary index: " << c
+          << " != " << old_c;
       s = Status::Corruption();
+      VerificationAbort(thread->shared, oss.str(), s);
       break;
     }
     MyRocksRecord new_rec(record.a_value(), b, new_c);
@@ -757,10 +827,13 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
     it->Next();
   } while (it->Valid());
+
   if (!s.ok()) {
     return s;
   }
+
   s = CommitTxn(txn);
+
   return s;
 }
 
@@ -775,7 +848,7 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
     thread->stats.AddErrors(1);
     return s;
   }
-  const auto defer([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
       return;
     }
@@ -829,7 +902,7 @@ Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
     thread->stats.AddErrors(1);
     return s;
   }
-  const auto defer([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
       return;
     }
@@ -865,7 +938,7 @@ Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
     thread->stats.AddErrors(1);
     return s;
   }
-  const auto defer([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
       return;
     }
@@ -1020,6 +1093,8 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
   next_a_.store((num_c + 1) * kInitialCARatio);
+  fprintf(stdout, "DB preloaded with %d entries\n",
+          static_cast<int>(num_c * kInitialCARatio));
 }
 
 StressTest* CreateMyRocksStyleTxnsStressTest() {
