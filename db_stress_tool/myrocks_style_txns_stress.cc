@@ -17,8 +17,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // TODO: move these to gflags.
-static constexpr size_t kInitNumC = 1000;
-static constexpr int kInitialCARatio = 3;
+static constexpr uint32_t kInitNumC = 1000;
+static constexpr uint32_t kInitialCARatio = 3;
 static constexpr bool kDoPreload = true;
 
 class MyRocksRecord {
@@ -28,6 +28,11 @@ class MyRocksRecord {
 
   static_assert(kPrimaryIndexId < kSecondaryIndexId,
                 "kPrimaryIndexId must be smaller than kSecondaryIndexId");
+
+  static_assert(sizeof(kPrimaryIndexId) == sizeof(uint32_t),
+                "kPrimaryIndexId must be 4 bytes");
+  static_assert(sizeof(kSecondaryIndexId) == sizeof(uint32_t),
+                "kSecondaryIndexId must be 4 bytes");
 
   // Used for generating search key to probe primary index.
   static std::string EncodePrimaryKey(uint32_t a);
@@ -90,232 +95,12 @@ class MyRocksRecord {
   }
 
  private:
-  static void Reverse(char* const begin, char* const end) {
-    char* p1 = begin;
-    char* p2 = end - 1;
-    while (p1 < p2) {
-      char ch = *p1;
-      *p1 = *p2;
-      *p2 = ch;
-      p1++;
-      p2--;
-    }
-  }
+  friend class InvariantChecker;
 
   uint32_t a_{0};
   uint32_t b_{0};
   uint32_t c_{0};
 };
-
-std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
-  char buf[8];
-  EncodeFixed32(buf, kPrimaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, a);
-  Reverse(buf + 4, buf + 8);
-  return std::string(buf, sizeof(buf));
-}
-
-std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
-  char buf[8];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c);
-  Reverse(buf + 4, buf + 8);
-  return std::string(buf, sizeof(buf));
-}
-
-std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c);
-  EncodeFixed32(buf + 8, a);
-  Reverse(buf + 4, buf + 8);
-  Reverse(buf + 8, buf + 12);
-  return std::string(buf, sizeof(buf));
-}
-
-std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
-    Slice primary_index_value) {
-  if (primary_index_value.size() != 8) {
-    return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
-  }
-  const char* const buf = primary_index_value.data();
-  uint32_t b = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
-
-  uint32_t c = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
-  return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
-}
-
-std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
-    Slice secondary_index_value) {
-  if (secondary_index_value.size() != 4) {
-    return std::make_pair(Status::Corruption(""), 0);
-  }
-  uint32_t crc = 0;
-  bool result = GetFixed32(&secondary_index_value, &crc);
-  assert(result);
-  return std::make_pair(Status::OK(), crc);
-}
-
-std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
-    const {
-  std::string primary_index_key;
-  char buf[8];
-  EncodeFixed32(buf, kPrimaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, a_);
-  Reverse(buf + 4, buf + 8);
-  primary_index_key.assign(buf, sizeof(buf));
-
-  std::string primary_index_value;
-  EncodeFixed32(buf, b_);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c_);
-  Reverse(buf + 4, buf + 8);
-  primary_index_value.assign(buf, sizeof(buf));
-  return std::make_pair(primary_index_key, primary_index_value);
-}
-
-std::string MyRocksRecord::EncodePrimaryKey() const {
-  char buf[8];
-  EncodeFixed32(buf, kPrimaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, a_);
-  Reverse(buf + 4, buf + 8);
-  return std::string(buf, sizeof(buf));
-}
-
-std::string MyRocksRecord::EncodePrimaryIndexValue() const {
-  char buf[8];
-  EncodeFixed32(buf, b_);
-  EncodeFixed32(buf + 4, c_);
-  return std::string(buf, sizeof(buf));
-}
-
-std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
-    const {
-  std::string secondary_index_key;
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c_);
-  EncodeFixed32(buf + 8, a_);
-  Reverse(buf + 4, buf + 8);
-  Reverse(buf + 8, buf + 12);
-  secondary_index_key.assign(buf, sizeof(buf));
-
-  // Secondary index value is always 4-byte crc32 of the secondary key
-  std::string secondary_index_value;
-  uint32_t crc = crc32c::Value(buf, sizeof(buf));
-  PutFixed32(&secondary_index_value, crc);
-  return std::make_pair(secondary_index_key, secondary_index_value);
-}
-
-std::string MyRocksRecord::EncodeSecondaryKey() const {
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  Reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c_);
-  EncodeFixed32(buf + 8, a_);
-  Reverse(buf + 4, buf + 8);
-  Reverse(buf + 8, buf + 12);
-  return std::string(buf, sizeof(buf));
-}
-
-Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
-                                              Slice primary_index_value) {
-  if (primary_index_key.size() != 8) {
-    assert(false);
-    return Status::Corruption("Primary index key length is not 8");
-  }
-
-  const char* const index_id_buf = primary_index_key.data();
-  uint32_t index_id =
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
-              << 16;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
-              << 8;
-  index_id +=
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
-  primary_index_key.remove_prefix(sizeof(uint32_t));
-  if (index_id != kPrimaryIndexId) {
-    std::ostringstream oss;
-    oss << "Unexpected primary index id: " << index_id;
-    return Status::Corruption(oss.str());
-  }
-
-  const char* const buf = primary_index_key.data();
-  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
-
-  if (primary_index_value.size() != 8) {
-    return Status::Corruption("Primary index value length is not 8");
-  }
-  GetFixed32(&primary_index_value, &b_);
-  GetFixed32(&primary_index_value, &c_);
-  return Status::OK();
-}
-
-Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
-                                                Slice secondary_index_value) {
-  if (secondary_index_key.size() != 12) {
-    return Status::Corruption("Secondary index key length is not 12");
-  }
-  uint32_t crc =
-      crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
-
-  const char* const index_id_buf = secondary_index_key.data();
-  uint32_t index_id =
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
-              << 16;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
-              << 8;
-  index_id +=
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
-  secondary_index_key.remove_prefix(sizeof(uint32_t));
-  if (index_id != kSecondaryIndexId) {
-    std::ostringstream oss;
-    oss << "Unexpected secondary index id: " << index_id;
-    return Status::Corruption(oss.str());
-  }
-
-  const char* const buf = secondary_index_key.data();
-  assert(secondary_index_key.size() == 8);
-  c_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
-
-  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
-
-  if (secondary_index_value.size() != 4) {
-    return Status::Corruption("Secondary index value length is not 4");
-  }
-  uint32_t val = 0;
-  GetFixed32(&secondary_index_value, &val);
-  if (val != crc) {
-    std::ostringstream oss;
-    oss << "Secondary index key checksum mismatch, stored: " << val
-        << ", recomputed: " << crc;
-    return Status::Corruption(oss.str());
-  }
-  return Status::OK();
-}
 
 class MyRocksStyleTxnsStressTest : public StressTest {
  public:
@@ -409,6 +194,228 @@ class MyRocksStyleTxnsStressTest : public StressTest {
 
   std::atomic<uint32_t> next_a_{0};
 };
+
+class InvariantChecker {
+ public:
+  static_assert(sizeof(MyRocksRecord().a_) == sizeof(uint32_t),
+                "MyRocksRecord::a_ must be 4 bytes");
+  static_assert(sizeof(MyRocksRecord().b_) == sizeof(uint32_t),
+                "MyRocksRecord::b_ must be 4 bytes");
+  static_assert(sizeof(MyRocksRecord().c_) == sizeof(uint32_t),
+                "MyRocksRecord::c_ must be 4 bytes");
+};
+
+// Implementation of MyRocks-style records and transactions
+
+std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
+  char buf[8];
+  EncodeFixed32(buf, kPrimaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, a);
+  std::reverse(buf + 4, buf + 8);
+  return std::string(buf, sizeof(buf));
+}
+
+std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
+  char buf[8];
+  EncodeFixed32(buf, kSecondaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, c);
+  std::reverse(buf + 4, buf + 8);
+  return std::string(buf, sizeof(buf));
+}
+
+std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
+  char buf[12];
+  EncodeFixed32(buf, kSecondaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, c);
+  EncodeFixed32(buf + 8, a);
+  std::reverse(buf + 4, buf + 8);
+  std::reverse(buf + 8, buf + 12);
+  return std::string(buf, sizeof(buf));
+}
+
+std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
+    Slice primary_index_value) {
+  if (primary_index_value.size() != 8) {
+    return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
+  }
+  const char* const buf = primary_index_value.data();
+  uint32_t b = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+
+  uint32_t c = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
+  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
+  return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
+}
+
+std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
+    Slice secondary_index_value) {
+  if (secondary_index_value.size() != 4) {
+    return std::make_pair(Status::Corruption(""), 0);
+  }
+  uint32_t crc = 0;
+  bool result = GetFixed32(&secondary_index_value, &crc);
+  assert(result);
+  return std::make_pair(Status::OK(), crc);
+}
+
+std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
+    const {
+  std::string primary_index_key;
+  char buf[8];
+  EncodeFixed32(buf, kPrimaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, a_);
+  std::reverse(buf + 4, buf + 8);
+  primary_index_key.assign(buf, sizeof(buf));
+
+  std::string primary_index_value;
+  EncodeFixed32(buf, b_);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, c_);
+  std::reverse(buf + 4, buf + 8);
+  primary_index_value.assign(buf, sizeof(buf));
+  return std::make_pair(primary_index_key, primary_index_value);
+}
+
+std::string MyRocksRecord::EncodePrimaryKey() const {
+  char buf[8];
+  EncodeFixed32(buf, kPrimaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, a_);
+  std::reverse(buf + 4, buf + 8);
+  return std::string(buf, sizeof(buf));
+}
+
+std::string MyRocksRecord::EncodePrimaryIndexValue() const {
+  char buf[8];
+  EncodeFixed32(buf, b_);
+  EncodeFixed32(buf + 4, c_);
+  return std::string(buf, sizeof(buf));
+}
+
+std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
+    const {
+  std::string secondary_index_key;
+  char buf[12];
+  EncodeFixed32(buf, kSecondaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, c_);
+  EncodeFixed32(buf + 8, a_);
+  std::reverse(buf + 4, buf + 8);
+  std::reverse(buf + 8, buf + 12);
+  secondary_index_key.assign(buf, sizeof(buf));
+
+  // Secondary index value is always 4-byte crc32 of the secondary key
+  std::string secondary_index_value;
+  uint32_t crc = crc32c::Value(buf, sizeof(buf));
+  PutFixed32(&secondary_index_value, crc);
+  return std::make_pair(secondary_index_key, secondary_index_value);
+}
+
+std::string MyRocksRecord::EncodeSecondaryKey() const {
+  char buf[12];
+  EncodeFixed32(buf, kSecondaryIndexId);
+  std::reverse(buf, buf + 4);
+  EncodeFixed32(buf + 4, c_);
+  EncodeFixed32(buf + 8, a_);
+  std::reverse(buf + 4, buf + 8);
+  std::reverse(buf + 8, buf + 12);
+  return std::string(buf, sizeof(buf));
+}
+
+Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
+                                              Slice primary_index_value) {
+  if (primary_index_key.size() != 8) {
+    assert(false);
+    return Status::Corruption("Primary index key length is not 8");
+  }
+
+  const char* const index_id_buf = primary_index_key.data();
+  uint32_t index_id =
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
+              << 16;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
+              << 8;
+  index_id +=
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
+  primary_index_key.remove_prefix(sizeof(uint32_t));
+  if (index_id != kPrimaryIndexId) {
+    std::ostringstream oss;
+    oss << "Unexpected primary index id: " << index_id;
+    return Status::Corruption(oss.str());
+  }
+
+  const char* const buf = primary_index_key.data();
+  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+
+  if (primary_index_value.size() != 8) {
+    return Status::Corruption("Primary index value length is not 8");
+  }
+  GetFixed32(&primary_index_value, &b_);
+  GetFixed32(&primary_index_value, &c_);
+  return Status::OK();
+}
+
+Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
+                                                Slice secondary_index_value) {
+  if (secondary_index_key.size() != 12) {
+    return Status::Corruption("Secondary index key length is not 12");
+  }
+  uint32_t crc =
+      crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
+
+  const char* const index_id_buf = secondary_index_key.data();
+  uint32_t index_id =
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
+              << 16;
+  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
+              << 8;
+  index_id +=
+      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
+  secondary_index_key.remove_prefix(sizeof(uint32_t));
+  if (index_id != kSecondaryIndexId) {
+    std::ostringstream oss;
+    oss << "Unexpected secondary index id: " << index_id;
+    return Status::Corruption(oss.str());
+  }
+
+  const char* const buf = secondary_index_key.data();
+  assert(secondary_index_key.size() == 8);
+  c_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
+  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+
+  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
+  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
+
+  if (secondary_index_value.size() != 4) {
+    return Status::Corruption("Secondary index value length is not 4");
+  }
+  uint32_t val = 0;
+  GetFixed32(&secondary_index_value, &val);
+  if (val != crc) {
+    std::ostringstream oss;
+    oss << "Secondary index key checksum mismatch, stored: " << val
+        << ", recomputed: " << crc;
+    return Status::Corruption(oss.str());
+  }
+  return Status::OK();
+}
 
 void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
