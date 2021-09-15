@@ -42,7 +42,7 @@ class IntTblPropCollectorFactory {
   virtual ~IntTblPropCollectorFactory() {}
   // has to be thread-safe
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t column_family_id) = 0;
+      uint32_t column_family_id, int file_level = -1) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
@@ -92,9 +92,10 @@ class UserKeyTablePropertiesCollectorFactory
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t column_family_id) override {
+      uint32_t column_family_id, int file_level = -1) override {
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
+    context.file_level = file_level;
     return new UserKeyTablePropertiesCollector(
         user_collector_factory_->CreateTablePropertiesCollector(context));
   }
