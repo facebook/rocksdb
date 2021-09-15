@@ -728,7 +728,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       // Reset cqe data to catch any stray reuse of it
-      ((struct io_uring_cqe*)cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+      static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
       // Check that we got a valid unique cqe data
       auto wrap_check = wrap_cache.find(req_wrap);
       if (wrap_check == wrap_cache.end()) {
