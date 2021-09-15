@@ -64,7 +64,8 @@ PlainTableBuilder::PlainTableBuilder(
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
     uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
     bool store_index_in_file, const std::string& db_id,
-    const std::string& db_session_id, uint64_t file_number, int level_at_creation)
+    const std::string& db_session_id, uint64_t file_number,
+    int level_at_creation)
     : ioptions_(ioptions),
       moptions_(moptions),
       bloom_block_(num_probes),
@@ -119,7 +120,8 @@ PlainTableBuilder::PlainTableBuilder(
     assert(factory);
 
     table_properties_collectors_.emplace_back(
-        factory->CreateIntTblPropCollector(column_family_id, level_at_creation));
+        factory->CreateIntTblPropCollector(column_family_id,
+                                           level_at_creation));
   }
 }
 
