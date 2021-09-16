@@ -685,6 +685,53 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultiGetBlobs_IOError) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
+TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char key1[] = "key1";
+  constexpr char value1[] = "blob1";
+
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Flush());
+
+  constexpr char key2[] = "key2";
+  constexpr char value2[] = "blob2";
+
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, num_keys> keys{{key1, key2}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  bool first_blob_file = true;
+  SyncPoint::GetInstance()->SetCallBack(
+      sync_point_, [&first_blob_file, this](void* /* arg */) {
+        if (first_blob_file) {
+          first_blob_file = false;
+          return;
+        }
+        fault_injection_env_->SetFilesystemActive(false,
+                                                  Status::IOError(sync_point_));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(value1, values[0]);
+  ASSERT_TRUE(statuses[1].IsIOError());
+}
+
 namespace {
 
 class ReadBlobCompactionFilter : public CompactionFilter {
