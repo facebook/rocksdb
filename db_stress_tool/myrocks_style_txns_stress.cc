@@ -27,6 +27,9 @@ class MyRocksRecord {
   static constexpr uint32_t kPrimaryIndexId = 1;
   static constexpr uint32_t kSecondaryIndexId = 2;
 
+  static constexpr size_t kPrimaryIndexEntrySize = 8 + 8;
+  static constexpr size_t kSecondaryIndexEntrySize = 12 + 4;
+
   static_assert(kPrimaryIndexId < kSecondaryIndexId,
                 "kPrimaryIndexId must be smaller than kSecondaryIndexId");
 
@@ -197,8 +200,6 @@ class MyRocksStyleTxnsStressTest : public StressTest {
 
   // TODO (yanqin) encapsulate the selection of keys a separate class.
   std::atomic<uint32_t> next_a_{0};
-  std::unordered_set<uint32_t> existing_a_{};
-  port::RWMutex rw_mutex_{};
 };
 
 class InvariantChecker {
@@ -210,8 +211,6 @@ class InvariantChecker {
   static_assert(sizeof(MyRocksRecord().c_) == sizeof(uint32_t),
                 "MyRocksRecord::c_ must be 4 bytes");
 };
-
-// Implementation of MyRocks-style records and transactions
 
 // MyRocksRecord methods
 //
@@ -607,6 +606,9 @@ Status MyRocksStyleTxnsStressTest::TestCustomOperations(
   Status s;
   if (0 == rand) {
     // Update primary key.
+    uint32_t old_a = ChooseA(thread);
+    uint32_t new_a = GenerateNextA();
+    s = PrimaryKeyUpdateTxn(thread, old_a, new_a);
   } else if (1 == rand) {
     // Update secondary key.
     uint32_t old_c = thread->rand.Next() % kInitNumC;
@@ -650,6 +652,13 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
+      // Two gets, one for existing pk, one for locking potential new pk.
+      thread->stats.AddGets(/*ngets=*/2, /*nfounds=*/1);
+      thread->stats.AddDeletes(1);
+      thread->stats.AddBytesForWrites(
+          /*nwrites=*/2, MyRocksRecord::kPrimaryIndexEntrySize +
+                             MyRocksRecord::kSecondaryIndexEntrySize);
+      thread->stats.AddSingleDeletes(1);
       return;
     }
     if (s.IsNotFound()) {
@@ -727,9 +736,16 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   }
 
   Iterator* it = nullptr;
-  const Defer cleanup([&s, thread, &it, txn, this]() {
+  long iterations = 0;
+  const Defer cleanup([&s, thread, &it, txn, this, &iterations]() {
     delete it;
     if (s.ok()) {
+      thread->stats.AddIterations(iterations);
+      thread->stats.AddGets(/*ngets=*/1, /*nfound=*/1);
+      thread->stats.AddSingleDeletes(1);
+      thread->stats.AddBytesForWrites(
+          /*nwrites=*/2, MyRocksRecord::kPrimaryIndexEntrySize +
+                             MyRocksRecord::kSecondaryIndexEntrySize);
       return;
     } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
                s.IsMergeInProgress()) {
@@ -772,8 +788,7 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   }
   auto* wb = txn->GetWriteBatch();
   do {
-    thread->stats.AddIterations(1);
-
+    ++iterations;
     MyRocksRecord record;
     s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
@@ -857,6 +872,9 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
   }
   const Defer cleanup([&s, thread, txn, this]() {
     if (s.ok()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
+      thread->stats.AddBytesForWrites(
+          /*nwrites=*/1, /*nbytes=*/MyRocksRecord::kPrimaryIndexEntrySize);
       return;
     }
     if (s.IsNotFound()) {
@@ -890,78 +908,38 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
     return s;
   }
   s = CommitTxn(txn);
-  if (s.ok()) {
-    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
-    thread->stats.AddBytesForWrites(
-        /*nwrites=*/1, /*nbytes=*/pk_str.size() + primary_index_value.size());
-  }
   return s;
 }
 
 Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
                                                   ReadOptions ropts,
                                                   uint32_t a) {
-  WriteOptions wopts;
-  Transaction* txn = nullptr;
-  Status s = NewTxn(wopts, &txn);
-  if (!s.ok()) {
-    assert(!txn);
-    thread->stats.AddErrors(1);
-    return s;
-  }
-  const Defer cleanup([&s, thread, txn, this]() {
-    if (s.ok()) {
-      return;
-    }
-    if (!s.ok() && !s.IsNotFound()) {
-      thread->stats.AddErrors(1);
-    } else if (s.IsNotFound()) {
-      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
-    }
-    RollbackTxn(txn).PermitUncheckedError();
-  });
   std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
   // pk may or may not exist
-  std::string value;
-  s = txn->Get(ropts, pk_str, &value);
-  if (!s.ok()) {
-    return s;
-  }
-  s = CommitTxn(txn);
+  PinnableSlice value;
+  Status s = db_->Get(ropts, db_->DefaultColumnFamily(), pk_str, &value);
   if (s.ok()) {
     thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
+  } else if (s.IsNotFound()) {
+    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
+  } else {
+    thread->stats.AddErrors(1);
   }
   return s;
 }
 
 Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                                 ReadOptions ropts, uint32_t c) {
-  WriteOptions wopts;
-  Transaction* txn = nullptr;
-  Status s = NewTxn(wopts, &txn);
-  if (!s.ok()) {
-    assert(!txn);
-    thread->stats.AddErrors(1);
-    return s;
-  }
-  const Defer cleanup([&s, thread, txn, this]() {
-    if (s.ok()) {
-      return;
-    }
-    thread->stats.AddErrors(1);
-    RollbackTxn(txn).PermitUncheckedError();
-  });
   std::string sk = MyRocksRecord::EncodeSecondaryKey(c);
-  std::unique_ptr<Iterator> iter(txn->GetIterator(ropts));
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
   iter->Seek(sk);
   if (!iter->status().ok()) {
-    s = iter->status();
-    return s;
+    thread->stats.AddErrors(1);
+  } else {
+    thread->stats.AddIterations(1);
   }
   // TODO (yanqin) more Seek/SeekForPrev/Next/Prev/SeekToFirst/SeekToLast
-  thread->stats.AddIterations(1);
-  s = CommitTxn(txn);
-  return s;
+  return iter->status();
 }
 
 void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
@@ -1062,35 +1040,20 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
 
 uint32_t MyRocksStyleTxnsStressTest::ChooseA(ThreadState* thread) {
   uint32_t rnd = thread->rand.Uniform(5);
-  uint32_t result = 0;
+  uint32_t next_a_low = next_a_.load(std::memory_order_relaxed);
+  assert(next_a_low != 0);
   if (rnd == 0) {
-    result = next_a_.load(std::memory_order_relaxed) - 1;
-    return result;
+    return next_a_low - 1;
   }
 
-  uint32_t next_a = next_a_.load(std::memory_order_relaxed);
-  assert(next_a != 0);
-  result = thread->rand.Next() % next_a;
-  if (thread->rand.Uniform(5) < 3) {
+  uint32_t result = 0;
+  result = thread->rand.Next() % next_a_low;
+  if (thread->rand.OneIn(3)) {
     return result;
   }
-
-  // Try to find an existing element.
-  ReadLock rwl(&rw_mutex_);
-  if (existing_a_.empty()) {
-    return next_a;
-  }
-  int retry = 0;
-  while (0 == existing_a_.count(result) && retry < 100) {
-    next_a = next_a_.load(std::memory_order_relaxed);
-    result = thread->rand.Next() % next_a;
-    ++retry;
-  }
-  if (retry >= 100) {
-    auto it = existing_a_.begin();
-    result = *it;
-  }
-  return result;
+  uint32_t next_a_high = next_a_.load(std::memory_order_relaxed);
+  // A higher chance that this a still exists.
+  return next_a_low + (next_a_high - next_a_low) / 2;
 }
 
 uint32_t MyRocksStyleTxnsStressTest::GenerateNextA() {
@@ -1106,11 +1069,6 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
     for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
          ++a) {
-      auto insert_result = existing_a_.insert(a);
-      // Insertion must have occurred.
-      if (!insert_result.second) {
-        std::terminate();
-      }
       MyRocksRecord record(a, /*b=*/rnd.Next(), c);
       WriteBatch wb;
       const auto primary_index_entry = record.EncodePrimaryIndexEntry();
