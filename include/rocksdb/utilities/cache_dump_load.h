@@ -9,11 +9,16 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+static const unsigned int kDumpUnitMetaSize = 16;
+static const int kCacheDumpMajorVersion = 0;
+static const int kCacheDumpMinorVersion = 1;
 
 class CacheDumpWriter {
  public:
@@ -34,33 +39,31 @@ class CacheDumpReader {
 
 // CacheDumpOptions is used to control DumpCache()
 struct CacheDumpOptions {
-  // The env pointer
-  Env* env;
-  // The prefix set, which filter out the cache keys that does not match
-  std::set<std::string> prefix_set;
+  SystemClock* clock;
 };
 
 class CacheDumper {
  public:
   virtual ~CacheDumper() = default;
-  virtual Status Prepare() = 0;
-  virtual IOStatus Run() = 0;
+  virtual Status SetDumpFilter(std::vector<DB*> db_list) = 0;
+  virtual IOStatus DumpCacheEntriesToWriter() = 0;
 };
 
 class CacheDumpedLoader {
  public:
   virtual ~CacheDumpedLoader() = default;
-  virtual Status Prepare() = 0;
-  virtual IOStatus Run() = 0;
+  virtual IOStatus RestoreCacheEntriesToSecondaryCache() = 0;
 };
 
-Status NewDefaultCacheDumpWriter(Env* env, const EnvOptions& env_options,
-                                 const std::string& file_name,
-                                 std::unique_ptr<CacheDumpWriter>* writer);
+IOStatus NewDefaultCacheDumpWriter(const std::shared_ptr<FileSystem>& fs,
+                                   const FileOptions& file_opts,
+                                   const std::string& file_name,
+                                   std::unique_ptr<CacheDumpWriter>* writer);
 
-Status NewDefaultCacheDumpReader(Env* env, const EnvOptions& env_options,
-                                 const std::string& file_name,
-                                 std::unique_ptr<CacheDumpReader>* reader);
+IOStatus NewDefaultCacheDumpReader(const std::shared_ptr<FileSystem>& fs,
+                                   const FileOptions& file_opts,
+                                   const std::string& file_name,
+                                   std::unique_ptr<CacheDumpReader>* reader);
 
 Status NewDefaultCacheDumper(const CacheDumpOptions& dump_options,
                              const std::shared_ptr<Cache>& cache,

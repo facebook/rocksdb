@@ -1253,6 +1253,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.env = fault_env_.get();
   DestroyAndReopen(options);
+  fault_fs_->SetFailGetUniqueId(true);
 
   Random rnd(301);
   const int N = 256;
@@ -1286,24 +1287,22 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
             static_cast<int>(dump_lookup));  // the lookup in the block cache
   // We have enough blocks in the block cache
 
-  TablePropertiesCollection ptc;
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
-  std::set<std::string> filter;
   CacheDumpOptions cd_options;
-  cd_options.env = fault_env_.get();
-  cd_options.prefix_set = filter;
+  cd_options.clock = fault_env_->GetSystemClock().get();
   std::string dump_path = db_->GetName() + "/cache_dump";
   std::unique_ptr<CacheDumpWriter> dump_writer;
-  Status s = NewDefaultCacheDumpWriter(cd_options.env, EnvOptions(), dump_path,
+  Status s = NewDefaultCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
                                        &dump_writer);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumper> cache_dumper;
   s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
                             &cache_dumper);
   ASSERT_OK(s);
-  s = cache_dumper->Prepare();
+  std::vector<DB*> db_list;
+  db_list.push_back(db_);
+  s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
-  s = cache_dumper->Run();
+  s = cache_dumper->DumpCacheEntriesToWriter();
   ASSERT_OK(s);
   cache_dumper.reset();
 
@@ -1328,16 +1327,14 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
-  s = NewDefaultCacheDumpReader(cd_options.env, EnvOptions(), dump_path,
+  s = NewDefaultCacheDumpReader(fault_fs_, FileOptions(), dump_path,
                                 &dump_reader);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumpedLoader> cache_loader;
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
                                   std::move(dump_reader), &cache_loader);
   ASSERT_OK(s);
-  s = cache_loader->Prepare();
-  ASSERT_OK(s);
-  s = cache_loader->Run();
+  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
   ASSERT_OK(s);
   uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
   uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;
@@ -1370,6 +1367,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   ASSERT_EQ(0, static_cast<int>(block_insert));
   ASSERT_EQ(256, static_cast<int>(block_lookup));
 
+  fault_fs_->SetFailGetUniqueId(false);
   Destroy(options);
 }
 
@@ -1449,27 +1447,22 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
             static_cast<int>(dump_lookup));  // the lookup in the block cache
   // We have enough blocks in the block cache
 
-  TablePropertiesCollection ptc;
-  ASSERT_OK(db1->GetPropertiesOfAllTables(&ptc));
-  std::set<std::string> filter;
-  for (auto i = ptc.begin(); i != ptc.end(); i++) {
-    filter.insert(i->second->db_session_id);
-  }
   CacheDumpOptions cd_options;
-  cd_options.env = fault_env_.get();
-  cd_options.prefix_set = filter;
+  cd_options.clock = fault_env_->GetSystemClock().get();
   std::string dump_path = db1->GetName() + "/cache_dump";
   std::unique_ptr<CacheDumpWriter> dump_writer;
-  Status s = NewDefaultCacheDumpWriter(cd_options.env, EnvOptions(), dump_path,
+  Status s = NewDefaultCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
                                        &dump_writer);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumper> cache_dumper;
   s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
                             &cache_dumper);
   ASSERT_OK(s);
-  s = cache_dumper->Prepare();
+  std::vector<DB*> db_list;
+  db_list.push_back(db1);
+  s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
-  s = cache_dumper->Run();
+  s = cache_dumper->DumpCacheEntriesToWriter();
   ASSERT_OK(s);
   cache_dumper.reset();
 
@@ -1494,16 +1487,14 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
-  s = NewDefaultCacheDumpReader(cd_options.env, EnvOptions(), dump_path,
+  s = NewDefaultCacheDumpReader(fault_fs_, FileOptions(), dump_path,
                                 &dump_reader);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumpedLoader> cache_loader;
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
                                   std::move(dump_reader), &cache_loader);
   ASSERT_OK(s);
-  s = cache_loader->Prepare();
-  ASSERT_OK(s);
-  s = cache_loader->Run();
+  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
   ASSERT_OK(s);
   uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
   uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;

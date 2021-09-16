@@ -15,32 +15,32 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status NewDefaultCacheDumpWriter(Env* env, const EnvOptions& env_options,
-                                 const std::string& file_name,
-                                 std::unique_ptr<CacheDumpWriter>* writer) {
+IOStatus NewDefaultCacheDumpWriter(const std::shared_ptr<FileSystem>& fs,
+                                   const FileOptions& file_opts,
+                                   const std::string& file_name,
+                                   std::unique_ptr<CacheDumpWriter>* writer) {
   std::unique_ptr<WritableFileWriter> file_writer;
-  Status s = WritableFileWriter::Create(env->GetFileSystem(), file_name,
-                                        FileOptions(env_options), &file_writer,
-                                        nullptr);
-  if (!s.ok()) {
-    return s;
+  IOStatus io_s = WritableFileWriter::Create(fs, file_name, file_opts,
+                                             &file_writer, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
   writer->reset(new DefaultCacheDumpWriter(std::move(file_writer)));
-  return s;
+  return io_s;
 }
 
-Status NewDefaultCacheDumpReader(Env* env, const EnvOptions& env_options,
-                                 const std::string& file_name,
-                                 std::unique_ptr<CacheDumpReader>* reader) {
+IOStatus NewDefaultCacheDumpReader(const std::shared_ptr<FileSystem>& fs,
+                                   const FileOptions& file_opts,
+                                   const std::string& file_name,
+                                   std::unique_ptr<CacheDumpReader>* reader) {
   std::unique_ptr<RandomAccessFileReader> file_reader;
-  Status s = RandomAccessFileReader::Create(env->GetFileSystem(), file_name,
-                                            FileOptions(env_options),
-                                            &file_reader, nullptr);
-  if (!s.ok()) {
-    return s;
+  IOStatus io_s = RandomAccessFileReader::Create(fs, file_name, file_opts,
+                                                 &file_reader, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
   reader->reset(new DefaultCacheDumpReader(std::move(file_reader)));
-  return s;
+  return io_s;
 }
 
 Status NewDefaultCacheDumper(const CacheDumpOptions& dump_options,
