@@ -183,7 +183,7 @@ Status BuildTable(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
                   job_id, tboptions.column_family_id,
                   tboptions.column_family_name, io_priority, write_hint,
-                  io_tracer, blob_callback, dbname, blob_creation_reason,
+                  io_tracer, blob_callback, blob_creation_reason,
                   &blob_file_paths, blob_file_additions)
             : nullptr);
 
