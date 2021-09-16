@@ -870,6 +870,8 @@ CompactionFilterFactory* RandomCompactionFilterFactory(Random* rnd);
 
 const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined = -1);
 
+BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd);
+
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);

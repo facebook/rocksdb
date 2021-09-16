@@ -1570,6 +1570,115 @@ TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
   ASSERT_OK(cf_opts.table_factory->ValidateOptions(db_opts, cf_opts));
 }
 
+TEST_F(OptionsTest, TableFactoryOptions) {
+  // There are multiple ways that the TableOptions can be set
+  // 1) Using [block_based_]table_factory={} with immutable options
+  // (ConfigOptions::mutable_options_only=false)
+  //    will create a new TF with the current options.
+  //    In this case, a new factory will be created using the existing options
+  //    (if it is the same type) or default options (if not).  The input and
+  //    output tables will be different. If only updating mutable options, this
+  //    will fail (since a TF is not mutable)
+  // 2) Using [block_based_]table_factory={} with only mutable options
+  // (ConfigOptions::mutable_options_only=true)
+  //    will update the TF with the current options.  The input and output
+  //    tables will be identical. If the option is not mutable, this operation
+  //    will fail.
+  // 3) Using [block_based_]table_factory.<option>=<value>  will update the
+  // current option in the current table.
+  //    In this case, the new and old options will be identical.
+  Random rnd(301);
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+  config_options.mutable_options_only = false;
+
+  Options opts;
+  opts.table_factory.reset(
+      NewBlockBasedTableFactory(test::RandomBlockBasedTableOptions(&rnd)));
+  auto bbto = opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  bbto->block_size = 1024;
+  ASSERT_NE(bbto, nullptr);
+
+  ColumnFamilyOptions cf_opts;
+
+  // 1) Test table_factory={} options with mutable_options_only=false
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory={block_size=2048}", &cf_opts));
+  ASSERT_NE(opts.table_factory, cf_opts.table_factory);
+  auto topts = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(topts, nullptr);
+
+  ASSERT_EQ(2048, topts->block_size);
+  ASSERT_EQ(1024, bbto->block_size);
+  topts->block_size = bbto->block_size;
+  std::string mismatch;
+  ASSERT_TRUE(opts.table_factory->AreEquivalent(
+      config_options, cf_opts.table_factory.get(), &mismatch));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory={block_size=2048}",
+  ASSERT_NE(opts.table_factory, cf_opts.table_factory);
+  topts = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(topts, nullptr);
+  ASSERT_EQ(2048, topts->block_size);
+  ASSERT_EQ(1024, bbto->block_size);
+  topts->block_size = bbto->block_size;
+  ASSERT_TRUE(opts.table_factory->AreEquivalent(
+      config_options, cf_opts.table_factory.get(), &mismatch));
+
+  // 2) Test table_factory={} options with mutable_options_only=true
+  config_options.mutable_options_only = true;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory={block_size=4096}", &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(4096, bbto->block_size);
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory={block_size=8192}",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(8192, bbto->block_size);
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory={block_align=false}", &cf_opts));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory={block_align=false}",
+      &cf_opts));
+
+  // 3a) Test table_factory.option=value options with a mutable TF and
+  // mutable_options_only=false
+  config_options.mutable_options_only = false;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_size=2048",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(2048, bbto->block_size);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_size=4096",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(4096, bbto->block_size);
+
+  // 3b) Test table_factory.option=value options with a mutable TF and
+  // mutable_options_only=true
+  config_options.mutable_options_only = true;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_size=2048",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(2048, bbto->block_size);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_size=4096",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(4096, bbto->block_size);
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory.block_align=false", &cf_opts));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_align=false",
+      &cf_opts));
+}
+
 TEST_F(OptionsTest, MutableTableOptions) {
   ConfigOptions config_options;
   std::shared_ptr<TableFactory> bbtf;
