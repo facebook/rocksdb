@@ -105,8 +105,7 @@ class MultiGetContext {
       : num_keys_(num_keys),
         value_mask_(0),
         value_size_(0),
-        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)),
-        blob_mask_(0) {
+        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
     assert(num_keys <= MAX_BATCH_SIZE);
     if (num_keys > MAX_LOOKUP_KEYS_ON_STACK) {
       lookup_key_heap_buf.reset(new char[sizeof(LookupKey) * num_keys]);
@@ -143,7 +142,6 @@ class MultiGetContext {
   uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
-  uint64_t blob_mask_;
 
  public:
   // MultiGetContext::Range - Specifies a range of keys, by start and end index,
@@ -218,62 +216,6 @@ class MultiGetContext {
       size_t index_;
     };
 
-    class BlobIterator {
-     public:
-      typedef BlobIterator self_type;
-      typedef KeyContext value_type;
-      typedef KeyContext& reference;
-      typedef KeyContext* pointer;
-      typedef int difference_type;
-
-      BlobIterator(const Range* range, size_t idx)
-          : range_(range), ctx_(range->ctx_), index_(idx) {
-        while (index_ < range_->end_ &&
-               0 == ((uint64_t{1} << index_) & range_->ctx_->blob_mask_)) {
-          ++index_;
-        }
-#ifndef NDEBUG
-        if (index_ < range_->end_) {
-          assert(ctx_->sorted_keys_[index_]->is_blob_index);
-          assert(ctx_->sorted_keys_[index_]->value);
-        }
-#endif
-      }
-
-      BlobIterator(const BlobIterator&) = default;
-      BlobIterator& operator=(const BlobIterator&) = default;
-
-      BlobIterator& operator++() {
-        while (++index_ < range_->end_ &&
-               0 == ((uint64_t{1} << index_) & range_->ctx_->blob_mask_)) {
-        }
-        return *this;
-      }
-
-      bool operator==(BlobIterator other) const {
-        assert(range_->ctx_ == other.range_->ctx_);
-        return index_ == other.index_;
-      }
-
-      bool operator!=(BlobIterator other) const { return !(*this == other); }
-
-      KeyContext& operator*() {
-        assert(index_ < range_->end_ && index_ >= range_->start_);
-        return *(ctx_->sorted_keys_[index_]);
-      }
-
-      KeyContext* operator->() {
-        assert(index_ < range_->end_ && index_ >= range_->start_);
-        return ctx_->sorted_keys_[index_];
-      }
-
-     private:
-      friend Range;
-      const Range* range_;
-      const MultiGetContext* ctx_;
-      size_t index_;
-    };
-
     Range(const Range& mget_range,
           const Iterator& first,
           const Iterator& last) {
@@ -321,21 +263,6 @@ class MultiGetContext {
     uint64_t GetValueSize() { return ctx_->value_size_; }
 
     void AddValueSize(uint64_t value_size) { ctx_->value_size_ += value_size; }
-
-    BlobIterator blob_begin() const { return BlobIterator(this, start_); }
-
-    BlobIterator blob_end() const { return BlobIterator(this, end_); }
-
-    void MarkBlobReadNeeded(Iterator& iter) {
-      assert(CheckKeyDone(iter));
-      assert(!IsKeySkipped(iter));
-      ctx_->blob_mask_ |= (uint64_t{1} << iter.index_);
-    }
-
-    bool NeedsAnyBlobRead() const {
-      uint64_t blob_mask = ctx_->blob_mask_;
-      return 0 != (blob_mask & ~(blob_mask - 1));
-    }
 
    private:
     friend MultiGetContext;

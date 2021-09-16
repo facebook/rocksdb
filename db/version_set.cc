@@ -1867,9 +1867,6 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
     const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
-  // Guaranteed by caller.
-  assert(range.NeedsAnyBlobRead());
-
   if (read_options.read_tier == kBlockCacheTier) {
     Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
     for (const auto& elem : blob_rqs) {
@@ -2274,7 +2271,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
-              keys_with_blobs_range.MarkBlobReadNeeded(iter);
               const Slice& blob_index_slice = *(iter->value);
               BlobIndex blob_index;
               Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
@@ -2338,7 +2334,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     f = fp.GetNextFile();
   }
 
-  if (s.ok() && keys_with_blobs_range.NeedsAnyBlobRead()) {
+  if (s.ok() && !blob_rqs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
   }
 
