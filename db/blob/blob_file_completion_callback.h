@@ -17,21 +17,40 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobFileCompletionCallback {
  public:
-  BlobFileCompletionCallback(SstFileManager* sst_file_manager,
-                             InstrumentedMutex* mutex,
-                             ErrorHandler* error_handler,
-                             EventLogger* event_logger)
+  BlobFileCompletionCallback(
+      SstFileManager* sst_file_manager, InstrumentedMutex* mutex,
+      ErrorHandler* error_handler, EventLogger* event_logger,
+      const std::vector<std::shared_ptr<EventListener>>& listeners)
       : sst_file_manager_(sst_file_manager),
         mutex_(mutex),
         error_handler_(error_handler),
-        event_logger_(event_logger) {}
+        event_logger_(event_logger),
+        listeners_(listeners) {}
+
+  void OnBlobFileCreationStarted(const std::string& dbname,
+                                 const std::string& file_name,
+                                 const std::string& column_family_name,
+                                 int job_id,
+                                 BlobFileCreationReason creation_reason) {
+#ifndef ROCKSDB_LITE
+    // Notify the listeners.
+    EventHelpers::NotifyBlobFileCreationStarted(listeners_, dbname,
+                                                column_family_name, file_name,
+                                                job_id, creation_reason);
+#else
+    (void)dbname;
+    (void)file_name;
+    (void)column_family_name;
+    (void)job_id;
+    (void)creation_reason;
+#endif
+  }
 
   Status OnBlobFileCompleted(
-      const std::vector<std::shared_ptr<EventListener> >& listeners,
       const std::string& dbname, const std::string& file_name,
       const std::string& column_family_name, int job_id, uint64_t file_number,
       BlobFileCreationReason creation_reason, const Status& report_status,
-      std::string checksum_value, std::string checksum_method,
+      const std::string& checksum_value, const std::string& checksum_method,
       uint64_t blob_count, uint64_t blob_bytes) {
     Status s;
 
@@ -52,30 +71,14 @@ class BlobFileCompletionCallback {
 
     // Notify the listeners.
     EventHelpers::LogAndNotifyBlobFileCreationFinished(
-        event_logger_, listeners, dbname, column_family_name, file_name, job_id,
-        file_number, creation_reason, report_status, checksum_value,
-        checksum_method, blob_count, blob_bytes);
+        event_logger_, listeners_, dbname, column_family_name, file_name,
+        job_id, file_number, creation_reason,
+        (!report_status.ok() ? report_status : s),
+        (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
+        (checksum_method.empty() ? kUnknownFileChecksumFuncName
+                                 : checksum_method),
+        blob_count, blob_bytes);
     return s;
-  }
-
-  void OnBlobFileCreationStarted(
-      const std::vector<std::shared_ptr<EventListener> >& listeners,
-      const std::string& dbname, const std::string& file_name,
-      const std::string& column_family_name, int job_id,
-      BlobFileCreationReason creation_reason) {
-#ifndef ROCKSDB_LITE
-    // Notify the listeners.
-    EventHelpers::NotifyBlobFileCreationStarted(listeners, dbname,
-                                                column_family_name, file_name,
-                                                job_id, creation_reason);
-#else
-    (void)listeners;
-    (void)dbname;
-    (void)file_name;
-    (void)column_family_name;
-    (void)job_id;
-    (void)creation_reason;
-#endif
   }
 
  private:
@@ -83,5 +86,6 @@ class BlobFileCompletionCallback {
   InstrumentedMutex* mutex_;
   ErrorHandler* error_handler_;
   EventLogger* event_logger_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
 };
 }  // namespace ROCKSDB_NAMESPACE

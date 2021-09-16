@@ -1163,7 +1163,6 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
   ASSERT_OK(Put("Key4", "blob_value4"));
   ASSERT_OK(Flush());
 
-  // This will generate garbage because of overwriting keys values.
   ASSERT_OK(Put("Key3", "new_blob_value3"));
   ASSERT_OK(Put("Key4", "new_blob_value4"));
   ASSERT_OK(Flush());
@@ -1224,7 +1223,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -1240,7 +1239,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     }
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    for (auto blob_file_addition_info : info.blob_file_addition_infos) {
+    for (const auto& blob_file_addition_info : info.blob_file_addition_infos) {
       const auto meta = GetBlobFileMetaData(
           blob_files, blob_file_addition_info.blob_file_number);
       EXPECT_EQ(meta->GetBlobFileNumber(),
@@ -1259,7 +1258,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     const auto& blob_files = GetBlobFiles();
     EXPECT_EQ(ci.blob_compression_type, kNoCompression);
 
-    for (auto blob_file_addition_info : ci.blob_file_addition_infos) {
+    for (const auto& blob_file_addition_info : ci.blob_file_addition_infos) {
       const auto meta = GetBlobFileMetaData(
           blob_files, blob_file_addition_info.blob_file_number);
       EXPECT_EQ(meta->GetBlobFileNumber(),
@@ -1271,7 +1270,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
       EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
     }
 
-    for (auto blob_file_garbage_info : ci.blob_file_garbage_infos) {
+    for (const auto& blob_file_garbage_info : ci.blob_file_garbage_infos) {
       EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
       EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
       EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
@@ -1339,7 +1338,6 @@ TEST_F(EventListenerTest, BlobDBOnCompactionCompleted) {
   ASSERT_OK(Put("Key4", "blob_value4"));
   ASSERT_OK(Flush());
 
-  // This will generate garbage because of overwriting keys values.
   ASSERT_OK(Put("Key3", "new_blob_value3"));
   ASSERT_OK(Put("Key4", "new_blob_value4"));
   ASSERT_OK(Flush());
@@ -1384,7 +1382,6 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
   ASSERT_OK(Put("Key4", "blob_value4"));
   ASSERT_OK(Flush());
 
-  // This will generate garbage because of overwriting keys values.
   ASSERT_OK(Put("Key3", "new_blob_value3"));
   ASSERT_OK(Put("Key4", "new_blob_value4"));
   ASSERT_OK(Flush());
@@ -1404,14 +1401,14 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
       &output_file_names, &compaction_job_info));
 
   bool is_blob_in_output = false;
-  for (auto file : output_file_names) {
+  for (const auto& file : output_file_names) {
     if (EndsWith(file, ".blob")) {
       is_blob_in_output = true;
     }
   }
   ASSERT_TRUE(is_blob_in_output);
 
-  for (auto blob_file_addition_info :
+  for (const auto& blob_file_addition_info :
        compaction_job_info.blob_file_addition_infos) {
     EXPECT_GT(blob_file_addition_info.blob_file_number, 0U);
     EXPECT_GT(blob_file_addition_info.total_blob_bytes, 0U);
@@ -1419,7 +1416,7 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
     EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
   }
 
-  for (auto blob_file_garbage_info :
+  for (const auto& blob_file_garbage_info :
        compaction_job_info.blob_file_garbage_infos) {
     EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
     EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
@@ -1470,6 +1467,7 @@ class BlobDBFileLevelEventListener : public EventListener {
     EXPECT_EQ(files_started_, files_created_);
     EXPECT_GT(files_started_, 0U);
     EXPECT_GT(files_deleted_, 0U);
+    EXPECT_LT(files_deleted_, files_created_);
   }
 
  private:
@@ -1500,7 +1498,6 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
   ASSERT_OK(Put("Key4", "blob_value4"));
   ASSERT_OK(Flush());
 
-  // This will generate garbage because of overwriting keys values.
   ASSERT_OK(Put("Key3", "new_blob_value3"));
   ASSERT_OK(Put("Key4", "new_blob_value4"));
   ASSERT_OK(Flush());

@@ -264,7 +264,7 @@ void EventHelpers::NotifyBlobFileCreationStarted(
   }
   BlobFileCreationBriefInfo info(db_name, cf_name, file_path, job_id,
                                  creation_reason);
-  for (auto& listener : listeners) {
+  for (const auto& listener : listeners) {
     listener->OnBlobFileCreationStarted(info);
   }
 }
@@ -287,7 +287,7 @@ void EventHelpers::LogAndNotifyBlobFileCreationFinished(
             << "file_number" << file_number << "total_blob_count"
             << total_blob_count << "total_blob_bytes" << total_blob_bytes
             << "file_checksum" << file_checksum << "file_checksum_func_name"
-            << file_checksum_func_name;
+            << file_checksum_func_name << "status" << s.ToString();
 
     jwriter.EndObject();
     event_logger->Log(jwriter);
@@ -297,13 +297,10 @@ void EventHelpers::LogAndNotifyBlobFileCreationFinished(
   if (listeners.empty()) {
     return;
   }
-  BlobFileCreationInfo info(
-      db_name, cf_name, file_path, job_id, creation_reason, total_blob_count,
-      total_blob_bytes, s,
-      (file_checksum.empty() ? kUnknownFileChecksum : file_checksum),
-      (file_checksum_func_name.empty() ? kUnknownFileChecksumFuncName
-                                       : file_checksum_func_name));
-  for (auto& listener : listeners) {
+  BlobFileCreationInfo info(db_name, cf_name, file_path, job_id,
+                            creation_reason, total_blob_count, total_blob_bytes,
+                            s, file_checksum, file_checksum_func_name);
+  for (const auto& listener : listeners) {
     listener->OnBlobFileCreated(info);
   }
   info.status.PermitUncheckedError();
@@ -339,7 +336,7 @@ void EventHelpers::LogAndNotifyBlobFileDeletion(
     return;
   }
   BlobFileDeletionInfo info(dbname, file_path, job_id, status);
-  for (auto& listener : listeners) {
+  for (const auto& listener : listeners) {
     listener->OnBlobFileDeleted(info);
   }
   info.status.PermitUncheckedError();

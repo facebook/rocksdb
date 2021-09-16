@@ -167,9 +167,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
 
   if (blob_callback_) {
-    blob_callback_->OnBlobFileCreationStarted(
-        immutable_options_->listeners, dbname_, blob_file_path,
-        column_family_name_, job_id_, creation_reason_);
+    blob_callback_->OnBlobFileCreationStarted(dbname_, blob_file_path,
+                                              column_family_name_, job_id_,
+                                              creation_reason_);
   }
 
   std::unique_ptr<FSWritableFile> file;
@@ -318,9 +318,9 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
-        immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-        column_family_name_, job_id_, blob_file_number, creation_reason_, s,
-        checksum_value, checksum_method, blob_count_, blob_bytes_);
+        dbname_, blob_file_paths_->back(), column_family_name_, job_id_,
+        blob_file_number, creation_reason_, s, checksum_value, checksum_method,
+        blob_count_, blob_bytes_);
   }
 
   assert(blob_file_additions_);
@@ -363,11 +363,10 @@ void BlobFileBuilder::Abandon(const Status& s) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
     blob_callback_
-        ->OnBlobFileCompleted(
-            immutable_options_->listeners, dbname_, blob_file_paths_->back(),
-            column_family_name_, job_id_, 0 /*file_number*/, creation_reason_,
-            s, kUnknownFileChecksum, kUnknownFileChecksumFuncName, blob_count_,
-            blob_bytes_)
+        ->OnBlobFileCompleted(dbname_, blob_file_paths_->back(),
+                              column_family_name_, job_id_,
+                              writer_->get_log_number(), creation_reason_, s,
+                              "", "", blob_count_, blob_bytes_)
         .PermitUncheckedError();
   }
 

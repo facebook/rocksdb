@@ -3470,7 +3470,7 @@ void DBImpl::BuildCompactionJobInfo(
       c->mutable_cf_options()->blob_compression_type;
 
   // Update BlobFilesInfo.
-  for (auto blob_file : c->edit()->GetBlobFileAdditions()) {
+  for (const auto& blob_file : c->edit()->GetBlobFileAdditions()) {
     BlobFileAdditionInfo blob_file_addition_info(
         BlobFileName(c->immutable_options()->cf_paths.front().path,
                      blob_file.GetBlobFileNumber()) /*blob_file_path*/,
@@ -3481,7 +3481,7 @@ void DBImpl::BuildCompactionJobInfo(
   }
 
   // Update BlobFilesGarbageInfo.
-  for (auto blob_file : c->edit()->GetBlobFileGarbages()) {
+  for (const auto& blob_file : c->edit()->GetBlobFileGarbages()) {
     BlobFileGarbageInfo blob_file_garbage_info(
         BlobFileName(c->immutable_options()->cf_paths.front().path,
                      blob_file.GetBlobFileNumber()) /*blob_file_path*/,

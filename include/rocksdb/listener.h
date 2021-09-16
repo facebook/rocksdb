@@ -46,7 +46,7 @@ struct FileCreationBriefInfo {
   std::string file_path;
   // the id of the job (which could be flush or compaction) that
   // created the file.
-  int job_id;
+  int job_id = 0;
 };
 
 struct TableFileCreationBriefInfo : public FileCreationBriefInfo {
@@ -86,8 +86,8 @@ struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
                        const std::string& _file_path, int _job_id,
                        BlobFileCreationReason _reason,
                        uint64_t _total_blob_count, uint64_t _total_blob_bytes,
-                       Status _status, std::string _file_checksum,
-                       std::string _file_checksum_func_name)
+                       Status _status, const std::string& _file_checksum,
+                       const std::string& _file_checksum_func_name)
       : BlobFileCreationBriefInfo(_db_name, _cf_name, _file_path, _job_id,
                                   _reason),
         total_blob_count(_total_blob_count),
@@ -213,7 +213,7 @@ struct FileDeletionInfo {
   // The path to the deleted file.
   std::string file_path;
   // The id of the job which deleted the file.
-  int job_id;
+  int job_id = 0;
   // The status indicating whether the deletion was successful or not.
   Status status;
 };
