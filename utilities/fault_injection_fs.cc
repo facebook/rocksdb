@@ -330,8 +330,9 @@ TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
 }
 
 IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
-                                  const IOOptions& options, Slice* result,
-                                  char* scratch, IODebugContext* dbg) const {
+                                      const IOOptions& options, Slice* result,
+                                      char* scratch,
+                                      IODebugContext* dbg) const {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -340,6 +341,33 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
     s = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
         scratch);
+  }
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected read error");
+  }
+  return s;
+}
+
+IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                                           const IOOptions& options,
+                                           IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = target_->MultiRead(reqs, num_reqs, options, dbg);
+  for (size_t i = 0; i < num_reqs; i++) {
+    if (!reqs[i].status.ok()) {
+      // Already seeing an error.
+      break;
+    }
+    reqs[i].status = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kRead, &reqs[i].result,
+        use_direct_io(), reqs[i].scratch);
+  }
+  if (s.ok()) {
+    s = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kRead, nullptr, use_direct_io(),
+        nullptr);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected read error");
