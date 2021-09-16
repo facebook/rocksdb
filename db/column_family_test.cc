@@ -3338,6 +3338,49 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
   ASSERT_EQ(1, GetSstFileCount(dbname_));
 }
 
+TEST_P(ColumnFamilyTest, BlobPathTest) {
+  Open();
+  // If blob_path is not specified, the blob file will be stored in
+  // cf_paths[0].path. Otherwise, the blob file will be stored in blob_path.
+  ColumnFamilyOptions cf_opt1, cf_opt2;
+  cf_opt1.enable_blob_files = true;
+  cf_opt1.min_blob_size = 0;
+  cf_opt1.cf_paths.emplace_back(dbname_ + "_one",
+                                std::numeric_limits<uint64_t>::max());
+  cf_opt2.enable_blob_files = true;
+  cf_opt2.min_blob_size = 0;
+  cf_opt2.cf_paths.emplace_back(dbname_ + "_two",
+                                std::numeric_limits<uint64_t>::max());
+  cf_opt2.blob_path = dbname_ + "_two_blob";
+
+  CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
+  Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  ASSERT_EQ("val1", Get(1, "key1"));
+  ASSERT_EQ("val2", Get(2, "key2"));
+
+  // There should be a blob file under directories both cf_opt1.cf_paths[0].path
+  // and cf_opt2.blob_path.
+  auto check_blobfilecount = [&](const std::string& dir, int expected) {
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dir, &files));
+    int blob_file_count = 0;
+    for (const auto& file : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(file, &number, &type) && type == kBlobFile) {
+        blob_file_count++;
+      }
+    }
+    ASSERT_EQ(expected, blob_file_count);
+  };
+  check_blobfilecount(cf_opt1.cf_paths[0].path, 1);
+  check_blobfilecount(cf_opt2.blob_path, 1);
+}
+
 TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
   Open();
   // Configure Column family specific paths.

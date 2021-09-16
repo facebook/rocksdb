@@ -388,6 +388,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<MemTableRepFactory>)},
       {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offset_of(&ColumnFamilyOptions::blob_path), sizeof(std::string)},
       {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
       {offset_of(&ColumnFamilyOptions::merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -515,6 +516,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_compression_type=kBZip2Compression;"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
+      "blob_path=path/to/blob_path;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};",
       new_options));

@@ -693,6 +693,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ImmutableCFOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"blob_path",
+         {offset_of(&ImmutableCFOptions::blob_path), 
+          OptionType::kString, OptionVerificationType::kNormal, 
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -834,7 +838,17 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
-      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
+      sst_partitioner_factory(cf_options.sst_partitioner_factory),
+      blob_path(cf_options.blob_path) {}
+
+const std::string& ImmutableCFOptions::GetBlobPath() const {
+  if (blob_path.empty()) {
+    assert(!cf_paths.empty());
+    return cf_paths[0].path;
+  } else {
+    return blob_path;
+  }
+}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 

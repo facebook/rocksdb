@@ -2689,16 +2689,22 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
-  if (s.ok()) {
-    for (auto& cf_path : cf_options.cf_paths) {
-      s = env_->CreateDirIfMissing(cf_path.path);
-      if (!s.ok()) {
-        break;
-      }
-    }
-  }
   if (!s.ok()) {
     return s;
+  }
+
+  for (auto& cf_path : cf_options.cf_paths) {
+    s = env_->CreateDirIfMissing(cf_path.path);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!cf_options.blob_path.empty()) {
+    s = env_->CreateDirIfMissing(cf_options.blob_path);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   SuperVersionContext sv_context(/* create_superversion */ true);
@@ -4084,6 +4090,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       for (const DbPath& cf_path : cf.options.cf_paths) {
         paths.insert(cf_path.path);
       }
+      if (!cf.options.blob_path.empty()) {
+        paths.insert(cf.options.blob_path);
+      }
     }
     for (const auto& path : paths) {
       if (env->GetChildren(path, &filenames).ok()) {
@@ -5005,8 +5014,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         const uint64_t blob_file_number = pair.first;
         const auto& meta = pair.second;
         assert(meta);
-        const std::string blob_file_name = BlobFileName(
-            cfd->ioptions()->cf_paths.front().path, blob_file_number);
+        const std::string blob_file_name =
+            BlobFileName(cfd->ioptions()->GetBlobPath(), blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);

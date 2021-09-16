@@ -122,10 +122,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   constexpr size_t value_offset = 1234;
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileBuilderTest_BuildAndCheckOneFile"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileBuilderTest_BuildAndCheckOneFile");
   options.enable_blob_files = true;
   options.env = &mock_env_;
 
@@ -177,9 +175,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   const std::string& blob_file_path = blob_file_paths[0];
 
-  ASSERT_EQ(
-      blob_file_path,
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number));
+  ASSERT_EQ(blob_file_path,
+            BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
 
   ASSERT_EQ(blob_file_additions.size(), 1);
 
@@ -205,10 +202,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   constexpr size_t value_offset = 1234567890;
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
-                            "BlobFileBuilderTest_BuildAndCheckMultipleFiles"),
-      0);
+  options.blob_path = test::PerThreadDBPath(
+      &mock_env_, "BlobFileBuilderTest_BuildAndCheckMultipleFiles");
   options.enable_blob_files = true;
   options.blob_file_size = value_size;
   options.env = &mock_env_;
@@ -262,8 +257,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
     const uint64_t blob_file_number = i + 2;
 
     ASSERT_EQ(blob_file_paths[i],
-              BlobFileName(immutable_options.cf_paths.front().path,
-                           blob_file_number));
+              BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
 
     const auto& blob_file_addition = blob_file_additions[i];
 
@@ -292,9 +286,8 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
   constexpr size_t value_offset = 1234567890;
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_InlinedValues"),
-      0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_InlinedValues");
   options.enable_blob_files = true;
   options.min_blob_size = 1024;
   options.env = &mock_env_;
@@ -346,8 +339,8 @@ TEST_F(BlobFileBuilderTest, Compression) {
   constexpr size_t value_size = 100;
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Compression"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Compression");
   options.enable_blob_files = true;
   options.blob_compression_type = kSnappyCompression;
   options.env = &mock_env_;
@@ -387,9 +380,8 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   const std::string& blob_file_path = blob_file_paths[0];
 
-  ASSERT_EQ(
-      blob_file_path,
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number));
+  ASSERT_EQ(blob_file_path,
+            BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
 
   ASSERT_EQ(blob_file_additions.size(), 1);
 
@@ -428,9 +420,8 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   }
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_CompressionError"),
-      0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_CompressionError");
   options.enable_blob_files = true;
   options.blob_compression_type = kSnappyCompression;
   options.env = &mock_env_;
@@ -472,9 +463,8 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_paths.size(), 1);
-  ASSERT_EQ(
-      blob_file_paths[0],
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number));
+  ASSERT_EQ(blob_file_paths[0],
+            BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
 
   ASSERT_TRUE(blob_file_additions.empty());
 }
@@ -505,8 +495,8 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   };
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Checksum"), 0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Checksum");
   options.enable_blob_files = true;
   options.file_checksum_gen_factory =
       std::make_shared<DummyFileChecksumGenFactory>();
@@ -547,9 +537,8 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   const std::string& blob_file_path = blob_file_paths[0];
 
-  ASSERT_EQ(
-      blob_file_path,
-      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number));
+  ASSERT_EQ(blob_file_path,
+            BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
 
   ASSERT_EQ(blob_file_additions.size(), 1);
 
@@ -601,9 +590,8 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   constexpr size_t value_size = 8;
 
   Options options;
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderIOErrorTest_IOError"),
-      0);
+  options.blob_path =
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderIOErrorTest_IOError");
   options.enable_blob_files = true;
   options.blob_file_size = value_size;
   options.env = &mock_env_;
@@ -651,8 +639,7 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
 
     ASSERT_EQ(blob_file_paths.size(), 1);
     ASSERT_EQ(blob_file_paths[0],
-              BlobFileName(immutable_options.cf_paths.front().path,
-                           blob_file_number));
+              BlobFileName(immutable_options.GetBlobPath(), blob_file_number));
   }
 
   ASSERT_TRUE(blob_file_additions.empty());

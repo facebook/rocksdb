@@ -846,6 +846,15 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_age_cutoff = 0.25;
 
+  // A path where blob files for this column family can be put into. Blob
+  // files are not associated with levels, so the logic for placing SSTs
+  // files does not readily generalize to blob files. Currently, A single path
+  // be used to store blob files. If blob_path is empty, cf_paths.front() will
+  // be used.
+  //
+  // Default: empty
+  std::string blob_path = "";
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
