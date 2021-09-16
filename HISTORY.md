@@ -25,6 +25,7 @@
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
 * Add a public API RateLimiter::GetTotalPendingRequests() for the total number of requests that are pending for bytes in the rate limiter.
+* Change `SstFileMetaData::size` from `size_t` to `uint64_t`.
 
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
