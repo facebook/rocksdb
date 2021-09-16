@@ -17,6 +17,103 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// This file defines and implements MyRocksStyleTxnsStress so that we can
+// emulate some of the transactions used by MyRocks.
+//
+// Since MyRocks used by MySQL is a relational database, we need a simplified
+// data model.
+// The record format is similar to the example found at
+// https://github.com/facebook/mysql-5.6/wiki/MyRocks-record-format.
+//
+// The table is created by
+// ```
+// create table t1 (
+//   a int primary key,
+//   b int,
+//   c int,
+//   key(c),
+//   )
+// ```
+//
+// (For simplicity, we use uint32_t for int here.)
+//
+// For this table, there is a primary index using `a`, as well as a secondary
+// index using `c` and `a`.
+//
+// Primary key format:
+// | index id | M(a) |
+// Primary index value:
+// | b | c |
+// M(a) represents the big-endian format of a.
+//
+// Secondary key format:
+// | index id | M(c) | M(a) |
+// Secondary index value:
+// | crc32 |
+// Similarly to M(a), M(c) is the big-endian format of c.
+//
+// The in-memory representation of a record is defined in class MyRocksRecord
+// that includes a number of helper methods to encode/decode primary index
+// keys, primary index values, secondary index keys, secondary index values,
+// etc.
+//
+// Sometimes primary index and secondary index reside on different column
+// families, but sometimes they colocate in the same column family. Current
+// implementation puts them in the same (default) column family, and this is
+// subject to future change if we find it interesting to test the other case.
+//
+// Class MyRocksStyleTxnsStressTest has the following transactions for testing.
+//
+// 1. Primary key update
+// UPDATE t1 SET a = 3 WHERE a = 2;
+// ```
+// tx->GetForUpdate(primary key a=2)
+// tx->GetForUpdate(primary key a=3)
+// tx->Delete(primary key a=2)
+// tx->Put(primary key a=3, value)
+// tx->batch->SingleDelete(secondary key a=2)
+// tx->batch->Put(secondary key a=3, value)
+// tx->Prepare()
+// Tx->Commit()
+// ```
+//
+// 2. Secondary key update
+// UPDATE t1 SET c = 3 WHERE c = 2;
+// ```
+// iter->Seek(secondary key)
+// // Get corresponding primary key value(s) from iterator
+// tx->GetForUpdate(primary key)
+// tx->Put(primary key, value c=3)
+// tx->batch->SingleDelete(secondary key c=2)
+// tx->batch->Put(secondary key c=3)
+// tx->Prepare()
+// tx->Commit()
+// ```
+//
+// 3. Primary index value update
+// UPDATE t1 SET b = b + 1 WHERE a = 2;
+// ```
+// tx->GetForUpdate(primary key a=2)
+// tx->Put(primary key a=2, value b=b+1)
+// tx->Prepare()
+// tx->Commit()
+// ```
+//
+// 4. Point lookup
+// SELECT * FROM t1 WHERE a = 3;
+// ```
+// tx->Get(primary key a=3)
+// tx->Commit()
+// ```
+//
+// 5. Range scan
+// SELECT * FROM t1 WHERE c = 2;
+// ```
+// it = tx->GetIterator()
+// it->Seek(secondary key c=2)
+// tx->Commit()
+// ```
+
 // TODO: move these to gflags.
 static constexpr uint32_t kInitNumC = 1000;
 static constexpr uint32_t kInitialCARatio = 3;
