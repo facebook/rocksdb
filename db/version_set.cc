@@ -1864,39 +1864,26 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   return s;
 }
 
-void Version::MultiGetBlob(const ReadOptions& read_options,
-                           MultiGetRange& range) {
+void Version::MultiGetBlob(
+    const ReadOptions& read_options, MultiGetRange& range,
+    const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
   // Guaranteed by caller.
   assert(range.NeedsAnyBlobRead());
 
   if (read_options.read_tier == kBlockCacheTier) {
     Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
-    for (auto it = range.blob_begin(); it != range.blob_end(); ++it) {
-      assert(it->s->ok());
-      *(it->s) = s;
+    for (const auto& elem : blob_rqs) {
+      for (const auto& blob_rq : elem.second) {
+        MultiGetRange::Iterator blob_it = blob_rq.second;
+        assert(blob_it->s);
+        assert(blob_it->s->ok());
+        *(blob_it->s) = s;
+      }
     }
     return;
   }
 
-  using BlobIterator = MultiGetRange::BlobIterator;
-  std::unordered_map<uint64_t, std::vector<std::pair<BlobIndex, BlobIterator>>>
-      blob_rqs;
-  for (auto it = range.blob_begin(); it != range.blob_end(); ++it) {
-    assert(it->s->ok());
-    assert(it->is_blob_index);
-    assert(it->value);
-    const Slice& blob_index_slice = *(it->value);
-    BlobIndex blob_index;
-    Status s = blob_index.DecodeFrom(blob_index_slice);
-    if (!s.ok()) {
-      *(it->s) = s;
-      continue;
-    }
-    uint64_t file_number = blob_index.file_number();
-    blob_rqs[file_number].emplace_back(std::make_pair(blob_index, it));
-  }
-
-  assert(blob_rqs.size() > 0);
+  assert(!blob_rqs.empty());
   Status status;
   for (auto& elem : blob_rqs) {
     uint64_t blob_file_number = elem.first;
@@ -1921,7 +1908,7 @@ void Version::MultiGetBlob(const ReadOptions& read_options,
         blob_file_reader.GetValue()->GetCompressionType();
 
     // TODO: sort blobs_in_file by file offset.
-    autovector<BlobIterator> blob_read_its;
+    autovector<MultiGetRange::Iterator> blob_read_its;
     autovector<std::reference_wrapper<const Slice>> user_keys;
     autovector<uint64_t> offsets;
     autovector<uint64_t> value_sizes;
@@ -2199,6 +2186,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   uint64_t num_sst_read = 0;
 
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
+  // blob_file => [[blob_idx, it], ...]
+  std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
 
   while (f != nullptr) {
     MultiGetRange file_range = fp.CurrentFileRange();
@@ -2286,6 +2275,16 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           if (iter->is_blob_index) {
             if (iter->value) {
               keys_with_blobs_range.MarkBlobReadNeeded(iter);
+              const Slice& blob_index_slice = *(iter->value);
+              BlobIndex blob_index;
+              Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
+              if (tmp_s.ok()) {
+                const uint64_t blob_file_num = blob_index.file_number();
+                blob_rqs[blob_file_num].emplace_back(
+                    std::make_pair(blob_index, iter));
+              } else {
+                *(iter->s) = tmp_s;
+              }
             }
           } else {
             file_range.AddValueSize(iter->value->size());
@@ -2340,7 +2339,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 
   if (s.ok() && keys_with_blobs_range.NeedsAnyBlobRead()) {
-    MultiGetBlob(read_options, keys_with_blobs_range);
+    MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
   }
 
   // Process any left over keys
