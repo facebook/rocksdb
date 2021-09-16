@@ -339,8 +339,10 @@ struct FlushJobInfo {
 
   FlushReason flush_reason;
 
+  // Compression algorithm used for blob output files
   CompressionType blob_compression_type;
 
+  // Information about blob files created during flush in Integrated BlobDB.
   std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
 };
 
@@ -403,10 +405,15 @@ struct CompactionJobInfo {
   // Statistics and other additional details on the compaction
   CompactionJobStats stats;
 
+  // Compression algorithm used for blob output files.
   CompressionType blob_compression_type;
 
+  // Information about blob files created during compaction in Integrated
+  // BlobDB.
   std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
 
+  // Information about blob files deleted during compaction in Integrated
+  // BlobDB.
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
 };
 
