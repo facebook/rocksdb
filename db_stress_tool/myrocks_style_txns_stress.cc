@@ -188,12 +188,17 @@ class MyRocksStyleTxnsStressTest : public StressTest {
   void VerifyDb(ThreadState* thread) const override;
 
  protected:
-  uint32_t GeneratePrimaryIndexKeyForPointLookup(ThreadState* thread) const;
+  uint32_t ChooseA(ThreadState* thread);
+
+  uint32_t GenerateNextA();
 
  private:
   void PreloadDb(SharedState* shared, size_t num_c);
 
+  // TODO (yanqin) encapsulate the selection of keys a separate class.
   std::atomic<uint32_t> next_a_{0};
+  std::unordered_set<uint32_t> existing_a_{};
+  port::RWMutex rw_mutex_{};
 };
 
 class InvariantChecker {
@@ -484,7 +489,7 @@ Status MyRocksStyleTxnsStressTest::TestGet(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
-  uint32_t a = GeneratePrimaryIndexKeyForPointLookup(thread);
+  uint32_t a = ChooseA(thread);
   return PointLookupTxn(thread, read_opts, a);
 }
 
@@ -619,6 +624,8 @@ Status MyRocksStyleTxnsStressTest::TestCustomOperations(
     s = SecondaryKeyUpdateTxn(thread, old_c, new_c);
   } else if (2 == rand) {
     // Update primary index value.
+    uint32_t a = ChooseA(thread);
+    s = UpdatePrimaryIndexValueTxn(thread, a, /*b_delta=*/1);
   } else {
     // Should never reach here.
     assert(false);
@@ -929,7 +936,6 @@ Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
 
 Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                                 ReadOptions ropts, uint32_t c) {
-  // TODO (yanqin)
   WriteOptions wopts;
   Transaction* txn = nullptr;
   Status s = NewTxn(wopts, &txn);
@@ -952,6 +958,7 @@ Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
     s = iter->status();
     return s;
   }
+  // TODO (yanqin) more Seek/SeekForPrev/Next/Prev/SeekToFirst/SeekToLast
   thread->stats.AddIterations(1);
   s = CommitTxn(txn);
   return s;
@@ -1053,15 +1060,45 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
-uint32_t MyRocksStyleTxnsStressTest::GeneratePrimaryIndexKeyForPointLookup(
-    ThreadState* thread) const {
-  Random& rand = thread->rand;
-  // TODO (yanqin)
-  return rand.Next();
+uint32_t MyRocksStyleTxnsStressTest::ChooseA(ThreadState* thread) {
+  uint32_t rnd = thread->rand.Uniform(5);
+  uint32_t result = 0;
+  if (rnd == 0) {
+    result = next_a_.load(std::memory_order_relaxed) - 1;
+    return result;
+  }
+
+  uint32_t next_a = next_a_.load(std::memory_order_relaxed);
+  assert(next_a != 0);
+  result = thread->rand.Next() % next_a;
+  if (thread->rand.Uniform(5) < 3) {
+    return result;
+  }
+
+  // Try to find an existing element.
+  ReadLock rwl(&rw_mutex_);
+  if (existing_a_.empty()) {
+    return next_a;
+  }
+  int retry = 0;
+  while (0 == existing_a_.count(result) && retry < 100) {
+    next_a = next_a_.load(std::memory_order_relaxed);
+    result = thread->rand.Next() % next_a;
+    ++retry;
+  }
+  if (retry >= 100) {
+    auto it = existing_a_.begin();
+    result = *it;
+  }
+  return result;
+}
+
+uint32_t MyRocksStyleTxnsStressTest::GenerateNextA() {
+  return next_a_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
-  // TODO (yanqin) maybe parallelize.
+  // TODO (yanqin) maybe parallelize. Currently execute in single thread.
   WriteOptions wopts;
   wopts.disableWAL = true;
   wopts.sync = false;
@@ -1069,6 +1106,11 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
     for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
          ++a) {
+      auto insert_result = existing_a_.insert(a);
+      // Insertion must have occurred.
+      if (!insert_result.second) {
+        std::terminate();
+      }
       MyRocksRecord record(a, /*b=*/rnd.Next(), c);
       WriteBatch wb;
       const auto primary_index_entry = record.EncodePrimaryIndexEntry();
