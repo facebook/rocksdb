@@ -1618,6 +1618,7 @@ TEST_F(OptionsTest, TableFactoryOptions) {
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, opts, "block_based_table_factory={block_size=2048}",
+      &cf_opts));
   ASSERT_NE(opts.table_factory, cf_opts.table_factory);
   topts = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(topts, nullptr);
