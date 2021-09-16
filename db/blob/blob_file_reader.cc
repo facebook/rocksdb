@@ -353,7 +353,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
 void BlobFileReader::MultiGetBlob(
     const ReadOptions& read_options,
-    const autovector<std::reference_wrapper<Slice>>& user_keys,
+    const autovector<std::reference_wrapper<const Slice>>& user_keys,
     const autovector<uint64_t>& offsets,
     const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
     autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
@@ -391,9 +391,9 @@ void BlobFileReader::MultiGetBlob(
     }
   } else {
     buf.reset(new char[total_len]);
-    uint64_t pos = 0;
+    std::ptrdiff_t pos = 0;
     for (size_t i = 0; i < read_reqs.size(); ++i) {
-      read_reqs[i].scratch = pos + buf.get();
+      read_reqs[i].scratch = buf.get() + pos;
       pos += read_reqs[i].len;
     }
   }

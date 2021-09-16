@@ -1922,7 +1922,7 @@ void Version::MultiGetBlob(const ReadOptions& read_options,
 
     // TODO: sort blobs_in_file by file offset.
     autovector<BlobIterator> blob_read_its;
-    autovector<std::reference_wrapper<Slice>> user_keys;
+    autovector<std::reference_wrapper<const Slice>> user_keys;
     autovector<uint64_t> offsets;
     autovector<uint64_t> value_sizes;
     autovector<Status*> statuses;
@@ -1943,7 +1943,7 @@ void Version::MultiGetBlob(const ReadOptions& read_options,
         continue;
       }
       blob_read_its.emplace_back(blob_it);
-      user_keys.emplace_back(std::ref(blob_it->ukey_with_ts));
+      user_keys.emplace_back(std::cref(blob_it->ukey_with_ts));
       offsets.push_back(blob_index.offset());
       value_sizes.push_back(blob_index.size());
       statuses.push_back(blob_it->s);
