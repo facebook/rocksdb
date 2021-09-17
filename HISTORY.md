@@ -24,6 +24,7 @@
 * Add compaction priority information in RemoteCompaction, which can be used to schedule high priority job first.
 * Added new callback APIs `OnBlobFileCreationStarted`,`OnBlobFileCreated`and `OnBlobFileDeleted` in `EventListener` class of listener.h. It notifies listeners during creation/deletion of individual blob files in Integrated BlobDB. It also log blob file creation finished event and deletion event in LOG file.
 * Batch blob read requests for `DB::MultiGet` using `MultiRead`.
+* Add support for fallback to local compaction, the user can return `CompactionServiceJobStatus::kUseLocal` to instruct RocksDB to run the compaction locally instead of waiting for the remote compaction result.
 
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
