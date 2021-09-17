@@ -106,7 +106,7 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
   }
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted
-  bool nonzero_pending_requests_verified_ = false;
+  bool nonzero_pending_requests_verified = false;
   SyncPoint::GetInstance()->SetCallBack(
       "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
         port::Mutex* request_mutex = (port::Mutex*)arg;
@@ -121,13 +121,13 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
         // We lock the mutex again so that the request thread can resume running
         // with the mutex locked
         request_mutex->Lock();
-        nonzero_pending_requests_verified_ = true;
+        nonzero_pending_requests_verified = true;
       });
 
   SyncPoint::GetInstance()->EnableProcessing();
   limiter->Request(200, Env::IO_USER, nullptr /* stats */,
                    RateLimiter::OpType::kWrite);
-  ASSERT_EQ(nonzero_pending_requests_verified_, true);
+  ASSERT_EQ(nonzero_pending_requests_verified, true);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
   EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
