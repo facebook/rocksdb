@@ -481,8 +481,13 @@ void BlockBasedTableFactory::InitializeOptions() {
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
-  InitializeOptions();
-  return TableFactory::PrepareOptions(opts);
+  MutexLock l(&mutable_mu_);
+  if (is_mutable_) {
+    InitializeOptions();
+    return TableFactoryImpl::PrepareOptions(opts);
+  } else {
+    return Status::OK();
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
@@ -563,7 +568,7 @@ Status BlockBasedTableFactory::ValidateOptions(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
   }
-  return TableFactory::ValidateOptions(db_opts, cf_opts);
+  return TableFactoryImpl::ValidateOptions(db_opts, cf_opts);
 }
 
 std::string BlockBasedTableFactory::GetPrintableOptions() const {
@@ -708,7 +713,7 @@ const void* BlockBasedTableFactory::GetOptionsPtr(
       return table_options_.block_cache.get();
     }
   } else {
-    return TableFactory::GetOptionsPtr(name);
+    return TableFactoryImpl::GetOptionsPtr(name);
   }
 }
 
@@ -756,8 +761,8 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
                                            const std::string& opt_name,
                                            const std::string& opt_value,
                                            void* opt_ptr) {
-  Status status = TableFactory::ParseOption(config_options, opt_info, opt_name,
-                                            opt_value, opt_ptr);
+  Status status = TableFactoryImpl::ParseOption(config_options, opt_info,
+                                                opt_name, opt_value, opt_ptr);
   if (config_options.input_strings_escaped && !status.ok()) {  // Got an error
     // !input_strings_escaped indicates the old API, where everything is
     // parsable.

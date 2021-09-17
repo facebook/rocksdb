@@ -16,6 +16,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
+#include "table/table_factory_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 struct ConfigOptions;
@@ -39,7 +40,7 @@ class TailPrefetchStats {
   size_t num_records_ = 0;
 };
 
-class BlockBasedTableFactory : public TableFactory {
+class BlockBasedTableFactory : public TableFactoryImpl {
  public:
   explicit BlockBasedTableFactory(
       const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
@@ -66,7 +67,6 @@ class BlockBasedTableFactory : public TableFactory {
   Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
   Status PrepareOptions(const ConfigOptions& opts) override;
-
   std::string GetPrintableOptions() const override;
 
   bool IsDeleteRangeSupported() const override { return true; }

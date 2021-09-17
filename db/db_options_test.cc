@@ -264,6 +264,15 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
             {"table_factory.block_restart_interval", "7"}}));
   ASSERT_EQ(c_bbto->block_size, 16384);
   ASSERT_EQ(c_bbto->block_restart_interval, 13);
+
+  ASSERT_EQ(options.table_factory, c_opts.table_factory);
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  ASSERT_FALSE(options.table_factory->IsMutable());
+  ASSERT_NOK(options.table_factory->ConfigureOption(config_options, "block_align", "false"));
+  ASSERT_OK(options.table_factory->ConfigureOption(config_options, "block_size", "8192"));
+  c_opts = dbfull()->GetOptions(cfh);
+  ASSERT_EQ(c_bbto->block_size, 8192);
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {

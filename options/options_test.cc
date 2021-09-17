@@ -1678,12 +1678,58 @@ TEST_F(OptionsTest, TableFactoryOptions) {
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
       config_options, opts, "block_based_table_factory.block_align=false",
       &cf_opts));
+  // 3c) Test when the table factory is immutable
+  config_options.mutable_options_only = false;
+  ASSERT_OK(opts.table_factory->ValidateOptions(opts, opts));
+  ASSERT_FALSE(opts.table_factory->IsMutable());
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory.block_align=false", &cf_opts));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_align=false",
+      &cf_opts));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "block_based_table_factory.block_size=8192",
+      &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(8192, bbto->block_size);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts, "table_factory.block_size=4096", &cf_opts));
+  ASSERT_EQ(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(4096, bbto->block_size);
+
+  ASSERT_NOK(opts.table_factory->ConfigureOption(config_options, "block_align",
+                                                 "false"));
+  ASSERT_OK(opts.table_factory->ConfigureOption(config_options, "block_size",
+                                                "8192"));
+  ASSERT_EQ(8192, bbto->block_size);
+
+  // The ColumnFamily is mutable, so these calls succeed, creating a new table
+  // factory (same as case 2)
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts,
+      "table_factory={block_align=false; block_size=4096}", &cf_opts));
+  ASSERT_NE(opts.table_factory, cf_opts.table_factory);
+  ASSERT_EQ(8192, bbto->block_size);
+  topts = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_EQ(4096, topts->block_size);
+  ASSERT_FALSE(topts->block_align);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, opts,
+      "block_based_table_factory={block_align=true; block_size=1024}",
+      &cf_opts));
+  topts = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_EQ(1024, topts->block_size);
+  ASSERT_TRUE(topts->block_align);
 }
 
-TEST_F(OptionsTest, MutableTableOptions) {
+TEST_F(OptionsTest, MutableBlockTableOptions) {
   ConfigOptions config_options;
-  std::shared_ptr<TableFactory> bbtf;
-  bbtf.reset(NewBlockBasedTableFactory());
+  Options options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  auto bbtf = options.table_factory;
   auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
@@ -1692,24 +1738,107 @@ TEST_F(OptionsTest, MutableTableOptions) {
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   config_options.mutable_options_only = true;
-  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->block_align, true);
   ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 2048);
-
   ColumnFamilyOptions cf_opts;
-  cf_opts.table_factory = bbtf;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, options, "table_factory.block_size=8192", &cf_opts));
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      config_options, cf_opts, "block_based_table_factory.block_align=false",
+      config_options, options, "block_based_table_factory.block_align=false",
+      &cf_opts));
+  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->block_size, 8192);
+
+  ASSERT_OK(bbtf->ValidateOptions(options, options));
+  config_options.mutable_options_only = false;
+  ASSERT_FALSE(bbtf->IsMutable());
+  ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
+  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->block_size, 2048);
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, options, "block_based_table_factory.block_align=false",
       &cf_opts));
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      config_options, cf_opts, "block_based_table_factory.block_size=8192",
+      config_options, options, "block_based_table_factory.block_size=8192",
       &cf_opts));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 8192);
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(OptionsTest, MutablePlainTableOptions) {
+  ConfigOptions config_options;
+  Options options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewPlainTableFactory());
+  auto ptf = options.table_factory;
+  auto pto = ptf->GetOptions<PlainTableOptions>();
+  ASSERT_NE(pto, nullptr);
+  ASSERT_OK(ptf->ConfigureOption(config_options, "user_key_len", "10"));
+  ASSERT_EQ(pto->user_key_len, 10);
+  config_options.mutable_options_only = true;
+  ASSERT_NOK(ptf->ConfigureOption(config_options, "user_key_len", "20"));
+  ASSERT_EQ(pto->user_key_len, 10);
+
+  ColumnFamilyOptions cf_opts;
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, options, "plain_table_factory.user_key_len=20",
+      &cf_opts));
+  ASSERT_EQ(pto->user_key_len, 10);
+
+  ASSERT_OK(ptf->ValidateOptions(options, options));
+  config_options.mutable_options_only = false;
+  ASSERT_FALSE(ptf->IsMutable());
+
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, options, "plain_table_factory.user_key_len=20",
+      &cf_opts));
+  ASSERT_NOK(ptf->ConfigureOption(config_options, "user_key_len", "20"));
+  ASSERT_EQ(pto->user_key_len, 10);
+}
+
+TEST_F(OptionsTest, MutableCuckooTableOptions) {
+  ConfigOptions config_options;
+  Options options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewCuckooTableFactory());
+  auto ctf = options.table_factory;
+  auto cto = ctf->GetOptions<CuckooTableOptions>();
+  ASSERT_NE(cto, nullptr);
+  ASSERT_OK(ctf->ConfigureOption(config_options, "cuckoo_block_size", "10"));
+  ASSERT_EQ(cto->cuckoo_block_size, 10);
+  config_options.mutable_options_only = true;
+  ASSERT_NOK(ctf->ConfigureOption(config_options, "cuckoo_block_size", "20"));
+  ASSERT_EQ(cto->cuckoo_block_size, 10);
+
+  ColumnFamilyOptions cf_opts;
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, options, "table_factory.cuckoo_block_size=20", &cf_opts));
+  ASSERT_EQ(cto->cuckoo_block_size, 10);
+
+  config_options.mutable_options_only = false;
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, options, "table_factory.cuckoo_block_size=20", &cf_opts));
+  ASSERT_EQ(cto->cuckoo_block_size, 20);
+
+  ASSERT_OK(ctf->ValidateOptions(options, options));
+  ASSERT_FALSE(ctf->IsMutable());
+
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, options, "table_factory.cuckoo_block_size=30", &cf_opts));
+  ASSERT_NOK(ctf->ConfigureOption(config_options, "cuckoo_block_size", "30"));
+  ASSERT_EQ(cto->cuckoo_block_size, 20);
+}
+#endif  // ROCKSDB_LITE
 
 TEST_F(OptionsTest, MutableCFOptions) {
   ConfigOptions config_options;

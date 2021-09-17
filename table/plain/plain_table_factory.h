@@ -6,11 +6,13 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <memory>
-#include <string>
 #include <stdint.h>
 
+#include <memory>
+#include <string>
+
 #include "rocksdb/table.h"
+#include "table/table_factory_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -135,7 +137,7 @@ class TableBuilder;
 // To save 7 bytes for the special case where sequence ID = 0.
 //
 //
-class PlainTableFactory : public TableFactory {
+class PlainTableFactory : public TableFactoryImpl {
  public:
   ~PlainTableFactory() {}
   // user_key_len is the length of the user key. If it is set to be
@@ -176,7 +178,6 @@ class PlainTableFactory : public TableFactory {
  private:
   PlainTableOptions table_options_;
 };
-
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

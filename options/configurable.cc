@@ -36,11 +36,14 @@ void Configurable::RegisterOptions(
 //       Methods for Initializing and Validating Configurable Objects
 //
 //*************************************************************************
+bool Configurable::IsMutable() const {
+  // By default, assumes that if there are options, the object is mutable
+  return !options_.empty();
+}
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   // We ignore the invoke_prepare_options here intentionally,
   // as if you are here, you must have called PrepareOptions explicitly.
-  Status status = Status::OK();
 #ifndef ROCKSDB_LITE
   for (auto opt_iter : options_) {
     for (auto map_iter : *(opt_iter.type_map)) {
@@ -51,13 +54,15 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
           Configurable* config =
               opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
           if (config != nullptr) {
-            status = config->PrepareOptions(opts);
-            if (!status.ok()) {
-              return status;
+            if (config->IsMutable()) {
+              Status status = config->PrepareOptions(opts);
+              if (!status.ok()) {
+                return status;
+              }
             }
           } else if (!opt_info.CanBeNull()) {
-            status =
-                Status::NotFound("Missing configurable object", map_iter.first);
+            return Status::NotFound("Missing configurable object",
+                                    map_iter.first);
           }
         }
       }
@@ -66,7 +71,7 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
 #else
   (void)opts;
 #endif  // ROCKSDB_LITE
-  return status;
+  return Status::OK();
 }
 
 Status Configurable::ValidateOptions(const DBOptions& db_opts,
@@ -152,22 +157,19 @@ Status Configurable::ConfigureFromMap(
     const ConfigOptions& config_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
-  return ConfigureOptions(config_options, opts_map, unused);
-}
-
-Status Configurable::ConfigureOptions(
-    const ConfigOptions& config_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
+  bool is_mutable = IsMutable();
+  ConfigOptions copy = config_options;
   Status s;
   if (!opts_map.empty()) {
     // There are options in the map.
     // Save the current configuration in curr_opts and then configure the
     // options, but do not prepare them now.  We will do all the prepare when
     // the configuration is complete.
-    ConfigOptions copy = config_options;
     copy.invoke_prepare_options = false;
+    if (!is_mutable) {
+      copy.mutable_options_only = true;
+    }
 #ifndef ROCKSDB_LITE
     if (!config_options.ignore_unknown_options) {
       // If we are not ignoring unused, get the defaults in case we need to
@@ -177,23 +179,29 @@ Status Configurable::ConfigureOptions(
       GetOptionString(copy, &curr_opts).PermitUncheckedError();
     }
 #endif  // ROCKSDB_LITE
-
-    s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
+    s = ConfigureOptions(copy, opts_map, unused);
   }
   if (config_options.invoke_prepare_options && s.ok()) {
     s = PrepareOptions(config_options);
   }
 #ifndef ROCKSDB_LITE
   if (!s.ok() && !curr_opts.empty()) {
-    ConfigOptions reset = config_options;
+    ConfigOptions reset = copy;
     reset.ignore_unknown_options = true;
-    reset.invoke_prepare_options = true;
     reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
     ConfigureFromString(reset, curr_opts).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
   return s;
+}
+
+Status Configurable::ConfigureOptions(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    std::unordered_map<std::string, std::string>* unused) {
+  return ConfigurableHelper::ConfigureOptions(config_options, *this, opts_map,
+                                              unused);
 }
 
 Status Configurable::ParseStringOptions(const ConfigOptions& /*config_options*/,
@@ -238,10 +246,15 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
 Status Configurable::ConfigureOption(const ConfigOptions& config_options,
                                      const std::string& name,
                                      const std::string& value) {
-  return ConfigurableHelper::ConfigureSingleOption(config_options, *this, name,
-                                                   value);
+  if (IsMutable() || config_options.mutable_options_only) {
+    return ConfigurableHelper::ConfigureSingleOption(config_options, *this,
+                                                     name, value);
+  } else {
+    ConfigOptions copy = config_options;
+    copy.mutable_options_only = true;
+    return ConfigurableHelper::ConfigureSingleOption(copy, *this, name, value);
+  }
 }
-
 /**
  * Looks for the named option amongst the options for this type and sets
  * the value for it to be the input value.
@@ -415,7 +428,9 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
       return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.empty()) {
       return Status::OK();
-    } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
+    } else if (custom == nullptr ||
+               EndsWith(opt_name, OptionTypeInfo::kIdPropSuffix()) ||
+               name == OptionTypeInfo::kIdPropName()) {
       return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
     } else if (value.find("=") != std::string::npos) {
       return custom->ConfigureFromString(copy, value);
