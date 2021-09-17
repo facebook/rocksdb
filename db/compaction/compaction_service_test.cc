@@ -722,7 +722,7 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
   ASSERT_EQ(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
       compactor_new_key);
-  ASSERT_GE(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
             primary_new_key);
 
   // re-enable remote compaction
@@ -740,7 +740,7 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   // make sure the compaction statistics is only recorded on the remote side
-  ASSERT_GE(
+  ASSERT_GT(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
       compactor_new_key);
   ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
@@ -763,7 +763,7 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
   ASSERT_EQ(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
       compactor_new_key);
-  ASSERT_GE(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
             primary_new_key);
 
   // verify result after 2 manual compactions
@@ -792,7 +792,7 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   // make sure the compaction statistics is only recorded on the remote side
-  ASSERT_GE(
+  ASSERT_GT(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
       compactor_new_key);
   ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
