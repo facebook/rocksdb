@@ -17,7 +17,7 @@
 #include <fcntl.h>
 #ifdef GFLAGS
 #include <gflags/gflags.h>
-#endif // GFLAGS
+#endif  // GFLAGS
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -79,7 +79,7 @@
 #ifdef GFLAGS
 DEFINE_bool(rocksdb_io_uring_enable, true,
             "If true, use IO uring if the platform supports it");
-#endif // GFLAGS
+#endif  // GFLAGS
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -278,7 +278,7 @@ class PosixFileSystem : public FileSystem {
 #ifdef GFLAGS
           !FLAGS_rocksdb_io_uring_enable ? nullptr :
 #endif
-                  thread_local_io_urings_.get()
+                                         thread_local_io_urings_.get()
 #endif
               ));
     }
