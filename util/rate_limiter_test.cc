@@ -179,9 +179,9 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
   for (int i = 0; i < 4; ++i) {
     // These are variables for making sure the following callbacks are called
     // and the assertion in the last callback is indeed excuted
-    bool high_pri_iterated_after_mid_low_pri_set_ = false;
-    bool mid_pri_itereated_after_low_pri_set_ = false;
-    bool pri_iteration_order_verified_ = false;
+    bool high_pri_iterated_after_mid_low_pri_set = false;
+    bool mid_pri_itereated_after_low_pri_set = false;
+    bool pri_iteration_order_verified = false;
     SyncPoint::GetInstance()->SetCallBack(
         "GenericRateLimiter::GeneratePriorityIterationOrder::"
         "PostRandomOneInFairnessForHighPri",
@@ -189,7 +189,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
           bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
           *high_pri_iterated_after_mid_low_pri =
               possible_random_one_in_fairness_results_for_high_mid_pri[i][0];
-          high_pri_iterated_after_mid_low_pri_set_ = true;
+          high_pri_iterated_after_mid_low_pri_set = true;
         });
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -199,7 +199,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
           bool* mid_pri_itereated_after_low_pri = (bool*)arg;
           *mid_pri_itereated_after_low_pri =
               possible_random_one_in_fairness_results_for_high_mid_pri[i][1];
-          mid_pri_itereated_after_low_pri_set_ = true;
+          mid_pri_itereated_after_low_pri_set = true;
         });
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -215,7 +215,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
               << ", mid_pri_itereated_after_low_pri = "
               << possible_random_one_in_fairness_results_for_high_mid_pri[i][1]
               << std::endl;
-          pri_iteration_order_verified_ = true;
+          pri_iteration_order_verified = true;
         });
 
     SyncPoint::GetInstance()->EnableProcessing();
@@ -225,9 +225,9 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
                      ,
                      Env::IO_USER, nullptr /* stats */,
                      RateLimiter::OpType::kWrite);
-    ASSERT_EQ(high_pri_iterated_after_mid_low_pri_set_, true);
-    ASSERT_EQ(mid_pri_itereated_after_low_pri_set_, true);
-    ASSERT_EQ(pri_iteration_order_verified_, true);
+    ASSERT_EQ(high_pri_iterated_after_mid_low_pri_set, true);
+    ASSERT_EQ(mid_pri_itereated_after_low_pri_set, true);
+    ASSERT_EQ(pri_iteration_order_verified, true);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearCallBack(
         "GenericRateLimiter::GeneratePriorityIterationOrder::"
