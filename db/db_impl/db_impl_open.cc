@@ -1424,8 +1424,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           std::move(range_del_iters), &meta, &blob_file_additions,
           snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
           paranoid_file_checks, cfd->internal_stats(), &io_s, io_tracer_,
-          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
-          write_hint, nullptr /*full_history_ts_low*/, &blob_callback_);
+          BlobFileCreationReason::kRecovery, &event_logger_, job_id,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint,
+          nullptr /*full_history_ts_low*/, &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"

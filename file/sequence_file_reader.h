@@ -41,17 +41,17 @@ class SequentialFileReader {
       : file_name_(_file_name),
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
               io_tracer, _file_name) {}
-  static Status Create(const std::shared_ptr<FileSystem>& fs,
-                       const std::string& fname, const FileOptions& file_opts,
-                       std::unique_ptr<SequentialFileReader>* reader,
-                       IODebugContext* dbg);
+  static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& fname, const FileOptions& file_opts,
+                         std::unique_ptr<SequentialFileReader>* reader,
+                         IODebugContext* dbg);
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
-  Status Read(size_t n, Slice* result, char* scratch);
+  IOStatus Read(size_t n, Slice* result, char* scratch);
 
-  Status Skip(uint64_t n);
+  IOStatus Skip(uint64_t n);
 
   FSSequentialFile* file() { return file_.get(); }
 

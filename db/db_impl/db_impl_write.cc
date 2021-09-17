@@ -1124,11 +1124,27 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     //    writer thread, so no one will push to logs_,
     //  - as long as other threads don't modify it, it's safe to read
     //    from std::deque from multiple threads concurrently.
+    //
+    // Sync operation should work with locked log_write_mutex_, because:
+    //   when DBOptions.manual_wal_flush_ is set,
+    //   FlushWAL function will be invoked by another thread.
+    //   if without locked log_write_mutex_, the log file may get data
+    //   corruption
+
+    const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Lock();
+    }
+
     for (auto& log : logs_) {
       io_s = log.writer->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
+    }
+
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Unlock();
     }
 
     if (io_s.ok() && need_log_dir_sync) {

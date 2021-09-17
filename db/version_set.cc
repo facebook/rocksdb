@@ -5701,7 +5701,7 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
         // find Blob file that has not been counted
         unique_blob_files.insert(pair.first);
         const auto& meta = pair.second;
-        all_v_blob_file_size += meta->GetTotalBlobBytes();
+        all_v_blob_file_size += meta->GetBlobFileSize();
       }
     }
   }
