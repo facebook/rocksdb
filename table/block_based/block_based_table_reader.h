@@ -545,7 +545,7 @@ class BlockBasedTable::PartitionedIndexIteratorState
 
 // Stores all the properties associated with a BlockBasedTable.
 // These are immutable.
-struct BlockBasedTable::Rep : public BlockLikeOptions {
+struct BlockBasedTable::Rep {
   Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
@@ -565,13 +565,13 @@ struct BlockBasedTable::Rep : public BlockLikeOptions {
         level(_level),
         immortal_table(_immortal_table) {}
   ~Rep() { status.PermitUncheckedError(); }
-  Statistics* GetStatistics() const override { return ioptions.stats; }
-  bool UsingZstd() const override { return blocks_definitely_zstd_compressed; }
-  const FilterPolicy* GetFilterPolicy() const override { return filter_policy; }
-  size_t GetReadAmpBytesPerBit() const override {
+  Statistics* GetStatistics() const { return ioptions.stats; }
+  bool UsingZstd() const { return blocks_definitely_zstd_compressed; }
+  const FilterPolicy* GetFilterPolicy() const { return filter_policy; }
+  size_t GetReadAmpBytesPerBit() const {
     return table_options.read_amp_bytes_per_bit;
   }
-  bool IsIndexDeltaEncoded() const override {
+  bool IsIndexDeltaEncoded() const {
     return (table_properties != nullptr &&
             table_properties->index_value_is_delta_encoded != 0);
   }

@@ -247,16 +247,16 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
   bool prefix_filtering_;
 };
 
-struct BlockBasedTableBuilder::Rep : public BlockLikeOptions {
-  Statistics* GetStatistics() const override { return ioptions.stats; }
-  bool UsingZstd() const override { return false; }
-  const FilterPolicy* GetFilterPolicy() const override {
+struct BlockBasedTableBuilder::Rep {
+  Statistics* GetStatistics() const { return ioptions.stats; }
+  bool UsingZstd() const { return false; }
+  const FilterPolicy* GetFilterPolicy() const {
     return table_options.filter_policy.get();
   }
-  size_t GetReadAmpBytesPerBit() const override {
+  size_t GetReadAmpBytesPerBit() const {
     return table_options.read_amp_bytes_per_bit;
   }
-  bool IsIndexDeltaEncoded() const override {
+  bool IsIndexDeltaEncoded() const {
     return use_delta_encoding_for_index_values;
   }
 

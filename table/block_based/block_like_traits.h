@@ -13,15 +13,13 @@
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct BlockLikeOptions {
- public:
-  virtual ~BlockLikeOptions() {}
-  virtual Statistics* GetStatistics() const = 0;
-  virtual bool UsingZstd() const = 0;
-  virtual const FilterPolicy* GetFilterPolicy() const = 0;
-  virtual size_t GetReadAmpBytesPerBit() const = 0;
-  virtual bool IsIndexDeltaEncoded() const = 0;
-};
+// concept BlockLikeOptions {
+//  virtual Statistics* GetStatistics() const = 0;
+//  virtual bool UsingZstd() const = 0;
+//  virtual const FilterPolicy* GetFilterPolicy() const = 0;
+//  virtual size_t GetReadAmpBytesPerBit() const = 0;
+//  virtual bool IsIndexDeltaEncoded() const = 0;
+//};
 
 template <typename TBlocklike>
 class BlocklikeTraits;
@@ -29,7 +27,7 @@ class BlocklikeTraits;
 template <typename T, CacheEntryRole R>
 Cache::CacheItemHelper* GetCacheItemHelperForRole();
 
-template <typename TBlocklike>
+template <typename TBlocklike, typename BlockLikeOptions>
 Cache::CreateCallback GetCreateCallback(const BlockLikeOptions* options) {
   return [options](void* buf, size_t size, void** out_obj,
                    size_t* charge) -> Status {
@@ -48,6 +46,7 @@ Cache::CreateCallback GetCreateCallback(const BlockLikeOptions* options) {
 template <>
 class BlocklikeTraits<BlockContents> {
  public:
+  template <typename BlockLikeOptions>
   static BlockContents* Create(BlockContents&& contents,
                                const BlockLikeOptions* /* options*/) {
     return new BlockContents(std::move(contents));
@@ -89,6 +88,7 @@ class BlocklikeTraits<BlockContents> {
 template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
+  template <typename BlockLikeOptions>
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
                                        const BlockLikeOptions* options) {
     return new ParsedFullFilterBlock(options->GetFilterPolicy(),
@@ -127,6 +127,7 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 template <>
 class BlocklikeTraits<DataBlock> {
  public:
+  template <typename BlockLikeOptions>
   static DataBlock* Create(BlockContents&& contents,
                            const BlockLikeOptions* options) {
     return new DataBlock(std::move(contents), options->GetReadAmpBytesPerBit(),
@@ -176,6 +177,7 @@ class BlocklikeTraits<DataBlock> {
 template <>
 class BlocklikeTraits<IndexBlock> {
  public:
+  template <typename BlockLikeOptions>
   static IndexBlock* Create(BlockContents&& contents,
                             const BlockLikeOptions* options) {
     return new IndexBlock(std::move(contents), options->IsIndexDeltaEncoded());
@@ -224,6 +226,7 @@ class BlocklikeTraits<IndexBlock> {
 template <>
 class BlocklikeTraits<MetaBlock> {
  public:
+  template <typename BlockLikeOptions>
   static MetaBlock* Create(BlockContents&& contents,
                            const BlockLikeOptions* /*options*/) {
     auto block = new MetaBlock(std::move(contents));
@@ -273,6 +276,7 @@ class BlocklikeTraits<MetaBlock> {
 template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
+  template <typename BlockLikeOptions>
   static UncompressionDict* Create(BlockContents&& contents,
                                    const BlockLikeOptions* options) {
     return new UncompressionDict(contents.data, std::move(contents.allocation),
