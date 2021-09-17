@@ -269,8 +269,10 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
   ConfigOptions config_options;
   config_options.ignore_unsupported_options = false;
   ASSERT_FALSE(options.table_factory->IsMutable());
-  ASSERT_NOK(options.table_factory->ConfigureOption(config_options, "block_align", "false"));
-  ASSERT_OK(options.table_factory->ConfigureOption(config_options, "block_size", "8192"));
+  ASSERT_NOK(options.table_factory->ConfigureOption(config_options,
+                                                    "block_align", "false"));
+  ASSERT_OK(options.table_factory->ConfigureOption(config_options, "block_size",
+                                                   "8192"));
   c_opts = dbfull()->GetOptions(cfh);
   ASSERT_EQ(c_bbto->block_size, 8192);
 }
