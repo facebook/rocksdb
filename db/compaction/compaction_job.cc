@@ -1210,13 +1210,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
-          ? new BlobFileBuilder(versions_, fs_.get(),
-                                sub_compact->compaction->immutable_options(),
-                                mutable_cf_options, &file_options_, job_id_,
-                                cfd->GetID(), cfd->GetName(),
-                                Env::IOPriority::IO_LOW, write_hint_,
-                                io_tracer_, blob_callback_, &blob_file_paths,
-                                &sub_compact->blob_file_additions)
+          ? new BlobFileBuilder(
+                versions_, fs_.get(),
+                sub_compact->compaction->immutable_options(),
+                mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
+                cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
+                io_tracer_, blob_callback_, BlobFileCreationReason::kCompaction,
+                &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
@@ -1427,7 +1427,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (status.ok()) {
       status = blob_file_builder->Finish();
     } else {
-      blob_file_builder->Abandon();
+      blob_file_builder->Abandon(status);
     }
     blob_file_builder.reset();
   }
