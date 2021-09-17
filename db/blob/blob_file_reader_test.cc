@@ -27,23 +27,27 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-// Creates a test blob file with a single blob in it. Note: this method
-// makes it possible to test various corner cases by allowing the caller
-// to specify the contents of various blob file header/footer fields.
+// Creates a test blob file with `num` blobs in it.
 void WriteBlobFile(const ImmutableOptions& immutable_options,
                    uint32_t column_family_id, bool has_ttl,
                    const ExpirationRange& expiration_range_header,
                    const ExpirationRange& expiration_range_footer,
-                   uint64_t blob_file_number, const Slice& key,
-                   const Slice& blob, CompressionType compression_type,
-                   uint64_t* blob_offset, uint64_t* blob_size) {
+                   uint64_t blob_file_number, const std::vector<Slice>& keys,
+                   const std::vector<Slice>& blobs, CompressionType compression,
+                   const std::vector<uint64_t*>& blob_offsets,
+                   const std::vector<uint64_t*>& blob_sizes) {
   assert(!immutable_options.cf_paths.empty());
-  assert(blob_offset);
-  assert(blob_size);
+  size_t num = keys.size();
+  assert(num == blobs.size());
+  assert(num == blob_offsets.size());
+  assert(num == blob_sizes.size());
+  for (size_t i = 0; i < num; ++i) {
+    assert(blob_offsets[i]);
+    assert(blob_sizes[i]);
+  }
 
   const std::string blob_file_path =
       BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
-
   std::unique_ptr<FSWritableFile> file;
   ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
                             FileOptions()));
@@ -59,48 +63,69 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                                 statistics, blob_file_number, use_fsync,
                                 do_flush);
 
-  BlobLogHeader header(column_family_id, compression_type, has_ttl,
+  BlobLogHeader header(column_family_id, compression, has_ttl,
                        expiration_range_header);
 
   ASSERT_OK(blob_log_writer.WriteHeader(header));
 
-  std::string compressed_blob;
-  Slice blob_to_write;
-
-  if (compression_type == kNoCompression) {
-    blob_to_write = blob;
-    *blob_size = blob.size();
+  std::vector<std::string> compressed_blobs(num);
+  std::vector<Slice> blobs_to_write(num);
+  if (kNoCompression == compression) {
+    for (size_t i = 0; i < num; ++i) {
+      blobs_to_write[i] = blobs[i];
+      *blob_sizes[i] = blobs[i].size();
+    }
   } else {
     CompressionOptions opts;
-    CompressionContext context(compression_type);
+    CompressionContext context(compression);
     constexpr uint64_t sample_for_compression = 0;
-
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         compression_type, sample_for_compression);
+                         compression, sample_for_compression);
 
     constexpr uint32_t compression_format_version = 2;
 
-    ASSERT_TRUE(
-        CompressData(blob, info, compression_format_version, &compressed_blob));
-
-    blob_to_write = compressed_blob;
-    *blob_size = compressed_blob.size();
+    for (size_t i = 0; i < num; ++i) {
+      ASSERT_TRUE(CompressData(blobs[i], info, compression_format_version,
+                               &compressed_blobs[i]));
+      blobs_to_write[i] = compressed_blobs[i];
+      *blob_sizes[i] = compressed_blobs[i].size();
+    }
   }
 
-  uint64_t key_offset = 0;
-
-  ASSERT_OK(
-      blob_log_writer.AddRecord(key, blob_to_write, &key_offset, blob_offset));
+  for (size_t i = 0; i < num; ++i) {
+    uint64_t key_offset = 0;
+    ASSERT_OK(blob_log_writer.AddRecord(keys[i], blobs_to_write[i], &key_offset,
+                                        blob_offsets[i]));
+  }
 
   BlobLogFooter footer;
-  footer.blob_count = 1;
+  footer.blob_count = num;
   footer.expiration_range = expiration_range_footer;
 
   std::string checksum_method;
   std::string checksum_value;
-
   ASSERT_OK(
       blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+}
+
+// Creates a test blob file with a single blob in it. Note: this method
+// makes it possible to test various corner cases by allowing the caller
+// to specify the contents of various blob file header/footer fields.
+void WriteBlobFile(const ImmutableOptions& immutable_options,
+                   uint32_t column_family_id, bool has_ttl,
+                   const ExpirationRange& expiration_range_header,
+                   const ExpirationRange& expiration_range_footer,
+                   uint64_t blob_file_number, const Slice& key,
+                   const Slice& blob, CompressionType compression,
+                   uint64_t* blob_offset, uint64_t* blob_size) {
+  std::vector<Slice> keys{key};
+  std::vector<Slice> blobs{blob};
+  std::vector<uint64_t*> blob_offsets{blob_offset};
+  std::vector<uint64_t*> blob_sizes{blob_size};
+  WriteBlobFile(immutable_options, column_family_id, has_ttl,
+                expiration_range_header, expiration_range_footer,
+                blob_file_number, keys, blobs, compression, blob_offsets,
+                blob_sizes);
 }
 
 }  // anonymous namespace
