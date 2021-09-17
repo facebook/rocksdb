@@ -37,6 +37,9 @@ void EventHelpers::NotifyTableFileCreationStarted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, TableFileCreationReason reason) {
+  if (listeners.empty()) {
+    return;
+  }
   TableFileCreationBriefInfo info;
   info.db_name = db_name;
   info.cf_name = cf_name;
@@ -54,7 +57,7 @@ void EventHelpers::NotifyOnBackgroundError(
     BackgroundErrorReason reason, Status* bg_error, InstrumentedMutex* db_mutex,
     bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0U) {
+  if (listeners.empty()) {
     return;
   }
   db_mutex->AssertHeld();
@@ -163,7 +166,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   }
 
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0) {
+  if (listeners.empty()) {
     return;
   }
   TableFileCreationInfo info;
@@ -210,6 +213,9 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   event_logger->Log(jwriter);
 
 #ifndef ROCKSDB_LITE
+  if (listeners.empty()) {
+    return;
+  }
   TableFileDeletionInfo info;
   info.db_name = dbname;
   info.job_id = job_id;
@@ -230,7 +236,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     Status old_bg_error, InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() > 0) {
+  if (!listeners.empty()) {
     db_mutex->AssertHeld();
     // release lock while notifying events
     db_mutex->Unlock();
@@ -245,6 +251,100 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
   (void)old_bg_error;
   (void)db_mutex;
 #endif  // ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+void EventHelpers::NotifyBlobFileCreationStarted(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    const std::string& db_name, const std::string& cf_name,
+    const std::string& file_path, int job_id,
+    BlobFileCreationReason creation_reason) {
+  if (listeners.empty()) {
+    return;
+  }
+  BlobFileCreationBriefInfo info(db_name, cf_name, file_path, job_id,
+                                 creation_reason);
+  for (const auto& listener : listeners) {
+    listener->OnBlobFileCreationStarted(info);
+  }
+}
+#endif  // !ROCKSDB_LITE
+
+void EventHelpers::LogAndNotifyBlobFileCreationFinished(
+    EventLogger* event_logger,
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    const std::string& db_name, const std::string& cf_name,
+    const std::string& file_path, int job_id, uint64_t file_number,
+    BlobFileCreationReason creation_reason, const Status& s,
+    const std::string& file_checksum,
+    const std::string& file_checksum_func_name, uint64_t total_blob_count,
+    uint64_t total_blob_bytes) {
+  if (s.ok() && event_logger) {
+    JSONWriter jwriter;
+    AppendCurrentTime(&jwriter);
+    jwriter << "cf_name" << cf_name << "job" << job_id << "event"
+            << "blob_file_creation"
+            << "file_number" << file_number << "total_blob_count"
+            << total_blob_count << "total_blob_bytes" << total_blob_bytes
+            << "file_checksum" << file_checksum << "file_checksum_func_name"
+            << file_checksum_func_name << "status" << s.ToString();
+
+    jwriter.EndObject();
+    event_logger->Log(jwriter);
+  }
+
+#ifndef ROCKSDB_LITE
+  if (listeners.empty()) {
+    return;
+  }
+  BlobFileCreationInfo info(db_name, cf_name, file_path, job_id,
+                            creation_reason, total_blob_count, total_blob_bytes,
+                            s, file_checksum, file_checksum_func_name);
+  for (const auto& listener : listeners) {
+    listener->OnBlobFileCreated(info);
+  }
+  info.status.PermitUncheckedError();
+#else
+  (void)listeners;
+  (void)db_name;
+  (void)file_path;
+  (void)creation_reason;
+#endif
+}
+
+void EventHelpers::LogAndNotifyBlobFileDeletion(
+    EventLogger* event_logger,
+    const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
+    uint64_t file_number, const std::string& file_path, const Status& status,
+    const std::string& dbname) {
+  if (event_logger) {
+    JSONWriter jwriter;
+    AppendCurrentTime(&jwriter);
+
+    jwriter << "job" << job_id << "event"
+            << "blob_file_deletion"
+            << "file_number" << file_number;
+    if (!status.ok()) {
+      jwriter << "status" << status.ToString();
+    }
+
+    jwriter.EndObject();
+    event_logger->Log(jwriter);
+  }
+#ifndef ROCKSDB_LITE
+  if (listeners.empty()) {
+    return;
+  }
+  BlobFileDeletionInfo info(dbname, file_path, job_id, status);
+  for (const auto& listener : listeners) {
+    listener->OnBlobFileDeleted(info);
+  }
+  info.status.PermitUncheckedError();
+#else
+  (void)listeners;
+  (void)dbname;
+  (void)file_path;
+#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE
