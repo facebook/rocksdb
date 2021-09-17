@@ -33,6 +33,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
+#include "rocksdb/types.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -321,6 +322,7 @@ struct BlockBasedTableBuilder::Rep {
   size_t cache_key_prefix_size;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
+  const TableFileCreationReason reason;
 
   BlockHandle pending_handle;  // Handle to add to index block
 
@@ -433,6 +435,7 @@ struct BlockBasedTableBuilder::Rep {
                                             !table_opt.block_align),
         cache_key_prefix_size(0),
         compressed_cache_key_prefix_size(0),
+        reason(tbo.reason),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -482,11 +485,11 @@ struct BlockBasedTableBuilder::Rep {
 
       filter_context.info_log = ioptions.logger;
       filter_context.column_family_name = tbo.column_family_name;
-      filter_context.reason = tbo.reason;
+      filter_context.reason = reason;
 
       // Only populate other fields if known to be in LSM rather than
       // generating external SST file
-      if (tbo.reason != TableFileCreationReason::kMisc) {
+      if (reason != TableFileCreationReason::kMisc) {
         filter_context.compaction_style = ioptions.compaction_style;
         filter_context.num_levels = ioptions.num_levels;
         filter_context.level_at_creation = tbo.level_at_creation;
@@ -1263,8 +1266,20 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
-      if (r->table_options.prepopulate_block_cache ==
-          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
+      bool warm_cache;
+      switch (r->table_options.prepopulate_block_cache) {
+        case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
+          warm_cache = (r->reason == TableFileCreationReason::kFlush);
+          break;
+        case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
+          warm_cache = false;
+          break;
+        default:
+          // missing case
+          assert(false);
+          warm_cache = false;
+      }
+      if (warm_cache) {
         if (type == kNoCompression) {
           s = InsertBlockInCacheHelper(block_contents, handle, block_type);
         } else if (raw_block_contents != nullptr) {
