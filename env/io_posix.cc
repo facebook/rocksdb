@@ -31,6 +31,7 @@
 #endif
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
 #include "util/autovector.h"
@@ -644,6 +645,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
   autovector<WrappedReadRequest, 32> req_wraps;
   autovector<WrappedReadRequest*, 4> incomplete_rq_list;
+  std::unordered_set<WrappedReadRequest*> wrap_cache;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
@@ -676,6 +678,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           sqe, fd_, &rep_to_submit->iov, 1,
           rep_to_submit->req->offset + rep_to_submit->finished_len);
       io_uring_sqe_set_data(sqe, rep_to_submit);
+      wrap_cache.emplace(rep_to_submit);
     }
     incomplete_rq_list.clear();
 
@@ -724,6 +727,22 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       }
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+      // Reset cqe data to catch any stray reuse of it
+      static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+      // Check that we got a valid unique cqe data
+      auto wrap_check = wrap_cache.find(req_wrap);
+      if (wrap_check == wrap_cache.end()) {
+        fprintf(stderr,
+                "PosixRandomAccessFile::MultiRead: "
+                "Bad cqe data from IO uring - %p\n",
+                req_wrap);
+        port::PrintStack();
+        ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
+                                ToString((uint64_t)req_wrap));
+        continue;
+      }
+      wrap_cache.erase(wrap_check);
+
       FSReadRequest* req = req_wrap->req;
       if (cqe->res < 0) {
         req->result = Slice(req->scratch, 0);
@@ -769,6 +788,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       }
       io_uring_cqe_seen(iu, cqe);
     }
+    wrap_cache.clear();
   }
   return ios;
 #else

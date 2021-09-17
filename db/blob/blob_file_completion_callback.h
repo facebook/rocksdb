@@ -9,6 +9,7 @@
 #pragma once
 
 #include "db/error_handler.h"
+#include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "rocksdb/status.h"
 
@@ -16,23 +17,46 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobFileCompletionCallback {
  public:
-#ifdef ROCKSDB_LITE
-  BlobFileCompletionCallback(SstFileManager* /*sst_file_manager*/,
-                             InstrumentedMutex* /*mutex*/,
-                             ErrorHandler* /*error_handler*/) {}
-  Status OnBlobFileCompleted(const std::string& /*file_name*/) {
-    return Status::OK();
-  }
-#else
-  BlobFileCompletionCallback(SstFileManager* sst_file_manager,
-                             InstrumentedMutex* mutex,
-                             ErrorHandler* error_handler)
+  BlobFileCompletionCallback(
+      SstFileManager* sst_file_manager, InstrumentedMutex* mutex,
+      ErrorHandler* error_handler, EventLogger* event_logger,
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      const std::string& dbname)
       : sst_file_manager_(sst_file_manager),
         mutex_(mutex),
-        error_handler_(error_handler) {}
+        error_handler_(error_handler),
+        event_logger_(event_logger),
+        listeners_(listeners),
+        dbname_(dbname) {}
 
-  Status OnBlobFileCompleted(const std::string& file_name) {
+  void OnBlobFileCreationStarted(const std::string& file_name,
+                                 const std::string& column_family_name,
+                                 int job_id,
+                                 BlobFileCreationReason creation_reason) {
+#ifndef ROCKSDB_LITE
+    // Notify the listeners.
+    EventHelpers::NotifyBlobFileCreationStarted(listeners_, dbname_,
+                                                column_family_name, file_name,
+                                                job_id, creation_reason);
+#else
+    (void)file_name;
+    (void)column_family_name;
+    (void)job_id;
+    (void)creation_reason;
+#endif
+  }
+
+  Status OnBlobFileCompleted(const std::string& file_name,
+                             const std::string& column_family_name, int job_id,
+                             uint64_t file_number,
+                             BlobFileCreationReason creation_reason,
+                             const Status& report_status,
+                             const std::string& checksum_value,
+                             const std::string& checksum_method,
+                             uint64_t blob_count, uint64_t blob_bytes) {
     Status s;
+
+#ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
       // Report new blob files to SstFileManagerImpl
@@ -45,6 +69,17 @@ class BlobFileCompletionCallback {
         error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
       }
     }
+#endif  // !ROCKSDB_LITE
+
+    // Notify the listeners.
+    EventHelpers::LogAndNotifyBlobFileCreationFinished(
+        event_logger_, listeners_, dbname_, column_family_name, file_name,
+        job_id, file_number, creation_reason,
+        (!report_status.ok() ? report_status : s),
+        (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
+        (checksum_method.empty() ? kUnknownFileChecksumFuncName
+                                 : checksum_method),
+        blob_count, blob_bytes);
     return s;
   }
 
@@ -52,6 +87,8 @@ class BlobFileCompletionCallback {
   SstFileManager* sst_file_manager_;
   InstrumentedMutex* mutex_;
   ErrorHandler* error_handler_;
-#endif  // ROCKSDB_LITE
+  EventLogger* event_logger_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
+  std::string dbname_;
 };
 }  // namespace ROCKSDB_NAMESPACE

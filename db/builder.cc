@@ -65,7 +65,8 @@ Status BuildTable(
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
     InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
@@ -178,12 +179,12 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(versions, fs, &ioptions, &mutable_cf_options,
-                                  &file_options, job_id,
-                                  tboptions.column_family_id,
-                                  tboptions.column_family_name, io_priority,
-                                  write_hint, io_tracer, blob_callback,
-                                  &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(
+                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
+                  job_id, tboptions.column_family_id,
+                  tboptions.column_family_name, io_priority, write_hint,
+                  io_tracer, blob_callback, blob_creation_reason,
+                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -311,7 +312,7 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       } else {
-        blob_file_builder->Abandon();
+        blob_file_builder->Abandon(s);
       }
       blob_file_builder.reset();
     }
