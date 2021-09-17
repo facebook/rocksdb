@@ -1284,7 +1284,6 @@ class MockCipher : public BlockCipher {
 };
 #endif  // ROCKSDB_LITE
 
-
 class DummyFileSystem : public FileSystemWrapper {
  public:
   DummyFileSystem(const std::shared_ptr<FileSystem>& t)
