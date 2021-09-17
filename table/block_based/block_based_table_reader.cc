@@ -1864,7 +1864,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           continue;
         }
       }
-
+    }
+    if (s.ok()) {
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
       BlockContents contents;
