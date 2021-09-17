@@ -713,8 +713,8 @@ class Version {
                  const BlobIndex& blob_index, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadRequests =
-      std::vector<std::pair<BlobIndex, MultiGetRange::Iterator>>;
+  using BlobReadRequests = std::vector<
+      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>>;
   void MultiGetBlob(
       const ReadOptions& read_options, MultiGetRange& range,
       const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
