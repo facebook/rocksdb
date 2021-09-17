@@ -239,8 +239,8 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, keys[2], blob_offsets[2] - 1,
-                              blob_sizes[2], kNoCompression, &value,
+                    ->GetBlob(read_options, keys[0], blob_offsets[0] - 1,
+                              blob_sizes[0], kNoCompression, &value,
                               &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
@@ -252,8 +252,8 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, keys[0], blob_offsets[0] + 1,
-                              blob_sizes[0], kNoCompression, &value,
+                    ->GetBlob(read_options, keys[2], blob_offsets[2] + 1,
+                              blob_sizes[2], kNoCompression, &value,
                               &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);

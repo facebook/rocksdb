@@ -380,6 +380,8 @@ void BlobFileReader::MultiGetBlob(
     total_len += read_reqs[i].len;
   }
 
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
+
   Buffer buf;
   AlignedBuf aligned_buf;
 
@@ -411,9 +413,20 @@ void BlobFileReader::MultiGetBlob(
     return;
   }
 
+  assert(s.ok());
+  for (size_t i = 0; i < num_blobs; ++i) {
+    auto& req = read_reqs[i];
+    assert(statuses[i]);
+    if (req.status.ok() && req.result.size() != req.len) {
+      req.status = IOStatus::Corruption("Failed to read data from blob file");
+    }
+    *statuses[i] = req.status;
+  }
+
   if (read_options.verify_checksums) {
     for (size_t i = 0; i < num_blobs; ++i) {
-      if (!read_reqs[i].status.ok()) {
+      assert(statuses[i]);
+      if (!statuses[i]->ok()) {
         continue;
       }
       const Slice& record_slice = read_reqs[i].result;
@@ -426,7 +439,8 @@ void BlobFileReader::MultiGetBlob(
   }
 
   for (size_t i = 0; i < num_blobs; ++i) {
-    if (!read_reqs[i].status.ok() || !statuses[i]->ok()) {
+    assert(statuses[i]);
+    if (!statuses[i]->ok()) {
       continue;
     }
     const Slice& record_slice = read_reqs[i].result;
@@ -435,7 +449,6 @@ void BlobFileReader::MultiGetBlob(
     s = UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
                                statistics_, values[i]);
     if (!s.ok()) {
-      assert(statuses[i]);
       *statuses[i] = s;
     }
   }
