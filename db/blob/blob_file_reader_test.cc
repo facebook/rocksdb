@@ -280,7 +280,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, shorter_key,
                               blob_offsets[0] -
-                                  (keys[0].size() - sizeof(shorter_key) - 1),
+                                  (keys[0].size() - sizeof(shorter_key) + 1),
                               blob_sizes[0], kNoCompression, &value,
                               &bytes_read)
                     .IsCorruption());

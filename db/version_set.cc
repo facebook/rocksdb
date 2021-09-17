@@ -1875,6 +1875,9 @@ void Version::MultiGetBlob(
         assert(key_context.s);
         assert(key_context.s->ok());
         *(key_context.s) = s;
+        assert(key_context.get_context);
+        auto& get_context = *(key_context.get_context);
+        get_context.MarkKeyMayExist();
       }
     }
     return;
@@ -1882,8 +1885,17 @@ void Version::MultiGetBlob(
 
   assert(!blob_rqs.empty());
   Status status;
+  const auto& blob_files = storage_info_.GetBlobFiles();
   for (auto& elem : blob_rqs) {
     uint64_t blob_file_number = elem.first;
+    if (blob_files.find(blob_file_number) == blob_files.end()) {
+      auto& blobs_in_file = elem.second;
+      for (const auto& blob : blobs_in_file) {
+        const KeyContext& key_context = blob.second;
+        *(key_context.s) = Status::Corruption("Invalid blob file number");
+      }
+      continue;
+    }
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     assert(blob_file_cache_);
     status = blob_file_cache_->GetBlobFileReader(blob_file_number,
@@ -1914,6 +1926,11 @@ void Version::MultiGetBlob(
     for (const auto& blob : blobs_in_file) {
       const auto& blob_index = blob.first;
       const KeyContext& key_context = blob.second;
+      if (blob_index.HasTTL() || blob_index.IsInlined()) {
+        *(key_context.s) =
+            Status::Corruption("Unexpected TTL/inlined blob index");
+        continue;
+      }
       const uint64_t key_size = key_context.ukey_with_ts.size();
       const uint64_t offset = blob_index.offset();
       const uint64_t value_size = blob_index.size();
@@ -1943,17 +1960,10 @@ void Version::MultiGetBlob(
     assert(num == statuses.size());
     assert(num == values.size());
     for (size_t i = 0; i < num; ++i) {
-      if (!statuses[i]->ok()) {
-        if (statuses[i]->IsIncomplete()) {
-          auto& get_context = *(blob_read_key_contexts[i].get().get_context);
-          get_context.MarkKeyMayExist();
-        }
-      } else {
+      if (statuses[i]->ok()) {
         range.AddValueSize(blob_read_key_contexts[i].get().value->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
           *(blob_read_key_contexts[i].get().s) = Status::Aborted();
-        } else {
-          *(blob_read_key_contexts[i].get().s) = Status::OK();
         }
       }
     }
