@@ -675,7 +675,7 @@ TEST_P(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(Env::BOTTOM, info.priority);
 }
 
-TEST_P(CompactionServiceTest, FallbackLocal) {
+TEST_P(CompactionServiceTest, FallbackLocalAuto) {
   Options options = CurrentOptions();
   ReopenWithCompactionService(&options);
 
@@ -724,6 +724,23 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
       compactor_new_key);
   ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
             primary_new_key);
+}
+
+TEST_P(CompactionServiceTest, FallbackLocalManual) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+  uint64_t compactor_new_key =
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  uint64_t primary_new_key =
+      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
 
   // re-enable remote compaction
   my_cs->ResetOverride();
@@ -767,36 +784,7 @@ TEST_P(CompactionServiceTest, FallbackLocal) {
             primary_new_key);
 
   // verify result after 2 manual compactions
-  for (int i = 0; i < 200; i++) {
-    auto result = Get(Key(i));
-    if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
-    } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
-    }
-  }
-
-  // re-enable remote compaction again and trigger auto compaction
-  my_cs->ResetOverride();
-  compactor_new_key =
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  primary_new_key =
-      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
-  // make sure the compaction statistics is only recorded on the remote side
-  ASSERT_GT(
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-      compactor_new_key);
-  ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-            primary_new_key);
+  VerifyTestData();
 }
 
 INSTANTIATE_TEST_CASE_P(
