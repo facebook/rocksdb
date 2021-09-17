@@ -277,12 +277,13 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
     uint64_t bytes_read = 0;
 
-    ASSERT_TRUE(
-        reader
-            ->GetBlob(read_options, shorter_key,
-                      blob_offsets[0] - (keys[0].size() - sizeof(shorter_key)),
-                      blob_sizes[0], kNoCompression, &value, &bytes_read)
-            .IsCorruption());
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, shorter_key,
+                              blob_offsets[0] -
+                                  (keys[0].size() - sizeof(shorter_key) - 1),
+                              blob_sizes[0], kNoCompression, &value,
+                              &bytes_read)
+                    .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
 
     // MultiGetBlob
@@ -317,7 +318,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   // Incorrect key
   {
-    constexpr char incorrect_key[] = "foo";
+    constexpr char incorrect_key[] = "foo1";
     PinnableSlice value;
     uint64_t bytes_read = 0;
 
