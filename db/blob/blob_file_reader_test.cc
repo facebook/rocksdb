@@ -34,17 +34,13 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                    const ExpirationRange& expiration_range_footer,
                    uint64_t blob_file_number, const std::vector<Slice>& keys,
                    const std::vector<Slice>& blobs, CompressionType compression,
-                   const std::vector<uint64_t*>& blob_offsets,
-                   const std::vector<uint64_t*>& blob_sizes) {
+                   std::vector<uint64_t>& blob_offsets,
+                   std::vector<uint64_t>& blob_sizes) {
   assert(!immutable_options.cf_paths.empty());
   size_t num = keys.size();
   assert(num == blobs.size());
   assert(num == blob_offsets.size());
   assert(num == blob_sizes.size());
-  for (size_t i = 0; i < num; ++i) {
-    assert(blob_offsets[i]);
-    assert(blob_sizes[i]);
-  }
 
   const std::string blob_file_path =
       BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
@@ -73,7 +69,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   if (kNoCompression == compression) {
     for (size_t i = 0; i < num; ++i) {
       blobs_to_write[i] = blobs[i];
-      *blob_sizes[i] = blobs[i].size();
+      blob_sizes[i] = blobs[i].size();
     }
   } else {
     CompressionOptions opts;
@@ -88,14 +84,14 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
       ASSERT_TRUE(CompressData(blobs[i], info, compression_format_version,
                                &compressed_blobs[i]));
       blobs_to_write[i] = compressed_blobs[i];
-      *blob_sizes[i] = compressed_blobs[i].size();
+      blob_sizes[i] = compressed_blobs[i].size();
     }
   }
 
   for (size_t i = 0; i < num; ++i) {
     uint64_t key_offset = 0;
     ASSERT_OK(blob_log_writer.AddRecord(keys[i], blobs_to_write[i], &key_offset,
-                                        blob_offsets[i]));
+                                        &blob_offsets[i]));
   }
 
   BlobLogFooter footer;
@@ -120,12 +116,18 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                    uint64_t* blob_offset, uint64_t* blob_size) {
   std::vector<Slice> keys{key};
   std::vector<Slice> blobs{blob};
-  std::vector<uint64_t*> blob_offsets{blob_offset};
-  std::vector<uint64_t*> blob_sizes{blob_size};
+  std::vector<uint64_t> blob_offsets{0};
+  std::vector<uint64_t> blob_sizes{0};
   WriteBlobFile(immutable_options, column_family_id, has_ttl,
                 expiration_range_header, expiration_range_footer,
                 blob_file_number, keys, blobs, compression, blob_offsets,
                 blob_sizes);
+  if (blob_offset) {
+    *blob_offset = blob_offsets[0];
+  }
+  if (blob_size) {
+    *blob_size = blob_sizes[0];
+  }
 }
 
 }  // anonymous namespace
@@ -152,15 +154,19 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
-  constexpr char key[] = "key";
-  constexpr char blob[] = "blob";
+  constexpr size_t num_blobs = 3;
+  const std::vector<std::string> key_strs = {"key1", "key2", "key3"};
+  const std::vector<std::string> blob_strs = {"blob1", "blob2", "blob3"};
 
-  uint64_t blob_offset = 0;
-  uint64_t blob_size = 0;
+  const std::vector<Slice> keys = {key_strs[0], key_strs[1], key_strs[2]};
+  const std::vector<Slice> blobs = {blob_strs[0], blob_strs[1], blob_strs[2]};
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
 
   WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
-                expiration_range, blob_file_number, key, blob, kNoCompression,
-                &blob_offset, &blob_size);
+                expiration_range, blob_file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -178,10 +184,36 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
     uint64_t bytes_read = 0;
 
-    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kNoCompression, &value, &bytes_read));
-    ASSERT_EQ(value, blob);
-    ASSERT_EQ(bytes_read, blob_size);
+    ASSERT_OK(reader->GetBlob(read_options, keys[0], blob_offsets[0],
+                              blob_sizes[0], kNoCompression, &value,
+                              &bytes_read));
+    ASSERT_EQ(value, blobs[0]);
+    ASSERT_EQ(bytes_read, blob_sizes[0]);
+
+    // MultiGetBlob
+    bytes_read = 0;
+    size_t total_size = 0;
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    for (const auto& key_ref : keys) {
+      key_refs.emplace_back(std::cref(key_ref));
+    }
+    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
+                                 blob_offsets[2]};
+    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
+                                 &statuses_buf[2]};
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
+                                      &value_buf[2]};
+    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                         values, &bytes_read);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_OK(statuses_buf[i]);
+      ASSERT_EQ(value_buf[i], blobs[i]);
+      total_size += blob_sizes[i];
+    }
+    ASSERT_EQ(bytes_read, total_size);
   }
 
   read_options.verify_checksums = true;
@@ -190,14 +222,15 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
     uint64_t bytes_read = 0;
 
-    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kNoCompression, &value, &bytes_read));
-    ASSERT_EQ(value, blob);
+    ASSERT_OK(reader->GetBlob(read_options, keys[1], blob_offsets[1],
+                              blob_sizes[1], kNoCompression, &value,
+                              &bytes_read));
+    ASSERT_EQ(value, blobs[1]);
 
-    constexpr uint64_t key_size = sizeof(key) - 1;
+    const uint64_t key_size = keys[1].size();
     ASSERT_EQ(bytes_read,
               BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) +
-                  blob_size);
+                  blob_sizes[1]);
   }
 
   // Invalid offset (too close to start of file)
@@ -206,8 +239,9 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset - 1, blob_size,
-                              kNoCompression, &value, &bytes_read)
+                    ->GetBlob(read_options, keys[2], blob_offsets[2] - 1,
+                              blob_sizes[2], kNoCompression, &value,
+                              &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
   }
@@ -218,8 +252,9 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset + 1, blob_size,
-                              kNoCompression, &value, &bytes_read)
+                    ->GetBlob(read_options, keys[0], blob_offsets[0] + 1,
+                              blob_sizes[0], kNoCompression, &value,
+                              &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
   }
@@ -230,8 +265,8 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset, blob_size, kZSTD,
-                              &value, &bytes_read)
+                    ->GetBlob(read_options, keys[0], blob_offsets[0],
+                              blob_sizes[0], kZSTD, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
   }
@@ -242,12 +277,42 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
     uint64_t bytes_read = 0;
 
-    ASSERT_TRUE(reader
-                    ->GetBlob(read_options, shorter_key,
-                              blob_offset - (sizeof(key) - sizeof(shorter_key)),
-                              blob_size, kNoCompression, &value, &bytes_read)
-                    .IsCorruption());
+    ASSERT_TRUE(
+        reader
+            ->GetBlob(read_options, shorter_key,
+                      blob_offsets[0] - (keys[0].size() - sizeof(shorter_key)),
+                      blob_sizes[0], kNoCompression, &value, &bytes_read)
+            .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
+
+    // MultiGetBlob
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    for (const auto& key_ref : keys) {
+      key_refs.emplace_back(std::cref(key_ref));
+    }
+    Slice shorter_key_slice(shorter_key, sizeof(shorter_key) - 1);
+    key_refs[1] = std::cref(shorter_key_slice);
+
+    autovector<uint64_t> offsets{
+        blob_offsets[0],
+        blob_offsets[1] - (keys[1].size() - key_refs[1].get().size()),
+        blob_offsets[2]};
+    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
+                                 &statuses_buf[2]};
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
+                                      &value_buf[2]};
+    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                         values, &bytes_read);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      if (i == 1) {
+        ASSERT_TRUE(statuses_buf[i].IsCorruption());
+      } else {
+        ASSERT_OK(statuses_buf[i]);
+      }
+    }
   }
 
   // Incorrect key
@@ -257,10 +322,38 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, incorrect_key, blob_offset,
-                              blob_size, kNoCompression, &value, &bytes_read)
+                    ->GetBlob(read_options, incorrect_key, blob_offsets[0],
+                              blob_sizes[0], kNoCompression, &value,
+                              &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
+
+    // MultiGetBlob
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    for (const auto& key_ref : keys) {
+      key_refs.emplace_back(std::cref(key_ref));
+    }
+    Slice wrong_key_slice(incorrect_key, sizeof(incorrect_key) - 1);
+    key_refs[2] = std::cref(wrong_key_slice);
+
+    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
+                                 blob_offsets[2]};
+    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
+                                 &statuses_buf[2]};
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
+                                      &value_buf[2]};
+    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                         values, &bytes_read);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      if (i == num_blobs - 1) {
+        ASSERT_TRUE(statuses_buf[i].IsCorruption());
+      } else {
+        ASSERT_OK(statuses_buf[i]);
+      }
+    }
   }
 
   // Incorrect value size
@@ -269,10 +362,35 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset, blob_size + 1,
-                              kNoCompression, &value, &bytes_read)
+                    ->GetBlob(read_options, keys[1], blob_offsets[1],
+                              blob_sizes[1] + 1, kNoCompression, &value,
+                              &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(bytes_read, 0);
+
+    // MultiGetBlob
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    for (const auto& key_ref : keys) {
+      key_refs.emplace_back(std::cref(key_ref));
+    }
+    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
+                                 blob_offsets[2]};
+    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1] + 1, blob_sizes[2]};
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
+                                 &statuses_buf[2]};
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
+                                      &value_buf[2]};
+    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                         values, &bytes_read);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      if (i != 1) {
+        ASSERT_OK(statuses_buf[i]);
+      } else {
+        ASSERT_TRUE(statuses_buf[i].IsCorruption());
+      }
+    }
   }
 }
 
