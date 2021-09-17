@@ -1024,15 +1024,26 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     case CompactionServiceJobStatus::kSuccess:
       break;
     case CompactionServiceJobStatus::kFailure:
-      sub_compact->status =
-          s.ok() ? compaction_result.status
-                 : Status::Incomplete(
-                       "CompactionService failed to run compaction job.");
-      compaction_result.status.PermitUncheckedError();
+      if (s.ok()) {
+        if (compaction_result.status.ok()) {
+          sub_compact->status = Status::Incomplete(
+              "CompactionService failed to run the compaction job (even though "
+              "the internal status is okay).");
+        } else {
+          sub_compact->status =
+              compaction_result
+                  .status;  // set the current sub compaction status with the
+                            // status returned from remote
+        }
+      } else {
+        sub_compact->status = Status::Incomplete(
+            "CompactionService failed to run the compaction job (and no valid "
+            "result is returned).");
+        compaction_result.status.PermitUncheckedError();
+      }
       ROCKS_LOG_WARN(db_options_.info_log,
-                     "[%s] [JOB %d] Remote compaction failed, status: %s",
-                     compaction_input.column_family.name.c_str(), job_id_,
-                     s.ToString().c_str());
+                     "[%s] [JOB %d] Remote compaction failed.",
+                     compaction_input.column_family.name.c_str(), job_id_);
       return compaction_status;
     case CompactionServiceJobStatus::kUseLocal:
       ROCKS_LOG_INFO(db_options_.info_log,
