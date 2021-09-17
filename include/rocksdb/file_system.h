@@ -1475,7 +1475,7 @@ class FSWritableFileWrapper : public FSWritableFile {
   async_result AsyncAppend(const Slice& data, const IOOptions& options,
                   const DataVerificationInfo& verification_info,
                   IODebugContext* dbg) override {
-    auto result = target_->Append(data, options, verification_info, dbg);
+    auto result = target_->AsyncAppend(data, options, verification_info, dbg);
     co_await result;
     co_return result.io_result();
   }
