@@ -22,20 +22,20 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status SequentialFileReader::Create(
+IOStatus SequentialFileReader::Create(
     const std::shared_ptr<FileSystem>& fs, const std::string& fname,
     const FileOptions& file_opts, std::unique_ptr<SequentialFileReader>* reader,
     IODebugContext* dbg) {
   std::unique_ptr<FSSequentialFile> file;
-  Status s = fs->NewSequentialFile(fname, file_opts, &file, dbg);
-  if (s.ok()) {
+  IOStatus io_s = fs->NewSequentialFile(fname, file_opts, &file, dbg);
+  if (io_s.ok()) {
     reader->reset(new SequentialFileReader(std::move(file), fname));
   }
-  return s;
+  return io_s;
 }
 
-Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
-  Status s;
+IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
+  IOStatus io_s;
   if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
     size_t offset = offset_.fetch_add(n);
@@ -48,9 +48,9 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     buf.Alignment(alignment);
     buf.AllocateNewBuffer(size);
     Slice tmp;
-    s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
-                              buf.BufferStart(), nullptr);
-    if (s.ok() && offset_advance < tmp.size()) {
+    io_s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
+                                 buf.BufferStart(), nullptr);
+    if (io_s.ok() && offset_advance < tmp.size()) {
       buf.Size(tmp.size());
       r = buf.Read(scratch, offset_advance,
                    std::min(tmp.size() - offset_advance, n));
@@ -58,17 +58,17 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, r);
 #endif  // !ROCKSDB_LITE
   } else {
-    s = file_->Read(n, IOOptions(), result, scratch, nullptr);
+    io_s = file_->Read(n, IOOptions(), result, scratch, nullptr);
   }
   IOSTATS_ADD(bytes_read, result->size());
-  return s;
+  return io_s;
 }
 
-Status SequentialFileReader::Skip(uint64_t n) {
+IOStatus SequentialFileReader::Skip(uint64_t n) {
 #ifndef ROCKSDB_LITE
   if (use_direct_io()) {
     offset_ += static_cast<size_t>(n);
-    return Status::OK();
+    return IOStatus::OK();
   }
 #endif  // !ROCKSDB_LITE
   return file_->Skip(n);

@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 
+#include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
 #include "util/set_comparator.h"
 

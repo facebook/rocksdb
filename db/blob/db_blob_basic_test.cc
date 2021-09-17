@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <array>
+#include <sstream>
 
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -372,103 +374,139 @@ TEST_F(DBBlobBasicTest, Properties) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
+
   Reopen(options);
-  ASSERT_OK(Put("key1", "0000000000"));
-  ASSERT_OK(Put("key2", "0000000000"));
+
+  constexpr char key1[] = "key1";
+  constexpr size_t key1_size = sizeof(key1) - 1;
+
+  constexpr char key2[] = "key2";
+  constexpr size_t key2_size = sizeof(key2) - 1;
+
+  constexpr char key3[] = "key3";
+  constexpr size_t key3_size = sizeof(key3) - 1;
+
+  constexpr char blob[] = "0000000000";
+  constexpr size_t blob_size = sizeof(blob) - 1;
+
+  ASSERT_OK(Put(key1, blob));
+  ASSERT_OK(Put(key2, blob));
   ASSERT_OK(Flush());
-  ASSERT_OK(Put("key3", "0000000000"));
+
+  constexpr size_t first_blob_file_expected_size =
+      BlobLogHeader::kSize +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key1_size) + blob_size +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size +
+      BlobLogFooter::kSize;
+
+  ASSERT_OK(Put(key3, blob));
   ASSERT_OK(Flush());
-  // num of files
+
+  constexpr size_t second_blob_file_expected_size =
+      BlobLogHeader::kSize +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key3_size) + blob_size +
+      BlobLogFooter::kSize;
+
+  constexpr size_t total_expected_size =
+      first_blob_file_expected_size + second_blob_file_expected_size;
+
+  // Number of blob files
   uint64_t num_blob_files = 0;
-  EXPECT_TRUE(
+  ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kNumBlobFiles, &num_blob_files));
   ASSERT_EQ(num_blob_files, 2);
-  // size of live blob files
+
+  // Total size of live blob files
   uint64_t live_blob_file_size = 0;
-  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileSize,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileSize,
                                   &live_blob_file_size));
-  // size of total blob files
+  ASSERT_EQ(live_blob_file_size, total_expected_size);
+
+  // Total size of all blob files across all versions
+  // Note: this should be the same as above since we only have one
+  // version at this point.
   uint64_t total_blob_file_size = 0;
-  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
                                   &total_blob_file_size));
-  ASSERT_EQ(live_blob_file_size, total_blob_file_size);
-  auto* versions = dbfull()->TEST_GetVersionSet();
-  auto* current = versions->GetColumnFamilySet()->GetDefault()->current();
-  const auto& blob_files = current->storage_info()->GetBlobFiles();
-  uint64_t expected_live_blob_file_size = 0;
-  for (const auto& pair : blob_files) {
-    expected_live_blob_file_size += pair.second->GetTotalBlobBytes();
-  }
-  ASSERT_EQ(live_blob_file_size, expected_live_blob_file_size);
+  ASSERT_EQ(total_blob_file_size, total_expected_size);
 
-  // estimate live data size
-  std::string blob_stats = "";
-  EXPECT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &blob_stats));
-  EXPECT_TRUE(blob_stats.size() > 0);
-
-  // delete key2 to make some garbage
-  ASSERT_OK(Delete("key2"));
+  // Delete key2 to create some garbage
+  ASSERT_OK(Delete(key2));
   ASSERT_OK(Flush());
+
   constexpr Slice* begin = nullptr;
   constexpr Slice* end = nullptr;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  std::string new_blob_stats = "";
-  EXPECT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &new_blob_stats));
-  std::cout << blob_stats << new_blob_stats << std::endl;
+  constexpr size_t expected_garbage_size =
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size;
 
-  {
-    std::istringstream ss1(blob_stats);
-    std::istringstream ss2(new_blob_stats);
-    std::string stats_line = "";
-    std::string new_stats_line = "";
-    // skip the first line because it is the version info
-    std::getline(ss1, stats_line);
-    std::getline(ss2, new_stats_line);
-    for (size_t i = 0; i < 3; i++) {
-      std::getline(ss1, stats_line);
-      std::getline(ss2, new_stats_line);
-      if (i == 2) {
-        ASSERT_TRUE(stats_line != new_stats_line);
-      } else {
-        ASSERT_EQ(stats_line, new_stats_line);
-      }
-    }
-  }
+  // Blob file stats
+  std::string blob_stats;
+  ASSERT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &blob_stats));
+
+  std::ostringstream oss;
+  oss << "Number of blob files: 2\nTotal size of blob files: "
+      << total_expected_size
+      << "\nTotal size of garbage in blob files: " << expected_garbage_size
+      << '\n';
+
+  ASSERT_EQ(blob_stats, oss.str());
 }
 
 TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
+
   Reopen(options);
 
-  ASSERT_OK(Put("key1", "0000000000"));
+  constexpr char key1[] = "key1";
+  constexpr char key2[] = "key2";
+  constexpr char key3[] = "key3";
+
+  constexpr size_t key_size = sizeof(key1) - 1;
+  static_assert(sizeof(key2) - 1 == key_size, "unexpected size: key2");
+  static_assert(sizeof(key3) - 1 == key_size, "unexpected size: key3");
+
+  constexpr char blob[] = "0000000000";
+  constexpr size_t blob_size = sizeof(blob) - 1;
+
+  ASSERT_OK(Put(key1, blob));
   ASSERT_OK(Flush());
-  ASSERT_OK(Put("key2", "0000000000"));
+
+  ASSERT_OK(Put(key2, blob));
   ASSERT_OK(Flush());
-  // create an iterator to make the current version alive
-  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Create an iterator to keep the current version alive
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
   ASSERT_OK(iter->status());
-  ASSERT_OK(Put("key3", "0000000000"));
+
+  // Note: the Delete and subsequent compaction results in the first blob file
+  // not making it to the final version. (It is still part of the previous
+  // version kept alive by the iterator though.) On the other hand, the Put
+  // results in a third blob file.
+  ASSERT_OK(Delete(key1));
+  ASSERT_OK(Put(key3, blob));
   ASSERT_OK(Flush());
 
-  // size of total blob files
-  uint64_t total_blob_file_size = 0;
-  EXPECT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
-                                  &total_blob_file_size));
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  // total size equals to the current version's blob size because previous
-  // version's files are duplicated and thus not counted
-  auto* versions = dbfull()->TEST_GetVersionSet();
-  auto* current = versions->GetColumnFamilySet()->GetDefault()->current();
-  const auto& blob_files = current->storage_info()->GetBlobFiles();
-  uint64_t current_v_blob_size = 0;
-  for (const auto& pair : blob_files) {
-    current_v_blob_size += pair.second->GetTotalBlobBytes();
-  }
-  ASSERT_EQ(current_v_blob_size, total_blob_file_size);
-  delete iter;
+  // Total size of all blob files across all versions: between the two versions,
+  // we should have three blob files of the same size with one blob each.
+  // The version kept alive by the iterator contains the first and the second
+  // blob file, while the final version contains the second and the third blob
+  // file. (The second blob file is thus shared by the two versions but should
+  // be counted only once.)
+  uint64_t total_blob_file_size = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+                                  &total_blob_file_size));
+  ASSERT_EQ(total_blob_file_size,
+            3 * (BlobLogHeader::kSize +
+                 BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) +
+                 blob_size + BlobLogFooter::kSize));
 }
 #endif  // !ROCKSDB_LITE
 

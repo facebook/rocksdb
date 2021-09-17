@@ -384,13 +384,16 @@ struct CompactionServiceJobInfo {
                     // `db_session_id` could help you build unique id across
                     // different DBs and sessions.
 
-  // TODO: Add priority information
+  Env::Priority priority;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
-                           std::string db_session_id_, uint64_t job_id_)
+                           std::string db_session_id_, uint64_t job_id_,
+                           Env::Priority priority_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
-        job_id(job_id_) {}
+        job_id(job_id_),
+        priority(priority_) {}
 };
 
 class CompactionService : public Customizable {

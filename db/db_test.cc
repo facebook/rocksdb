@@ -4098,6 +4098,39 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
   }
 }
 
+// This test failure will be caught with a probability
+TEST_F(DBTest, ManualFlushWalAndWriteRace) {
+  Options options;
+  options.env = env_;
+  options.manual_wal_flush = true;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.sync = true;
+
+  port::Thread writeThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      auto istr = ToString(i);
+      dbfull()->Put(wopts, "key_" + istr, "value_" + istr);
+    }
+  });
+  port::Thread flushThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(dbfull()->FlushWAL(false));
+    }
+  });
+
+  writeThread.join();
+  flushThread.join();
+  ASSERT_OK(dbfull()->Put(wopts, "foo1", "value1"));
+  ASSERT_OK(dbfull()->Put(wopts, "foo2", "value2"));
+  Reopen(options);
+  ASSERT_EQ("value1", Get("foo1"));
+  ASSERT_EQ("value2", Get("foo2"));
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;

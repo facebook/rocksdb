@@ -10,8 +10,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DB;
-
 class PreReleaseCallback {
  public:
   virtual ~PreReleaseCallback() {}
