@@ -91,6 +91,8 @@ class Writer {
 
   IOStatus WriteBuffer();
 
+  async_result AsyncWriteBuffer();
+
   IOStatus Close();
 
   bool TEST_BufferIsEmpty();

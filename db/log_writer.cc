@@ -39,6 +39,12 @@ Writer::~Writer() {
 
 IOStatus Writer::WriteBuffer() { return dest_->Flush(); }
 
+async_result Writer::AsyncWriteBuffer() {
+  auto result = dest_->AsyncFlush();
+  co_await result;
+  co_return result.io_result();
+}
+
 IOStatus Writer::Close() {
   IOStatus s;
   if (dest_) {

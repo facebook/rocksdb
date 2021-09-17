@@ -235,6 +235,8 @@ class WritableFileWriter {
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(bool use_fsync);
 
+  async_result AsSyncWithoutFlush(bool use_fsync);
+
   uint64_t GetFileSize() const { return filesize_; }
 
   IOStatus InvalidateCache(size_t offset, size_t length) {
@@ -261,13 +263,17 @@ class WritableFileWriter {
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
   IOStatus WriteDirect();
+  async_result AsyncWriteDirect();
   IOStatus WriteDirectWithChecksum();
+  async_result AsyncWriteDirectWithChecksum();
 #endif  // !ROCKSDB_LITE
   // Normal write
   IOStatus WriteBuffered(const char* data, size_t size);
   async_result AsyncWriteBuffered(const char* data, size_t size);
   IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
+  async_result AsyncWriteBufferedWithChecksum(const char* data, size_t size);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
+  async_result AsSyncInternal(bool use_fsync);
 };
 }  // namespace ROCKSDB_NAMESPACE

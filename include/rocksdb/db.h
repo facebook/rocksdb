@@ -1316,12 +1316,18 @@ class DB {
   virtual Status FlushWAL(bool /*sync*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
+  virtual async_result AsyncFlushWAL(bool /*sync*/) {
+    co_return Status::NotSupported("FlushWAL not implemented");
+  }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
   // same as Write() with sync=true: in the latter case the changes won't be
   // visible until the sync is done.
   // Currently only works if allow_mmap_writes = false in Options.
   virtual Status SyncWAL() = 0;
 
+  virtual async_result AsSyncWAL() {
+    co_return Status::NotSupported("AsSyncWAL not implemented");
+  }
   // Lock the WAL. Also flushes the WAL after locking.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");

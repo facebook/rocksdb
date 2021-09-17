@@ -835,6 +835,14 @@ class FSWritableFile {
     return Append(data, options, dbg);
   }
 
+  virtual async_result AsyncAppend(
+      const Slice& data, const IOOptions& options,
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* dbg) {
+    auto result = AsyncAppend(data, options, dbg);
+    co_await result;
+    co_return result.io_result();
+  }
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -862,6 +870,13 @@ class FSWritableFile {
     return IOStatus::NotSupported("PositionedAppend");
   }
 
+  virtual async_result AsyncPositionedAppend(const Slice& /* data */,
+                                             uint64_t /* offset */,
+                                             const IOOptions& /*options*/,
+                                             IODebugContext* /*dbg*/) {
+    co_return IOStatus::NotSupported("PositionedAppend");
+  }
+
   // PositionedAppend data with verification information.
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB only generates crc32c based checksum for
@@ -878,6 +893,14 @@ class FSWritableFile {
     return IOStatus::NotSupported("PositionedAppend");
   }
 
+  virtual async_result AsyncPositionedAppend(
+      const Slice& /* data */, uint64_t /* offset */,
+      const IOOptions& /*options*/,
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* /*dbg*/) {
+    co_return IOStatus::NotSupported("PositionedAppend");
+  }
+
   // Truncate is necessary to trim the file to the correct size
   // before closing. It is not always possible to keep track of the file
   // size due to whole pages writes. The behavior is undefined if called
@@ -890,6 +913,10 @@ class FSWritableFile {
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
   virtual IOStatus Sync(const IOOptions& options,
                         IODebugContext* dbg) = 0;  // sync data
+  virtual async_result AsSync(const IOOptions& options,
+                        IODebugContext* dbg) {
+    co_return IOStatus::NotSupported("AsSync");
+  }
 
   /*
    * Sync data and/or metadata as well.
@@ -899,6 +926,12 @@ class FSWritableFile {
    */
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) {
     return Sync(options, dbg);
+  }
+
+  virtual async_result AsFsync(const IOOptions& options, IODebugContext* dbg) {
+    auto result = AsSync(options, dbg);
+    co_await result;
+    co_return result.io_result();
   }
 
   // true if Sync() and Fsync() are safe to call concurrently with Append()
