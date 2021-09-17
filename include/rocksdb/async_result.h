@@ -9,6 +9,7 @@
 #include <coroutine>
 #include <iostream>
 #include "rocksdb/status.h"
+#include "io_status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -39,9 +40,22 @@ struct async_result {
       result_set_ = true;
     }
 
+    void return_value(IOStatus io_result) {
+      io_result_ = io_result;
+      result_set_ = true;
+    }
+
+    void return_value(bool posix_write_result) {
+      posix_write_result_ = posix_write_result;
+      result_set_ = true;
+    }
+
     promise_type* prev_ = nullptr;
-    Status result_;
     bool result_set_ = false;
+    // different return type by coroutine
+    Status result_;
+    IOStatus io_result_;
+    bool posix_write_result_;
   };
 
   async_result() : async_(false) {}
@@ -62,17 +76,13 @@ struct async_result {
 
   void await_suspend(std::coroutine_handle<promise_type> h);
 
-  /*
-  void await_suspend(std::coroutine_handle<promise_type> h) {
-    if (!async_) 
-      h_.promise().prev_ = &h.promise();
-    else
-      context_->promise = &h.promise();
-  }*/
-
   void await_resume() const noexcept {}
 
   Status result() { return h_.promise().result_; }
+
+  IOStatus io_result() { return h_.promise().io_result_; }
+
+  bool posix_result() { return h_.promise().posix_write_result_; }
 
   std::coroutine_handle<promise_type> h_;
   bool async_ = false;

@@ -21,7 +21,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
-#include "rocksdb/async_wal_result.h"
+#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -224,7 +224,7 @@ class WritableFileWriter {
 
   IOStatus Flush();
 
-  async_wal_result AsyncFlush();
+  async_result AsyncFlush();
 
   IOStatus Close();
 
@@ -265,7 +265,7 @@ class WritableFileWriter {
 #endif  // !ROCKSDB_LITE
   // Normal write
   IOStatus WriteBuffered(const char* data, size_t size);
-  async_wal_result AsyncWriteBuffered(const char* data, size_t size);
+  async_result AsyncWriteBuffered(const char* data, size_t size);
   IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);

@@ -344,7 +344,7 @@ class MockWritableFile : public FSWritableFile {
     }
     return IOStatus::OK();
   }
-  async_wal_result AsyncAppend(const Slice& data, const IOOptions& options,
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
                                IODebugContext* dbg) override {
     (void)data;
     (void)options;

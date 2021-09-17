@@ -16,7 +16,6 @@
 #include <unordered_map>
 #include <vector>
 #include "rocksdb/async_result.h"
-#include "rocksdb/async_wal_result.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -354,7 +353,7 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, value);
   }
 
-  virtual async_wal_result AsyncPut(const WriteOptions& options,
+  virtual async_result AsyncPut(const WriteOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice& key, const Slice& value) {
       (void)options;
@@ -435,7 +434,7 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
-  virtual async_wal_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
+  virtual async_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
       (void)options;
       (void)updates;
       co_return Status::NotSupported("AsyncWrite() not implemented.");

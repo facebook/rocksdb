@@ -120,7 +120,7 @@ bool PosixWrite(int fd, const char* buf, size_t nbyte) {
   return true;
 }
 
-async_wal_result AsyncPosixWrite(int fd, const char* buf, size_t nbyte) {
+async_result AsyncPosixWrite(int fd, const char* buf, size_t nbyte) {
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
@@ -1267,7 +1267,7 @@ IOStatus PosixWritableFile::Append(const Slice& data, const IOOptions& /*opts*/,
   return IOStatus::OK();
 }
 
-async_wal_result PosixWritableFile::AsyncAppend(const Slice& data,
+async_result PosixWritableFile::AsyncAppend(const Slice& data,
                                                 const IOOptions& /*opts*/,
                                                 IODebugContext* /*dbg*/) {
   if (use_direct_io()) {

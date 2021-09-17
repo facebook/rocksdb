@@ -13,7 +13,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/async_wal_result.h"
+#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -325,7 +325,7 @@ class EncryptedWritableFile : public FSWritableFile {
   using FSWritableFile::Append;
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
-  async_wal_result AsyncAppend(const Slice& data, const IOOptions& options,
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
                                IODebugContext* dbg) override {
     (void)data;
     (void)options;

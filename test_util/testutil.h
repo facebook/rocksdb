@@ -224,7 +224,7 @@ class StringSink : public FSWritableFile {
     contents_.append(slice.data(), slice.size());
     return IOStatus::OK();
   }
-  async_wal_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
+  async_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
                                IODebugContext* /*dbg*/) override {
     (void)slice;
     throw "Not implemented";
@@ -329,7 +329,7 @@ class OverwritingStringSink : public FSWritableFile {
     contents_.append(slice.data(), slice.size());
     return IOStatus::OK();
   }
-  async_wal_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
+  async_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
                   IODebugContext* /*dbg*/) override {
     (void)slice;
     throw "Not implemented";

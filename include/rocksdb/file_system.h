@@ -28,7 +28,6 @@
 #include <vector>
 
 #include "rocksdb/async_result.h"
-#include "rocksdb/async_wal_result.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -819,7 +818,7 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
-  virtual async_wal_result AsyncAppend(const Slice& data, const IOOptions& options,
+  virtual async_result AsyncAppend(const Slice& data, const IOOptions& options,
                                        IODebugContext* dbg) = 0;
 
   // Append data with verification information.
@@ -1432,7 +1431,7 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, verification_info, dbg);
   }
-  async_wal_result AsyncAppend(const Slice& data, const IOOptions& options,
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
                                IODebugContext* dbg) override {
     auto result = target_->AsyncAppend(data, options, dbg);
     co_await result;

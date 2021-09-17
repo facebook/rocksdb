@@ -15,7 +15,7 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
-#include "rocksdb/async_wal_result.h"
+#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Convenience methods
@@ -54,7 +54,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   return WriteImpl(write_options, my_batch, nullptr, nullptr);
 }
 
-async_wal_result DBImpl::AsyncWrite(const WriteOptions& write_options, WriteBatch* my_batch) {
+async_result DBImpl::AsyncWrite(const WriteOptions& write_options, WriteBatch* my_batch) {
   auto result = AsyncWriteImpl(write_options, my_batch, nullptr, nullptr);
   co_await result;
   co_return result.result();
@@ -473,7 +473,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   return status;
 }
 
-async_wal_result DBImpl::AsyncWriteImpl(const WriteOptions& write_options,
+async_result DBImpl::AsyncWriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable, uint64_t* seq_used,
@@ -1499,7 +1499,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   return io_s;
 }
 
-async_wal_result DBImpl::AsyncWriteToWAL(const WriteBatch& merged_batch,
+async_result DBImpl::AsyncWriteToWAL(const WriteBatch& merged_batch,
                                          log::Writer* log_writer, uint64_t* log_used,
                                          uint64_t* log_size) {
   assert(log_size != nullptr);
@@ -1604,7 +1604,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   return io_s;
 }
 
-async_wal_result DBImpl::AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
+async_result DBImpl::AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
                                         log::Writer* log_writer, uint64_t* log_used,
                                         bool need_log_sync, bool need_log_dir_sync,
                                         SequenceNumber sequence) {
@@ -2532,7 +2532,7 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
-async_wal_result DBImpl::AsyncPut(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+async_result DBImpl::AsyncPut(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
   if (nullptr == opt.timestamp) {
     // Pre-allocate size of write batch conservatively.

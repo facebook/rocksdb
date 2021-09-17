@@ -247,7 +247,7 @@ class PosixWritableFile : public FSWritableFile {
   virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
   virtual IOStatus Append(const Slice& data, const IOOptions& opts,
                           IODebugContext* dbg) override;
-  virtual async_wal_result AsyncAppend(const Slice& data, const IOOptions& opts,
+  virtual async_result AsyncAppend(const Slice& data, const IOOptions& opts,
                                        IODebugContext* dbg) override;
   virtual IOStatus Append(const Slice& data, const IOOptions& opts,
                           const DataVerificationInfo& /* verification_info */,
@@ -361,7 +361,7 @@ class PosixMmapFile : public FSWritableFile {
   virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
   virtual IOStatus Append(const Slice& data, const IOOptions& opts,
                           IODebugContext* dbg) override;
-  virtual async_wal_result AsyncAppend(const Slice& data, const IOOptions& opts,
+  virtual async_result AsyncAppend(const Slice& data, const IOOptions& opts,
                                        IODebugContext* dbg) override {
     (void)data;
     (void)opts;

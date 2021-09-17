@@ -358,7 +358,7 @@ IOStatus WritableFileWriter::Flush() {
 
 // write out the cached data to the OS cache or storage if direct I/O
 // enabled
-async_wal_result WritableFileWriter::AsyncFlush() {
+async_result WritableFileWriter::AsyncFlush() {
   IOStatus s;
   TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Flush:0", REDUCE_ODDS2);
 
@@ -599,7 +599,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   return s;
 }
 
-async_wal_result WritableFileWriter::AsyncWriteBuffered(const char* data, size_t size) {
+async_result WritableFileWriter::AsyncWriteBuffered(const char* data, size_t size) {
   IOStatus s;
   assert(!use_direct_io());
   const char* src = data;

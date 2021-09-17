@@ -112,7 +112,7 @@ IOStatus Writer::AddRecord(const Slice& slice) {
   return s;
 }
 
-async_wal_result Writer::AsyncAddRecord(const Slice& slice) {
+async_result Writer::AsyncAddRecord(const Slice& slice) {
   const char* ptr = slice.data();
   size_t left = slice.size();
 
