@@ -96,7 +96,7 @@ class WinClock : public SystemClock {
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
  private:
-  typedef VOID(WINAPI* FnGetSystemTimePreciseAsFileTime)(LPFILETIME);
+  using FnGetSystemTimePreciseAsFileTime = VOID(WINAPI*)(LPFILETIME);
 
   uint64_t perf_counter_frequency_;
   uint64_t nano_seconds_per_period_;

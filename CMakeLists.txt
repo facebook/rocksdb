@@ -624,6 +624,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -712,6 +713,7 @@ set(SOURCES
         env/file_system_tracer.cc
         env/fs_remap.cc
         env/mock_env.cc
+        env/unique_id.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
         file/file_util.cc
@@ -816,9 +818,12 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
+        trace_replay/trace_record_result.cc
+        trace_replay/trace_record.cc
+        trace_replay/trace_replay.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -831,6 +836,7 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/ribbon_config.cc
+        util/regex.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -878,6 +884,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/trace/replayer_impl.cc
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
@@ -1119,6 +1126,7 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_counting_iterator_test.cc

@@ -39,25 +39,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct Options;
-struct DBOptions;
 struct ColumnFamilyOptions;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
-struct TableProperties;
+struct DBOptions;
 struct ExternalSstFileInfo;
-class WriteBatch;
-class Env;
-class EventListener;
-class StatsHistoryIterator;
-class TraceWriter;
+struct FlushOptions;
+struct Options;
+struct ReadOptions;
+struct TableProperties;
+struct WriteOptions;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
+class Env;
+class EventListener;
 class FileSystem;
+#ifndef ROCKSDB_LITE
+class Replayer;
+#endif
+class StatsHistoryIterator;
+#ifndef ROCKSDB_LITE
+class TraceReader;
+class TraceWriter;
+#endif
+class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -130,8 +136,8 @@ struct GetMergeOperandsOptions {
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
@@ -887,7 +893,8 @@ class DB {
     static const std::string kCurrentSuperVersionNumber;
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
-    //      live data in bytes.
+    //      live data in bytes. For BlobDB, it also includes the exact value of
+    //      live bytes in the blob files of the version.
     static const std::string kEstimateLiveDataSize;
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
@@ -907,6 +914,10 @@ class DB {
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
     //      files belong to the latest LSM tree.
     static const std::string kLiveSstFilesSize;
+
+    // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
+    //      of SST files at all certain file temperature
+    static const std::string kLiveSstFilesSizeAtTemperature;
 
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
@@ -956,6 +967,23 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    // "rocksdb.num-blob-files" - returns number of blob files in the current
+    //      version.
+    static const std::string kNumBlobFiles;
+
+    // "rocksdb.blob-stats" - return the total number and size of all blob
+    //      files, and total amount of garbage (bytes) in the blob files in
+    //      the current version.
+    static const std::string kBlobStats;
+
+    // "rocksdb.total-blob-file-size" - returns the total size of all blob
+    //      files over all versions.
+    static const std::string kTotalBlobFileSize;
+
+    // "rocksdb.live-blob-file-size" - returns the total size of all blob
+    //      files in the current version.
+    static const std::string kLiveBlobFileSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -1016,6 +1044,11 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //
+  //  Properties dedicated for BlobDB:
+  //  "rocksdb.num-blob-files"
+  //  "rocksdb.total-blob-file-size"
+  //  "rocksdb.live-blob-file-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -1628,6 +1661,7 @@ class DB {
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
 #ifndef ROCKSDB_LITE
+
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
@@ -1678,6 +1712,15 @@ class DB {
   virtual Status EndBlockCacheTrace() {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
+
+  // Create a default trace replayer.
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& /*handles*/,
+      std::unique_ptr<TraceReader>&& /*reader*/,
+      std::unique_ptr<Replayer>* /*replayer*/) {
+    return Status::NotSupported("NewDefaultReplayer() is not implemented.");
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

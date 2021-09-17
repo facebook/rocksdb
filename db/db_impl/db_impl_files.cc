@@ -318,7 +318,7 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
     return (first.file_path > second.file_path);
   }
 }
-};  // namespace
+}  // namespace
 
 // Delete obsolete files and log status and information of file deletion
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
@@ -359,6 +359,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
         immutable_db_options_.listeners);
+  }
+  if (type == kBlobFile) {
+    EventHelpers::LogAndNotifyBlobFileDeletion(
+        &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
+        file_deletion_status, GetName());
   }
 }
 

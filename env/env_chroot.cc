@@ -28,30 +28,27 @@ ChrootFileSystem::ChrootFileSystem(const std::shared_ptr<FileSystem>& base,
 }
 
 Status ChrootFileSystem::PrepareOptions(const ConfigOptions& options) {
-  Status s;
-  if (!IsPrepared()) {
-    s = FileSystemWrapper::PrepareOptions(options);
-    if (!s.ok()) {
-      return s;
-    } else if (chroot_dir_.empty()) {
-      s = Status::InvalidArgument("ChRootFileSystem requires a chroot dir");
-    } else {
-      s = target_->FileExists(chroot_dir_, IOOptions(), nullptr);
-    }
-    if (s.ok()) {
+  Status s = FileSystemWrapper::PrepareOptions(options);
+  if (!s.ok()) {
+    return s;
+  } else if (chroot_dir_.empty()) {
+    s = Status::InvalidArgument("ChRootFileSystem requires a chroot dir");
+  } else {
+    s = target_->FileExists(chroot_dir_, IOOptions(), nullptr);
+  }
+  if (s.ok()) {
 #if defined(OS_AIX)
-      char resolvedName[PATH_MAX];
-      char* real_chroot_dir = realpath(chroot_dir_.c_str(), resolvedName);
+    char resolvedName[PATH_MAX];
+    char* real_chroot_dir = realpath(chroot_dir_.c_str(), resolvedName);
 #else
-      char* real_chroot_dir = realpath(chroot_dir_.c_str(), nullptr);
+    char* real_chroot_dir = realpath(chroot_dir_.c_str(), nullptr);
 #endif
-      // chroot_dir must exist so realpath() returns non-nullptr.
-      assert(real_chroot_dir != nullptr);
-      chroot_dir_ = real_chroot_dir;
+    // chroot_dir must exist so realpath() returns non-nullptr.
+    assert(real_chroot_dir != nullptr);
+    chroot_dir_ = real_chroot_dir;
 #if !defined(OS_AIX)
-      free(real_chroot_dir);
+    free(real_chroot_dir);
 #endif
-    }
   }
   return s;
 }

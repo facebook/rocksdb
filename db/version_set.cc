@@ -2615,7 +2615,12 @@ void VersionStorageInfo::ComputeCompactionScore(
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 mutable_cf_options.compaction_options_fifo.max_table_files_size;
-        if (mutable_cf_options.compaction_options_fifo.allow_compaction) {
+        if (mutable_cf_options.compaction_options_fifo.allow_compaction ||
+            mutable_cf_options.compaction_options_fifo.age_for_warm > 0) {
+          // Warm tier move can happen at any time. It's too expensive to
+          // check very file's timestamp now. For now, just trigger it
+          // slightly more frequently than FIFO compaction so that this
+          // happens first.
           score = std::max(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
@@ -2627,7 +2632,6 @@ void VersionStorageInfo::ComputeCompactionScore(
                   immutable_options, mutable_cf_options, files_[level])),
               score);
         }
-
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
@@ -3595,6 +3599,14 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
           size += file->fd.file_size;
       }
     }
+  }
+  // For BlobDB, the result also includes the exact value of live bytes in the
+  // blob files of the version.
+  const auto& blobFiles = GetBlobFiles();
+  for (const auto& pair : blobFiles) {
+    const auto& meta = pair.second;
+    size += meta->GetTotalBlobBytes();
+    size -= meta->GetGarbageBlobBytes();
   }
   return size;
 }
@@ -5675,6 +5687,25 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     }
   }
   return total_files_size;
+}
+
+uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
+  std::unordered_set<uint64_t> unique_blob_files;
+  uint64_t all_v_blob_file_size = 0;
+  for (auto* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
+    // iterate all the versions
+    auto* vstorage = v->storage_info();
+    const auto& blob_files = vstorage->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      if (unique_blob_files.find(pair.first) == unique_blob_files.end()) {
+        // find Blob file that has not been counted
+        unique_blob_files.insert(pair.first);
+        const auto& meta = pair.second;
+        all_v_blob_file_size += meta->GetBlobFileSize();
+      }
+    }
+  }
+  return all_v_blob_file_size;
 }
 
 Status VersionSet::VerifyFileMetadata(const std::string& fpath,

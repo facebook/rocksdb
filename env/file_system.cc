@@ -217,11 +217,7 @@ Status FileSystemWrapper::PrepareOptions(const ConfigOptions& options) {
   if (target_ == nullptr) {
     target_ = FileSystem::Default();
   }
-  Status s = FileSystem::PrepareOptions(options);
-  if (s.ok() && !target_->IsPrepared()) {
-    s = target_->PrepareOptions(options);
-  }
-  return s;
+  return FileSystem::PrepareOptions(options);
 }
 
 #ifndef ROCKSDB_LITE
@@ -233,8 +229,8 @@ std::string FileSystemWrapper::SerializeOptions(
     return parent;
   } else {
     std::string result = header;
-    if (!StartsWith(parent, ConfigurableHelper::kIdPropName)) {
-      result.append(ConfigurableHelper::kIdPropName).append("=");
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
     }
     result.append(parent);
     if (!EndsWith(result, config_options.delimiter)) {

@@ -34,7 +34,13 @@ class Version;
 // the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
-  virtual ~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
+  virtual ~ArenaWrappedDBIter() {
+    if (db_iter_ != nullptr) {
+      db_iter_->~DBIter();
+    } else {
+      assert(false);
+    }
+  }
 
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
@@ -90,7 +96,7 @@ class ArenaWrappedDBIter : public Iterator {
   }
 
  private:
-  DBIter* db_iter_;
+  DBIter* db_iter_ = nullptr;
   Arena arena_;
   uint64_t sv_number_;
   ColumnFamilyData* cfd_ = nullptr;

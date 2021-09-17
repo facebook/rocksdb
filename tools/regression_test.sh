@@ -37,8 +37,8 @@
 #       ./tools/regression_test.sh
 #
 # = Regression test environmental parameters =
-#   DEBUG: If true, then the script will not checkout master and build db_bench
-#       if db_bench already exists
+#   DEBUG: If true, then the script will not build db_bench if db_bench already
+#       exists
 #       Default: 0
 #   TEST_MODE: If 1, run fillseqdeterminstic and benchmarks both
 #       if 0, only run fillseqdeterministc

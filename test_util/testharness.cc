@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "test_util/testharness.h"
+
+#include <regex>
 #include <string>
 #include <thread>
 
@@ -58,6 +60,50 @@ int RandomSeed() {
     result = 301;
   }
   return result;
+}
+
+TestRegex::TestRegex(const std::string& pattern)
+    : impl_(std::make_shared<Impl>(pattern)), pattern_(pattern) {}
+TestRegex::TestRegex(const char* pattern)
+    : impl_(std::make_shared<Impl>(pattern)), pattern_(pattern) {}
+
+const std::string& TestRegex::GetPattern() const { return pattern_; }
+
+// Sorry about code duplication with regex.cc, but it doesn't support LITE
+// due to exception handling
+class TestRegex::Impl : public std::regex {
+ public:
+  using std::regex::basic_regex;
+};
+
+bool TestRegex::Matches(const std::string& str) const {
+  if (impl_) {
+    return std::regex_match(str, *impl_);
+  } else {
+    // Should not call Matches on unset Regex
+    assert(false);
+    return false;
+  }
+}
+
+::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
+                                              const char* pattern_expr,
+                                              const std::string& str,
+                                              const TestRegex& pattern) {
+  if (pattern.Matches(str)) {
+    return ::testing::AssertionSuccess();
+  } else if (TestRegex("\".*\"").Matches(pattern_expr)) {
+    // constant regex string
+    return ::testing::AssertionFailure()
+           << str << " (" << str_expr << ")" << std::endl
+           << "does not match regex " << pattern.GetPattern();
+  } else {
+    // runtime regex string
+    return ::testing::AssertionFailure()
+           << str << " (" << str_expr << ")" << std::endl
+           << "does not match regex" << std::endl
+           << pattern.GetPattern() << " (" << pattern_expr << ")";
+  }
 }
 
 }  // namespace test

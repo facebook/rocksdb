@@ -5,9 +5,9 @@ orbs:
   slack: circleci/slack@3.4.2
 
 aliases:
-  - &notify-on-master-failure
+  - &notify-on-main-failure
     fail_only: true
-    only_for_branches: master
+    only_for_branches: main
 
 commands:
   install-pyenv-on-macos:
@@ -60,7 +60,7 @@ commands:
 
   post-steps:
     steps:
-      - slack/status: *notify-on-master-failure
+      - slack/status: *notify-on-main-failure
       - store_test_results: # store test result if there's any
           path: /tmp/test-results
       - store_artifacts: # store LOG for debugging if there's any
@@ -328,7 +328,7 @@ jobs:
       - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
       - post-steps
 
-  build-linux-unity:
+  build-linux-unity-and-headers:
     docker: # executor type
       - image: gcc:latest
     resource_class: large
@@ -336,6 +336,7 @@ jobs:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
       - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 -k check-headers | .circleci/cat_ignore_eagain # could be moved to a different build
       - post-steps
 
   build-linux-gcc-4_8-no_test_run:
@@ -730,9 +731,9 @@ workflows:
   build-linux-clang10-clang-analyze:
     jobs:
       - build-linux-clang10-clang-analyze
-  build-linux-unity:
+  build-linux-unity-and-headers:
     jobs:
-      - build-linux-unity
+      - build-linux-unity-and-headers
   build-windows-vs2019:
     jobs:
       - build-windows:
@@ -801,7 +802,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
     jobs:
       - build-format-compatible
       - build-linux-arm-test-full

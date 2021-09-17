@@ -1424,8 +1424,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           std::move(range_del_iters), &meta, &blob_file_additions,
           snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
           paranoid_file_checks, cfd->internal_stats(), &io_s, io_tracer_,
-          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
-          write_hint, nullptr /*full_history_ts_low*/, &blob_callback_);
+          BlobFileCreationReason::kRecovery, &event_logger_, job_id,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint,
+          nullptr /*full_history_ts_low*/, &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1434,8 +1435,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                       meta.fd.GetFileSize(), s.ToString().c_str());
       mutex_.Lock();
 
-      io_s.PermitUncheckedError();  // TODO(AR) is this correct, or should we
-                                    // return io_s if not ok()?
+      // TODO(AR) is this ok?
+      if (!io_s.ok() && s.ok()) {
+        s = io_s;
+      }
     }
   }
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);

@@ -5,8 +5,7 @@
 
 #pragma once
 
-#include <cinttypes>
-
+#include "db/db_impl/db_impl.h"
 #include "util/set_comparator.h"
 
 namespace ROCKSDB_NAMESPACE {

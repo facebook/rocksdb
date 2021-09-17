@@ -764,6 +764,11 @@ public enum TickerType {
      */
     MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
 
+    /**
+     * Number of secondary cache hits
+     */
+    SECONDARY_CACHE_HITS((byte) -0x1E),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

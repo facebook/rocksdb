@@ -70,6 +70,10 @@ struct CompactionOptionsFIFO {
   // Default: false;
   bool allow_compaction = false;
 
+  // When not 0, if the data in the file is older than this threshold, RocksDB
+  // will soon move the file to warm temperature.
+  uint64_t age_for_warm = 0;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
@@ -646,8 +650,8 @@ struct AdvancedColumnFamilyOptions {
   // the tables.
   // Default: empty vector -- no user-defined statistics collection will be
   // performed.
-  typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-      TablePropertiesCollectorFactories;
+  using TablePropertiesCollectorFactories =
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>;
   TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Maximum number of successive merge operations on a key in the memtable.
