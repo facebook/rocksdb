@@ -426,6 +426,9 @@ void BlobFileReader::MultiGetBlob(
   }
 
   for (size_t i = 0; i < num_blobs; ++i) {
+    if (!read_reqs[i].status.ok() || !statuses[i]->ok()) {
+      continue;
+    }
     const Slice& record_slice = read_reqs[i].result;
     const Slice value_slice(record_slice.data() + adjustments[i],
                             value_sizes[i]);
