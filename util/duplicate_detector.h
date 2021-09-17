@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <cstdint>
 
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
