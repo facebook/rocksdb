@@ -801,8 +801,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
     rep_->index_key_includes_seq =
         rep_->table_properties->index_key_is_user_key == 0;
-    rep_->index_value_is_full =
-        rep_->table_properties->index_value_is_delta_encoded == 0;
 
     // Update index_type with the true type.
     // If table properties don't contain index type, we assume that the table
@@ -1539,8 +1537,7 @@ IndexBlockIter* BlockBasedTable::NewIndexBlockIterator(
       rep_->internal_comparator.user_comparator(),
       rep_->get_global_seqno(BlockType::kIndex), iter, rep_->ioptions.stats,
       /* total_order_seek */ true, rep_->index_has_first_key,
-      rep_->index_key_includes_seq, rep_->index_value_is_full,
-      block_contents_pinned);
+      rep_->index_key_includes_seq, block_contents_pinned);
   UpdateBlockCache(ro, block, iter);
 
   return iter;
@@ -2189,8 +2186,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     return block->second.GetValue()->NewIterator(
         rep->internal_comparator.user_comparator(),
         rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
-        rep->index_has_first_key, rep->index_key_includes_seq,
-        rep->index_value_is_full);
+        rep->index_has_first_key, rep->index_key_includes_seq);
   }
   // Create an empty iterator
   // TODO(ajkr): this is not the right way to handle an unpinned partition.

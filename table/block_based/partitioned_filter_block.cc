@@ -253,7 +253,7 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       comparator->user_comparator(),
       table()->get_rep()->get_global_seqno(BlockType::kFilter), &iter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      index_key_includes_seq());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -455,8 +455,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   filter_block.GetValue()->NewIterator(
       comparator->user_comparator(), rep->get_global_seqno(BlockType::kFilter),
       &biter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      false /* have_first_key */, index_key_includes_seq());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -522,13 +521,6 @@ bool PartitionedFilterBlockReader::index_key_includes_seq() const {
   assert(table()->get_rep());
 
   return table()->get_rep()->index_key_includes_seq;
-}
-
-bool PartitionedFilterBlockReader::index_value_is_full() const {
-  assert(table());
-  assert(table()->get_rep());
-
-  return table()->get_rep()->index_value_is_full;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

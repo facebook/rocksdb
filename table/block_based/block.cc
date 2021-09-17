@@ -1032,8 +1032,8 @@ MetaBlockIter* MetaBlock::NewIterator(bool block_contents_pinned) const {
 IndexBlockIter* IndexBlock::NewIterator(
     const Comparator* raw_ucmp, SequenceNumber global_seqno,
     IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
-    bool have_first_key, bool key_includes_seq, bool value_is_full,
-    bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
+    bool have_first_key, bool key_includes_seq, bool block_contents_pinned,
+    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1052,7 +1052,7 @@ IndexBlockIter* IndexBlock::NewIterator(
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(raw_ucmp, this, global_seqno, prefix_index_ptr,
-                         have_first_key, key_includes_seq, value_is_full,
+                         have_first_key, key_includes_seq,
                          block_contents_pinned);
   }
 

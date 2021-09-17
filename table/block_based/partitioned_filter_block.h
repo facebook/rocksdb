@@ -140,7 +140,6 @@ class PartitionedFilterBlockReader
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;
-  bool index_value_is_full() const;
 
  protected:
   std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>

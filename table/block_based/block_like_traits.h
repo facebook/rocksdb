@@ -20,6 +20,7 @@ struct BlockLikeOptions {
   virtual bool UsingZstd() const = 0;
   virtual const FilterPolicy* GetFilterPolicy() const = 0;
   virtual size_t GetReadAmpBytesPerBit() const = 0;
+  virtual bool IsIndexDeltaEncoded() const = 0;
 };
 
 template <typename TBlocklike>
@@ -176,8 +177,8 @@ template <>
 class BlocklikeTraits<IndexBlock> {
  public:
   static IndexBlock* Create(BlockContents&& contents,
-                            const BlockLikeOptions* /*options*/) {
-    return new IndexBlock(std::move(contents));
+                            const BlockLikeOptions* options) {
+    return new IndexBlock(std::move(contents), options->IsIndexDeltaEncoded());
   }
 
   static uint32_t GetNumRestarts(const IndexBlock& block) {

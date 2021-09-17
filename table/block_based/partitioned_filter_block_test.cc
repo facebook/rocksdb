@@ -27,7 +27,6 @@ class MockedBlockBasedTable : public BlockBasedTable {
       : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
     rep->index_key_includes_seq = pib->seperator_is_key_plus_seq();
-    rep->index_value_is_full = !pib->get_use_value_delta_encoding();
   }
 };
 

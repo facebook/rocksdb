@@ -281,11 +281,9 @@ class MetaBlock : public Block {
 class IndexBlock : public Block {
  public:
   // Initialize the block with the specified contents.
-  explicit IndexBlock(BlockContents&& contents,
-                      bool value_delta_encoded = false);
+  explicit IndexBlock(BlockContents&& contents, bool value_delta_encoded);
   // No copying allowed
   IndexBlock(const IndexBlock&) = delete;
-  void SetValueDeltaEncoded(bool b) { value_delta_encoded_ = b; }
   void operator=(const IndexBlock&) = delete;
   const char* DecodeKV(const char* p, const char* limit, uint32_t* shared,
                        uint32_t* non_shared,
@@ -310,9 +308,10 @@ class IndexBlock : public Block {
                               SequenceNumber global_seqno, IndexBlockIter* iter,
                               Statistics* stats, bool total_order_seek,
                               bool have_first_key, bool key_includes_seq,
-                              bool value_is_full,
                               bool block_contents_pinned = false,
                               BlockPrefixIndex* prefix_index = nullptr);
+
+  inline bool IsValueDeltaEncoded() const { return value_delta_encoded_; }
 
  private:
   bool value_delta_encoded_;
@@ -675,14 +674,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   void Initialize(const Comparator* raw_ucmp, IndexBlock* index_block,
                   SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
                   bool have_first_key, bool key_includes_seq,
-                  bool value_is_full, bool block_contents_pinned) {
+                  bool block_contents_pinned) {
     InitializeBase(raw_ucmp, index_block, kDisableGlobalSequenceNumber,
                    block_contents_pinned);
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
-    value_delta_encoded_ = !value_is_full;
-    index_block->SetValueDeltaEncoded(value_delta_encoded_);
     have_first_key_ = have_first_key;
+    value_delta_encoded_ = index_block->IsValueDeltaEncoded();
     if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
       global_seqno_state_.reset(new GlobalSeqnoState(global_seqno));
     } else {

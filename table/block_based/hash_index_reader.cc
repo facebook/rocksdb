@@ -136,8 +136,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
       total_order_seek, index_has_first_key(), index_key_includes_seq(),
-      index_value_is_full(), false /* block_contents_pinned */,
-      prefix_index_.get());
+      false /* block_contents_pinned */, prefix_index_.get());
 
   assert(it != nullptr);
   index_block.TransferTo(it);

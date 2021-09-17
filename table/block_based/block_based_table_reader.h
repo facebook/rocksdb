@@ -571,7 +571,10 @@ struct BlockBasedTable::Rep : public BlockLikeOptions {
   size_t GetReadAmpBytesPerBit() const override {
     return table_options.read_amp_bytes_per_bit;
   }
-
+  bool IsIndexDeltaEncoded() const override {
+    return (table_properties != nullptr &&
+            table_properties->index_value_is_delta_encoded != 0);
+  }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
@@ -646,7 +649,6 @@ struct BlockBasedTable::Rep : public BlockLikeOptions {
   // These describe how index is encoded.
   bool index_has_first_key = false;
   bool index_key_includes_seq = true;
-  bool index_value_is_full = true;
 
   const bool immortal_table;
 

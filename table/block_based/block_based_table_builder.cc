@@ -256,6 +256,9 @@ struct BlockBasedTableBuilder::Rep : public BlockLikeOptions {
   size_t GetReadAmpBytesPerBit() const override {
     return table_options.read_amp_bytes_per_bit;
   }
+  bool IsIndexDeltaEncoded() const override {
+    return use_delta_encoding_for_index_values;
+  }
 
   const ImmutableOptions ioptions;
   const MutableCFOptions moptions;
