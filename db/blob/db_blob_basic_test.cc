@@ -127,6 +127,46 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   }
 }
 
+TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t kNumBlobFiles = 3;
+  constexpr size_t kNumBlobsPerFile = 3;
+  constexpr size_t kNumKeys = kNumBlobsPerFile * kNumBlobFiles;
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> value_strs;
+  for (size_t i = 0; i < kNumBlobFiles; ++i) {
+    for (size_t j = 0; j < kNumBlobsPerFile; ++j) {
+      std::string key = "key" + std::to_string(i) + "_" + std::to_string(j);
+      std::string value =
+          "value_as_blob" + std::to_string(i) + "_" + std::to_string(j);
+      ASSERT_OK(Put(key, value));
+      key_strs.push_back(key);
+      value_strs.push_back(value);
+    }
+    ASSERT_OK(Flush());
+  }
+  assert(key_strs.size() == kNumKeys);
+  std::array<Slice, kNumKeys> keys;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    keys[i] = key_strs[i];
+  }
+  std::array<PinnableSlice, kNumKeys> values;
+  std::array<Status, kNumKeys> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                &values[0], &statuses[0]);
+
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(value_strs[i], values[i]);
+  }
+}
+
 TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
