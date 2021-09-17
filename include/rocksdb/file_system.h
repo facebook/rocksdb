@@ -915,6 +915,8 @@ class FSWritableFile {
                         IODebugContext* dbg) = 0;  // sync data
   virtual async_result AsSync(const IOOptions& options,
                         IODebugContext* dbg) {
+    (void)options;
+    (void)dbg;
     co_return IOStatus::NotSupported("AsSync");
   }
 
