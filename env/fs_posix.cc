@@ -1035,7 +1035,7 @@ class PosixFileSystem : public FileSystem {
       return false;
     }
   }
-#endif // ROCKSDB_IOURING_PRESENT
+#endif  // ROCKSDB_IOURING_PRESENT
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
