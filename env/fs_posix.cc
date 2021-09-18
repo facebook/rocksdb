@@ -58,9 +58,6 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#ifdef GFLAGS
-#include "util/gflags_compat.h"
-#endif  // GFLAGS
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/thread_local.h"
@@ -76,10 +73,7 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
-#ifdef GFLAGS
-DEFINE_bool(rocksdb_io_uring_enable, true,
-            "If true, use IO uring if the platform supports it");
-#endif  // GFLAGS
+extern "C" bool RocksDbIOUringEnable() __attribute__((__weak__));
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -275,10 +269,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-#ifdef GFLAGS
-          !FLAGS_rocksdb_io_uring_enable ? nullptr :
-#endif
-                                         thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
 #endif
               ));
     }
@@ -1035,6 +1026,16 @@ class PosixFileSystem : public FileSystem {
     return false;
 #endif
   }
+
+#ifdef ROCKSDB_IOURING_PRESENT
+  bool IsIOUringEnabled() {
+    if (RocksDbIOUringEnable && RocksDbIOUringEnable()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+#endif // ROCKSDB_IOURING_PRESENT
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
