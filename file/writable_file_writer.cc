@@ -689,8 +689,10 @@ async_result WritableFileWriter::AsyncWriteBuffered(const char* data, size_t siz
         if (perform_data_verification_) {
           Crc32cHandoffChecksumCalculation(src, allowed, checksum_buf);
           v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
-          s = writable_file_->Append(Slice(src, allowed), IOOptions(), v_info,
-                                     nullptr);
+          auto result = writable_file_->AsyncAppend(
+              Slice(src, allowed), IOOptions(), v_info, nullptr);
+          co_await result;
+          s = result.io_result();
         } else {
           auto result = writable_file_->AsyncAppend(Slice(src, allowed), IOOptions(), nullptr);
           co_await result;

@@ -121,6 +121,7 @@ bool PosixWrite(int fd, const char* buf, size_t nbyte) {
 }
 
 async_result AsyncPosixWrite(int fd, const char* buf, size_t nbyte) {
+  // TODO: use liburing
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
@@ -168,6 +169,7 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
 
 async_result AsyncPosixPositionedWrite(int fd, const char* buf, size_t nbyte,
                                        off_t offset) {
+  // TODO: use liburing
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
