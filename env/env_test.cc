@@ -187,6 +187,7 @@ TEST_F(EnvPosixTest, AreFilesSame) {
 #endif
 
 #ifndef OS_WIN
+#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, FilePermission) {
   std::string value;
   // Only works for Posix environment
@@ -228,7 +229,8 @@ TEST_F(EnvPosixTest, FilePermission) {
     }
   }
 }
-
+#endif // ROCKSDB_LITE
+  
 TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
   std::atomic<CpuPriority> from_priority(CpuPriority::kNormal);
   std::atomic<CpuPriority> to_priority(CpuPriority::kNormal);
