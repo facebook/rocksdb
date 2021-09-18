@@ -360,8 +360,13 @@ Status UncompressBlockContentsForCompressionType(
       UncompressData(uncompression_info, data, n, &uncompressed_size,
                      GetCompressFormatForVersion(format_version), allocator);
   if (!ubuf) {
+    if (!CompressionTypeSupported(uncompression_info.type()))
+      return Status::NotSupported(
+          "Unsupported compression method for this build",
+          CompressionTypeToString(uncompression_info.type()));
+
     return Status::Corruption(
-        "Unsupported compression method or corrupted compressed block contents",
+        "Corrupted compressed block contents",
         CompressionTypeToString(uncompression_info.type()));
   }
 
