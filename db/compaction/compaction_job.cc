@@ -1017,40 +1017,39 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_status = db_options_.compaction_service->WaitForCompleteV2(
       info, &compaction_result_binary);
 
+  if (compaction_status == CompactionServiceJobStatus::kUseLocal) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction fallback to local by API "
+                   "WaitForComplete.",
+                   compaction_input.column_family.name.c_str(), job_id_);
+    return compaction_status;
+  }
+
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
                                     &compaction_result);
-  switch (compaction_status) {
-    case CompactionServiceJobStatus::kSuccess:
-      break;
-    case CompactionServiceJobStatus::kFailure:
-      if (s.ok()) {
-        if (compaction_result.status.ok()) {
-          sub_compact->status = Status::Incomplete(
-              "CompactionService failed to run the compaction job (even though "
-              "the internal status is okay).");
-        } else {
-          sub_compact->status =
-              compaction_result
-                  .status;  // set the current sub compaction status with the
-                            // status returned from remote
-        }
-      } else {
+
+  if (compaction_status == CompactionServiceJobStatus::kFailure) {
+    if (s.ok()) {
+      if (compaction_result.status.ok()) {
         sub_compact->status = Status::Incomplete(
-            "CompactionService failed to run the compaction job (and no valid "
-            "result is returned).");
-        compaction_result.status.PermitUncheckedError();
+            "CompactionService failed to run the compaction job (even though "
+            "the internal status is okay).");
+      } else {
+        // set the current sub compaction status with the status returned from
+        // remote
+        sub_compact->status = compaction_result.status;
       }
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "[%s] [JOB %d] Remote compaction failed.",
-                     compaction_input.column_family.name.c_str(), job_id_);
-      return compaction_status;
-    case CompactionServiceJobStatus::kUseLocal:
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "[%s] [JOB %d] Remote compaction fallback to local by API "
-                     "WaitForComplete.",
-                     compaction_input.column_family.name.c_str(), job_id_);
-      return compaction_status;
+    } else {
+      sub_compact->status = Status::Incomplete(
+          "CompactionService failed to run the compaction job (and no valid "
+          "result is returned).");
+      compaction_result.status.PermitUncheckedError();
+    }
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction failed.",
+                   compaction_input.column_family.name.c_str(), job_id_);
+    return compaction_status;
   }
 
   if (!s.ok()) {

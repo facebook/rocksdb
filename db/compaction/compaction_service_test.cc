@@ -749,10 +749,6 @@ TEST_P(CompactionServiceTest, FallbackLocalManual) {
   Slice start(start_str);
   Slice end(end_str);
   uint64_t comp_num = my_cs->GetCompactionNum();
-  compactor_new_key =
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  primary_new_key =
-      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
