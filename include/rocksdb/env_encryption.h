@@ -335,7 +335,7 @@ class EncryptedWritableFile : public FSWritableFile {
 
   async_result AsyncAppend(const Slice& data, const IOOptions& options,
                            const DataVerificationInfo& /* verification_info */,
-                           IODebugContext* dbg) {
+                           IODebugContext* dbg) override {
     (void)data;
     (void)options;
     (void)dbg;
