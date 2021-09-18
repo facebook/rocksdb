@@ -16,7 +16,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #ifdef GFLAGS
-#include <gflags/gflags.h>
+#include <util/gflags_compat.h>
 #endif  // GFLAGS
 #include <pthread.h>
 #include <signal.h>
