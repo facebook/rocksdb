@@ -12,6 +12,7 @@
 * Fix the implementation of `prepopulate_block_cache = kFlushOnly` to only apply to flushes rather than to all generated files.
 * Fix WAL log data corruption when using DBOptions.manual_wal_flush(true) and WriteOptions.sync(true) together. The sync WAL should work with locked log_write_mutex_.
 * Add checks for validity of the IO uring completion queue entries, and fail the BlockBasedTableReader MultiGet sub-batch if there's an invalid completion
+* Add an interface RocksDbIOUringEnable() that, if defined by the user, will allow them to enable/disable the use of IO uring by RocksDB
 
 ### New Features
 * RemoteCompaction's interface now includes `db_name`, `db_id`, `session_id`, which could help the user uniquely identify compaction job between db instances and sessions.
