@@ -323,6 +323,7 @@ EOF
         then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
           PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          JAVA_LDFLAGS="$JAVA_LDFLAGS -lgflags"
         # check if namespace is gflags
         elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
             #include <gflags/gflags.h>

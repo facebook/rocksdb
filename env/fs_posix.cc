@@ -15,9 +15,6 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
-#ifdef GFLAGS
-#include <util/gflags_compat.h>
-#endif  // GFLAGS
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -61,6 +58,9 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
+#ifdef GFLAGS
+#include "util/gflags_compat.h"
+#endif  // GFLAGS
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/thread_local.h"
