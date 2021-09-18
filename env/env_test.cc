@@ -229,8 +229,8 @@ TEST_F(EnvPosixTest, FilePermission) {
     }
   }
 }
-#endif // ROCKSDB_LITE
-  
+#endif  // ROCKSDB_LITE
+
 TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
   std::atomic<CpuPriority> from_priority(CpuPriority::kNormal);
   std::atomic<CpuPriority> to_priority(CpuPriority::kNormal);
