@@ -333,6 +333,14 @@ class EncryptedWritableFile : public FSWritableFile {
     throw "Not implemented";
   };
 
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
+                           const DataVerificationInfo& /* verification_info */,
+                           IODebugContext* dbg) {
+    (void)data;
+    (void)options;
+    throw "Not implemented";
+  }
+
   using FSWritableFile::PositionedAppend;
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
