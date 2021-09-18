@@ -16,7 +16,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 // A SystemClock that can "mock" sleep and counts its operations.
-class TimeElapseSystemClock : public SystemClockWrapper {
+class EmulatedSystemClock : public SystemClockWrapper {
  private:
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
@@ -28,10 +28,10 @@ class TimeElapseSystemClock : public SystemClockWrapper {
   bool no_slowdown_;
 
  public:
-  explicit TimeElapseSystemClock(const std::shared_ptr<SystemClock>& base,
-                                 bool time_elapse_only_sleep = false);
+  explicit EmulatedSystemClock(const std::shared_ptr<SystemClock>& base,
+                               bool time_elapse_only_sleep = false);
 
-  static const char* kClassName() { return "TimeElapseSystemClock"; }
+  static const char* kClassName() { return "TimeEmulatedSystemClock"; }
   const char* Name() const override { return kClassName(); }
 
   virtual void SleepForMicroseconds(int micros) override {
@@ -66,7 +66,7 @@ class TimeElapseSystemClock : public SystemClockWrapper {
 
   bool IsTimeElapseOnlySleep() const { return time_elapse_only_sleep_.load(); }
   void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
-  bool UseMockSleep() const { return no_slowdown_; }
+  bool IsMockSleepEnabled() const { return no_slowdown_; }
 
   int GetSleepCounter() const { return sleep_counter_.load(); }
 

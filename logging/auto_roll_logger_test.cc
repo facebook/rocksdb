@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "db/db_test_util.h"
-#include "env/time_elapse_clock.h"
+#include "env/emulated_clock.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -202,7 +202,7 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
   auto nsc =
-      std::make_shared<TimeElapseSystemClock>(SystemClock::Default(), true);
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
 
   size_t time = 2;
   size_t log_size = 1024 * 5;
@@ -272,7 +272,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
   InitTestDb();
 
   auto nsc =
-      std::make_shared<TimeElapseSystemClock>(SystemClock::Default(), true);
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   AutoRollLogger logger(FileSystem::Default(), nsc, kTestDir, "", log_max_size,
                         time, keep_log_file_num);
 
@@ -291,7 +291,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   auto nsc =
-      std::make_shared<TimeElapseSystemClock>(SystemClock::Default(), true);
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   std::unique_ptr<Env> nse(new CompositeEnvWrapper(Env::Default(), nsc));
 
   std::shared_ptr<Logger> logger;

@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <chrono>
 
-#include "env/time_elapse_clock.h"
+#include "env/emulated_clock.h"
 #include "file/filename.h"
 #include "port/sys_time.h"
 #include "rocksdb/file_system.h"
@@ -39,13 +39,13 @@ static std::unordered_map<std::string, OptionTypeInfo> time_elapse_type_info = {
       OptionTypeFlags::kCompareNever,
       [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
          const std::string& value, void* addr) {
-        auto clock = static_cast<TimeElapseSystemClock*>(addr);
+        auto clock = static_cast<EmulatedSystemClock*>(addr);
         clock->SetTimeElapseOnlySleep(ParseBoolean("", value));
         return Status::OK();
       },
       [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
          const void* addr, std::string* value) {
-        const auto clock = static_cast<const TimeElapseSystemClock*>(addr);
+        const auto clock = static_cast<const EmulatedSystemClock*>(addr);
         *value = clock->IsTimeElapseOnlySleep() ? "true" : "false";
         return Status::OK();
       },
@@ -59,14 +59,14 @@ static std::unordered_map<std::string, OptionTypeInfo> mock_sleep_type_info = {
       OptionTypeFlags::kCompareNever,
       [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
          const std::string& value, void* addr) {
-        auto clock = static_cast<TimeElapseSystemClock*>(addr);
+        auto clock = static_cast<EmulatedSystemClock*>(addr);
         clock->SetMockSleep(ParseBoolean("", value));
         return Status::OK();
       },
       [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
          const void* addr, std::string* value) {
-        const auto clock = static_cast<const TimeElapseSystemClock*>(addr);
-        *value = clock->UseMockSleep() ? "true" : "false";
+        const auto clock = static_cast<const EmulatedSystemClock*>(addr);
+        *value = clock->IsMockSleepEnabled() ? "true" : "false";
         return Status::OK();
       },
       nullptr}},
@@ -74,7 +74,7 @@ static std::unordered_map<std::string, OptionTypeInfo> mock_sleep_type_info = {
 };
 }  // namespace
 
-TimeElapseSystemClock::TimeElapseSystemClock(
+EmulatedSystemClock::EmulatedSystemClock(
     const std::shared_ptr<SystemClock>& base, bool time_elapse_only_sleep)
     : SystemClockWrapper(base),
       maybe_starting_time_(MaybeCurrentTime(base)),
@@ -1107,7 +1107,7 @@ MockEnv::MockEnv(Env* env, const std::shared_ptr<FileSystem>& fs,
 
 MockEnv* MockEnv::Create(Env* env) {
   auto clock =
-      std::make_shared<TimeElapseSystemClock>(env->GetSystemClock(), true);
+      std::make_shared<EmulatedSystemClock>(env->GetSystemClock(), true);
   return MockEnv::Create(env, clock);
 }
 
