@@ -6,9 +6,17 @@
 #include "rocksdb/file_system.h"
 
 #include "env/composite_env_wrapper.h"
+#include "env/env_chroot.h"
+#include "env/env_encryption_ctr.h"
+#include "env/fs_readonly.h"
+#include "env/mock_env.h"
 #include "options/db_options.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
+#include "utilities/env_timed.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -21,19 +29,63 @@ Status FileSystem::Load(const std::string& value,
   return CreateFromString(ConfigOptions(), value, result);
 }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinFileSystems(ObjectLibrary& library,
+                                      const std::string& /*arg*/) {
+  library.Register<FileSystem>(
+      TimedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TimedFileSystem(nullptr));
+        return guard->get();
+      });
+  library.Register<FileSystem>(
+      ReadOnlyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new ReadOnlyFileSystem(nullptr));
+        return guard->get();
+      });
+  library.Register<FileSystem>(
+      EncryptedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* errmsg) {
+        Status s = NewEncryptedFileSystemImpl(nullptr, nullptr, guard);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        return guard->get();
+      });
+#ifndef OS_WIN
+  library.Register<FileSystem>(
+      ChrootFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new ChrootFileSystem(nullptr, ""));
+        return guard->get();
+      });
+#endif  // OS_WIN
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
+
 Status FileSystem::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& value,
                                     std::shared_ptr<FileSystem>* result) {
-  Status s;
+  auto default_fs = FileSystem::Default();
+  if (default_fs->IsInstanceOf(value)) {
+    *result = default_fs;
+    return Status::OK();
+  } else {
 #ifndef ROCKSDB_LITE
-  (void)config_options;
-  s = ObjectRegistry::NewInstance()->NewSharedObject<FileSystem>(value, result);
-#else
-  (void)config_options;
-  (void)result;
-  s = Status::NotSupported("Cannot load FileSystem in LITE mode", value);
-#endif
-  return s;
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
+    });
+#endif  // ROCKSDB_LITE
+    return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
+  }
 }
 
 IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
@@ -147,4 +199,46 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
   return s;
 }
 
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo> fs_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target",
+     OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+FileSystemWrapper::FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
+    : target_(t) {
+  RegisterOptions("", &target_, &fs_wrapper_type_info);
+}
+
+Status FileSystemWrapper::PrepareOptions(const ConfigOptions& options) {
+  if (target_ == nullptr) {
+    target_ = FileSystem::Default();
+  }
+  return FileSystem::PrepareOptions(options);
+}
+
+#ifndef ROCKSDB_LITE
+std::string FileSystemWrapper::SerializeOptions(
+    const ConfigOptions& config_options, const std::string& header) const {
+  auto parent = FileSystem::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_ == nullptr ||
+      target_->IsInstanceOf(FileSystem::kDefaultName())) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_->ToString(config_options));
+    return result;
+  }
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

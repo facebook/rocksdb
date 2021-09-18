@@ -55,6 +55,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -135,13 +136,70 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   return flags;
 }
 
+struct PosixFileSystemOptions {
+  PosixFileSystemOptions()
+      : page_size(getpagesize()),
+        io_uring_enable(true),
+        allow_non_owner_access(true) {}
+  static const char* kName() { return "PosixFileSystemOptions"; }
+  size_t page_size;
+
+  // If true, enables IO uring if the platform supports it
+  bool io_uring_enable;
+  // If true, allow non owner read access for db files. Otherwise, non-owner
+  //  has no access to db files.
+  bool allow_non_owner_access;
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    posix_file_system_type_info = {
+#ifndef ROCKSDB_LITE
+        {"allow_non_owner_access",
+         {offsetof(struct PosixFileSystemOptions, allow_non_owner_access),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable}},
+        {"io_uring_enable",
+         {offsetof(struct PosixFileSystemOptions, io_uring_enable),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable}},
+#endif  // ROCKSDB_LITE
+};
+
 class PosixFileSystem : public FileSystem {
  public:
   PosixFileSystem();
 
-  const char* Name() const override { return "Posix File System"; }
+  static const char* kClassName() { return "PosixFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
+#ifndef ROCKSDB_LITE
+  Status ConfigureOption(const ConfigOptions& config_options,
+                         const std::string& name,
+                         const std::string& value) override {
+    std::string other_name;
+    const auto opt_info =
+        OptionTypeInfo::Find(name, posix_file_system_type_info, &other_name);
+    if (opt_info != nullptr) {
+      return opt_info->Parse(config_options, name, value, &posix_options_);
+    } else {
+      return Status::NotFound("Could not find option: ", name);
+    }
+  }
+
+  Status GetOption(const ConfigOptions& config_options, const std::string& name,
+                   std::string* value) const override {
+    std::string other_name;
+    const auto opt_info =
+        OptionTypeInfo::Find(name, posix_file_system_type_info, &other_name);
+    if (opt_info != nullptr) {
+      return opt_info->Serialize(config_options, name, &posix_options_, value);
+    } else {
+      return Status::NotFound("Could not find option: ", name);
+    }
+  }
+#endif  // ROCKSDB_LITE
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -171,7 +229,8 @@ class PosixFileSystem : public FileSystem {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
+      fd = open(fname.c_str(), flags,
+                GetDBFileMode(posix_options_.allow_non_owner_access));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       return IOError("While opening a file for sequentially reading", fname,
@@ -226,7 +285,8 @@ class PosixFileSystem : public FileSystem {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
+      fd = open(fname.c_str(), flags,
+                GetDBFileMode(posix_options_.allow_non_owner_access));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError("While open a file for random read", fname, errno);
@@ -267,9 +327,10 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          thread_local_io_urings_.get()
+          posix_options_.io_uring_enable ? thread_local_io_urings_.get()
+                                         : nullptr
 #endif
-              ));
+          ));
     }
     return s;
   }
@@ -311,7 +372,8 @@ class PosixFileSystem : public FileSystem {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
+      fd = open(fname.c_str(), flags,
+                GetDBFileMode(posix_options_.allow_non_owner_access));
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0) {
@@ -331,7 +393,8 @@ class PosixFileSystem : public FileSystem {
       }
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
-      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+      result->reset(
+          new PosixMmapFile(fname, fd, posix_options_.page_size, options));
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
@@ -411,7 +474,7 @@ class PosixFileSystem : public FileSystem {
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
       fd = open(old_fname.c_str(), flags,
-                GetDBFileMode(allow_non_owner_access_));
+                GetDBFileMode(posix_options_.allow_non_owner_access));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError("while reopen file for write", fname, errno);
@@ -437,7 +500,8 @@ class PosixFileSystem : public FileSystem {
       }
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
-      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+      result->reset(
+          new PosixMmapFile(fname, fd, posix_options_.page_size, options));
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
@@ -480,7 +544,8 @@ class PosixFileSystem : public FileSystem {
     while (fd < 0) {
       IOSTATS_TIMER_GUARD(open_nanos);
 
-      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
+      fd = open(fname.c_str(), flags,
+                GetDBFileMode(posix_options_.allow_non_owner_access));
       if (fd < 0) {
         // Error while opening the file
         if (errno == EINTR) {
@@ -566,7 +631,7 @@ class PosixFileSystem : public FileSystem {
       IOSTATS_TIMER_GUARD(open_nanos);
       fd = open(fname.c_str(),
                 cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
-                GetDBFileMode(allow_non_owner_access_));
+                GetDBFileMode(posix_options_.allow_non_owner_access));
       if (fd != -1) {
         f = fdopen(fd,
                    "w"
@@ -616,7 +681,8 @@ class PosixFileSystem : public FileSystem {
         return IOStatus::NotFound();
       default:
         assert(err == EIO || err == ENOMEM);
-        return IOStatus::IOError("Unexpected error(" + ToString(err) +
+        return IOStatus::IOError("Unexpected error(" +
+                                 ROCKSDB_NAMESPACE::ToString(err) +
                                  ") accessing file `" + fname + "' ");
     }
   }
@@ -817,11 +883,12 @@ class PosixFileSystem : public FileSystem {
       errno = ENOLCK;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
-      return IOError("lock hold by current process, acquire time " +
-                         ToString(prev_info.acquire_time) +
-                         " acquiring thread " +
-                         ToString(prev_info.acquiring_thread),
-                     fname, errno);
+      return IOError(
+          "lock hold by current process, acquire time " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquire_time) +
+              " acquiring thread " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquiring_thread),
+          fname, errno);
     }
 
     IOStatus result = IOStatus::OK();
@@ -993,6 +1060,7 @@ class PosixFileSystem : public FileSystem {
  private:
   bool checkedDiskForMmap_;
   bool forceMmapOff_;  // do we override Env options?
+  PosixFileSystemOptions posix_options_;
 
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
@@ -1030,11 +1098,6 @@ class PosixFileSystem : public FileSystem {
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
 #endif
 
-  size_t page_size_;
-
-  // If true, allow non owner read access for db files. Otherwise, non-owner
-  //  has no access to db files.
-  bool allow_non_owner_access_;
 
 #ifdef OS_LINUX
   static LogicalBlockSizeCache logical_block_size_cache_;
@@ -1078,10 +1141,7 @@ size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
 }
 
 PosixFileSystem::PosixFileSystem()
-    : checkedDiskForMmap_(false),
-      forceMmapOff_(false),
-      page_size_(getpagesize()),
-      allow_non_owner_access_(true) {
+    : checkedDiskForMmap_(false), forceMmapOff_(false) {
 #if defined(ROCKSDB_IOURING_PRESENT)
   // Test whether IOUring is supported, and if it does, create a managing
   // object for thread local point so that in the future thread-local

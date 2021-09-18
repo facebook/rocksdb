@@ -39,6 +39,9 @@ class MockFS : public FileSystemWrapper {
                   bool support_prefetch)
       : FileSystemWrapper(wrapped), support_prefetch_(support_prefetch) {}
 
+  static const char* kClassName() { return "MockFS"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
                                std::unique_ptr<FSRandomAccessFile>* result,

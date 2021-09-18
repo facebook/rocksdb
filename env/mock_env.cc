@@ -503,129 +503,37 @@ class TestMemLogger : public Logger {
   }
   size_t GetLogFileSize() const override { return log_size_; }
 };
+}  // namespace
 
-class MockFileSystem : public FileSystem {
- public:
-  explicit MockFileSystem(Env* env, bool supports_direct_io = true)
-      : env_(env), supports_direct_io_(supports_direct_io) {}
+MockFileSystem::MockFileSystem(Env* env, bool supports_direct_io)
+    : env_(env), supports_direct_io_(supports_direct_io) {}
 
-  ~MockFileSystem() override {
-    for (auto i = file_map_.begin(); i != file_map_.end(); ++i) {
-      i->second->Unref();
-    }
+MockFileSystem::~MockFileSystem() {
+  for (auto i = file_map_.begin(); i != file_map_.end(); ++i) {
+    i->second->Unref();
   }
-
-  const char* Name() const override { return "Memory"; }
-  IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
-                             std::unique_ptr<FSSequentialFile>* r,
-                             IODebugContext* dbg) override;
-  IOStatus NewRandomAccessFile(const std::string& f,
-                               const FileOptions& file_opts,
-                               std::unique_ptr<FSRandomAccessFile>* r,
-                               IODebugContext* dbg) override;
-
-  IOStatus NewRandomRWFile(const std::string& fname,
-                           const FileOptions& file_opts,
-                           std::unique_ptr<FSRandomRWFile>* result,
-                           IODebugContext* dbg) override;
-  IOStatus ReuseWritableFile(const std::string& fname,
-                             const std::string& old_fname,
-                             const FileOptions& file_opts,
-                             std::unique_ptr<FSWritableFile>* result,
-                             IODebugContext* dbg) override;
-  IOStatus NewWritableFile(const std::string& fname,
-                           const FileOptions& file_opts,
-                           std::unique_ptr<FSWritableFile>* result,
-                           IODebugContext* dbg) override;
-  IOStatus ReopenWritableFile(const std::string& fname,
-                              const FileOptions& options,
-                              std::unique_ptr<FSWritableFile>* result,
-                              IODebugContext* dbg) override;
-  IOStatus NewDirectory(const std::string& /*name*/, const IOOptions& io_opts,
-                        std::unique_ptr<FSDirectory>* result,
-                        IODebugContext* dbg) override;
-  IOStatus FileExists(const std::string& fname, const IOOptions& /*io_opts*/,
-                      IODebugContext* /*dbg*/) override;
-  IOStatus GetChildren(const std::string& dir, const IOOptions& options,
-                       std::vector<std::string>* result,
-                       IODebugContext* dbg) override;
-  IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
-                      IODebugContext* dbg) override;
-  IOStatus Truncate(const std::string& fname, size_t size,
-                    const IOOptions& options, IODebugContext* dbg) override;
-  IOStatus CreateDir(const std::string& dirname, const IOOptions& options,
-                     IODebugContext* dbg) override;
-  IOStatus CreateDirIfMissing(const std::string& dirname,
-                              const IOOptions& options,
-                              IODebugContext* dbg) override;
-  IOStatus DeleteDir(const std::string& dirname, const IOOptions& options,
-                     IODebugContext* dbg) override;
-
-  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
-                       uint64_t* file_size, IODebugContext* dbg) override;
-
-  IOStatus GetFileModificationTime(const std::string& fname,
-                                   const IOOptions& options,
-                                   uint64_t* file_mtime,
-                                   IODebugContext* dbg) override;
-  IOStatus RenameFile(const std::string& src, const std::string& target,
-                      const IOOptions& options, IODebugContext* dbg) override;
-  IOStatus LinkFile(const std::string& /*src*/, const std::string& /*target*/,
-                    const IOOptions& /*options*/,
-                    IODebugContext* /*dbg*/) override;
-  IOStatus LockFile(const std::string& fname, const IOOptions& options,
-                    FileLock** lock, IODebugContext* dbg) override;
-  IOStatus UnlockFile(FileLock* lock, const IOOptions& options,
-                      IODebugContext* dbg) override;
-  IOStatus GetTestDirectory(const IOOptions& options, std::string* path,
-                            IODebugContext* dbg) override;
-  IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
-                     std::shared_ptr<Logger>* result,
-                     IODebugContext* dbg) override;
-  // Get full directory name for this db.
-  IOStatus GetAbsolutePath(const std::string& db_path,
-                           const IOOptions& /*options*/,
-                           std::string* output_path,
-                           IODebugContext* /*dbg*/) override {
-    *output_path = NormalizeMockPath(db_path);
-    if (output_path->at(0) != '/') {
-      return IOStatus::NotSupported("GetAbsolutePath");
-    } else {
-      return IOStatus::OK();
-    }
+}
+IOStatus MockFileSystem::GetAbsolutePath(const std::string& db_path,
+                                         const IOOptions& /*options*/,
+                                         std::string* output_path,
+                                         IODebugContext* /*dbg*/) {
+  *output_path = NormalizeMockPath(db_path);
+  if (output_path->at(0) != '/') {
+    return IOStatus::NotSupported("GetAbsolutePath");
+  } else {
+    return IOStatus::OK();
   }
-  IOStatus IsDirectory(const std::string& /*path*/,
-                       const IOOptions& /*options*/, bool* /*is_dir*/,
-                       IODebugContext* /*dgb*/) override {
-    return IOStatus::NotSupported("IsDirectory");
+}
+
+std::string MockFileSystem::NormalizeMockPath(const std::string& path) {
+  std::string p = NormalizePath(path);
+  if (p.back() == kFilePathSeparator && p.size() > 1) {
+    p.pop_back();
   }
+  return p;
+}
 
-  Status CorruptBuffer(const std::string& fname);
-
- private:
-  bool RenameFileInternal(const std::string& src, const std::string& dest);
-  void DeleteFileInternal(const std::string& fname);
-  bool GetChildrenInternal(const std::string& fname,
-                           std::vector<std::string>* results);
-
-  std::string NormalizeMockPath(const std::string& path) {
-    std::string p = NormalizePath(path);
-    if (p.back() == kFilePathSeparator && p.size() > 1) {
-      p.pop_back();
-    }
-    return p;
-  }
-
- private:
-  // Map from filenames to MemFile objects, representing a simple file system.
-  port::Mutex mutex_;
-  std::map<std::string, MemFile*> file_map_;  // Protected by mutex_.
-  Env* env_;
-  bool supports_direct_io_;
-};
-
-}  // Anonymous namespace
-// Partial implementation of the Env interface.
+// Partial implementation of the FileSystem interface.
 IOStatus MockFileSystem::NewSequentialFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSSequentialFile>* result, IODebugContext* /*dbg*/) {

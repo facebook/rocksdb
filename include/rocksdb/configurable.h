@@ -133,8 +133,9 @@ class Configurable {
   //       not know how to convert the value.  This can happen if, for example,
   //       there is some nested Configurable that cannot be created.
   // @return InvalidArgument If the value cannot be successfully  parsed.
-  Status ConfigureOption(const ConfigOptions& config_options,
-                         const std::string& name, const std::string& value);
+  virtual Status ConfigureOption(const ConfigOptions& config_options,
+                                 const std::string& name,
+                                 const std::string& value);
 #endif  // ROCKSDB_LITE
 
   // Configures the options for this class based on the input parameters.
