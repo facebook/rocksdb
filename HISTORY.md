@@ -23,6 +23,7 @@
 * Allow a single write batch to include keys from multiple column families whose timestamps' formats can differ. For example, some column families may disable timestamp, while others enable timestamp.
 * Add compaction priority information in RemoteCompaction, which can be used to schedule high priority job first.
 * Added new callback APIs `OnBlobFileCreationStarted`,`OnBlobFileCreated`and `OnBlobFileDeleted` in `EventListener` class of listener.h. It notifies listeners during creation/deletion of individual blob files in Integrated BlobDB. It also log blob file creation finished event and deletion event in LOG file.
+* Batch blob read requests for `DB::MultiGet` using `MultiRead`.
 
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
