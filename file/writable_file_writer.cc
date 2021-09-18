@@ -434,7 +434,9 @@ async_result WritableFileWriter::AsyncFlush() {
       assert(offset_sync_to >= last_sync_size_);
       if (offset_sync_to > 0 &&
           offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
-        s = RangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+        auto result = AsRangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+        co_await result;
+        s = result.io_result();
         last_sync_size_ = offset_sync_to;
       }
     }
@@ -475,6 +477,27 @@ IOStatus WritableFileWriter::Sync(bool use_fsync) {
   TEST_KILL_RANDOM("WritableFileWriter::Sync:1");
   pending_sync_ = false;
   return IOStatus::OK();
+}
+
+async_result WritableFileWriter::AsSync(bool use_fsync) {
+  auto result = AsyncFlush();
+  co_await result;
+  IOStatus s = result.io_result();
+  if (!s.ok()) {
+    co_return s;
+  }
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:0");
+  if (!use_direct_io() && pending_sync_) {
+    auto res = AsSyncInternal(use_fsync);
+    co_await res;
+    s = res.io_result();
+    if (!s.ok()) {
+      co_return s;
+    }
+  }
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:1");
+  pending_sync_ = false;
+  co_return IOStatus::OK();
 }
 
 IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
@@ -582,6 +605,27 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   }
 #endif
   return s;
+}
+
+async_result WritableFileWriter::AsRangeSync(uint64_t offset, uint64_t nbytes) {
+  IOSTATS_TIMER_GUARD(range_sync_nanos);
+  TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
+#ifndef ROCKSDB_LITE
+  FileOperationInfo::StartTimePoint start_ts;
+  if (ShouldNotifyListeners()) {
+    start_ts = FileOperationInfo::StartNow();
+  }
+#endif
+  auto result = writable_file_->AsRangeSync(offset, nbytes, IOOptions(), nullptr);
+  co_await result;
+  IOStatus s = result.io_result();
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    auto finish_ts = std::chrono::steady_clock::now();
+    NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
+  }
+#endif
+  co_return s;
 }
 
 // This method writes to disk the specified data and makes use of the rate

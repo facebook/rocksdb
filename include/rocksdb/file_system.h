@@ -1008,6 +1008,16 @@ class FSWritableFile {
     return IOStatus::OK();
   }
 
+  virtual async_result AsRangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
+                             const IOOptions& options, IODebugContext* dbg) {
+    if (strict_bytes_per_sync_) {
+      auto result = AsSync(options, dbg);
+      co_await result;
+      co_return result.io_result();
+    }
+    co_return IOStatus::OK();
+  }
+
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
   // of space on devices where it can result in less file

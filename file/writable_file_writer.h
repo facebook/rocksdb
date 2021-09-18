@@ -230,6 +230,8 @@ class WritableFileWriter {
 
   IOStatus Sync(bool use_fsync);
 
+  async_result AsSync(bool use_fsync);
+
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
   // returns NotSupported status.
@@ -273,6 +275,7 @@ class WritableFileWriter {
   IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
   async_result AsyncWriteBufferedWithChecksum(const char* data, size_t size);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
+  async_result AsRangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
   async_result AsSyncInternal(bool use_fsync);
 };

@@ -2007,7 +2007,9 @@ async_result DBImpl::AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
     //  - as long as other threads don't modify it, it's safe to read
     //    from std::deque from multiple threads concurrently.
     for (auto& log : logs_) {
-      io_s = log.writer->file()->Sync(immutable_db_options_.use_fsync);
+      auto res =  log.writer->file()->AsSync(immutable_db_options_.use_fsync);
+      co_await res;
+      io_s = res.io_result();
       if (!io_s.ok()) {
         break;
       }
