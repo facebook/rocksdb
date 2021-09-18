@@ -338,6 +338,7 @@ class EncryptedWritableFile : public FSWritableFile {
                            IODebugContext* dbg) {
     (void)data;
     (void)options;
+    (void)dbg;
     throw "Not implemented";
   }
 
