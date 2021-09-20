@@ -525,6 +525,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int count;
     bool enable_error_injection;
     void* callstack;
+    std::string message;
     int frames;
     ErrorType type;
 

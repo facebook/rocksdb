@@ -759,7 +759,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation /*op*/, Slice* /*result*/, bool /*direct_io*/,
+    ErrorOperation /*op*/, Slice* result, bool direct_io,
     char* /*scratch*/) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
@@ -768,12 +768,39 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
   }
 
   if (ctx->rand.OneIn(ctx->one_in)) {
+    if (ctx->count == 0) {
+      ctx->message = "";
+    }
     ctx->count++;
     if (ctx->callstack) {
       free(ctx->callstack);
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
-    return IOStatus::IOError();
+
+    if (result == nullptr) {
+      // Likely non-per read status code for MultiRead
+      ctx->message += "error result == nullptr; ";
+      return IOStatus::IOError();
+    } else if (Random::GetTLSInstance()->OneIn(8)) {
+      // For a small chance, set the failure to status but turn the
+      // result to be empty, which is supposed to be caught for a check.
+      *result = Slice();
+      ctx->message += "inject empty result; ";
+    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7)) {
+      // With direct I/O, many extra bytes might be read so corrupting
+      // one byte might not cause checksum mismatch. Skip checksum
+      // corruption injection.
+      // For a small chance, set the failure to status but corrupt the
+      // result in a way that checksum checking is supposed to fail.
+      // Corrupt the last byte, which is supposed to be a checksum byte
+      // It would work for CRC. Not 100% sure for xxhash and will adjust
+      // if it is not the case.
+      const_cast<char*>(result->data())[result->size() - 1]++;
+      ctx->message += "corrupt last byte; ";
+    } else {
+      ctx->message += "error result != nullptr; ";
+      return IOStatus::IOError();
+    }
   }
   return IOStatus::OK();
 }
@@ -835,6 +862,7 @@ void FaultInjectionTestFS::PrintFaultBacktrace() {
     return;
   }
   fprintf(stderr, "Injected error type = %d\n", ctx->type);
+  fprintf(stderr, "Message: %s\n", ctx->message.c_str());
   port::PrintAndFreeStack(ctx->callstack, ctx->frames);
   ctx->callstack = nullptr;
 #endif
