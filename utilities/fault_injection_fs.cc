@@ -340,7 +340,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
-        scratch);
+        scratch, /*need_count_increase=*/true);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected read error");
@@ -355,6 +355,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     return fs_->GetError();
   }
   IOStatus s = target_->MultiRead(reqs, num_reqs, options, dbg);
+  bool injected_error = false;
   for (size_t i = 0; i < num_reqs; i++) {
     if (!reqs[i].status.ok()) {
       // Already seeing an error.
@@ -362,12 +363,15 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     reqs[i].status = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, &reqs[i].result,
-        use_direct_io(), reqs[i].scratch);
+        use_direct_io(), reqs[i].scratch, /*need_count_increase=*/true);
+    if (!reqs[i].status.ok()) {
+      injected_error = true;
+    }
   }
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, nullptr, use_direct_io(),
-        nullptr);
+        nullptr, /*need_count_increase=*/!injected_error);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected read error");
@@ -550,7 +554,8 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return IOStatus::IOError("Injected error when open random access file");
   }
   IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
-                                                false, nullptr);
+                                                false, nullptr,
+                                                /*need_count_increase=*/true);
   if (io_s.ok()) {
     io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   }
@@ -759,8 +764,8 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation /*op*/, Slice* result, bool direct_io,
-    char* /*scratch*/) {
+    ErrorOperation /*op*/, Slice* result, bool direct_io, char* /*scratch*/,
+    bool need_count_increase) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
@@ -771,7 +776,9 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
     if (ctx->count == 0) {
       ctx->message = "";
     }
-    ctx->count++;
+    if (need_count_increase) {
+      ctx->count++;
+    }
     if (ctx->callstack) {
       free(ctx->callstack);
     }

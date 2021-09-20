@@ -19,6 +19,7 @@
 #include "cache/sharded_cache.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "db_stress_tool/db_stress_common.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
@@ -65,6 +66,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1773,6 +1775,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
             "truncated block read from " + rep_->file->file_name() +
             " offset " + ToString(handle.offset()) + ", expected " +
             ToString(req.len) + " bytes, got " + ToString(req.result.size()));
+        if (fault_fs_guard) {
+          fault_fs_guard->AddThreadLocalMessage("size mismatch");
+        }
       }
     }
 
@@ -1808,6 +1813,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         s = ROCKSDB_NAMESPACE::VerifyBlockChecksum(
             footer.checksum(), data + req_offset, handle.size(),
             rep_->file->file_name(), handle.offset());
+        if (!s.ok() && fault_fs_guard) {
+          fault_fs_guard->AddThreadLocalMessage("checksum mismatch");
+        }
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {

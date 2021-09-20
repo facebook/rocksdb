@@ -441,7 +441,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
   IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
-                                         bool direct_io, char* scratch);
+                                         bool direct_io, char* scratch,
+                                         bool need_count_increase);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -496,6 +497,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // purposes. This call prints the backtrace to stderr and frees the
   // saved callstack
   void PrintFaultBacktrace();
+
+  void AddThreadLocalMessage(const std::string& m) {
+    ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
+    if (ctx) {
+      ctx->message += m;
+    }
+  }
 
  private:
   port::Mutex mutex_;

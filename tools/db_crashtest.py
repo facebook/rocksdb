@@ -45,7 +45,8 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c"]),
+#    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -77,7 +78,7 @@ default_params = {
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
-    "mmap_read": lambda: random.randint(0, 1),
+    "mmap_read": 0,
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
@@ -112,7 +113,7 @@ default_params = {
     "writepercent": 35,
     "format_version": lambda: random.choice([2, 3, 4, 5, 5]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
-    "use_multiget" : lambda: random.randint(0, 1),
+    "use_multiget" : 1,
     "periodic_compaction_seconds" :
         lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -140,7 +141,7 @@ default_params = {
     "continuous_verification_interval" : 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
-    "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "read_fault_one_in": lambda: random.choice([10, 32]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -512,12 +513,16 @@ def blackbox_crash_main(args, unknown_args):
             print(outs)
             print('stderr:')
             print(errs)
-            sys.exit(2)
+            sys.exit(1)
 
         for line in errs.split('\n'):
             if line != '' and  not line.startswith('WARNING'):
                 print('stderr has error message:')
                 print('***' + line + '***')
+
+        if "Didn't get expected error" in errs:
+           print('See verification failures')
+           sys.exit(1)
 
         time.sleep(1)  # time to stabilize before the next run
 

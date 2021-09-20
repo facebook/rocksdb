@@ -345,14 +345,13 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
-      int expected_nok = std::min(error_count, static_cast<int>(num_keys));
-      if (stat_nok < expected_nok) {
+      if (stat_nok < error_count) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
         fprintf(stderr, "Didn't get expected error from MultiGet. \n");
-        fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
-                num_keys, expected_nok, stat_nok);
+        fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n", num_keys,
+                error_count, stat_nok);
         fprintf(stderr, "Callstack that injected the fault\n");
         fault_fs_guard->PrintFaultBacktrace();
         std::terminate();
