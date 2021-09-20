@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
+### New Features
+### Public API change
+
+## 6.25.0 (2021-09-20)
+### Bug Fixes
 * Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.
 * Fixed a bug of secondary instance's last_sequence going backward, and reads on the secondary fail to see recent updates from the primary.
 * Fixed a bug that could lead to duplicate DB ID or DB session ID in POSIX environments without /proc/sys/kernel/random/uuid.
