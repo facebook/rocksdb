@@ -91,7 +91,10 @@ class RateLimiter {
 
   // Total # of requests that are pending for bytes in rate limiter
   virtual int64_t GetTotalPendingRequests(
-      const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
+      const Env::IOPriority pri = Env::IO_TOTAL) const {
+        (void) pri;
+        return 0;
+      }
 
   virtual int64_t GetBytesPerSecond() const = 0;
 
