@@ -440,9 +440,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
+  // fault_injected returns whether a fault is injected. It is needed
+  // because some fault is inected with IOStatus to be OK.
   IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
                                          bool direct_io, char* scratch,
-                                         bool need_count_increase);
+                                         bool need_count_increase,
+                                         bool* fault_injected);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
