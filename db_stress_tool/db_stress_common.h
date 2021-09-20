@@ -572,6 +572,7 @@ extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern StressTest* CreateMyRocksStyleTxnsStressTest();
+extern void CheckAndSetOptionsForMyRocksStyleTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
@@ -580,7 +581,5 @@ extern std::string NowNanosStr();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
-
-void CheckAndSetOptionsForMyRocksStyleTxnStressTest();
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

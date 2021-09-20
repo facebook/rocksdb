@@ -264,9 +264,11 @@ class MyRocksStyleTxnsStressTest : public StressTest {
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override;
 
+#ifndef ROCKSDB_LITE
   Status TestApproximateSize(ThreadState* thread, uint64_t iteration,
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys) override;
+#endif  // !ROCKSDB_LITE
 
   Status TestCustomOperations(
       ThreadState* thread,
@@ -364,7 +366,8 @@ std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
     return std::make_pair(Status::Corruption(""), 0);
   }
   uint32_t crc = 0;
-  bool result = GetFixed32(&secondary_index_value, &crc);
+  bool result __attribute__((unused)) =
+      GetFixed32(&secondary_index_value, &crc);
   assert(result);
   return std::make_pair(Status::OK(), crc);
 }
@@ -536,6 +539,7 @@ void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
 
 void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
   (void)shared;
+#ifndef ROCKSDB_LITE
   std::vector<ColumnFamilyDescriptor> cf_descs;
   for (const auto* handle : column_families_) {
     cf_descs.emplace_back(handle->GetName(), ColumnFamilyOptions(options_));
@@ -578,6 +582,7 @@ void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
   txn_db_ = nullptr;
 
   Open();
+#endif  // !ROCKSDB_LITE
 }
 
 // Used for point-lookup transaction
@@ -683,6 +688,7 @@ Status MyRocksStyleTxnsStressTest::TestCheckpoint(
   return Status::OK();
 }
 
+#ifndef ROCKSDB_LITE
 Status MyRocksStyleTxnsStressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
@@ -693,6 +699,7 @@ Status MyRocksStyleTxnsStressTest::TestApproximateSize(
   (void)rand_column_families;
   return Status::OK();
 }
+#endif  // !ROCKSDB_LITE
 
 Status MyRocksStyleTxnsStressTest::TestCustomOperations(
     ThreadState* thread, const std::vector<int>& rand_column_families) {
@@ -735,6 +742,12 @@ Status MyRocksStyleTxnsStressTest::TestCustomOperations(
 Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                        uint32_t old_a,
                                                        uint32_t new_a) {
+#ifdef ROCKSDB_LITE
+  (void)thread;
+  (void)old_a;
+  (void)new_a;
+  return Status::NotSupported();
+#else
   std::string old_pk = MyRocksRecord::EncodePrimaryKey(old_a);
   std::string new_pk = MyRocksRecord::EncodePrimaryKey(new_a);
   Transaction* txn = nullptr;
@@ -818,11 +831,18 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   s = CommitTxn(txn);
   return s;
+#endif  // !ROCKSDB_LITE
 }
 
 Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                          uint32_t old_c,
                                                          uint32_t new_c) {
+#ifdef ROCKSDB_LITE
+  (void)thread;
+  (void)old_c;
+  (void)new_c;
+  return Status::NotSupported();
+#else
   Transaction* txn = nullptr;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
@@ -954,10 +974,17 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   s = CommitTxn(txn);
 
   return s;
+#endif  // !ROCKSDB_LITE
 }
 
 Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
     ThreadState* thread, uint32_t a, uint32_t b_delta) {
+#ifdef ROCKSDB_LITE
+  (void)thread;
+  (void)a;
+  (void)b_delta;
+  return Status::NotSupported();
+#else
   std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
   Transaction* txn = nullptr;
   WriteOptions wopts;
@@ -1006,6 +1033,7 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
   }
   s = CommitTxn(txn);
   return s;
+#endif  // !ROCKSDB_LITE
 }
 
 Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
@@ -1158,11 +1186,16 @@ uint32_t MyRocksStyleTxnsStressTest::GenerateNextA() {
 }
 
 void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
+#ifdef ROCKSDB_LITE
+  (void)shared;
+  (void)num_c;
+#else
   // TODO (yanqin) maybe parallelize. Currently execute in single thread.
   WriteOptions wopts;
   wopts.disableWAL = true;
   wopts.sync = false;
   Random rnd(shared->GetSeed());
+  assert(txn_db_);
   for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
     for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
          ++a) {
@@ -1189,9 +1222,10 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   }
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
-  next_a_.store((num_c + 1) * kInitialCARatio);
+  next_a_.store(static_cast<uint32_t>((num_c + 1) * kInitialCARatio));
   fprintf(stdout, "DB preloaded with %d entries\n",
           static_cast<int>(num_c * kInitialCARatio));
+#endif  // !ROCKSDB_LITE
 }
 
 StressTest* CreateMyRocksStyleTxnsStressTest() {
@@ -1199,6 +1233,7 @@ StressTest* CreateMyRocksStyleTxnsStressTest() {
 }
 
 void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
+#ifndef ROCKSDB_LITE
   if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
     fprintf(stderr,
             "-test_myrocks_txns is not compatible with "
@@ -1230,6 +1265,11 @@ void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
             "-delrangepercent be 0\n");
     exit(1);
   }
+#else
+  fprintf(stderr, "-test_myrocks_txns not supported in ROCKSDB_LITE mode\n");
+  exit(1);
+#endif  // !ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
+
 #endif  // GFLAGS

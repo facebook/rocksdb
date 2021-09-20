@@ -2760,7 +2760,7 @@ void StressTest::Reopen(ThreadState* thread) {
   // the db via a callbac ii) they hold on to a snapshot and the upcoming
   // ::Close would complain about it.
   const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
-  bool bg_canceled = false;
+  bool bg_canceled __attribute__((unused)) = false;
   if (write_prepared || thread->rand.OneIn(2)) {
     const bool wait =
         write_prepared || static_cast<bool>(thread->rand.OneIn(2));
