@@ -215,6 +215,10 @@ enum Tickers : uint32_t {
   COMPACT_WRITE_BYTES_PERIODIC,
   COMPACT_WRITE_BYTES_TTL,
 
+  // Remote compaction read/write statistics
+  REMOTE_COMPACT_READ_BYTES,
+  REMOTE_COMPACT_WRITE_BYTES,
+
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
