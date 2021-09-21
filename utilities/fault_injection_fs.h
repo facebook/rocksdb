@@ -503,13 +503,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // saved callstack
   void PrintFaultBacktrace();
 
-  void AddThreadLocalMessage(const std::string& m) {
-    ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
-    if (ctx) {
-      ctx->message += m;
-    }
-  }
-
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;

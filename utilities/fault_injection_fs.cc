@@ -800,9 +800,8 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       assert(result);
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
-      ctx->message += "pre size " + ToString((long)result->size()) + " ";
       *result = Slice();
-      ctx->message += "inject empty result " + ToString((long)result) + "; ";
+      ctx->message += "inject empty result; ";
       ret_fault_injected = true;
     } else if (!direct_io && Random::GetTLSInstance()->OneIn(7)) {
       assert(result);
