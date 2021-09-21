@@ -18,6 +18,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
@@ -47,11 +48,6 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
-
-static std::unordered_map<std::string, MemPurgePolicy>
-    experimental_mempurge_policy_string_map = {
-        {"kAlternate", MemPurgePolicy::kAlternate},
-        {"kAlways", MemPurgePolicy::kAlways}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     db_mutable_options_type_info = {
@@ -198,13 +194,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"experimental_allow_mempurge",
-         {offsetof(struct ImmutableDBOptions, experimental_allow_mempurge),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"experimental_mempurge_policy",
-         OptionTypeInfo::Enum<MemPurgePolicy>(
-             offsetof(struct ImmutableDBOptions, experimental_mempurge_policy),
-             &experimental_mempurge_policy_string_map)},
+         {0, OptionType::kString, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone}},
+        {"experimental_mempurge_threshold",
+         {offsetof(struct ImmutableDBOptions, experimental_mempurge_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"is_fd_close_on_exec",
          {offsetof(struct ImmutableDBOptions, is_fd_close_on_exec),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -446,6 +444,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"statistics",
+         OptionTypeInfo::AsCustomSharedPtr<Statistics>(
+             // Statistics should not be compared and can be null
+             // Statistics are maked "don't serialize" until they can be shared
+             // between DBs
+             offsetof(struct ImmutableDBOptions, statistics),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
+                 OptionTypeFlags::kAllowNull)},
         // Allow EventListeners that have a non-empty Name() to be read/written
         // as options Each listener will either be
         // - A simple name (e.g. "MyEventListener")
@@ -615,8 +622,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
-      experimental_allow_mempurge(options.experimental_allow_mempurge),
-      experimental_mempurge_policy(options.experimental_mempurge_policy),
+      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
@@ -750,12 +756,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    is_fd_close_on_exec);
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
-  ROCKS_LOG_HEADER(log,
-                   "                  Options.experimental_allow_mempurge: %d",
-                   experimental_allow_mempurge);
-  ROCKS_LOG_HEADER(log,
-                   "                  Options.experimental_mempurge_policy: %d",
-                   static_cast<int>(experimental_mempurge_policy));
+  ROCKS_LOG_HEADER(
+      log, "                  Options.experimental_mempurge_threshold: %f",
+      experimental_mempurge_threshold);
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);

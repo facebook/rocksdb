@@ -722,6 +722,10 @@ void LDBCommand::PrepareOptions() {
     }
   }
 
+  if (options_.env == Env::Default()) {
+    options_.env = config_options_.env;
+  }
+
   OverrideBaseOptions();
   if (exec_state_.IsFailed()) {
     return;
@@ -1206,9 +1210,9 @@ void ManifestDumpCommand::DoCommand() {
 // ----------------------------------------------------------------------------
 namespace {
 
-void GetLiveFilesChecksumInfoFromVersionSet(Options options,
-                                            const std::string& db_path,
-                                            FileChecksumList* checksum_list) {
+Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
+                                              const std::string& db_path,
+                                              FileChecksumList* checksum_list) {
   EnvOptions sopt;
   Status s;
   std::string dbname(db_path);
@@ -1238,9 +1242,7 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
   if (s.ok()) {
     s = versions.GetLiveFilesChecksumInfo(checksum_list);
   }
-  if (!s.ok()) {
-    fprintf(stderr, "Error Status: %s", s.ToString().c_str());
-  }
+  return s;
 }
 
 }  // namespace
@@ -1279,14 +1281,14 @@ void FileChecksumDumpCommand::DoCommand() {
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
-                                         checksum_list.get());
-  if (checksum_list != nullptr) {
+  Status s = GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
+                                                    checksum_list.get());
+  if (s.ok() && checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
     std::vector<std::string> checksums;
     std::vector<std::string> checksum_func_names;
-    Status s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
-                                                  &checksum_func_names);
+    s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                           &checksum_func_names);
     if (s.ok()) {
       for (size_t i = 0; i < file_numbers.size(); i++) {
         assert(i < file_numbers.size());
@@ -1301,8 +1303,12 @@ void FileChecksumDumpCommand::DoCommand() {
         fprintf(stdout, "%" PRId64 ", %s, %s\n", file_numbers[i],
                 checksum_func_names[i].c_str(), checksum.c_str());
       }
+      fprintf(stdout, "Print SST file checksum information finished \n");
     }
-    fprintf(stdout, "Print SST file checksum information finished \n");
+  }
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
   }
 }
 
@@ -2163,8 +2169,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string
@@ -2192,8 +2197,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
                      &property);
 
     // format print string

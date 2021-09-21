@@ -63,7 +63,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
-    mem_env_ = new MockEnv(base_env);
+    mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
@@ -1070,12 +1070,12 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   std::string property;
   if (cf == 0) {
     // default cfd
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
   } else {
-    EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
-        &property));
+    EXPECT_TRUE(db_->GetProperty(handles_[cf],
+                                 "rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
   }
   return atoi(property.c_str());
 }
@@ -1085,12 +1085,10 @@ double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
   if (cf == 0) {
     // default cfd
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
-        &property));
+        "rocksdb.compression-ratio-at-level" + ToString(level), &property));
   } else {
     EXPECT_TRUE(db_->GetProperty(
-        handles_[cf],
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        handles_[cf], "rocksdb.compression-ratio-at-level" + ToString(level),
         &property));
   }
   return std::stod(property);

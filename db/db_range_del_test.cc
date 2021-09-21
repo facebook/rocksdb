@@ -118,7 +118,7 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFiles;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   options.num_levels = 2;
   options.target_file_size_base = kFileBytes;
   BlockBasedTableOptions table_options;
@@ -166,7 +166,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   opts.disable_auto_compactions = true;
   opts.level0_file_num_compaction_trigger = kNumFiles;
   opts.max_compaction_bytes = kNumPerFile * kBytesPerVal;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   // Want max_compaction_bytes to trigger the end of compaction output file, not
   // target_file_size_base, so make the latter much bigger
   opts.target_file_size_base = 100 * opts.max_compaction_bytes;
@@ -319,7 +319,7 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.disable_auto_compactions = true;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   opts.num_levels = 2;
   opts.statistics = CreateDBStatistics();
   DestroyAndReopen(opts);
@@ -377,7 +377,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
   options.level0_file_num_compaction_trigger = kNumFiles;
   options.max_bytes_for_level_base = 2 * kFileBytes;
   options.max_subcompactions = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   options.num_levels = 3;
   options.target_file_size_base = kFileBytes;
   options.target_file_size_multiplier = 1;
@@ -436,7 +436,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   options.compaction_style = kCompactionStyleUniversal;
   options.level0_file_num_compaction_trigger = kFilesPerLevel;
   options.max_subcompactions = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   options.num_levels = kNumLevels;
   options.target_file_size_base = kNumPerFile << 10;
   options.target_file_size_multiplier = 1;
@@ -489,7 +489,7 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   const int kNumPerFile = 3, kNumFiles = 3;
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(2 * kNumPerFile));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(2 * kNumPerFile));
   opts.merge_operator = MergeOperators::CreateUInt64AddOperator();
   opts.num_levels = 2;
   Reopen(opts);
@@ -613,7 +613,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   opts.comparator = test::Uint64Comparator();
   opts.level0_file_num_compaction_trigger = 4;
   opts.level0_stop_writes_trigger = 4;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   opts.num_levels = 2;
   BlockBasedTableOptions bbto;
   bbto.cache_index_and_filter_blocks = true;
@@ -694,7 +694,7 @@ TEST_F(DBRangeDelTest, GetCoveredKeyFromImmutableMemtable) {
     // memtable can hold. It switches the active memtable to immutable (flush is
     // prevented by the above options) upon inserting an element that would
     // overflow the memtable.
-    opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+    opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
     DestroyAndReopen(opts);
 
     ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
@@ -759,7 +759,7 @@ TEST_F(DBRangeDelTest, GetIgnoresRangeDeletions) {
   Options opts = CurrentOptions();
   opts.max_write_buffer_number = 4;
   opts.min_write_buffer_number_to_merge = 3;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   Reopen(opts);
 
   ASSERT_OK(db_->Put(WriteOptions(), "sst_key", "val"));
@@ -788,7 +788,7 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
   const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
-  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   DestroyAndReopen(opts);
 
   // Write half of the keys before the tombstone and half after the tombstone.
@@ -823,7 +823,7 @@ TEST_F(DBRangeDelTest, IteratorOverUserSnapshot) {
   const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
-  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   DestroyAndReopen(opts);
 
   const Snapshot* snapshot = nullptr;
@@ -857,7 +857,7 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   Options opts = CurrentOptions();
   opts.max_write_buffer_number = 4;
   opts.min_write_buffer_number_to_merge = 3;
-  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   Reopen(opts);
 
   ASSERT_OK(db_->Put(WriteOptions(), "sst_key", "val"));
@@ -1005,7 +1005,7 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(2 /* num_entries_flush */));
+      test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
   // i == 0: CompactFiles
   // i == 1: CompactRange
@@ -1073,7 +1073,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(2 /* num_entries_flush */));
+      test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
   options.disable_auto_compactions = true;
 

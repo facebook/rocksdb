@@ -78,7 +78,17 @@ public enum CompactionReason {
   /**
    * Compaction caused by external sst file ingestion
    */
-  kExternalSstIngestion((byte)0x0D);
+  kExternalSstIngestion((byte) 0x0D),
+
+  /**
+   * Compaction due to SST file being too old
+   */
+  kPeriodicCompaction((byte) 0x0E),
+
+  /**
+   * Compaction in order to move files to temperature
+   */
+  kChangeTemperature((byte) 0x0F);
 
   private final byte value;
 

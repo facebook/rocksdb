@@ -15,6 +15,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/sync_point.h"
 #include "util/coding_lean.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -67,12 +67,12 @@ class WinFileData {
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   const bool use_direct_io_;
+  const size_t sector_size_;
 
  public:
   // We want this class be usable both for inheritance (prive
   // or protected) and for containment so __ctor and __dtor public
-  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io)
-      : filename_(filename), hFile_(hFile), use_direct_io_(direct_io) {}
+  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io);
 
   virtual ~WinFileData() { this->CloseFile(); }
 
@@ -92,6 +92,10 @@ class WinFileData {
   HANDLE GetFileHandle() const { return hFile_; }
 
   bool use_direct_io() const { return use_direct_io_; }
+
+  size_t GetSectorSize() const { return sector_size_; }
+
+  bool IsSectorAligned(const size_t off) const;
 
   WinFileData(const WinFileData&) = delete;
   WinFileData& operator=(const WinFileData&) = delete;
@@ -321,7 +325,7 @@ class WinWritableImpl {
 
   ~WinWritableImpl() {}
 
-  uint64_t GetAlignement() const { return alignment_; }
+  uint64_t GetAlignment() const { return alignment_; }
 
   IOStatus AppendImpl(const Slice& data);
 

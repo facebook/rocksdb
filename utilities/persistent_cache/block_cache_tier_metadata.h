@@ -95,9 +95,9 @@ class BlockCacheTierMetadata {
     }
   };
 
-  typedef EvictableHashTable<BlockCacheFile, BlockCacheFileHash,
-                             BlockCacheFileEqual>
-      CacheFileIndexType;
+  using CacheFileIndexType =
+      EvictableHashTable<BlockCacheFile, BlockCacheFileHash,
+                         BlockCacheFileEqual>;
 
   // Block Lookup Index
   //
@@ -114,7 +114,7 @@ class BlockCacheTierMetadata {
     }
   };
 
-  typedef HashTable<BlockInfo*, Hash, Equal> BlockIndexType;
+  using BlockIndexType = HashTable<BlockInfo*, Hash, Equal>;
 
   CacheFileIndexType cache_file_index_;
   BlockIndexType block_index_;

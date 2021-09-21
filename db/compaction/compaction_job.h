@@ -146,7 +146,7 @@ class CompactionJob {
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
 
-  void ProcessKeyValueCompactionWithCompactionService(
+  CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.

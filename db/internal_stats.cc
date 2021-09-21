@@ -23,6 +23,7 @@
 #include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/cachable_entry.h"
@@ -262,6 +263,8 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string live_sst_files_size_at_temperature =
+    "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
 static const std::string aggregated_table_properties =
@@ -278,6 +281,10 @@ static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 static const std::string options_statistics = "options-statistics";
+static const std::string num_blob_files = "num-blob-files";
+static const std::string blob_stats = "blob-stats";
+static const std::string total_blob_file_size = "total-blob-file-size";
+static const std::string live_blob_file_size = "live-blob-file-size";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -369,6 +376,15 @@ const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
+const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
+    rocksdb_prefix + live_sst_files_size_at_temperature;
+const std::string DB::Properties::kNumBlobFiles =
+    rocksdb_prefix + num_blob_files;
+const std::string DB::Properties::kBlobStats = rocksdb_prefix + blob_stats;
+const std::string DB::Properties::kTotalBlobFileSize =
+    rocksdb_prefix + total_blob_file_size;
+const std::string DB::Properties::kLiveBlobFileSize =
+    rocksdb_prefix + live_blob_file_size;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -482,6 +498,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
+        {DB::Properties::kLiveSstFilesSizeAtTemperature,
+         {true, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
+          nullptr, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -512,6 +531,17 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kOptionsStatistics,
          {true, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
+        {DB::Properties::kNumBlobFiles,
+         {false, nullptr, &InternalStats::HandleNumBlobFiles, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobStats,
+         {false, &InternalStats::HandleBlobStats, nullptr, nullptr, nullptr}},
+        {DB::Properties::kTotalBlobFileSize,
+         {false, nullptr, &InternalStats::HandleTotalBlobFileSize, nullptr,
+          nullptr}},
+        {DB::Properties::kLiveBlobFileSize,
+         {false, nullptr, &InternalStats::HandleLiveBlobFileSize, nullptr,
+          nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -595,7 +625,8 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   ++collection_count;
   role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
-  str << cache->Name() << "@" << static_cast<void*>(cache);
+  str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
+      << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
 }
@@ -679,6 +710,69 @@ bool InternalStats::HandleBlockCacheEntryStatsMap(
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   stats.ToMap(values, clock_);
+  return true;
+}
+
+bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
+                                                        Slice suffix) {
+  uint64_t temperature;
+  bool ok = ConsumeDecimalNumber(&suffix, &temperature) && suffix.empty();
+  if (!ok) {
+    return false;
+  }
+
+  uint64_t size = 0;
+  const auto* vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); level++) {
+    for (const auto& file_meta : vstorage->LevelFiles(level)) {
+      if (static_cast<uint8_t>(file_meta->temperature) == temperature) {
+        size += file_meta->fd.GetFileSize();
+      }
+    }
+  }
+
+  *value = ToString(size);
+  return true;
+}
+
+bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
+                                       Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  const auto& blob_files = vstorage->GetBlobFiles();
+  *value = blob_files.size();
+  return true;
+}
+
+bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
+  std::ostringstream oss;
+  auto* current_version = cfd_->current();
+  const auto& blob_files = current_version->storage_info()->GetBlobFiles();
+  uint64_t current_num_blob_files = blob_files.size();
+  uint64_t current_file_size = 0;
+  uint64_t current_garbage_size = 0;
+  for (const auto& pair : blob_files) {
+    const auto& meta = pair.second;
+    current_file_size += meta->GetBlobFileSize();
+    current_garbage_size += meta->GetGarbageBlobBytes();
+  }
+  oss << "Number of blob files: " << current_num_blob_files
+      << "\nTotal size of blob files: " << current_file_size
+      << "\nTotal size of garbage in blob files: " << current_garbage_size
+      << '\n';
+  value->append(oss.str());
+  return true;
+}
+
+bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
+  *value = cfd_->GetTotalBlobFileSize();
+  return true;
+}
+
+bool InternalStats::HandleLiveBlobFileSize(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
+  const auto* vstorage = cfd_->current()->storage_info();
+  *value = vstorage->GetTotalBlobFileSize();
   return true;
 }
 

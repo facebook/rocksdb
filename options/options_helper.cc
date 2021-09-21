@@ -496,11 +496,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
       break;
-    case OptionType::kMemTableRepFactory: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<MemTableRepFactory>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
     }
     case OptionType::kFilterPolicy: {
       const auto* ptr =
@@ -1010,8 +1005,15 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
     opt_value->clear();
     if (custom == nullptr) {
-      if (!config_options.mutable_options_only || IsMutable()) {
+      // We do not have a custom object to serialize.
+      // If the option is not mutable and we are doing only mutable options,
+      // we return an empty string (which will cause the option not to be
+      // printed). Otherwise, we return the "nullptr" string, which will result
+      // in "option=nullptr" being printed.
+      if (IsMutable() || !config_options.mutable_options_only) {
         *opt_value = kNullptrString;
+      } else {
+        *opt_value = "";
       }
     } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
                !config_options.IsDetailed()) {

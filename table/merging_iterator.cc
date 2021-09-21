@@ -28,8 +28,8 @@
 namespace ROCKSDB_NAMESPACE {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
-typedef BinaryHeap<IteratorWrapper*, MaxIteratorComparator> MergerMaxIterHeap;
-typedef BinaryHeap<IteratorWrapper*, MinIteratorComparator> MergerMinIterHeap;
+using MergerMaxIterHeap = BinaryHeap<IteratorWrapper*, MaxIteratorComparator>;
+using MergerMinIterHeap = BinaryHeap<IteratorWrapper*, MinIteratorComparator>;
 }  // namespace
 
 const size_t kNumIterReserve = 4;
