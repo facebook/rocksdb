@@ -895,7 +895,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   }
 
   // Not public API but needed
-  Status Initialize() {
+  IOStatus Initialize() {
     // No locking needed
     return impl_.Initialize();
   }
@@ -912,8 +912,8 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   BackupEngineImpl impl_;
 };
 
-Status BackupEngine::Open(const BackupEngineOptions& options, Env* env,
-                          BackupEngine** backup_engine_ptr) {
+IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
+                            BackupEngine** backup_engine_ptr) {
   std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
       new BackupEngineImplThreadSafe(options, env));
   auto s = backup_engine->Initialize();
@@ -922,7 +922,7 @@ Status BackupEngine::Open(const BackupEngineOptions& options, Env* env,
     return s;
   }
   *backup_engine_ptr = backup_engine.release();
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
@@ -2986,10 +2986,11 @@ IOStatus BackupEngineImpl::BackupMeta::StoreToFile(
   return io_s;
 }
 
-Status BackupEngineReadOnly::Open(const BackupEngineOptions& options, Env* env,
-                                  BackupEngineReadOnly** backup_engine_ptr) {
+IOStatus BackupEngineReadOnly::Open(const BackupEngineOptions& options,
+                                    Env* env,
+                                    BackupEngineReadOnly** backup_engine_ptr) {
   if (options.destroy_old_data) {
-    return Status::InvalidArgument(
+    return IOStatus::InvalidArgument(
         "Can't destroy old data with ReadOnly BackupEngine");
   }
   std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
@@ -3000,7 +3001,7 @@ Status BackupEngineReadOnly::Open(const BackupEngineOptions& options, Env* env,
     return s;
   }
   *backup_engine_ptr = backup_engine.release();
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 void TEST_EnableWriteFutureSchemaVersion2(
