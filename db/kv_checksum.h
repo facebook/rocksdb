@@ -117,7 +117,7 @@ class ProtectionInfoKVO {
   friend class ProtectionInfoKVOS<T>;
   friend class ProtectionInfoKVOC<T>;
 
-  ProtectionInfoKVO<T>(T val) : info_(val) {
+  explicit ProtectionInfoKVO<T>(T val) : info_(val) {
     static_assert(sizeof(ProtectionInfoKVO<T>) == sizeof(T), "");
   }
 
@@ -155,7 +155,7 @@ class ProtectionInfoKVOC {
  private:
   friend class ProtectionInfoKVO<T>;
 
-  ProtectionInfoKVOC<T>(T val) : kvo_(val) {
+  explicit ProtectionInfoKVOC<T>(T val) : kvo_(val) {
     static_assert(sizeof(ProtectionInfoKVOC<T>) == sizeof(T), "");
   }
 
@@ -193,7 +193,7 @@ class ProtectionInfoKVOS {
  private:
   friend class ProtectionInfoKVO<T>;
 
-  ProtectionInfoKVOS<T>(T val) : kvo_(val) {
+  explicit ProtectionInfoKVOS<T>(T val) : kvo_(val) {
     static_assert(sizeof(ProtectionInfoKVOS<T>) == sizeof(T), "");
   }
 

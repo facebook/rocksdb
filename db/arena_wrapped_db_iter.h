@@ -34,7 +34,7 @@ class Version;
 // the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
-  virtual ~ArenaWrappedDBIter() {
+  ~ArenaWrappedDBIter() override {
     if (db_iter_ != nullptr) {
       db_iter_->~DBIter();
     } else {
