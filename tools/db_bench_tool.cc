@@ -1021,6 +1021,9 @@ DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
 
+DEFINE_bool(io_uring_enabled, true,
+            "If true, enable the use of IO uring if the platform supports it");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
@@ -5407,7 +5410,7 @@ class Benchmark {
         }
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
-            fprintf(stdout, "Level[%d]: %s(size: %" ROCKSDB_PRIszt " bytes)\n",
+            fprintf(stdout, "Level[%d]: %s(size: %" PRIi64 " bytes)\n",
                     levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
           }
         } else {

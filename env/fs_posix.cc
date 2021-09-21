@@ -73,6 +73,8 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
+extern "C" bool RocksDbIOUringEnable() __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -267,7 +269,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
 #endif
               ));
     }
@@ -1024,6 +1026,16 @@ class PosixFileSystem : public FileSystem {
     return false;
 #endif
   }
+
+#ifdef ROCKSDB_IOURING_PRESENT
+  bool IsIOUringEnabled() {
+    if (RocksDbIOUringEnable && RocksDbIOUringEnable()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+#endif  // ROCKSDB_IOURING_PRESENT
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance

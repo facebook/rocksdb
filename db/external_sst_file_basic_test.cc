@@ -1524,7 +1524,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
-  if (!verify_checksums_before_ingest || !random_rwfile_supported_) {
+  if (!verify_checksums_before_ingest) {
+    ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
+    return;
+  }
+  if (!random_rwfile_supported_) {
     ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }

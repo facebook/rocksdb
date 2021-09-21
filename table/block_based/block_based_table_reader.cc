@@ -992,6 +992,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of index
+  // WART: this might be redundant (unnecessary cache hit) if !pin_index,
+  // depending on prepopulate_block_cache option
   const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
@@ -1020,6 +1022,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of filter
+  // WART: this might be redundant (unnecessary cache hit) if !pin_filter,
+  // depending on prepopulate_block_cache option
   const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
@@ -1728,14 +1732,16 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   {
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
-    if (s.IsTimedOut()) {
+    if (s.ok()) {
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
+                          &direct_io_buf);
+    }
+    if (!s.ok()) {
+      // Discard all the results in this batch if there is any time out
+      // or overall MultiRead error
       for (FSReadRequest& req : read_reqs) {
         req.status = s;
       }
-    } else {
-      // How to handle this status code?
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
-          .PermitUncheckedError();
     }
   }
 
