@@ -42,12 +42,14 @@ class CompactOnDeletionCollectorFactory
   void SetWindowSize(size_t sliding_window_size) {
     sliding_window_size_.store(sliding_window_size);
   }
+  size_t GetWindowSize() const { return sliding_window_size_.load(); }
 
   // Change the value of deletion_trigger "D"
   void SetDeletionTrigger(size_t deletion_trigger) {
     deletion_trigger_.store(deletion_trigger);
   }
 
+  size_t GetDeletionTrigger() const { return deletion_trigger_.load(); }
   // Change deletion ratio.
   // @param deletion_ratio, if <= 0 or > 1, disable triggering compaction
   //     based on deletion ratio.
@@ -55,6 +57,7 @@ class CompactOnDeletionCollectorFactory
     deletion_ratio_.store(deletion_ratio);
   }
 
+  double GetDeletionRatio() const { return deletion_ratio_.load(); }
   static const char* kClassName() { return "CompactOnDeletionCollector"; }
   const char* Name() const override { return kClassName(); }
 
