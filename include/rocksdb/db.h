@@ -356,9 +356,16 @@ class DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& value, const Slice& ts) = 0;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) {
     return Put(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Put(const WriteOptions& options, const Slice& key,
+                     const Slice& value, const Slice& ts) {
+    return Put(options, DefaultColumnFamily(), key, value, ts);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -368,8 +375,15 @@ class DB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) = 0;
   virtual Status Delete(const WriteOptions& options, const Slice& key) {
     return Delete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status Delete(const WriteOptions& options, const Slice& key,
+                        const Slice& ts) {
+    return Delete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Remove the database entry for "key". Requires that the key exists

@@ -24,6 +24,11 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   return DB::Put(o, column_family, key, val);
 }
 
+Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
+                   const Slice& key, const Slice& val, const Slice& ts) {
+  return DB::Put(o, column_family, key, val, ts);
+}
+
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
                      const Slice& key, const Slice& val) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -37,6 +42,12 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key) {
   return DB::Delete(write_options, column_family, key);
+}
+
+Status DBImpl::Delete(const WriteOptions& write_options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) {
+  return DB::Delete(write_options, column_family, key, ts);
 }
 
 Status DBImpl::SingleDelete(const WriteOptions& write_options,
@@ -2019,29 +2030,46 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
-  if (nullptr == opt.timestamp) {
-    // Pre-allocate size of write batch conservatively.
-    // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
-    // and we allocate 11 extra bytes for key length, as well as value length.
-    WriteBatch batch(key.size() + value.size() + 24);
-    Status s = batch.Put(column_family, key, value);
-    if (!s.ok()) {
-      return s;
-    }
-    return Write(opt, &batch);
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    assert(false);
+    return Status::InvalidArgument("timestamp disabled for this cf");
   }
-  const Slice* ts = opt.timestamp;
-  assert(nullptr != ts);
-  size_t ts_sz = ts->size();
-  assert(column_family->GetComparator());
-  assert(ts_sz == column_family->GetComparator()->timestamp_size());
+  // Pre-allocate size of write batch conservatively.
+  // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
+  // and we allocate 11 extra bytes for key length, as well as value length.
+  WriteBatch batch(key.size() + value.size() + 24);
+  Status s = batch.Put(column_family, key, value);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
+Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value, const Slice& ts) {
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument(
+        "Cannot call this Put overload on column family disabling timestamp");
+  }
+  size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument("Timestamp size mismatch");
+  }
   WriteBatch batch;
   Status s;
-  if (key.data() + key.size() == ts->data()) {
+  if (key.data() + key.size() == ts.data()) {
     Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
     s = batch.Put(column_family, key_with_ts, value);
   } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
     SliceParts key_with_ts(key_with_ts_slices.data(), 2);
     std::array<Slice, 1> value_slices{{value}};
     SliceParts values(value_slices.data(), 1);
@@ -2055,26 +2083,42 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
-  if (nullptr == opt.timestamp) {
-    WriteBatch batch;
-    Status s = batch.Delete(column_family, key);
-    if (!s.ok()) {
-      return s;
-    }
-    return Write(opt, &batch);
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    assert(false);
+    return Status::InvalidArgument("timestamp disabled for this cf");
   }
-  const Slice* ts = opt.timestamp;
-  assert(ts != nullptr);
-  size_t ts_sz = ts->size();
-  assert(column_family->GetComparator());
-  assert(ts_sz == column_family->GetComparator()->timestamp_size());
+  WriteBatch batch;
+  Status s = batch.Delete(column_family, key);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
+Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+                  const Slice& key, const Slice& ts) {
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument(
+        "Cannot call this Put overload on column family disabling timestamp");
+  }
+  size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument("Timestamp size mismatch");
+  }
   WriteBatch batch;
   Status s;
-  if (key.data() + key.size() == ts->data()) {
+  if (key.data() + key.size() == ts.data()) {
     Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
     s = batch.Delete(column_family, key_with_ts);
   } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
     SliceParts key_with_ts(key_with_ts_slices.data(), 2);
     s = batch.Delete(column_family, key_with_ts);
   }
@@ -2086,41 +2130,26 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
-  Status s;
-  if (opt.timestamp == nullptr) {
-    WriteBatch batch;
-    s = batch.SingleDelete(column_family, key);
-    if (!s.ok()) {
-      return s;
-    }
-    s = Write(opt, &batch);
-    return s;
+  column_family = column_family ? column_family : DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    assert(false);
+    return Status::InvalidArgument("timestamp disabled for this cf");
   }
-
-  const Slice* ts = opt.timestamp;
-  assert(ts != nullptr);
-  size_t ts_sz = ts->size();
-  assert(column_family->GetComparator());
-  assert(ts_sz == column_family->GetComparator()->timestamp_size());
   WriteBatch batch;
-  if (key.data() + key.size() == ts->data()) {
-    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
-    s = batch.SingleDelete(column_family, key_with_ts);
-  } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
-    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    s = batch.SingleDelete(column_family, key_with_ts);
-  }
+  Status s = batch.SingleDelete(column_family, key);
   if (!s.ok()) {
     return s;
   }
-  s = Write(opt, &batch);
-  return s;
+  return Write(opt, &batch);
 }
 
 Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
+  assert(column_family);
   WriteBatch batch;
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
   if (!s.ok()) {
@@ -2131,6 +2160,7 @@ Status DB::DeleteRange(const WriteOptions& opt,
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
+  assert(column_family);
   WriteBatch batch;
   Status s = batch.Merge(column_family, key, value);
   if (!s.ok()) {

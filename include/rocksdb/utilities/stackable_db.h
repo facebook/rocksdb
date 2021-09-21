@@ -80,6 +80,10 @@ class StackableDB : public DB {
                      const Slice& val) override {
     return db_->Put(options, column_family, key, val);
   }
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& val, const Slice& ts) override {
+    return db_->Put(options, column_family, key, val, ts);
+  }
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -165,6 +169,10 @@ class StackableDB : public DB {
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
     return db_->Delete(wopts, column_family, key);
+  }
+  Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
+                const Slice& key, const Slice& ts) override {
+    return db_->Delete(wopts, column_family, key, ts);
   }
 
   using DB::SingleDelete;
