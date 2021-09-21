@@ -320,8 +320,9 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeValue);
 }
 
-Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
-                          const Slice& value) {
+Status SstFileWriter::PutWithTimestamp(const Slice& user_key,
+                                       const Slice& timestamp,
+                                       const Slice& value) {
   return rep_->Add(user_key, timestamp, value, ValueType::kTypeValue);
 }
 
@@ -333,7 +334,8 @@ Status SstFileWriter::Delete(const Slice& user_key) {
   return rep_->Add(user_key, Slice(), ValueType::kTypeDeletion);
 }
 
-Status SstFileWriter::Delete(const Slice& user_key, const Slice& timestamp) {
+Status SstFileWriter::DeleteWithTimestamp(const Slice& user_key,
+                                          const Slice& timestamp) {
   return rep_->Add(user_key, timestamp, Slice(),
                    ValueType::kTypeDeletionWithTimestamp);
 }

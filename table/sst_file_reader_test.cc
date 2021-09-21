@@ -202,8 +202,8 @@ TEST_F(SstFileReaderTest, TimestampSizeMismatch) {
 
   // Comparator is not timestamp-aware; calls to APIs taking timestamps should
   // fail.
-  ASSERT_NOK(writer.Put("key", EncodeAsUint64(100), "value"));
-  ASSERT_NOK(writer.Delete("another_key", EncodeAsUint64(200)));
+  ASSERT_NOK(writer.PutWithTimestamp("key", EncodeAsUint64(100), "value"));
+  ASSERT_NOK(writer.DeleteWithTimestamp("another_key", EncodeAsUint64(200)));
 }
 
 class SstFileReaderTimestampTest : public testing::Test {
@@ -258,21 +258,24 @@ class SstFileReaderTimestampTest : public testing::Test {
       if (desc.is_delete) {
         if (desc.use_contiguous_buffer) {
           std::string key_with_ts(desc.key + desc.timestamp);
-          ASSERT_OK(writer.Delete(Slice(key_with_ts.data(), desc.key.size()),
-                                  Slice(key_with_ts.data() + desc.key.size(),
-                                        desc.timestamp.size())));
+          ASSERT_OK(writer.DeleteWithTimestamp(
+              Slice(key_with_ts.data(), desc.key.size()),
+              Slice(key_with_ts.data() + desc.key.size(),
+                    desc.timestamp.size())));
         } else {
-          ASSERT_OK(writer.Delete(desc.key, desc.timestamp));
+          ASSERT_OK(writer.DeleteWithTimestamp(desc.key, desc.timestamp));
         }
       } else {
         if (desc.use_contiguous_buffer) {
           std::string key_with_ts(desc.key + desc.timestamp);
-          ASSERT_OK(writer.Put(Slice(key_with_ts.data(), desc.key.size()),
-                               Slice(key_with_ts.data() + desc.key.size(),
-                                     desc.timestamp.size()),
-                               desc.value));
+          ASSERT_OK(writer.PutWithTimestamp(
+              Slice(key_with_ts.data(), desc.key.size()),
+              Slice(key_with_ts.data() + desc.key.size(),
+                    desc.timestamp.size()),
+              desc.value));
         } else {
-          ASSERT_OK(writer.Put(desc.key, desc.timestamp, desc.value));
+          ASSERT_OK(
+              writer.PutWithTimestamp(desc.key, desc.timestamp, desc.value));
         }
       }
     }
@@ -392,8 +395,8 @@ TEST_F(SstFileReaderTimestampTest, TimestampsOutOfOrder) {
 
   // Note: KVs that have the same user key disregarding timestamps should be in
   // descending order of timestamps.
-  ASSERT_OK(writer.Put("key", EncodeAsUint64(1), "value1"));
-  ASSERT_NOK(writer.Put("key", EncodeAsUint64(2), "value2"));
+  ASSERT_OK(writer.PutWithTimestamp("key", EncodeAsUint64(1), "value1"));
+  ASSERT_NOK(writer.PutWithTimestamp("key", EncodeAsUint64(2), "value2"));
 }
 
 TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
@@ -403,8 +406,10 @@ TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
 
   // Comparator expects 64-bit timestamps; timestamps with other sizes as well
   // as calls to the timestamp-less APIs should be rejected.
-  ASSERT_NOK(writer.Put("key", "not_an_actual_64_bit_timestamp", "value"));
-  ASSERT_NOK(writer.Delete("another_key", "timestamp_of_unexpected_size"));
+  ASSERT_NOK(writer.PutWithTimestamp("key", "not_an_actual_64_bit_timestamp",
+                                     "value"));
+  ASSERT_NOK(writer.DeleteWithTimestamp("another_key",
+                                        "timestamp_of_unexpected_size"));
 
   ASSERT_NOK(writer.Put("key_without_timestamp", "value"));
   ASSERT_NOK(writer.Merge("another_key_missing_a_timestamp", "merge_operand"));

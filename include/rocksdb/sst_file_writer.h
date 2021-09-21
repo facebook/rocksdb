@@ -125,7 +125,8 @@ class SstFileWriter {
   // comparator.
   // REQUIRES: the timestamp's size is equal to what is expected by
   // the comparator.
-  Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
+  Status PutWithTimestamp(const Slice& user_key, const Slice& timestamp,
+                          const Slice& value);
 
   // Add a Merge key with value to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
@@ -142,7 +143,7 @@ class SstFileWriter {
   // comparator.
   // REQUIRES: the timestamp's size is equal to what is expected by
   // the comparator.
-  Status Delete(const Slice& user_key, const Slice& timestamp);
+  Status DeleteWithTimestamp(const Slice& user_key, const Slice& timestamp);
 
   // Add a range deletion tombstone to currently opened file
   // REQUIRES: comparator is *not* timestamp-aware.
