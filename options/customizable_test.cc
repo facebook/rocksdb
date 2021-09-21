@@ -1498,7 +1498,7 @@ TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
     ASSERT_STREQ(result->Name(), "Mock");
   }
 }
-  
+
 TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
   std::shared_ptr<Statistics> stats;
   ASSERT_NOK(Statistics::CreateFromString(

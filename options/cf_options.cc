@@ -936,9 +936,10 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);
-  ROCKS_LOG_INFO(
-      log, "                         prefix_extractor: %s",
-      prefix_extractor == nullptr ? "nullptr" : prefix_extractor->GetId().c_str());
+  ROCKS_LOG_INFO(log, "                         prefix_extractor: %s",
+                 prefix_extractor == nullptr
+                     ? "nullptr"
+                     : prefix_extractor->GetId().c_str());
   ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
                  disable_auto_compactions);
   ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
