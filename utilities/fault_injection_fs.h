@@ -370,6 +370,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
+    kMultiReadSingleReq = 1,
+    kMultiRead = 2,
     kOpen,
   };
 

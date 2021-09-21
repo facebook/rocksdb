@@ -26,6 +26,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -363,15 +364,16 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kRead, &reqs[i].result,
-        use_direct_io(), reqs[i].scratch, /*need_count_increase=*/true,
+        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
+        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
   }
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kRead, nullptr, use_direct_io(),
-        nullptr, /*need_count_increase=*/!injected_error,
+        FaultInjectionTestFS::ErrorOperation::kMultiRead, nullptr,
+        use_direct_io(), nullptr, /*need_count_increase=*/!injected_error,
         /*fault_injected=*/nullptr);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
@@ -766,7 +768,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation /*op*/, Slice* result, bool direct_io, char* /*scratch*/,
+    ErrorOperation op, Slice* result, bool direct_io, char* /*scratch*/,
     bool need_count_increase, bool* fault_injected) {
   bool dummy_bool;
   bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
@@ -789,18 +791,23 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
 
-    if (result == nullptr) {
+    if (op != ErrorOperation::kMultiReadSingleReq) {
       // Likely non-per read status code for MultiRead
-      ctx->message += "error result == nullptr; ";
+      ctx->message += "error; ";
       ret_fault_injected = true;
       return IOStatus::IOError();
-    } else if (Random::GetTLSInstance()->OneIn(8)) {
+    } else if (op == ErrorOperation::kMultiReadSingleReq &&
+               Random::GetTLSInstance()->OneIn(8)) {
+      assert(result);
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
+      ctx->message += "pre size " + ToString((long)result->size()) + " ";
       *result = Slice();
-      ctx->message += "inject empty result; ";
+      ctx->message += "inject empty result " + ToString((long)result) + "; ";
       ret_fault_injected = true;
-    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7)) {
+    } else if (op == ErrorOperation::kMultiReadSingleReq && !direct_io &&
+               Random::GetTLSInstance()->OneIn(7)) {
+      assert(result);
       // With direct I/O, many extra bytes might be read so corrupting
       // one byte might not cause checksum mismatch. Skip checksum
       // corruption injection.
@@ -813,7 +820,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       ctx->message += "corrupt last byte; ";
       ret_fault_injected = true;
     } else {
-      ctx->message += "error result != nullptr; ";
+      ctx->message += "error result multiget single; ";
       ret_fault_injected = true;
       return IOStatus::IOError();
     }
