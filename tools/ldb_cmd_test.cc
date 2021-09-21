@@ -254,6 +254,7 @@ class FileChecksumTestHelper {
   // comparing it with the one being generated when a SST file is created.
   Status VerifyEachFileChecksum() {
     assert(db_ != nullptr);
+    EXPECT_OK(db_->DisableFileDeletions());
     std::vector<LiveFileMetaData> live_files;
     db_->GetLiveFilesMetaData(&live_files);
     for (auto a_file : live_files) {
@@ -262,6 +263,7 @@ class FileChecksumTestHelper {
         return cs;
       }
     }
+    EXPECT_OK(db_->EnableFileDeletions());
     return Status::OK();
   }
 };
