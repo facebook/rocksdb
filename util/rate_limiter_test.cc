@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -23,7 +24,13 @@
 namespace ROCKSDB_NAMESPACE {
 
 // TODO(yhchiang): the rate will not be accurate when we run test in parallel.
-class RateLimiterTest : public testing::Test {};
+class RateLimiterTest : public testing::Test {
+ protected:
+  ~RateLimiterTest() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+};
 
 TEST_F(RateLimiterTest, OverflowRate) {
   GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
@@ -38,14 +45,14 @@ TEST_F(RateLimiterTest, StartStop) {
 
 TEST_F(RateLimiterTest, GetTotalBytesThrough) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
-      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalBytesThrough(static_cast<Env::IOPriority>(i)),
               0);
   }
 
-  std::int64_t request_byte = 10;
+  std::int64_t request_byte = 200;
   std::int64_t request_byte_sum = 0;
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     limiter->Request(request_byte, static_cast<Env::IOPriority>(i),
@@ -66,7 +73,7 @@ TEST_F(RateLimiterTest, GetTotalBytesThrough) {
 
 TEST_F(RateLimiterTest, GetTotalRequests) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
-      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
     ASSERT_EQ(limiter->GetTotalRequests(static_cast<Env::IOPriority>(i)), 0);
@@ -74,7 +81,7 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
 
   std::int64_t total_requests_sum = 0;
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-    limiter->Request(10, static_cast<Env::IOPriority>(i), nullptr /* stats */,
+    limiter->Request(200, static_cast<Env::IOPriority>(i), nullptr /* stats */,
                      RateLimiter::OpType::kWrite);
     total_requests_sum += 1;
   }
@@ -87,6 +94,48 @@ TEST_F(RateLimiterTest, GetTotalRequests) {
   EXPECT_EQ(limiter->GetTotalRequests(Env::IO_TOTAL), total_requests_sum)
       << "Failed to track total_requests_ correctly when IOPriority = "
          "Env::IO_TOTAL";
+}
+
+TEST_F(RateLimiterTest, GetTotalPendingRequests) {
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      10 /* fairness */));
+  for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
+    ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
+              0);
+  }
+  // This is a variable for making sure the following callback is called
+  // and the assertions in it are indeed excuted
+  bool nonzero_pending_requests_verified = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
+        port::Mutex* request_mutex = (port::Mutex*)arg;
+        // We temporarily unlock the mutex so that the following
+        // GetTotalPendingRequests() can acquire it
+        request_mutex->Unlock();
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 1);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
+        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 1);
+        // We lock the mutex again so that the request thread can resume running
+        // with the mutex locked
+        request_mutex->Lock();
+        nonzero_pending_requests_verified = true;
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  limiter->Request(200, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+  ASSERT_EQ(nonzero_pending_requests_verified, true);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
+  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 0);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest");
 }
 
 TEST_F(RateLimiterTest, Modes) {
@@ -116,7 +165,7 @@ TEST_F(RateLimiterTest, Modes) {
 
 TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
-      20 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+      200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
 
   bool possible_random_one_in_fairness_results_for_high_mid_pri[4][2] = {
@@ -128,6 +177,11 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
       {Env::IO_USER, Env::IO_LOW, Env::IO_MID, Env::IO_HIGH}};
 
   for (int i = 0; i < 4; ++i) {
+    // These are variables for making sure the following callbacks are called
+    // and the assertion in the last callback is indeed excuted
+    bool high_pri_iterated_after_mid_low_pri_set = false;
+    bool mid_pri_itereated_after_low_pri_set = false;
+    bool pri_iteration_order_verified = false;
     SyncPoint::GetInstance()->SetCallBack(
         "GenericRateLimiter::GeneratePriorityIterationOrder::"
         "PostRandomOneInFairnessForHighPri",
@@ -135,6 +189,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
           bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
           *high_pri_iterated_after_mid_low_pri =
               possible_random_one_in_fairness_results_for_high_mid_pri[i][0];
+          high_pri_iterated_after_mid_low_pri_set = true;
         });
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -144,6 +199,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
           bool* mid_pri_itereated_after_low_pri = (bool*)arg;
           *mid_pri_itereated_after_low_pri =
               possible_random_one_in_fairness_results_for_high_mid_pri[i][1];
+          mid_pri_itereated_after_low_pri_set = true;
         });
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -159,28 +215,30 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
               << ", mid_pri_itereated_after_low_pri = "
               << possible_random_one_in_fairness_results_for_high_mid_pri[i][1]
               << std::endl;
+          pri_iteration_order_verified = true;
         });
 
     SyncPoint::GetInstance()->EnableProcessing();
-
-    limiter->Request(20 /* request max bytes to drain so that refill and order
+    limiter->Request(200 /* request max bytes to drain so that refill and order
                            generation will be triggered every time
                            GenericRateLimiter::Request() is called */
                      ,
                      Env::IO_USER, nullptr /* stats */,
                      RateLimiter::OpType::kWrite);
+    ASSERT_EQ(high_pri_iterated_after_mid_low_pri_set, true);
+    ASSERT_EQ(mid_pri_itereated_after_low_pri_set, true);
+    ASSERT_EQ(pri_iteration_order_verified, true);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PreReturnPriIterationOrder");
+    SyncPoint::GetInstance()->ClearCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForMidPri");
+    SyncPoint::GetInstance()->ClearCallBack(
+        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "PostRandomOneInFairnessForHighPri");
   }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PreReturnPriIterationOrder");
-  SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PostRandomOneInFairnessForMidPri");
-  SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
-      "PostRandomOneInFairnessForHighPri");
 }
 
 TEST_F(RateLimiterTest, Rate) {
@@ -332,6 +390,7 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
               target / 1024, new_limit / 1024, refill_period / 1000);
     }
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
@@ -371,6 +430,8 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;

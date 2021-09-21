@@ -352,7 +352,7 @@ class VersionStorageInfo {
       const auto& meta = pair.second;
       assert(meta);
 
-      total_blob_bytes += meta->GetTotalBlobBytes();
+      total_blob_bytes += meta->GetBlobFileSize();
     }
 
     return total_blob_bytes;
@@ -712,6 +712,12 @@ class Version {
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  const BlobIndex& blob_index, PinnableSlice* value,
                  uint64_t* bytes_read) const;
+
+  using BlobReadRequests = std::vector<
+      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>>;
+  void MultiGetBlob(
+      const ReadOptions& read_options, MultiGetRange& range,
+      const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -1254,6 +1260,8 @@ class VersionSet {
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
+
+  static uint64_t GetTotalBlobFileSize(Version* dummy_versions);
 
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }

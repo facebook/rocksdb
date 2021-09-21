@@ -479,8 +479,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* not yet supported
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
-        typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-            TablePropertiesCollectorFactories;
+        using TablePropertiesCollectorFactories =
+            std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>;
         UpdateStatus (*inplace_callback)(char* existing_value,
                                          uint34_t* existing_value_size,
                                          Slice delta_value,
@@ -573,21 +573,33 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"memtable_factory",
          {offset_of(&ImmutableCFOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+          OptionType::kCustomizable, OptionVerificationType::kByName,
+          OptionTypeFlags::kShared,
+          [](const ConfigOptions& opts, const std::string&,
+             const std::string& value, void* addr) {
+            std::unique_ptr<MemTableRepFactory> factory;
+            auto* shared =
+                static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+            Status s =
+                MemTableRepFactory::CreateFromString(opts, value, &factory);
+            if (s.ok()) {
+              shared->reset(factory.release());
+            }
+            return s;
+          }}},
         {"memtable",
          {offset_of(&ImmutableCFOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kAlias,
-          OptionTypeFlags::kNone,
-          // Parses the value string and updates the memtable_factory
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared,
+          [](const ConfigOptions& opts, const std::string&,
              const std::string& value, void* addr) {
-            std::unique_ptr<MemTableRepFactory> new_mem_factory;
-            Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
+            std::unique_ptr<MemTableRepFactory> factory;
+            auto* shared =
+                static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+            Status s =
+                MemTableRepFactory::CreateFromString(opts, value, &factory);
             if (s.ok()) {
-              auto memtable_factory =
-                  static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
-              memtable_factory->reset(new_mem_factory.release());
+              shared->reset(factory.release());
             }
             return s;
           }}},

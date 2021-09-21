@@ -13,17 +13,19 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 /**
- * Keep adding ticker's here.
- *  1. Any ticker should be added before TICKER_ENUM_MAX.
+ * Keep adding tickers here.
+ *  1. Any ticker should be added immediately before TICKER_ENUM_MAX, taking
+ *     over its old value.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  *  3. Add a corresponding enum value to TickerType.java in the java API
  *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
- * and toCppTickers
+ *     and toCppTickers
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -404,6 +406,13 @@ enum Tickers : uint32_t {
   // Secondary cache statistics
   SECONDARY_CACHE_HITS,
 
+  // Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
+  VERIFY_CHECKSUM_READ_BYTES,
+
+  // Bytes read/written while creating backups
+  BACKUP_READ_BYTES,
+  BACKUP_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 
@@ -560,10 +569,17 @@ enum StatsLevel : uint8_t {
 //  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 //  HistogramData hist;
 //  options.statistics->histogramData(FLUSH_TIME, &hist);
-class Statistics {
+class Statistics : public Customizable {
  public:
   virtual ~Statistics() {}
   static const char* Type() { return "Statistics"; }
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& value,
+                                 std::shared_ptr<Statistics>* result);
+  // Default name of empty, for backwards compatibility.  Derived classes should
+  // override this method.
+  // This default implementation will likely be removed in a future release
+  const char* Name() const override { return ""; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
@@ -595,6 +611,9 @@ class Statistics {
   // Resets all ticker and histogram stats
   virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
+#ifndef ROCKSDB_LITE
+  using Customizable::ToString;
+#endif  // ROCKSDB_LITE
   // String representation of the statistic object. Must be thread-safe.
   virtual std::string ToString() const {
     // Do nothing by default
