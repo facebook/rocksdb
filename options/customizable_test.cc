@@ -30,6 +30,7 @@
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
@@ -1740,6 +1741,22 @@ TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
   }
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
+  std::shared_ptr<SystemClock> result;
+  ASSERT_NOK(SystemClock::CreateFromString(
+      config_options_, MockSystemClock::kClassName(), &result));
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, SystemClock::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(SystemClock::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SystemClock::CreateFromString(
+        config_options_, MockSystemClock::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
+  }
+}
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   std::shared_ptr<TableFactory> table;
