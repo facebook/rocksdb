@@ -796,8 +796,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       ctx->message += "error; ";
       ret_fault_injected = true;
       return IOStatus::IOError();
-    } else if (op == ErrorOperation::kMultiReadSingleReq &&
-               Random::GetTLSInstance()->OneIn(8)) {
+    } else if (Random::GetTLSInstance()->OneIn(8)) {
       assert(result);
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
@@ -805,8 +804,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       *result = Slice();
       ctx->message += "inject empty result " + ToString((long)result) + "; ";
       ret_fault_injected = true;
-    } else if (op == ErrorOperation::kMultiReadSingleReq && !direct_io &&
-               Random::GetTLSInstance()->OneIn(7)) {
+    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7)) {
       assert(result);
       // With direct I/O, many extra bytes might be read so corrupting
       // one byte might not cause checksum mismatch. Skip checksum
