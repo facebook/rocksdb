@@ -1287,6 +1287,8 @@ class MockCipher : public BlockCipher {
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
 
+#endif  // ROCKSDB_LITE
+
 class MockTablePropertiesCollectorFactory
     : public TablePropertiesCollectorFactory {
  private:
@@ -1319,6 +1321,7 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   }
 };
 
+#ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
