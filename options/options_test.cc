@@ -2040,7 +2040,8 @@ class TestTablePropertiesCollectorFactory
   std::string id_;
 
  public:
-  TestTablePropertiesCollectorFactory(const std::string& id) : id_(id) {}
+  explicit TestTablePropertiesCollectorFactory(const std::string& id)
+      : id_(id) {}
   TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return nullptr;
