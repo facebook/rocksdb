@@ -1563,7 +1563,6 @@ TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
         config_options_, "SpecialSkipListFactory", &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), "SpecialSkipListFactory");
->>>>>>> main
   }
 }
 
