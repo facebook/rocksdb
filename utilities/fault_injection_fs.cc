@@ -361,10 +361,12 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
       // Already seeing an error.
       break;
     }
+    bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, &reqs[i].result,
         use_direct_io(), reqs[i].scratch, /*need_count_increase=*/true,
-        /*fault_injected=*/&injected_error);
+        /*fault_injected=*/&this_injected_error);
+    injected_error |= this_injected_error;
   }
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
