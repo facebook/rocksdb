@@ -115,6 +115,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACT_WRITE_BYTES_MARKED, "rocksdb.compact.write.marked.bytes"},
     {COMPACT_WRITE_BYTES_PERIODIC, "rocksdb.compact.write.periodic.bytes"},
     {COMPACT_WRITE_BYTES_TTL, "rocksdb.compact.write.ttl.bytes"},
+    {REMOTE_COMPACT_READ_BYTES, "rocksdb.remote.compact.read.bytes"},
+    {REMOTE_COMPACT_WRITE_BYTES, "rocksdb.remote.compact.write.bytes"},
     {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
      "rocksdb.number.direct.load.table.properties"},
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
