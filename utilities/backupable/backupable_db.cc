@@ -913,7 +913,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
 };
 
 IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
-                          BackupEngine** backup_engine_ptr) {
+                            BackupEngine** backup_engine_ptr) {
   std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
       new BackupEngineImplThreadSafe(options, env));
   auto s = backup_engine->Initialize();
@@ -2986,8 +2986,9 @@ IOStatus BackupEngineImpl::BackupMeta::StoreToFile(
   return io_s;
 }
 
-IOStatus BackupEngineReadOnly::Open(const BackupEngineOptions& options, Env* env,
-                                  BackupEngineReadOnly** backup_engine_ptr) {
+IOStatus BackupEngineReadOnly::Open(const BackupEngineOptions& options,
+                                    Env* env,
+                                    BackupEngineReadOnly** backup_engine_ptr) {
   if (options.destroy_old_data) {
     return IOStatus::InvalidArgument(
         "Can't destroy old data with ReadOnly BackupEngine");

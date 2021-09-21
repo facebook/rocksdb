@@ -476,7 +476,7 @@ class BackupEngineAppendOnlyBase {
   // On success (OK status), the BackupID of the new backup is saved to
   // *new_backup_id when not nullptr.
   virtual IOStatus CreateNewBackup(const CreateBackupOptions& options, DB* db,
-                                 BackupID* new_backup_id = nullptr) {
+                                   BackupID* new_backup_id = nullptr) {
     return CreateNewBackupWithMetadata(options, db, "", new_backup_id);
   }
 
@@ -576,11 +576,11 @@ class BackupEngine : public BackupEngineReadOnlyBase,
   // BackupEngineOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
   static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngine** backup_engine_ptr);
+                       BackupEngine** backup_engine_ptr);
 
   // keep for backward compatibility.
   static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngine** backup_engine_ptr) {
+                       BackupEngine** backup_engine_ptr) {
     return BackupEngine::Open(options, db_env, backup_engine_ptr);
   }
 
@@ -602,10 +602,10 @@ class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
   virtual ~BackupEngineReadOnly() {}
 
   static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngineReadOnly** backup_engine_ptr);
+                       BackupEngineReadOnly** backup_engine_ptr);
   // keep for backward compatibility.
   static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngineReadOnly** backup_engine_ptr) {
+                       BackupEngineReadOnly** backup_engine_ptr) {
     return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
   }
 };
