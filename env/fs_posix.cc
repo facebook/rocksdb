@@ -174,32 +174,6 @@ class PosixFileSystem : public FileSystem {
   const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
-#ifndef ROCKSDB_LITE
-  Status ConfigureOption(const ConfigOptions& config_options,
-                         const std::string& name,
-                         const std::string& value) override {
-    std::string other_name;
-    const auto opt_info =
-        OptionTypeInfo::Find(name, posix_file_system_type_info, &other_name);
-    if (opt_info != nullptr) {
-      return opt_info->Parse(config_options, name, value, &posix_options_);
-    } else {
-      return Status::NotFound("Could not find option: ", name);
-    }
-  }
-
-  Status GetOption(const ConfigOptions& config_options, const std::string& name,
-                   std::string* value) const override {
-    std::string other_name;
-    const auto opt_info =
-        OptionTypeInfo::Find(name, posix_file_system_type_info, &other_name);
-    if (opt_info != nullptr) {
-      return opt_info->Serialize(config_options, name, &posix_options_, value);
-    } else {
-      return Status::NotFound("Could not find option: ", name);
-    }
-  }
-#endif  // ROCKSDB_LITE
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -1057,6 +1031,15 @@ class PosixFileSystem : public FileSystem {
     return Status::OK();
   }
 #endif
+ protected:
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& /*options*/,
+                               const std::string& /*prefix*/) const override {
+    // For PosixFileSystem, only return the ID of the object (and not the
+    // attributes)
+    return GetId();
+  }
+#endif  // ROCKSDB_LITE
  private:
   bool checkedDiskForMmap_;
   bool forceMmapOff_;  // do we override Env options?
@@ -1142,6 +1125,7 @@ size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
 
 PosixFileSystem::PosixFileSystem()
     : checkedDiskForMmap_(false), forceMmapOff_(false) {
+  RegisterOptions(&posix_options_, &posix_file_system_type_info);
 #if defined(ROCKSDB_IOURING_PRESENT)
   // Test whether IOUring is supported, and if it does, create a managing
   // object for thread local point so that in the future thread-local

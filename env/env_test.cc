@@ -219,7 +219,7 @@ TEST_F(EnvPosixTest, FilePermission) {
     ASSERT_OK(fs->NewWritableFile(fileNames[1], soptions, &wfile, nullptr));
     wfile.reset();
     ASSERT_OK(fs->NewRandomRWFile(fileNames[1], soptions, &rwfile, nullptr));
-    ASSERT_OK(fs->ConfigureOption(coptions, "allow_non_owner_access", "true"));
+    ASSERT_OK(fs->ConfigureOption(coptions, "allow_non_owner_access", value));
 
     for (const auto& filename : fileNames) {
       if (::stat(filename.c_str(), &sb) == 0) {
