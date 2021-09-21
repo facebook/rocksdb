@@ -29,6 +29,7 @@
 #       -DNUMA                      if the NUMA library is present
 #       -DTBB                       if the TBB library is present
 #       -DMEMKIND                   if the memkind library is present
+#       -DIPPCP                     if the ippcp library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -482,6 +483,26 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DMEMKIND"
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lmemkind"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_IPPCP; then
+        # Test whether ippcp (Intel IPP-Crypto) library is installed
+        # https://github.com/intel/ipp-crypto
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null -lippcp 2>/dev/null  <<EOF
+          #include <ippcp.h>
+          int main() {
+            int ctx_size = 0;
+            ippsAESGetSize(&ctx_size);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            # ippcp_reg is the factory method for IPPCP encryption provider
+            # c.ref env/ippcp_aes_provider.cc
+            COMMON_FLAGS="$COMMON_FLAGS -DIPPCP"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lippcp -u ippcp_reg"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lippcp -u ippcp_reg"
         fi
     fi
 

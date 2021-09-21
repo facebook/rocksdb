@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
+  env/ippcp_encryption_provider.cc                              \
   env/mock_env.cc                                               \
   env/unique_id.cc                                              \
   file/delete_scheduler.cc                                      \

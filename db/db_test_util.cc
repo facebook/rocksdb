@@ -13,6 +13,9 @@
 #include "env/mock_env.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
+#ifdef IPPCP
+#include "rocksdb/ippcp_encryption_provider.h"
+#endif
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
 
@@ -69,12 +72,21 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
     std::string provider_id = getenv("ENCRYPTED_ENV");
+#ifndef IPPCP
     if (provider_id.find("=") == std::string::npos &&
         !EndsWith(provider_id, "://test")) {
       provider_id = provider_id + "://test";
     }
     EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
                                                    &provider));
+#else
+    // Create an IPPCP encryption provider for AES-256 using a test key
+    EXPECT_OK(EncryptionProvider::CreateFromString(
+        ConfigOptions(), IppcpEncryptionProvider::kName(), &provider));
+    EXPECT_OK(provider->AddCipher("", "a6d2ae2816157e2b3c4fcf098815f7xb",
+                                  IppcpEncryptionProvider::KeySize::AES_256,
+                                  false));
+#endif
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
