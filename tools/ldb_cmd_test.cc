@@ -257,14 +257,15 @@ class FileChecksumTestHelper {
     EXPECT_OK(db_->DisableFileDeletions());
     std::vector<LiveFileMetaData> live_files;
     db_->GetLiveFilesMetaData(&live_files);
+    Status cs;
     for (auto a_file : live_files) {
-      Status cs = VerifyChecksum(a_file);
+      cs = VerifyChecksum(a_file);
       if (!cs.ok()) {
-        return cs;
+        break;
       }
     }
     EXPECT_OK(db_->EnableFileDeletions());
-    return Status::OK();
+    return cs;
   }
 };
 
