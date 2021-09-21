@@ -19,9 +19,7 @@ class MockEnvTest : public testing::Test {
   MockEnv* env_;
   const EnvOptions soptions_;
 
-  MockEnvTest()
-      : env_(new MockEnv(Env::Default())) {
-  }
+  MockEnvTest() : env_(MockEnv::Create(Env::Default())) {}
   ~MockEnvTest() override { delete env_; }
 };
 
@@ -68,7 +66,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
   int64_t now = 0;
   auto s = env_->GetCurrentTime(&now);
   ASSERT_OK(s);
-  env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
+  env_->SleepForMicroseconds(3 * 1000 * 1000);
   int64_t after_sleep = 0;
   s = env_->GetCurrentTime(&after_sleep);
   ASSERT_OK(s);

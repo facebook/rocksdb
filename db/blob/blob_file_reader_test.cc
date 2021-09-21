@@ -134,16 +134,15 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
 class BlobFileReaderTest : public testing::Test {
  protected:
-  BlobFileReaderTest() : mock_env_(Env::Default()) {}
-
-  MockEnv mock_env_;
+  BlobFileReaderTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
+  std::unique_ptr<Env> mock_env_;
 };
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderTest_CreateReaderAndGetBlob"),
       0);
   options.enable_blob_files = true;
@@ -400,9 +399,10 @@ TEST_F(BlobFileReaderTest, Malformed) {
   // detect the error when we open it for reading
 
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Malformed"), 0);
+      test::PerThreadDBPath(mock_env_.get(), "BlobFileReaderTest_Malformed"),
+      0);
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -452,9 +452,9 @@ TEST_F(BlobFileReaderTest, Malformed) {
 
 TEST_F(BlobFileReaderTest, TTL) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_TTL"), 0);
+      test::PerThreadDBPath(mock_env_.get(), "BlobFileReaderTest_TTL"), 0);
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -486,9 +486,9 @@ TEST_F(BlobFileReaderTest, TTL) {
 
 TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderTest_ExpirationRangeInHeader"),
       0);
   options.enable_blob_files = true;
@@ -525,9 +525,9 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 
 TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderTest_ExpirationRangeInFooter"),
       0);
   options.enable_blob_files = true;
@@ -564,9 +564,9 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
 
 TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderTest_IncorrectColumnFamily"),
       0);
   options.enable_blob_files = true;
@@ -602,9 +602,10 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
 
 TEST_F(BlobFileReaderTest, BlobCRCError) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_BlobCRCError"), 0);
+      test::PerThreadDBPath(mock_env_.get(), "BlobFileReaderTest_BlobCRCError"),
+      0);
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -660,9 +661,10 @@ TEST_F(BlobFileReaderTest, Compression) {
   }
 
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Compression"), 0);
+      test::PerThreadDBPath(mock_env_.get(), "BlobFileReaderTest_Compression"),
+      0);
   options.enable_blob_files = true;
 
   ImmutableOptions immutable_options(options);
@@ -726,9 +728,9 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
   }
 
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderTest_UncompressionError"),
       0);
   options.enable_blob_files = true;
@@ -785,13 +787,13 @@ class BlobFileReaderIOErrorTest
     : public testing::Test,
       public testing::WithParamInterface<std::string> {
  protected:
-  BlobFileReaderIOErrorTest()
-      : mock_env_(Env::Default()),
-        fault_injection_env_(&mock_env_),
-        sync_point_(GetParam()) {}
+  BlobFileReaderIOErrorTest() : sync_point_(GetParam()) {
+    mock_env_.reset(MockEnv::Create(Env::Default()));
+    fault_injection_env_.reset(new FaultInjectionTestEnv(mock_env_.get()));
+  }
 
-  MockEnv mock_env_;
-  FaultInjectionTestEnv fault_injection_env_;
+  std::unique_ptr<Env> mock_env_;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -807,9 +809,9 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
   // Simulates an I/O error during the specified step
 
   Options options;
-  options.env = &fault_injection_env_;
+  options.env = fault_injection_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&fault_injection_env_,
+      test::PerThreadDBPath(fault_injection_env_.get(),
                             "BlobFileReaderIOErrorTest_IOError"),
       0);
   options.enable_blob_files = true;
@@ -831,8 +833,8 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
                 &blob_offset, &blob_size);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -870,10 +872,11 @@ class BlobFileReaderDecodingErrorTest
     : public testing::Test,
       public testing::WithParamInterface<std::string> {
  protected:
-  BlobFileReaderDecodingErrorTest()
-      : mock_env_(Env::Default()), sync_point_(GetParam()) {}
+  BlobFileReaderDecodingErrorTest() : sync_point_(GetParam()) {
+    mock_env_.reset(MockEnv::Create(Env::Default()));
+  }
 
-  MockEnv mock_env_;
+  std::unique_ptr<Env> mock_env_;
   std::string sync_point_;
 };
 
@@ -885,9 +888,9 @@ INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderDecodingErrorTest,
 
 TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileReaderDecodingErrorTest_DecodingError"),
       0);
   options.enable_blob_files = true;
