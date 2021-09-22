@@ -1,9 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### Bug Fixes
-### New Features
-### Public API change
-
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
 * Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.
