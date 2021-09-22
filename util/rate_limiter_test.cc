@@ -117,11 +117,19 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
         request_mutex->Unlock();
         for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
           EXPECT_OK(limiter->GetTotalPendingRequests(
-              &total_pending_requests, static_cast<Env::IOPriority>(i))) << "Failed to return total pending requests for priority level = " << static_cast<Env::IOPriority>(i);
+              &total_pending_requests, static_cast<Env::IOPriority>(i)))
+              << "Failed to return total pending requests for priority level = "
+              << static_cast<Env::IOPriority>(i);
           if (i == Env::IO_USER || i == Env::IO_TOTAL) {
-            EXPECT_EQ(total_pending_requests, 1) << "Failed to correctly return total pending requests for priority level = " << static_cast<Env::IOPriority>(i);
+            EXPECT_EQ(total_pending_requests, 1)
+                << "Failed to correctly return total pending requests for "
+                   "priority level = "
+                << static_cast<Env::IOPriority>(i);
           } else {
-            EXPECT_EQ(total_pending_requests, 0) << "Failed to correctly return total pending requests for priority level = " << static_cast<Env::IOPriority>(i);
+            EXPECT_EQ(total_pending_requests, 0)
+                << "Failed to correctly return total pending requests for "
+                   "priority level = "
+                << static_cast<Env::IOPriority>(i);
           }
         }
         // We lock the mutex again so that the request thread can resume running
@@ -135,9 +143,14 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
                    RateLimiter::OpType::kWrite);
   ASSERT_EQ(nonzero_pending_requests_verified, true);
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-    EXPECT_OK(limiter->GetTotalPendingRequests(
-        &total_pending_requests, static_cast<Env::IOPriority>(i))) << "Failed to return total pending requests for priority level = " << static_cast<Env::IOPriority>(i);
-    EXPECT_EQ(total_pending_requests, 0) << "Failed to correctly return total pending requests for priority level = " << static_cast<Env::IOPriority>(i);
+    EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests,
+                                               static_cast<Env::IOPriority>(i)))
+        << "Failed to return total pending requests for priority level = "
+        << static_cast<Env::IOPriority>(i);
+    EXPECT_EQ(total_pending_requests, 0)
+        << "Failed to correctly return total pending requests for priority "
+           "level = "
+        << static_cast<Env::IOPriority>(i);
   }
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearCallBack(
