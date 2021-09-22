@@ -11,8 +11,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string ExpectedStateManager::kLatestFilename = "LATEST.state";
-
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
     : max_key_(max_key),
       num_column_families_(num_column_families),
@@ -142,29 +140,42 @@ Status AnonExpectedState::Open() {
   return Status::OK();
 }
 
-ExpectedStateManager::ExpectedStateManager(std::string expected_state_dir_path,
-                                           size_t max_key,
+ExpectedStateManager::ExpectedStateManager(size_t max_key,
                                            size_t num_column_families)
-    : expected_state_dir_path_(std::move(expected_state_dir_path)),
-      max_key_(max_key),
+    : max_key_(max_key),
       num_column_families_(num_column_families),
       latest_(nullptr) {}
 
 ExpectedStateManager::~ExpectedStateManager() {}
 
-Status ExpectedStateManager::Open() {
-  if (expected_state_dir_path_ == "") {
-    latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
-  } else {
-    std::string expected_state_dir_path_slash =
-        expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
-                                               : expected_state_dir_path_ + "/";
-    std::string expected_state_file_path =
-        expected_state_dir_path_slash + kLatestFilename;
+const std::string FileExpectedStateManager::kLatestFilename = "LATEST.state";
 
-    latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
-                                        max_key_, num_column_families_));
-  }
+FileExpectedStateManager::FileExpectedStateManager(
+    size_t max_key, size_t num_column_families,
+    std::string expected_state_dir_path)
+    : ExpectedStateManager(max_key, num_column_families),
+      expected_state_dir_path_(std::move(expected_state_dir_path)) {
+  assert(expected_state_dir_path_ != "");
+}
+
+Status FileExpectedStateManager::Open() {
+  std::string expected_state_dir_path_slash =
+      expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
+                                             : expected_state_dir_path_ + "/";
+  std::string expected_state_file_path =
+      expected_state_dir_path_slash + kLatestFilename;
+
+  latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
+                                      max_key_, num_column_families_));
+  return latest_->Open();
+}
+
+AnonExpectedStateManager::AnonExpectedStateManager(
+    size_t max_key, size_t num_column_families)
+    : ExpectedStateManager(max_key, num_column_families) {}
+
+Status AnonExpectedStateManager::Open() {
+  latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
   return latest_->Open();
 }
 

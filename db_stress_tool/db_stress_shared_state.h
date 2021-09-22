@@ -130,8 +130,13 @@ class SharedState {
       }
     }
     if (status.ok()) {
-      expected_state_manager_.reset(new ExpectedStateManager(
-          FLAGS_expected_values_dir, FLAGS_max_key, FLAGS_column_families));
+      if (FLAGS_expected_values_dir.empty()) {
+        expected_state_manager_.reset(new AnonExpectedStateManager(
+            FLAGS_max_key, FLAGS_column_families));
+      } else {
+        expected_state_manager_.reset(new FileExpectedStateManager(
+            FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
+      }
       status = expected_state_manager_->Open();
     }
     if (!status.ok()) {

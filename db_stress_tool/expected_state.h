@@ -113,19 +113,18 @@ class AnonExpectedState : public ExpectedState {
   std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
 };
 
-// An `ExpectedStateManager` manages a directory containing data about the
-// expected state of the database. It exposes operations for reading and
-// modifying the latest expected state.
+// An `ExpectedStateManager` manages data about the expected state of the
+// database. It exposes operations for reading and modifying the latest
+// expected state.
 class ExpectedStateManager {
  public:
-  explicit ExpectedStateManager(std::string expected_state_dir_path,
-                                size_t max_key, size_t num_column_families);
+  explicit ExpectedStateManager(size_t max_key, size_t num_column_families);
 
-  ~ExpectedStateManager();
+  virtual ~ExpectedStateManager();
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
-  Status Open();
+  virtual Status Open() = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
@@ -169,13 +168,39 @@ class ExpectedStateManager {
   // Requires external locking covering `key` in `cf`.
   bool Exists(int cf, int64_t key) { return latest_->Exists(cf, key); }
 
+ protected:
+  const size_t max_key_;
+  const size_t num_column_families_;
+  std::unique_ptr<ExpectedState> latest_;
+};
+
+// A `FileExpectedStateManager` implements an `ExpectedStateManager` backed by
+// a directory of files containing data about the expected state of the
+// database.
+class FileExpectedStateManager : public ExpectedStateManager {
+ public:
+  explicit FileExpectedStateManager(size_t max_key, size_t num_column_families,
+                                    std::string expected_state_dir_path);
+
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
+  Status Open() override;
+
  private:
   static const std::string kLatestFilename;
 
   const std::string expected_state_dir_path_;
-  const size_t max_key_;
-  const size_t num_column_families_;
-  std::unique_ptr<ExpectedState> latest_;
+};
+
+// An `AnonExpectedStateManager` implements an `ExpectedStateManager` backed by
+// a memory allocation containing data about the expected state of the database.
+class AnonExpectedStateManager : public ExpectedStateManager {
+ public:
+  explicit AnonExpectedStateManager(size_t max_key, size_t num_column_families);
+
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
+  Status Open() override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
