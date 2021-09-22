@@ -122,7 +122,11 @@ Status FileExpectedState::Open(bool create) {
 AnonExpectedState::AnonExpectedState(size_t max_key, size_t num_column_families)
     : ExpectedState(max_key, num_column_families) {}
 
+#ifndef NDEBUG
 Status AnonExpectedState::Open(bool create) {
+#else
+Status AnonExpectedState::Open(bool /* create */) {
+#endif
   // AnonExpectedState only supports being freshly created.
   assert(create);
   values_allocation_.reset(
