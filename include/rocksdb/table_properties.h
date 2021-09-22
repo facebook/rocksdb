@@ -133,10 +133,10 @@ class TablePropertiesCollectorFactory {
  public:
   struct Context {
     uint32_t column_family_id;
-    // The level of the SST file (i.e, table), of which the properties are being
-    // collected. -1 if unknown or N/A
-    int file_level = -1;
+    // The level when creating the SST file (i.e, table), of which the properties are being collected.
+    int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
+    static const uint32_t kUnknownLevelAtCreation = -1;
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
