@@ -3943,7 +3943,7 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
  public:
   MockedRateLimiterWithNoOptionalAPIImpl(){}
 
-  ~MockedRateLimiterWithNoOptionalAPIImpl(){}
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
