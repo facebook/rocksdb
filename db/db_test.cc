@@ -3941,13 +3941,13 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
 // (e.g, RateLimiter::GetTotalPendingRequests())
 class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
  public:
-  MockedRateLimiterWithNoOptionalAPIImpl(){};
+  MockedRateLimiterWithNoOptionalAPIImpl(){}
 
-  ~MockedRateLimiterWithNoOptionalAPIImpl(){};
+  ~MockedRateLimiterWithNoOptionalAPIImpl(){}
 
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
-  };
+  }
 
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
@@ -3955,7 +3955,7 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
     (void)bytes;
     (void)pri;
     (void)stats;
-  };
+  }
 
   int64_t GetSingleBurstBytes() const override { return 200; }
 
