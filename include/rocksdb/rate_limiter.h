@@ -91,7 +91,7 @@ class RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
 
   // Total # of requests that are pending for bytes in rate limiter
-  // For convenience, this function is implemented by the RateLimiter returned
+  // For convenience, this function is supported by the RateLimiter returned
   // by NewGenericRateLimiter but is not required by RocksDB.
   //
   // REQUIRED: total_pending_request != nullptr
