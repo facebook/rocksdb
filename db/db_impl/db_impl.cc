@@ -4558,7 +4558,7 @@ Status DBImpl::IngestExternalFiles(
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, args[i].file_temperatures,
+        args[i].files_checksum_func_names, args[i].file_temperature,
         start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
@@ -4574,7 +4574,7 @@ Status DBImpl::IngestExternalFiles(
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, args[0].file_temperatures,
+        args[0].files_checksum_func_names, args[0].file_temperature,
         next_file_number, super_version);
     if (!es.ok()) {
       status = es;

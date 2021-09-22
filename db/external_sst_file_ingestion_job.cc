@@ -31,8 +31,8 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
     const std::vector<std::string>& files_checksum_func_names,
-    const std::vector<Temperature>& file_temperatures,
-    uint64_t next_file_number, SuperVersion* sv) {
+    const Temperature& file_temperature, uint64_t next_file_number,
+    SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
@@ -91,10 +91,8 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   // Hanlde the file temperature
-  if (file_temperatures.size() != 0 && file_temperatures.size() == num_files) {
-    for (size_t i = 0; i < num_files; i++) {
-      files_to_ingest_[i].file_temperature = file_temperatures[i];
-    }
+  for (size_t i = 0; i < num_files; i++) {
+    files_to_ingest_[i].file_temperature = file_temperature;
   }
 
   if (ingestion_options_.ingest_behind && files_overlap_) {

@@ -101,8 +101,8 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
-                 const std::vector<Temperature>& file_temperatures,
-                 uint64_t next_file_number, SuperVersion* sv);
+                 const Temperature& file_temperature, uint64_t next_file_number,
+                 SuperVersion* sv);
 
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
