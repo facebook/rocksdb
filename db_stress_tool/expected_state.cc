@@ -230,8 +230,8 @@ std::string FileExpectedStateManager::GetPathForFilename(
   return expected_state_dir_path_slash + filename;
 }
 
-AnonExpectedStateManager::AnonExpectedStateManager(
-    size_t max_key, size_t num_column_families)
+AnonExpectedStateManager::AnonExpectedStateManager(size_t max_key,
+                                                   size_t num_column_families)
     : ExpectedStateManager(max_key, num_column_families) {}
 
 Status AnonExpectedStateManager::Open() {

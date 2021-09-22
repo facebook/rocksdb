@@ -131,8 +131,8 @@ class SharedState {
     }
     if (status.ok()) {
       if (FLAGS_expected_values_dir.empty()) {
-        expected_state_manager_.reset(new AnonExpectedStateManager(
-            FLAGS_max_key, FLAGS_column_families));
+        expected_state_manager_.reset(
+            new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
         expected_state_manager_.reset(new FileExpectedStateManager(
             FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
