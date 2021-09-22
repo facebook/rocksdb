@@ -27,7 +27,7 @@ class ExpectedState {
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
-  virtual Status Open() = 0;
+  virtual Status Open(bool create) = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf);
@@ -92,7 +92,7 @@ class FileExpectedState : public ExpectedState {
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
-  Status Open() override;
+  Status Open(bool create) override;
 
  private:
   const std::string expected_state_file_path_;
@@ -107,7 +107,7 @@ class AnonExpectedState : public ExpectedState {
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
-  Status Open() override;
+  Status Open(bool create) override;
 
  private:
   std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
@@ -187,6 +187,13 @@ class FileExpectedStateManager : public ExpectedStateManager {
   Status Open() override;
 
  private:
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
+  Status Clean();
+
+  std::string GetTempPathForFilename(const std::string& filename);
+  std::string GetPathForFilename(const std::string& filename);
+
   static const std::string kLatestFilename;
 
   const std::string expected_state_dir_path_;

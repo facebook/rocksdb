@@ -85,30 +85,21 @@ FileExpectedState::FileExpectedState(std::string expected_state_file_path,
     : ExpectedState(max_key, num_column_families),
       expected_state_file_path_(expected_state_file_path) {}
 
-Status FileExpectedState::Open() {
+Status FileExpectedState::Open(bool create) {
   size_t expected_values_size = GetValuesLen();
 
   Env* default_env = Env::Default();
 
-  Status status = default_env->FileExists(expected_state_file_path_);
-  uint64_t size = 0;
-  if (status.ok()) {
-    status = default_env->GetFileSize(expected_state_file_path_, &size);
-  } else if (status.IsNotFound()) {
-    // Leave size at zero. Reset `status` since it is OK for file not to be
-    // there -- we will create it below.
-    status = Status::OK();
-  }
-
-  std::unique_ptr<WritableFile> wfile;
-  if (status.ok() && size == 0) {
+  Status status;
+  if (create) {
+    std::unique_ptr<WritableFile> wfile;
     const EnvOptions soptions;
     status = default_env->NewWritableFile(expected_state_file_path_, &wfile,
                                           soptions);
-  }
-  if (status.ok() && size == 0) {
-    std::string buf(expected_values_size, '\0');
-    status = wfile->Append(buf);
+    if (status.ok()) {
+      std::string buf(expected_values_size, '\0');
+      status = wfile->Append(buf);
+    }
   }
   if (status.ok()) {
     status = default_env->NewMemoryMappedFileBuffer(
@@ -119,7 +110,7 @@ Status FileExpectedState::Open() {
     values_ = static_cast<std::atomic<uint32_t>*>(
         expected_state_mmap_buffer_->GetBase());
     assert(values_ != nullptr);
-    if (size == 0) {
+    if (create) {
       Reset();
     }
   } else {
@@ -131,7 +122,9 @@ Status FileExpectedState::Open() {
 AnonExpectedState::AnonExpectedState(size_t max_key, size_t num_column_families)
     : ExpectedState(max_key, num_column_families) {}
 
-Status AnonExpectedState::Open() {
+Status AnonExpectedState::Open(bool create) {
+  // AnonExpectedState only supports being freshly created.
+  assert(create);
   values_allocation_.reset(
       new std::atomic<uint32_t>[GetValuesLen() /
                                 sizeof(std::atomic<uint32_t>)]);
@@ -159,15 +152,78 @@ FileExpectedStateManager::FileExpectedStateManager(
 }
 
 Status FileExpectedStateManager::Open() {
+  Status s = Clean();
+
+  std::string expected_state_file_path = GetPathForFilename(kLatestFilename);
+  bool found = false;
+  if (s.ok()) {
+    Status exists_status = Env::Default()->FileExists(expected_state_file_path);
+    if (exists_status.ok()) {
+      found = true;
+    } else if (exists_status.IsNotFound()) {
+      found = false;
+    } else {
+      s = exists_status;
+    }
+  }
+
+  if (!found) {
+    // Initialize the file in a temp path and then rename it. That way, in case
+    // this process is killed during setup, `Clean()` will take care of removing
+    // the incomplete expected values file.
+    std::string temp_expected_state_file_path =
+        GetTempPathForFilename(kLatestFilename);
+    FileExpectedState temp_expected_state(temp_expected_state_file_path,
+                                          max_key_, num_column_families_);
+    if (s.ok()) {
+      s = temp_expected_state.Open(true /* create */);
+    }
+    if (s.ok()) {
+      s = Env::Default()->RenameFile(temp_expected_state_file_path,
+                                     expected_state_file_path);
+    }
+  }
+
+  if (s.ok()) {
+    latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
+                                        max_key_, num_column_families_));
+    s = latest_->Open(false /* create */);
+  }
+  return s;
+}
+
+Status FileExpectedStateManager::Clean() {
+  // An incomplete `Open()` could have left behind an invalid temporary file.
+  std::string temp_path = GetTempPathForFilename(kLatestFilename);
+  Status s = Env::Default()->FileExists(temp_path);
+  if (s.ok()) {
+    s = Env::Default()->DeleteFile(temp_path);
+  } else if (s.IsNotFound()) {
+    s = Status::OK();
+  }
+  return s;
+}
+
+std::string FileExpectedStateManager::GetTempPathForFilename(
+    const std::string& filename) {
+  static const std::string kTempFilenamePrefix = ".";
+  static const std::string kTempFilenameSuffix = ".tmp";
+
+  assert(!expected_state_dir_path_.empty());
   std::string expected_state_dir_path_slash =
       expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
                                              : expected_state_dir_path_ + "/";
-  std::string expected_state_file_path =
-      expected_state_dir_path_slash + kLatestFilename;
+  return expected_state_dir_path_slash + kTempFilenamePrefix + filename +
+         kTempFilenameSuffix;
+}
 
-  latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
-                                      max_key_, num_column_families_));
-  return latest_->Open();
+std::string FileExpectedStateManager::GetPathForFilename(
+    const std::string& filename) {
+  assert(!expected_state_dir_path_.empty());
+  std::string expected_state_dir_path_slash =
+      expected_state_dir_path_.back() == '/' ? expected_state_dir_path_
+                                             : expected_state_dir_path_ + "/";
+  return expected_state_dir_path_slash + filename;
 }
 
 AnonExpectedStateManager::AnonExpectedStateManager(
@@ -176,7 +232,7 @@ AnonExpectedStateManager::AnonExpectedStateManager(
 
 Status AnonExpectedStateManager::Open() {
   latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
-  return latest_->Open();
+  return latest_->Open(true /* create */);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
