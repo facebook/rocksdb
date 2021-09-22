@@ -269,14 +269,12 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar", ts));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar", ts));
   ASSERT_OK(Flush());
 
   std::string start_str = "foo";
@@ -362,10 +360,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
 
   for (int i = 0; i < 10; i++) {
     WriteOptions write_opts;
-    std::string ts_str = Timestamp(i, 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, kKey, Key(i)));
+    std::string ts = Timestamp(i, 0);
+    ASSERT_OK(db_->Put(write_opts, kKey, Key(i), ts));
   }
   ASSERT_OK(Flush());
 
@@ -388,10 +384,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   // Test set ts_low and then trigger compaction
   for (int i = 10; i < 20; i++) {
     WriteOptions write_opts;
-    std::string ts_str = Timestamp(i, 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, kKey, Key(i)));
+    std::string ts = Timestamp(i, 0);
+    ASSERT_OK(db_->Put(write_opts, kKey, Key(i), ts));
   }
 
   ASSERT_OK(Flush());
@@ -492,14 +486,12 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   auto default_cf = db_->DefaultColumnFamily();
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
   const int N = 128;
   Random rnd(301);
   for (int i = 0; i < N; i++) {
-    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(1024)));
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(1024), ts));
   }
 
   uint64_t size;
@@ -538,7 +530,7 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ASSERT_EQ(size, 0);
 
   // Test range boundaries
-  ASSERT_OK(db_->Put(write_opts, Key(1000), rnd.RandomString(1024)));
+  ASSERT_OK(db_->Put(write_opts, Key(1000), rnd.RandomString(1024), ts));
   // Should include start key
   start = Key(1000);
   end = Key(1100);
@@ -578,9 +570,9 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   for (size_t i = 0; i < write_timestamps.size(); ++i) {
     WriteOptions write_opts;
     Slice write_ts = write_timestamps[i];
-    write_opts.timestamp = &write_ts;
     for (uint64_t key = start_keys[i]; key <= kMaxKey; ++key) {
-      Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
+      Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i),
+                          write_ts);
       ASSERT_OK(s);
     }
   }
@@ -708,10 +700,8 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
   constexpr uint64_t kNumKeys = 1024;
   for (uint64_t k = 0; k < kNumKeys; ++k) {
     WriteOptions write_opts;
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, Key1(k), "value" + std::to_string(k)));
+    std::string ts = Timestamp(1, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(k), "value" + std::to_string(k), ts));
   }
   ASSERT_OK(Flush());
   {
@@ -780,26 +770,24 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar", ts));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar", ts));
   ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo3", "bar", ts));
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
-  std::string read_ts = Timestamp(1, 0);
-  ts = read_ts;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(1, 0);
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->Seek("foo");
@@ -838,26 +826,24 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithCappedPrefix) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar", ts));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar", ts));
   ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo3", "bar", ts));
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
-  std::string read_ts = Timestamp(2, 0);
-  ts = read_ts;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     // Make sure the prefix extractor doesn't include timestamp, otherwise it
@@ -890,14 +876,12 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithBound) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo1", "bar1"));
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar1", ts));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->Put(write_opts, "foo2", "bar2"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar2", ts));
   ASSERT_OK(Flush());
 
   // Move sst file to next level
@@ -905,14 +889,14 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithBound) {
 
   for (int i = 3; i < 9; ++i) {
     ASSERT_OK(db_->Put(write_opts, "foo" + std::to_string(i),
-                       "bar" + std::to_string(i)));
+                       "bar" + std::to_string(i), ts));
   }
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
-  std::string read_ts = Timestamp(2, 0);
-  ts = read_ts;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   std::string up_bound = "foo5";  // exclusive
   Slice up_bound_slice = up_bound;
   std::string lo_bound = "foo2";  // inclusive
@@ -1047,10 +1031,9 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
                                                        Timestamp(1, 0)};
   for (size_t i = 0; i < write_timestamps.size(); ++i) {
     WriteOptions write_opts;
-    Slice write_ts = write_timestamps[i];
-    write_opts.timestamp = &write_ts;
     for (uint64_t key = 0; key <= kMaxKey; ++key) {
-      Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
+      Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i),
+                          write_timestamps[i]);
       ASSERT_OK(s);
     }
   }
@@ -1081,9 +1064,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     std::string write_timestamp = Timestamp(5, 0);
     WriteOptions write_opts;
     Slice write_ts = write_timestamp;
-    write_opts.timestamp = &write_ts;
     for (uint64_t key = 0; key < kMaxKey + 1; ++key) {
-      Status s = db_->Delete(write_opts, Key1(key));
+      Status s = db_->Delete(write_opts, Key1(key), write_ts);
       ASSERT_OK(s);
     }
 
@@ -1123,10 +1105,8 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
   WriteOptions write_opts;
   Status s;
   for (size_t i = 0; i != kNumKeys; ++i) {
-    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    s = db_->Put(write_opts, "foo", "value" + std::to_string(i));
+    std::string ts = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    s = db_->Put(write_opts, "foo", "value" + std::to_string(i), ts);
     ASSERT_OK(s);
   }
   {
@@ -1168,10 +1148,8 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   WriteOptions write_opts;
   Status s;
   for (size_t i = 0; i != kNumKeys; ++i) {
-    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    s = db_->Put(write_opts, "a", "value" + std::to_string(i));
+    std::string ts = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    s = db_->Put(write_opts, "a", "value" + std::to_string(i), ts);
     ASSERT_OK(s);
   }
   {
@@ -1222,19 +1200,15 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToUserKeyBeforeSavedKey) {
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
   for (size_t i = 0; i < kNumKeys; ++i) {
-    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
-    Slice ts = ts_str;
+    std::string ts = Timestamp(static_cast<uint64_t>(i + 1), 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &ts;
-    Status s = db_->Put(write_opts, "b", "value" + std::to_string(i));
+    Status s = db_->Put(write_opts, "b", "value" + std::to_string(i), ts);
     ASSERT_OK(s);
   }
   {
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
+    std::string ts = Timestamp(1, 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, "a", "value"));
+    ASSERT_OK(db_->Put(write_opts, "a", "value", ts));
   }
   {
     ReadOptions read_opts;
@@ -1267,17 +1241,16 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
 
   // Write any value
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar", ts));
 
   ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   size_t batch_size = 1;
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
@@ -1309,17 +1282,16 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetWithPrefix) {
 
   // Write any value
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar", ts));
 
   ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   size_t batch_size = 1;
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
@@ -1352,17 +1324,15 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetWithMemBloomFilter) {
 
   // Write any value
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar", ts));
 
   // Read with MultiGet
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  read_opts.timestamp = &read_ts;
   size_t batch_size = 1;
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
@@ -1393,9 +1363,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   // Write any value
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
   // random data
   for (int i = 0; i < 3; i++) {
@@ -1403,22 +1371,22 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
     auto value = ToString(i * 10);
     Slice key_slice = key;
     Slice value_slice = value;
-    ASSERT_OK(db_->Put(write_opts, key_slice, value_slice));
+    ASSERT_OK(db_->Put(write_opts, key_slice, value_slice, ts));
     ASSERT_OK(Flush());
   }
 
   // Make num_levels to 2 to do key range filtering of sst files
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar", ts));
 
   ASSERT_OK(Flush());
 
   // Read with MultiGet
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  read_opts.timestamp = &read_ts;
   size_t batch_size = 1;
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
@@ -1450,18 +1418,16 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
-  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar", ts));
 
   ASSERT_OK(Flush());
   // Read with MultiGet
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  read_opts.timestamp = &read_ts;
   size_t batch_size = 1;
   std::vector<Slice> keys(batch_size);
   std::vector<std::string> values(batch_size);
@@ -1489,16 +1455,12 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkippedDuringNext) {
   WriteOptions write_opts;
   Status s;
   {
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, "a", "value"));
+    std::string ts = Timestamp(1, 0);
+    ASSERT_OK(db_->Put(write_opts, "a", "value", ts));
   }
   for (size_t i = 0; i < kNumKeys; ++i) {
-    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    s = db_->Put(write_opts, "b", "value" + std::to_string(i));
+    std::string ts = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    s = db_->Put(write_opts, "b", "value" + std::to_string(i), ts);
     ASSERT_OK(s);
   }
   {
@@ -1528,16 +1490,12 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkippedDuringPrev) {
   WriteOptions write_opts;
   Status s;
   {
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    ASSERT_OK(db_->Put(write_opts, "b", "value"));
+    std::string ts = Timestamp(1, 0);
+    ASSERT_OK(db_->Put(write_opts, "b", "value", ts));
   }
   for (size_t i = 0; i < kNumKeys; ++i) {
-    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
-    Slice ts = ts_str;
-    write_opts.timestamp = &ts;
-    s = db_->Put(write_opts, "a", "value" + std::to_string(i));
+    std::string ts = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    s = db_->Put(write_opts, "a", "value" + std::to_string(i), ts);
     ASSERT_OK(s);
   }
   {
@@ -1571,42 +1529,36 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   options.level0_file_num_compaction_trigger = 2;
   DestroyAndReopen(options);
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
-  ASSERT_OK(db_->Put(write_opts, "a", "value0"));
+  std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, "a", "value0", ts));
   ASSERT_OK(Flush());
 
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
-  write_opts.timestamp = &ts;
-  ASSERT_OK(db_->Put(write_opts, "b", "value0"));
-  ts_str = Timestamp(3, 0);
-  ts = ts_str;
-  write_opts.timestamp = &ts;
-  ASSERT_OK(db_->Delete(write_opts, "a"));
+  ts = Timestamp(2, 0);
+  ASSERT_OK(db_->Put(write_opts, "b", "value0", ts));
+  ts = Timestamp(3, 0);
+  ASSERT_OK(db_->Delete(write_opts, "a", ts));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ReadOptions read_opts;
-  ts_str = Timestamp(1, 0);
-  ts = ts_str;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(1, 0);
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
   std::string value;
   Status s = db_->Get(read_opts, "a", &value);
   ASSERT_OK(s);
   ASSERT_EQ("value0", value);
 
-  ts_str = Timestamp(3, 0);
-  ts = ts_str;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(3, 0);
+  read_ts = ts;
+  read_opts.timestamp = &read_ts;
   s = db_->Get(read_opts, "a", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   // Time-travel to the past before deletion
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
-  read_opts.timestamp = &ts;
+  ts = Timestamp(2, 0);
+  read_ts = ts;
+  read_opts.timestamp = &read_ts;
   s = db_->Get(read_opts, "a", &value);
   ASSERT_OK(s);
   ASSERT_EQ("value0", value);
@@ -1648,38 +1600,33 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
 
   // Write any value
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
+  std::string ts = Timestamp(1, 0);
 
   int idx = 0;
   for (; idx < kMaxKey / 4; idx++) {
-    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
-    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar", ts));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar", ts));
   }
 
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   for (; idx < kMaxKey / 2; idx++) {
-    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
-    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar", ts));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar", ts));
   }
 
   ASSERT_OK(Flush());
 
   for (; idx < kMaxKey; idx++) {
-    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
-    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar", ts));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar", ts));
   }
 
   // Read with MultiGet
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
-
-  ReadOptions read_opts_total_order;
-  read_opts_total_order.timestamp = &ts;
-  read_opts_total_order.total_order_seek = true;
+  Slice read_ts = ts;
+  read_opts.timestamp = &read_ts;
 
   for (idx = 0; idx < kMaxKey; idx++) {
     size_t batch_size = 4;
@@ -1776,11 +1723,10 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
     ASSERT_LE(index, kTestDataSize);
     WriteOptions write_opts;
     Slice ts_slice = test_data_[index].timestamp;
-    write_opts.timestamp = &ts_slice;
 
     if (cfh == nullptr) {
-      ASSERT_OK(
-          db_->Put(write_opts, test_data_[index].key, test_data_[index].value));
+      ASSERT_OK(db_->Put(write_opts, test_data_[index].key,
+                         test_data_[index].value, ts_slice));
       const Snapshot* snap = db_->GetSnapshot();
       test_data_[index].seq_num = snap->GetSequenceNumber();
       if (index > 0) {
@@ -1789,7 +1735,7 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
       db_->ReleaseSnapshot(snap);
     } else {
       ASSERT_OK(db_->Put(write_opts, cfh, test_data_[index].key,
-                         test_data_[index].value));
+                         test_data_[index].value, ts_slice));
     }
   }
 
@@ -1901,13 +1847,11 @@ TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer_thread([this]() {
-    std::string write_ts_str = Timestamp(1, 0);
-    Slice write_ts = write_ts_str;
+    std::string write_ts = Timestamp(1, 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &write_ts;
     TEST_SYNC_POINT(
         "DataVisibilityTest::PointLookupWithoutSnapshot1:BeforePut");
-    Status s = db_->Put(write_opts, "foo", "value");
+    Status s = db_->Put(write_opts, "foo", "value", write_ts);
     ASSERT_OK(s);
     TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot1:AfterPut");
   });
@@ -1949,20 +1893,16 @@ TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot2) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer_thread([this]() {
-    std::string write_ts_str = Timestamp(1, 0);
-    Slice write_ts = write_ts_str;
+    std::string write_ts = Timestamp(1, 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &write_ts;
     TEST_SYNC_POINT(
         "DataVisibilityTest::PointLookupWithoutSnapshot2:BeforePut");
-    Status s = db_->Put(write_opts, "foo", "value");
+    Status s = db_->Put(write_opts, "foo", "value", write_ts);
     ASSERT_OK(s);
     ASSERT_OK(Flush());
 
-    write_ts_str = Timestamp(2, 0);
-    write_ts = write_ts_str;
-    write_opts.timestamp = &write_ts;
-    s = db_->Put(write_opts, "bar", "value");
+    write_ts = Timestamp(2, 0);
+    s = db_->Put(write_opts, "bar", "value", write_ts);
     ASSERT_OK(s);
     TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot2:AfterPut");
   });
@@ -2003,12 +1943,10 @@ TEST_F(DataVisibilityTest, PointLookupWithSnapshot1) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer_thread([this]() {
-    std::string write_ts_str = Timestamp(1, 0);
-    Slice write_ts = write_ts_str;
+    std::string write_ts = Timestamp(1, 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &write_ts;
     TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:BeforePut");
-    Status s = db_->Put(write_opts, "foo", "value");
+    Status s = db_->Put(write_opts, "foo", "value", write_ts);
     TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:AfterPut");
     ASSERT_OK(s);
   });
@@ -2055,19 +1993,15 @@ TEST_F(DataVisibilityTest, PointLookupWithSnapshot2) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer_thread([this]() {
-    std::string write_ts_str = Timestamp(1, 0);
-    Slice write_ts = write_ts_str;
+    std::string write_ts = Timestamp(1, 0);
     WriteOptions write_opts;
-    write_opts.timestamp = &write_ts;
     TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot2:BeforePut");
-    Status s = db_->Put(write_opts, "foo", "value1");
+    Status s = db_->Put(write_opts, "foo", "value1", write_ts);
     ASSERT_OK(s);
     ASSERT_OK(Flush());
 
-    write_ts_str = Timestamp(2, 0);
-    write_ts = write_ts_str;
-    write_opts.timestamp = &write_ts;
-    s = db_->Put(write_opts, "bar", "value2");
+    write_ts = Timestamp(2, 0);
+    s = db_->Put(write_opts, "bar", "value2", write_ts);
     ASSERT_OK(s);
   });
   const Snapshot* snap = db_->GetSnapshot();
@@ -2112,11 +2046,9 @@ TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
     WriteOptions write_opts;
     TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithoutSnapshot:BeforePut");
     for (int i = 0; i < 3; ++i) {
-      std::string write_ts_str = Timestamp(i + 1, 0);
-      Slice write_ts = write_ts_str;
-      write_opts.timestamp = &write_ts;
+      std::string write_ts = Timestamp(i + 1, 0);
       Status s = db_->Put(write_opts, "key" + std::to_string(i),
-                          "value" + std::to_string(i));
+                          "value" + std::to_string(i), write_ts);
       ASSERT_OK(s);
     }
   });
@@ -2159,11 +2091,9 @@ TEST_F(DataVisibilityTest, RangeScanWithSnapshot) {
     WriteOptions write_opts;
     TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithSnapshot:BeforePut");
     for (int i = 0; i < 3; ++i) {
-      std::string write_ts_str = Timestamp(i + 1, 0);
-      Slice write_ts = write_ts_str;
-      write_opts.timestamp = &write_ts;
+      std::string write_ts = Timestamp(i + 1, 0);
       Status s = db_->Put(write_opts, "key" + std::to_string(i),
-                          "value" + std::to_string(i));
+                          "value" + std::to_string(i), write_ts);
       ASSERT_OK(s);
     }
   });
@@ -2396,12 +2326,11 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
     read_ts_list.push_back(Timestamp(1 + i * 2, 0));
     const Slice write_ts = write_ts_list.back();
     WriteOptions wopts;
-    wopts.timestamp = &write_ts;
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
       for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
-        ASSERT_OK(Put(cf, Key1(j),
-                      "value_" + std::to_string(j) + "_" + std::to_string(i),
-                      wopts));
+        ASSERT_OK(db_->Put(
+            wopts, handles_[cf], Key1(j),
+            "value_" + std::to_string(j) + "_" + std::to_string(i), write_ts));
       }
     }
   }
@@ -2469,50 +2398,44 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
     // Half of the keys will go through Deletion and remaining half with
     // SingleDeletion. Generate enough L0 files with ts=1 to trigger compaction
     // to L1
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
+    std::string ts = Timestamp(1, 0);
     WriteOptions wopts;
-    wopts.timestamp = &ts;
     for (size_t i = 0; i < kNumL0Files; ++i) {
       for (int j = 0; j < kNumKeysPerFile; ++j) {
-        ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
+        ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i), ts));
       }
       ASSERT_OK(db_->Flush(FlushOptions()));
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // Generate another L0 at ts=3
-    ts_str = Timestamp(3, 0);
-    ts = ts_str;
-    wopts.timestamp = &ts;
+    ts = Timestamp(3, 0);
     for (int i = 0; i < kNumKeysPerFile; ++i) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 0) {
         if (i < kNumKeysPerFile / 2) {
-          ASSERT_OK(db_->Delete(wopts, key));
+          ASSERT_OK(db_->Delete(wopts, key, ts));
         } else {
-          ASSERT_OK(db_->SingleDelete(wopts, key));
+          ASSERT_OK(db_->SingleDelete(wopts, key, ts));
         }
       } else {
-        ASSERT_OK(db_->Put(wopts, key, "new_value"));
+        ASSERT_OK(db_->Put(wopts, key, "new_value", ts));
       }
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
     // Populate memtable at ts=5
-    ts_str = Timestamp(5, 0);
-    ts = ts_str;
-    wopts.timestamp = &ts;
+    ts = Timestamp(5, 0);
     for (int i = 0; i != kNumKeysPerFile; ++i) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 1) {
         if (i < kNumKeysPerFile / 2) {
-          ASSERT_OK(db_->Delete(wopts, key));
+          ASSERT_OK(db_->Delete(wopts, key, ts));
         } else {
-          ASSERT_OK(db_->SingleDelete(wopts, key));
+          ASSERT_OK(db_->SingleDelete(wopts, key, ts));
         }
       } else if ((i % 3) == 2) {
-        ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
+        ASSERT_OK(db_->Put(wopts, key, "new_value_2", ts));
       }
     }
   }
@@ -2637,13 +2560,12 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
     read_ts_list.push_back(Timestamp(1 + i * 2, 0));
     const Slice write_ts = write_ts_list.back();
     WriteOptions wopts;
-    wopts.timestamp = &write_ts;
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
       size_t memtable_get_start = 0;
       for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-        ASSERT_OK(Put(cf, Key1(j),
-                      "value_" + std::to_string(j) + "_" + std::to_string(i),
-                      wopts));
+        ASSERT_OK(db_->Put(
+            wopts, handles_[cf], Key1(j),
+            "value_" + std::to_string(j) + "_" + std::to_string(i), write_ts));
         if (j == kSplitPosBase + i || j == kNumKeysPerTimestamp - 1) {
           verify_records_func(i, memtable_get_start, j, handles_[cf]);
           memtable_get_start = j + 1;
@@ -2792,18 +2714,16 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(1, 0);
-  Slice ts = ts_str;
-  write_opts.timestamp = &ts;
-  ASSERT_OK(db_->Put(write_opts, "foo", "value"));
-  ASSERT_OK(db_->Put(write_opts, "bar", "value"));
-  ASSERT_OK(db_->Put(write_opts, "fooxxxxxxxxxxxxxxxx", "value"));
-  ASSERT_OK(db_->Put(write_opts, "barxxxxxxxxxxxxxxxx", "value"));
+  std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, "foo", "value", ts));
+  ASSERT_OK(db_->Put(write_opts, "bar", "value", ts));
+  ASSERT_OK(db_->Put(write_opts, "fooxxxxxxxxxxxxxxxx", "value", ts));
+  ASSERT_OK(db_->Put(write_opts, "barxxxxxxxxxxxxxxxx", "value", ts));
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
+  ts = Timestamp(2, 0);
+  Slice read_ts = ts;
   ReadOptions read_opts;
-  read_opts.timestamp = &ts;
+  read_opts.timestamp = &read_ts;
   {
     ColumnFamilyHandle* column_families[] = {cfh, cfh};
     Slice keys[] = {"foo", "bar"};
@@ -2882,9 +2802,9 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   {
     for (size_t i = 0; i != write_ts_list.size(); ++i) {
       Slice write_ts = write_ts_list[i];
-      write_opts.timestamp = &write_ts;
       for (uint64_t key = kMaxKey; key >= kMinKey; --key) {
-        Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
+        Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i),
+                            write_ts);
         ASSERT_OK(s);
       }
     }
@@ -3036,9 +2956,9 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   uint64_t key = kMinKey;
   WriteOptions write_opts;
   Slice ts = write_ts_strs[0];
-  write_opts.timestamp = &ts;
   do {
-    Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(key));
+    Status s =
+        db_->Put(write_opts, Key1(key), "value" + std::to_string(key), ts);
     ASSERT_OK(s);
     if (kMaxKey == key) {
       break;
@@ -3047,13 +2967,12 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   } while (true);
 
   ts = write_ts_strs[1];
-  write_opts.timestamp = &ts;
   for (key = kMaxKey; key >= kMinKey; --key) {
     Status s;
     if (0 != (key % 2)) {
-      s = db_->Put(write_opts, Key1(key), "value1" + std::to_string(key));
+      s = db_->Put(write_opts, Key1(key), "value1" + std::to_string(key), ts);
     } else {
-      s = db_->Delete(write_opts, Key1(key));
+      s = db_->Delete(write_opts, Key1(key), ts);
     }
     ASSERT_OK(s);
   }
