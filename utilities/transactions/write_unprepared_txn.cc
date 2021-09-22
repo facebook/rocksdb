@@ -968,6 +968,7 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
              wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {
+    res.PermitUncheckedError();
     wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
