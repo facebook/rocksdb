@@ -19,6 +19,11 @@ class TestCompactionServiceBase {
     override_start_status = s;
   }
 
+  void OverrideWaitStatus(CompactionServiceJobStatus s) {
+    is_override_wait_status = true;
+    override_wait_status = s;
+  }
+
   void OverrideWaitResult(std::string str) {
     is_override_wait_result = true;
     override_wait_result = std::move(str);
@@ -27,6 +32,7 @@ class TestCompactionServiceBase {
   void ResetOverride() {
     is_override_wait_result = false;
     is_override_start_status = false;
+    is_override_wait_status = false;
   }
 
   virtual ~TestCompactionServiceBase() = default;
@@ -34,6 +40,9 @@ class TestCompactionServiceBase {
  protected:
   bool is_override_start_status = false;
   CompactionServiceJobStatus override_start_status =
+      CompactionServiceJobStatus::kFailure;
+  bool is_override_wait_status = false;
+  CompactionServiceJobStatus override_wait_status =
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result = false;
   std::string override_wait_result;
@@ -74,6 +83,10 @@ class MyTestCompactionServiceLegacy : public CompactionService,
       }
       compaction_input = std::move(i->second);
       jobs_.erase(i);
+    }
+
+    if (is_override_wait_status) {
+      return override_wait_status;
     }
 
     CompactionServiceOptionsOverride options_override;
@@ -158,6 +171,10 @@ class MyTestCompactionService : public CompactionService,
       }
       compaction_input = std::move(i->second);
       jobs_.erase(i);
+    }
+
+    if (is_override_wait_status) {
+      return override_wait_status;
     }
 
     CompactionServiceOptionsOverride options_override;
@@ -323,7 +340,7 @@ TEST_P(CompactionServiceTest, BasicCompactions) {
   Statistics* compactor_statistics = GetCompactorStatistics();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 
-  // make sure the compaction statistics is only recorded on remote side
+  // make sure the compaction statistics is only recorded on the remote side
   ASSERT_GE(
       compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY), 1);
   Statistics* primary_statistics = GetPrimaryStatistics();
@@ -656,6 +673,114 @@ TEST_P(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(Env::BOTTOM, info.priority);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(Env::BOTTOM, info.priority);
+}
+
+TEST_P(CompactionServiceTest, FallbackLocalAuto) {
+  Options options = CurrentOptions();
+  ReopenWithCompactionService(&options);
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+  uint64_t compactor_new_key =
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  uint64_t primary_new_key =
+      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+
+  my_cs->OverrideStartStatus(CompactionServiceJobStatus::kUseLocal);
+
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 20 + j * 2;
+      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // verify result
+  for (int i = 0; i < 200; i++) {
+    auto result = Get(Key(i));
+    if (i % 2) {
+      ASSERT_EQ(result, "value" + ToString(i));
+    } else {
+      ASSERT_EQ(result, "value_new" + ToString(i));
+    }
+  }
+
+  ASSERT_EQ(my_cs->GetCompactionNum(), 0);
+
+  // make sure the compaction statistics is only recorded on the local side
+  ASSERT_EQ(
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+      compactor_new_key);
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+            primary_new_key);
+}
+
+TEST_P(CompactionServiceTest, FallbackLocalManual) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+  uint64_t compactor_new_key =
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  uint64_t primary_new_key =
+      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+
+  // re-enable remote compaction
+  my_cs->ResetOverride();
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+  // make sure the compaction statistics is only recorded on the remote side
+  ASSERT_GT(
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+      compactor_new_key);
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+            primary_new_key);
+
+  // return run local again with API WaitForComplete
+  my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kUseLocal);
+  start_str = Key(120);
+  start = start_str;
+  comp_num = my_cs->GetCompactionNum();
+  compactor_new_key =
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  primary_new_key =
+      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, nullptr));
+  ASSERT_EQ(my_cs->GetCompactionNum(),
+            comp_num);  // no remote compaction is run
+  // make sure the compaction statistics is only recorded on the local side
+  ASSERT_EQ(
+      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+      compactor_new_key);
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+            primary_new_key);
+
+  // verify result after 2 manual compactions
+  VerifyTestData();
 }
 
 INSTANTIATE_TEST_CASE_P(

@@ -79,7 +79,9 @@ class WinClock : public SystemClock {
   WinClock();
   virtual ~WinClock() {}
 
-  const char* Name() const override { return "WindowsClock"; }
+  static const char* kClassName() { return "WindowsClock"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   uint64_t NowMicros() override;
 

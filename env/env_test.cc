@@ -36,6 +36,7 @@
 #endif
 
 #include "db/db_impl/db_impl.h"
+#include "env/emulated_clock.h"
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
@@ -48,6 +49,8 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -2395,7 +2398,6 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   ASSERT_OK(s);
 }
 
-#ifndef ROCKSDB_LITE
 class CreateEnvTest : public testing::Test {
  public:
   CreateEnvTest() {
@@ -2405,6 +2407,7 @@ class CreateEnvTest : public testing::Test {
   ConfigOptions config_options_;
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, LoadCTRProvider) {
   config_options_.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
@@ -2462,6 +2465,58 @@ TEST_F(CreateEnvTest, LoadROT13Cipher) {
   ASSERT_OK(BlockCipher::CreateFromString(config_options_, "ROT13", &cipher));
   ASSERT_NE(cipher, nullptr);
   ASSERT_STREQ(cipher->Name(), "ROT13");
+}
+#endif  // ROCKSDB_LITE
+
+TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
+  std::shared_ptr<SystemClock> clock, copy;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_,
+                                          SystemClock::kDefaultName(), &clock));
+  ASSERT_NE(clock, nullptr);
+  ASSERT_EQ(clock, SystemClock::Default());
+#ifndef ROCKSDB_LITE
+  std::string opts_str = clock->ToString(config_options_);
+  std::string mismatch;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(clock->AreEquivalent(config_options_, copy.get(), &mismatch));
+#endif  // ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(CreateEnvTest, CreateMockSystemClock) {
+  std::shared_ptr<SystemClock> mock, copy;
+
+  config_options_.registry->AddLibrary("test")->Register<SystemClock>(
+      MockSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSystemClock(nullptr));
+        return guard->get();
+      });
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, EmulatedSystemClock::kClassName(), &mock));
+  ASSERT_NE(mock, nullptr);
+  ASSERT_STREQ(mock->Name(), EmulatedSystemClock::kClassName());
+  ASSERT_EQ(mock->Inner(), SystemClock::Default().get());
+  std::string opts_str = mock->ToString(config_options_);
+  std::string mismatch;
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  std::string id = std::string("id=") + EmulatedSystemClock::kClassName() +
+                   ";target=" + MockSystemClock::kClassName();
+
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, id, &mock));
+  ASSERT_NE(mock, nullptr);
+  ASSERT_STREQ(mock->Name(), EmulatedSystemClock::kClassName());
+  ASSERT_NE(mock->Inner(), nullptr);
+  ASSERT_STREQ(mock->Inner()->Name(), MockSystemClock::kClassName());
+  ASSERT_EQ(mock->Inner()->Inner(), SystemClock::Default().get());
+  opts_str = mock->ToString(config_options_);
+  ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(mock->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, EmulatedSystemClock::kClassName(), &mock));
 }
 
 TEST_F(CreateEnvTest, CreateReadOnlyFileSystem) {

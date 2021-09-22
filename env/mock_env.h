@@ -17,12 +17,14 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 class MemFile;
 class MockFileSystem : public FileSystem {
  public:
-  explicit MockFileSystem(Env* env, bool supports_direct_io = true);
+  explicit MockFileSystem(const std::shared_ptr<SystemClock>& clock,
+                          bool supports_direct_io = true);
   ~MockFileSystem() override;
 
   static const char* kClassName() { return "MemoryFileSystem"; }
@@ -118,21 +120,20 @@ class MockFileSystem : public FileSystem {
   // Map from filenames to MemFile objects, representing a simple file system.
   port::Mutex mutex_;
   std::map<std::string, MemFile*> file_map_;  // Protected by mutex_.
-  Env* env_;
+  std::shared_ptr<SystemClock> system_clock_;
+  SystemClock* clock_;
   bool supports_direct_io_;
 };
 
 class MockEnv : public CompositeEnvWrapper {
  public:
-  explicit MockEnv(Env* base_env);
+  static MockEnv* Create(Env* base);
+  static MockEnv* Create(Env* base, const std::shared_ptr<SystemClock>& clock);
 
   Status CorruptBuffer(const std::string& fname);
-
-  // Doesn't really sleep, just affects output of GetCurrentTime(), NowMicros()
-  // and NowNanos()
-  void FakeSleepForMicroseconds(int64_t micros);
-
  private:
+  MockEnv(Env* env, const std::shared_ptr<FileSystem>& fs,
+          const std::shared_ptr<SystemClock>& clock);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

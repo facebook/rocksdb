@@ -722,6 +722,10 @@ void LDBCommand::PrepareOptions() {
     }
   }
 
+  if (options_.env == Env::Default()) {
+    options_.env = config_options_.env;
+  }
+
   OverrideBaseOptions();
   if (exec_state_.IsFailed()) {
     return;

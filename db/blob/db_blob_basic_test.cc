@@ -127,6 +127,46 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   }
 }
 
+TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t kNumBlobFiles = 3;
+  constexpr size_t kNumBlobsPerFile = 3;
+  constexpr size_t kNumKeys = kNumBlobsPerFile * kNumBlobFiles;
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> value_strs;
+  for (size_t i = 0; i < kNumBlobFiles; ++i) {
+    for (size_t j = 0; j < kNumBlobsPerFile; ++j) {
+      std::string key = "key" + std::to_string(i) + "_" + std::to_string(j);
+      std::string value =
+          "value_as_blob" + std::to_string(i) + "_" + std::to_string(j);
+      ASSERT_OK(Put(key, value));
+      key_strs.push_back(key);
+      value_strs.push_back(value);
+    }
+    ASSERT_OK(Flush());
+  }
+  assert(key_strs.size() == kNumKeys);
+  std::array<Slice, kNumKeys> keys;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    keys[i] = key_strs[i];
+  }
+  std::array<PinnableSlice, kNumKeys> values;
+  std::array<Status, kNumKeys> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                &values[0], &statuses[0]);
+
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(value_strs[i], values[i]);
+  }
+}
+
 TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -148,6 +188,83 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
                   .IsCorruption());
+}
+
+TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumOfKeys = 3;
+  std::array<std::string, kNumOfKeys> key_strs;
+  std::array<std::string, kNumOfKeys> value_strs;
+  std::array<Slice, kNumOfKeys + 1> keys;
+  for (size_t i = 0; i < kNumOfKeys; ++i) {
+    key_strs[i] = "foo" + std::to_string(i);
+    value_strs[i] = "blob_value" + std::to_string(i);
+    ASSERT_OK(Put(key_strs[i], value_strs[i]));
+    keys[i] = key_strs[i];
+  }
+
+  constexpr char key[] = "key";
+  {
+    // Fake a corrupt blob index.
+    const std::string blob_index("foobar");
+    WriteBatch batch;
+    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    keys[kNumOfKeys] = Slice(static_cast<const char*>(key), sizeof(key) - 1);
+  }
+
+  ASSERT_OK(Flush());
+
+  std::array<PinnableSlice, kNumOfKeys + 1> values;
+  std::array<Status, kNumOfKeys + 1> statuses;
+  db_->MultiGet(ReadOptions(), dbfull()->DefaultColumnFamily(), kNumOfKeys + 1,
+                keys.data(), values.data(), statuses.data(),
+                /*sorted_input=*/false);
+  for (size_t i = 0; i < kNumOfKeys + 1; ++i) {
+    if (i != kNumOfKeys) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ("blob_value" + std::to_string(i), values[i]);
+    } else {
+      ASSERT_TRUE(statuses[i].IsCorruption());
+    }
+  }
+}
+
+TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t kNumOfKeys = 3;
+  std::array<std::string, kNumOfKeys> key_bufs;
+  std::array<std::string, kNumOfKeys> value_bufs;
+  std::array<Slice, kNumOfKeys> keys;
+  for (size_t i = 0; i < kNumOfKeys; ++i) {
+    key_bufs[i] = "foo" + std::to_string(i);
+    value_bufs[i] = "blob_value" + std::to_string(i);
+    ASSERT_OK(Put(key_bufs[i], value_bufs[i]));
+    keys[i] = key_bufs[i];
+  }
+  ASSERT_OK(Flush());
+
+  std::array<PinnableSlice, kNumOfKeys> values;
+  std::array<Status, kNumOfKeys> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = 1;
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), kNumOfKeys,
+                keys.data(), values.data(), statuses.data(),
+                /*sorted_input=*/true);
+  for (const auto& s : statuses) {
+    ASSERT_TRUE(s.IsAborted());
+  }
 }
 
 TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
@@ -522,10 +639,20 @@ class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
   std::string sync_point_;
 };
 
+class DBBlobBasicIOErrorMultiGetTest : public DBBlobBasicIOErrorTest {
+ public:
+  DBBlobBasicIOErrorMultiGetTest() : DBBlobBasicIOErrorTest() {}
+};
+
 INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:NewRandomAccessFile",
                             "BlobFileReader::GetBlob:ReadFromFile"}));
+
+INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorMultiGetTest,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileReader::OpenFile:NewRandomAccessFile",
+                            "BlobFileReader::MultiGetBlob:ReadFromFile"}));
 
 TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   Options options;
@@ -556,7 +683,7 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
+TEST_P(DBBlobBasicIOErrorMultiGetTest, MultiGetBlobs_IOError) {
   Options options = GetDefaultOptions();
   options.env = fault_injection_env_.get();
   options.enable_blob_files = true;
@@ -595,6 +722,53 @@ TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_TRUE(statuses[1].IsIOError());
+}
+
+TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char key1[] = "key1";
+  constexpr char value1[] = "blob1";
+
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Flush());
+
+  constexpr char key2[] = "key2";
+  constexpr char value2[] = "blob2";
+
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, num_keys> keys{{key1, key2}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  bool first_blob_file = true;
+  SyncPoint::GetInstance()->SetCallBack(
+      sync_point_, [&first_blob_file, this](void* /* arg */) {
+        if (first_blob_file) {
+          first_blob_file = false;
+          return;
+        }
+        fault_injection_env_->SetFilesystemActive(false,
+                                                  Status::IOError(sync_point_));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(value1, values[0]);
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
