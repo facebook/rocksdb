@@ -102,7 +102,8 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
       10 /* fairness */));
   int64_t total_pending_requests = 0;
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-    ASSERT_OK(limiter->GetTotalPendingRequests(&total_pending_requests, static_cast<Env::IOPriority>(i)));
+    ASSERT_OK(limiter->GetTotalPendingRequests(
+        &total_pending_requests, static_cast<Env::IOPriority>(i)));
     ASSERT_EQ(total_pending_requests, 0);
   }
   // This is a variable for making sure the following callback is called
@@ -116,10 +117,11 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
         request_mutex->Unlock();
 
         for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-          EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests, static_cast<Env::IOPriority>(i)));
+          EXPECT_OK(limiter->GetTotalPendingRequests(
+              &total_pending_requests, static_cast<Env::IOPriority>(i)));
           if (i == Env::IO_USER || i == Env::IO_TOTAL) {
-              EXPECT_EQ(total_pending_requests, 1);
-          }else{
+            EXPECT_EQ(total_pending_requests, 1);
+          } else {
             EXPECT_EQ(total_pending_requests, 0);
           }
         }
@@ -134,7 +136,8 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
                    RateLimiter::OpType::kWrite);
   ASSERT_EQ(nonzero_pending_requests_verified, true);
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-    EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests, static_cast<Env::IOPriority>(i)));
+    EXPECT_OK(limiter->GetTotalPendingRequests(
+        &total_pending_requests, static_cast<Env::IOPriority>(i)));
     EXPECT_EQ(total_pending_requests, 0);
   }
   SyncPoint::GetInstance()->DisableProcessing();
