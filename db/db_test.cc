@@ -3941,7 +3941,7 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
 // (e.g, RateLimiter::GetTotalPendingRequests())
 class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
  public:
-  MockedRateLimiterWithNoOptionalAPIImpl(){}
+  MockedRateLimiterWithNoOptionalAPIImpl() {}
 
   ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
