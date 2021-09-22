@@ -84,6 +84,9 @@ struct async_result {
 
   bool posix_result() { return h_.promise().posix_write_result_; }
 
+  // test only
+  bool is_result_set() { return h_.promise().result_set_; }
+
   std::coroutine_handle<promise_type> h_;
   bool async_ = false;
   struct file_read_page* context_;
