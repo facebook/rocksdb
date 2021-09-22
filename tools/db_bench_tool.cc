@@ -4793,8 +4793,7 @@ class Benchmark {
     }
 
     RandomGenerator gen;
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
     Status s;
     int64_t bytes = 0;
 
@@ -6511,8 +6510,7 @@ class Benchmark {
   }
 
   void DoDelete(ThreadState* thread, bool seq) {
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
@@ -6628,17 +6626,17 @@ class Benchmark {
       Slice ts;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
       }
       if (write_merge == kWrite) {
-        s = db->Put(write_options_, key, val);
+        if (user_timestamp_size_ == 0) {
+          s = db->Put(write_options_, key, val);
+        } else {
+          s = db->Put(write_options_, key, val, ts);
+        }
       } else {
         s = db->Merge(write_options_, key, val);
       }
       // Restore write_options_
-      if (user_timestamp_size_ > 0) {
-        write_options_.timestamp = nullptr;
-      }
       written++;
 
       if (!s.ok()) {
@@ -6710,8 +6708,7 @@ class Benchmark {
     std::string suffixes[3] = {"2", "1", "0"};
     std::string keys[3];
 
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -6940,12 +6937,13 @@ class Benchmark {
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Slice ts;
+        Status s;
         if (user_timestamp_size_ > 0) {
-          ts = mock_app_clock_->Allocate(ts_guard.get());
-          write_options_.timestamp = &ts;
+          Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+          s = db->Put(write_options_, key, gen.Generate(), ts);
+        } else {
+          s = db->Put(write_options_, key, gen.Generate());
         }
-        Status s = db->Put(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           ErrorExit();
@@ -7006,11 +7004,13 @@ class Benchmark {
       }
 
       Slice val = gen.Generate();
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, val, ts);
+      } else {
+        s = db->Put(write_options_, key, val);
       }
-      Status s = db->Put(write_options_, key, val);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -7073,12 +7073,13 @@ class Benchmark {
         xor_operator.XOR(nullptr, value, &new_value);
       }
 
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, Slice(new_value), ts);
+      } else {
+        s = db->Put(write_options_, key, Slice(new_value));
       }
-
-      Status s = db->Put(write_options_, key, Slice(new_value));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
@@ -7139,13 +7140,14 @@ class Benchmark {
       }
       value.append(operand.data(), operand.size());
 
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, value, ts);
+      } else {
+        // Write back to the database
+        s = db->Put(write_options_, key, value);
       }
-
-      // Write back to the database
-      Status s = db->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
@@ -7521,12 +7523,12 @@ class Benchmark {
     DB* db = SelectDB(thread);
     for (int64_t i = 0; i < FLAGS_numdistinct; i++) {
       GenerateKeyFromInt(i * max_counter, FLAGS_num, &key);
-      Slice ts;
       if (user_timestamp_size_ > 0) {
-        ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = db->Put(write_options_, key, gen.Generate(), ts);
+      } else {
+        s = db->Put(write_options_, key, gen.Generate());
       }
-      s = db->Put(write_options_, key, gen.Generate());
       if (!s.ok()) {
         fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
         exit(1);
@@ -7545,22 +7547,24 @@ class Benchmark {
                                 static_cast<int64_t>(0));
       GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                          &key);
-      Slice ts;
       if (user_timestamp_size_ > 0) {
-        ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
+                                     : db->Delete(write_options_, key, ts);
+      } else {
+        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
+                                     : db->Delete(write_options_, key);
       }
-      s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
-                                   : db->Delete(write_options_, key);
       if (s.ok()) {
         counters[key_id] = (counters[key_id] + 1) % max_counter;
         GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                            &key);
         if (user_timestamp_size_ > 0) {
-          ts = mock_app_clock_->Allocate(ts_guard.get());
-          write_options_.timestamp = &ts;
+          Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+          s = db->Put(write_options_, key, Slice(), ts);
+        } else {
+          s = db->Put(write_options_, key, Slice());
         }
-        s = db->Put(write_options_, key, Slice());
       }
 
       if (!s.ok()) {
