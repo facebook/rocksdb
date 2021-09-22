@@ -31,6 +31,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
     const std::vector<std::string>& files_checksum_func_names,
+    const std::vector<Temperature>& file_temperatures,
     uint64_t next_file_number, SuperVersion* sv) {
   Status status;
 
@@ -86,6 +87,13 @@ Status ExternalSstFileIngestionJob::Prepare(
         files_overlap_ = true;
         break;
       }
+    }
+  }
+
+  // Hanlde the file temperature
+  if (file_temperatures.size() != 0 && file_temperatures.size() == num_files) {
+    for (size_t i = 0; i < num_files; i++) {
+      files_to_ingest_[i].file_temperature = file_temperatures[i];
     }
   }
 
@@ -429,12 +437,13 @@ Status ExternalSstFileIngestionJob::Run() {
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
-
-    edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
-                  false, kInvalidBlobFileNumber, oldest_ancester_time,
-                  current_time, f.file_checksum, f.file_checksum_func_name);
+    FileMetaData f_metadata(
+        f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+        f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
+        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, f.file_checksum, f.file_checksum_func_name);
+    f_metadata.temperature = f.file_temperature;
+    edit_.AddFile(f.picked_level, f_metadata);
   }
   return status;
 }

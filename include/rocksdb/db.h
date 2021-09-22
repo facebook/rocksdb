@@ -127,6 +127,7 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  std::vector<Temperature> file_temperatures;
 };
 
 struct GetMergeOperandsOptions {
