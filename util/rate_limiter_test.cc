@@ -100,9 +100,11 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
       200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
       10 /* fairness */));
+  int64_t total_pending_requests = 0;
   for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
-    ASSERT_EQ(limiter->GetTotalPendingRequests(static_cast<Env::IOPriority>(i)),
-              0);
+    ASSERT_OK(limiter->GetTotalPendingRequests(
+        &total_pending_requests, static_cast<Env::IOPriority>(i)));
+    ASSERT_EQ(total_pending_requests, 0);
   }
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted
@@ -113,11 +115,23 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
         // We temporarily unlock the mutex so that the following
         // GetTotalPendingRequests() can acquire it
         request_mutex->Unlock();
-        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 1);
-        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
-        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
-        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
-        EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 1);
+        for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
+          EXPECT_OK(limiter->GetTotalPendingRequests(
+              &total_pending_requests, static_cast<Env::IOPriority>(i)))
+              << "Failed to return total pending requests for priority level = "
+              << static_cast<Env::IOPriority>(i);
+          if (i == Env::IO_USER || i == Env::IO_TOTAL) {
+            EXPECT_EQ(total_pending_requests, 1)
+                << "Failed to correctly return total pending requests for "
+                   "priority level = "
+                << static_cast<Env::IOPriority>(i);
+          } else {
+            EXPECT_EQ(total_pending_requests, 0)
+                << "Failed to correctly return total pending requests for "
+                   "priority level = "
+                << static_cast<Env::IOPriority>(i);
+          }
+        }
         // We lock the mutex again so that the request thread can resume running
         // with the mutex locked
         request_mutex->Lock();
@@ -128,11 +142,16 @@ TEST_F(RateLimiterTest, GetTotalPendingRequests) {
   limiter->Request(200, Env::IO_USER, nullptr /* stats */,
                    RateLimiter::OpType::kWrite);
   ASSERT_EQ(nonzero_pending_requests_verified, true);
-  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_USER), 0);
-  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_HIGH), 0);
-  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_MID), 0);
-  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_LOW), 0);
-  EXPECT_EQ(limiter->GetTotalPendingRequests(Env::IO_TOTAL), 0);
+  for (int i = Env::IO_LOW; i <= Env::IO_TOTAL; ++i) {
+    EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests,
+                                               static_cast<Env::IOPriority>(i)))
+        << "Failed to return total pending requests for priority level = "
+        << static_cast<Env::IOPriority>(i);
+    EXPECT_EQ(total_pending_requests, 0)
+        << "Failed to correctly return total pending requests for priority "
+           "level = "
+        << static_cast<Env::IOPriority>(i);
+  }
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearCallBack(
       "GenericRateLimiter::Request:PostEnqueueRequest");
