@@ -983,13 +983,27 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
+class DBBasicDeletionTestWithTimestamp
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<enum ValueType> {
+ public:
+  DBBasicDeletionTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("db_basic_deletion_test_with_timestamp") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Timestamp, DBBasicDeletionTestWithTimestamp,
+    ::testing::Values(ValueType::kTypeSingleDeletion,
+                      ValueType::kTypeDeletionWithTimestamp));
+
+TEST_P(DBBasicDeletionTestWithTimestamp, ForwardIterateStartSeqnum) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 0xffffffffffffffff;
   const uint64_t kMinKey = kMaxKey - 1023;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
+  ValueType op_type = GetParam();
   // Need to disable compaction to bottommost level when sequence number will be
   // zeroed out, causing the verification of sequence number to fail in this
   // test.
@@ -1016,7 +1030,11 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
       if (k % 2) {
         s = db_->Put(write_opts, Key1(k), "value" + std::to_string(i));
       } else {
-        s = db_->Delete(write_opts, Key1(k));
+        if (op_type == ValueType::kTypeDeletionWithTimestamp) {
+          s = db_->Delete(write_opts, Key1(k));
+        } else if (op_type == ValueType::kTypeSingleDeletion) {
+          s = db_->SingleDelete(write_opts, Key1(k));
+        }
       }
       ASSERT_OK(s);
     }
@@ -1038,8 +1056,7 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
     uint64_t key = kMinKey;
     for (iter->Seek(Key1(kMinKey)); iter->Valid(); iter->Next()) {
       CheckIterEntry(
-          iter.get(), Key1(key), expected_seq,
-          (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+          iter.get(), Key1(key), expected_seq, (key % 2) ? kTypeValue : op_type,
           (key % 2) ? "value" + std::to_string(i + 1) : std::string(),
           write_ts_list[i + 1]);
       ++key;
@@ -1062,7 +1079,7 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
     SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
     for (it->Seek(Key1(kMinKey)); it->Valid(); it->Next()) {
       CheckIterEntry(it.get(), Key1(key), expected_seq,
-                     (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+                     (key % 2) ? kTypeValue : op_type,
                      "value" + std::to_string(i + 1), write_ts_list[i + 1]);
       ++key;
       --expected_seq;
@@ -2429,13 +2446,15 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   const size_t kNumL0Files =
       static_cast<size_t>(Options().level0_file_num_compaction_trigger);
   {
-    // Generate enough L0 files with ts=1 to trigger compaction to L1
+    // Half of the keys will go through Deletion and remaining half with
+    // SingleDeletion. Generate enough L0 files with ts=1 to trigger compaction
+    // to L1
     std::string ts_str = Timestamp(1, 0);
     Slice ts = ts_str;
     WriteOptions wopts;
     wopts.timestamp = &ts;
-    for (size_t i = 0; i != kNumL0Files; ++i) {
-      for (int j = 0; j != kNumKeysPerFile; ++j) {
+    for (size_t i = 0; i < kNumL0Files; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
         ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
       }
       ASSERT_OK(db_->Flush(FlushOptions()));
@@ -2445,11 +2464,15 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
     ts_str = Timestamp(3, 0);
     ts = ts_str;
     wopts.timestamp = &ts;
-    for (int i = 0; i != kNumKeysPerFile; ++i) {
+    for (int i = 0; i < kNumKeysPerFile; ++i) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 0) {
-        ASSERT_OK(db_->Delete(wopts, key));
+        if (i < kNumKeysPerFile / 2) {
+          ASSERT_OK(db_->Delete(wopts, key));
+        } else {
+          ASSERT_OK(db_->SingleDelete(wopts, key));
+        }
       } else {
         ASSERT_OK(db_->Put(wopts, key, "new_value"));
       }
@@ -2463,7 +2486,11 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 1) {
-        ASSERT_OK(db_->Delete(wopts, key));
+        if (i < kNumKeysPerFile / 2) {
+          ASSERT_OK(db_->Delete(wopts, key));
+        } else {
+          ASSERT_OK(db_->SingleDelete(wopts, key));
+        }
       } else if ((i % 3) == 2) {
         ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
       }
@@ -2782,196 +2809,6 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
     }
   }
   Close();
-}
-
-TEST_F(DBBasicTestWithTimestamp, SingleDeleteForwardIterateStartSeqnum) {
-  const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 0xffffffffffffffff;
-  const uint64_t kMinKey = kMaxKey - 1023;
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.create_if_missing = true;
-  // Need to disable compaction to bottommost level when sequence number will be
-  // zeroed out, causing the verification of sequence number to fail in this
-  // test.
-  options.disable_auto_compactions = true;
-  const size_t kTimestampSize = Timestamp(0, 0).size();
-  TestComparator test_cmp(kTimestampSize);
-  options.comparator = &test_cmp;
-  options.memtable_factory.reset(
-      test::NewSpecialSkipListFactory(kNumKeysPerFile));
-  DestroyAndReopen(options);
-  std::vector<SequenceNumber> start_seqs;
-
-  const int kNumTimestamps = 4;
-  std::vector<std::string> write_ts_list;
-  for (int t = 0; t < kNumTimestamps; ++t) {
-    write_ts_list.push_back(Timestamp(2 * t, /*do not care*/ 17));
-  }
-  WriteOptions write_opts;
-  for (size_t i = 0; i != write_ts_list.size(); ++i) {
-    Slice write_ts = write_ts_list[i];
-    write_opts.timestamp = &write_ts;
-    for (uint64_t k = kMaxKey; k >= kMinKey; --k) {
-      Status s;
-      if (k % 2) {
-        s = db_->Put(write_opts, Key1(k), "value" + std::to_string(i));
-      } else {
-        s = db_->SingleDelete(write_opts, Key1(k));
-      }
-      ASSERT_OK(s);
-    }
-    start_seqs.push_back(db_->GetLatestSequenceNumber());
-  }
-
-  std::vector<std::string> read_ts_list;
-  for (int t = 0; t < kNumTimestamps - 1; ++t) {
-    read_ts_list.push_back(Timestamp(2 * t + 3, /*do not care*/ 17));
-  }
-
-  ReadOptions read_opts;
-  // Scan with only read_opts.iter_start_seqnum set.
-  for (size_t i = 0; i < read_ts_list.size(); ++i) {
-    Slice read_ts = read_ts_list[i];
-    read_opts.timestamp = &read_ts;
-    read_opts.iter_start_seqnum = start_seqs[i] + 1;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
-    SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
-    uint64_t key = kMinKey;
-    for (iter->Seek(Key1(kMinKey)); iter->Valid(); iter->Next()) {
-      CheckIterEntry(
-          iter.get(), Key1(key), expected_seq,
-          (key % 2) ? kTypeValue : kTypeSingleDeletion,
-          (key % 2) ? "value" + std::to_string(i + 1) : std::string(),
-          write_ts_list[i + 1]);
-      ++key;
-      --expected_seq;
-    }
-  }
-
-  // Scan with both read_opts.iter_start_seqnum and read_opts.iter_start_ts
-  // set.
-  std::vector<std::string> read_ts_lb_list;
-  for (int t = 0; t < kNumTimestamps - 1; ++t) {
-    read_ts_lb_list.push_back(Timestamp(2 * t, 17));
-  }
-  for (size_t i = 0; i < read_ts_list.size(); ++i) {
-    Slice read_ts = read_ts_list[i];
-    Slice read_ts_lb = read_ts_lb_list[i];
-    read_opts.timestamp = &read_ts;
-    read_opts.iter_start_ts = &read_ts_lb;
-    read_opts.iter_start_seqnum = start_seqs[i] + 1;
-    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
-    uint64_t key = kMinKey;
-    SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
-    for (it->Seek(Key1(kMinKey)); it->Valid(); it->Next()) {
-      CheckIterEntry(it.get(), Key1(key), expected_seq,
-                     (key % 2) ? kTypeValue : kTypeSingleDeletion,
-                     "value" + std::to_string(i + 1), write_ts_list[i + 1]);
-      ++key;
-      --expected_seq;
-    }
-  }
-  Close();
-}
-
-TEST_P(DBBasicTestWithTimestampCompressionSettings, PutSingleDeleteGet) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.create_if_missing = true;
-  const size_t kTimestampSize = Timestamp(0, 0).size();
-  TestComparator test_cmp(kTimestampSize);
-  options.comparator = &test_cmp;
-  const int kNumKeysPerFile = 1024;
-  options.memtable_factory.reset(
-      test::NewSpecialSkipListFactory(kNumKeysPerFile));
-  BlockBasedTableOptions bbto;
-  bbto.filter_policy = std::get<0>(GetParam());
-  bbto.whole_key_filtering = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-
-  const CompressionType comp_type = std::get<1>(GetParam());
-#if LZ4_VERSION_NUMBER < 10400  // r124+
-  if (comp_type == kLZ4Compression || comp_type == kLZ4HCCompression) {
-    return;
-  }
-#endif  // LZ4_VERSION_NUMBER >= 10400
-  if (!ZSTD_Supported() && comp_type == kZSTD) {
-    return;
-  }
-  if (!Zlib_Supported() && comp_type == kZlibCompression) {
-    return;
-  }
-
-  options.compression = comp_type;
-  options.compression_opts.max_dict_bytes = std::get<2>(GetParam());
-  if (comp_type == kZSTD) {
-    options.compression_opts.zstd_max_train_bytes = std::get<2>(GetParam());
-  }
-  options.compression_opts.parallel_threads = std::get<3>(GetParam());
-  options.target_file_size_base = 1 << 26;  // 64MB
-
-  DestroyAndReopen(options);
-
-  const size_t kNumL0Files =
-      static_cast<size_t>(Options().level0_file_num_compaction_trigger);
-  {
-    // Generate enough L0 files with ts=1 to trigger compaction to L1
-    std::string ts_str = Timestamp(1, 0);
-    Slice ts = ts_str;
-    WriteOptions wopts;
-    wopts.timestamp = &ts;
-    for (size_t i = 0; i != kNumL0Files; ++i) {
-      for (int j = 0; j != kNumKeysPerFile; ++j) {
-        ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
-      }
-      ASSERT_OK(db_->Flush(FlushOptions()));
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    // Generate another L0 at ts=3
-    ts_str = Timestamp(3, 0);
-    ts = ts_str;
-    wopts.timestamp = &ts;
-    for (int i = 0; i != kNumKeysPerFile; ++i) {
-      std::string key_str = Key1(i);
-      Slice key(key_str);
-      if ((i % 3) == 0) {
-        ASSERT_OK(db_->SingleDelete(wopts, key));
-      } else {
-        ASSERT_OK(db_->Put(wopts, key, "new_value"));
-      }
-    }
-    ASSERT_OK(db_->Flush(FlushOptions()));
-    // Populate memtable at ts=5
-    ts_str = Timestamp(5, 0);
-    ts = ts_str;
-    wopts.timestamp = &ts;
-    for (int i = 0; i != kNumKeysPerFile; ++i) {
-      std::string key_str = Key1(i);
-      Slice key(key_str);
-      if ((i % 3) == 1) {
-        ASSERT_OK(db_->SingleDelete(wopts, key));
-      } else if ((i % 3) == 2) {
-        ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
-      }
-    }
-  }
-  {
-    std::string ts_str = Timestamp(6, 0);
-    Slice ts = ts_str;
-    ReadOptions ropts;
-    ropts.timestamp = &ts;
-    for (uint64_t i = 0; i < static_cast<uint64_t>(kNumKeysPerFile); ++i) {
-      std::string value;
-      Status s = db_->Get(ropts, Key1(i), &value);
-      if ((i % 3) == 2) {
-        ASSERT_OK(s);
-        ASSERT_EQ("new_value_2", value);
-      } else {
-        ASSERT_TRUE(s.IsNotFound());
-      }
-    }
-  }
 }
 
 #endif  // !ROCKSDB_LITE

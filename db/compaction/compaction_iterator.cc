@@ -554,11 +554,12 @@ void CompactionIterator::NextFromInput() {
 
       // The easiest way to process a SingleDelete during iteration is to peek
       // ahead at the next key.
-      ParsedInternalKey next_ikey;
-      AdvanceInputIter();
-      bool is_timestamp_eligible_for_gc =
+      const bool is_timestamp_eligible_for_gc =
           (timestamp_size_ == 0 ||
            (full_history_ts_low_ && cmp_with_history_ts_low_ < 0));
+
+      ParsedInternalKey next_ikey;
+      AdvanceInputIter();
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
@@ -589,10 +590,14 @@ void CompactionIterator::NextFromInput() {
             // input_.Next().
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
-          } else if ((has_outputted_key_ ||
-                      DefinitelyInSnapshot(
-                          ikey_.sequence, earliest_write_conflict_snapshot_)) &&
-                     is_timestamp_eligible_for_gc) {
+          } else if (!is_timestamp_eligible_for_gc) {
+            // We cannot drop the SingleDelete as timestamp is enabled, and
+            // timestamp of this key is greater than or equal to
+            // *full_history_ts_low_. We will output the SingleDelete.
+            valid_ = true;
+          } else if (has_outputted_key_ ||
+                     DefinitelyInSnapshot(ikey_.sequence,
+                                          earliest_write_conflict_snapshot_)) {
             // Found a matching value, we can drop the single delete and the
             // value.  It is safe to drop both records since we've already
             // outputted a key in this snapshot, or there is no earlier
@@ -612,7 +617,7 @@ void CompactionIterator::NextFromInput() {
             // Already called input_.Next() once.  Call it a second time to
             // skip past the second key.
             AdvanceInputIter();
-          } else if (is_timestamp_eligible_for_gc) {
+          } else {
             // Found a matching value, but we cannot drop both keys since
             // there is an earlier snapshot and we need to leave behind a record
             // to know that a write happened in this snapshot (Rule 2 above).
@@ -628,11 +633,6 @@ void CompactionIterator::NextFromInput() {
             TEST_SYNC_POINT_CALLBACK(
                 "CompactionIterator::NextFromInput:KeepSDForWW",
                 /*arg=*/nullptr);
-          } else {
-            // We cannot drop the SingleDelete as timestamp is enabled, and
-            // timestamp of this key is less than *full_history_ts_low_. We will
-            // output the SingleDelete.
-            valid_ = true;
           }
         } else {
           // We hit the next snapshot without hitting a put, so the iterator

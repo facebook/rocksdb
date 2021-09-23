@@ -1261,9 +1261,9 @@ TEST_P(CompactionIteratorTsGcTest, RewriteTs) {
 TEST_P(CompactionIteratorTsGcTest, SingleDeleteNoKeyEligibleForGC) {
   constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
   const std::vector<std::string> input_keys = {
-      test::KeyStr(/*ts=*/102, user_key[0], /*seq=*/3, kTypeSingleDeletion),
-      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/4, kTypeValue),
-      test::KeyStr(/*ts=*/104, user_key[1], /*seq=*/5, kTypeValue)};
+      test::KeyStr(/*ts=*/104, user_key[0], /*seq=*/4, kTypeSingleDeletion),
+      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/3, kTypeValue),
+      test::KeyStr(/*ts=*/102, user_key[1], /*seq=*/2, kTypeValue)};
   const std::vector<std::string> input_values = {"", "a3", "b2"};
   std::string full_history_ts_low;
   // All keys' timestamps are newer than or equal to 102, thus none of them
@@ -1307,8 +1307,8 @@ TEST_P(CompactionIteratorTsGcTest, SingleDeleteDropTombstones) {
       std::string full_history_ts_low;
       PutFixed64(&full_history_ts_low, 102);
       RunTest(input_keys, input_values, expected_keys, expected_values,
-              /*last_committed_sequence=*/kMaxSequenceNumber,
-              /*merge_op=*/nullptr, /*compaction_filter=*/nullptr,
+              /*last_committed_seq=*/kMaxSequenceNumber,
+              /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
               bottommost_level,
               /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
               key_not_exists_beyond_output_level, &full_history_ts_low);
