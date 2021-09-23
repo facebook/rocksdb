@@ -133,7 +133,8 @@ class TablePropertiesCollectorFactory {
  public:
   struct Context {
     uint32_t column_family_id;
-    // The level when creating the SST file (i.e, table), of which the properties are being collected.
+    // The level when creating the SST file (i.e, table), of which the
+    // properties are being collected.
     int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
     static const uint32_t kUnknownLevelAtCreation = -1;
