@@ -33,7 +33,7 @@
 * Added new callback APIs `OnBlobFileCreationStarted`,`OnBlobFileCreated`and `OnBlobFileDeleted` in `EventListener` class of listener.h. It notifies listeners during creation/deletion of individual blob files in Integrated BlobDB. It also log blob file creation finished event and deletion event in LOG file.
 * Batch blob read requests for `DB::MultiGet` using `MultiRead`.
 * Add support for fallback to local compaction, the user can return `CompactionServiceJobStatus::kUseLocal` to instruct RocksDB to run the compaction locally instead of waiting for the remote compaction result.
-* Add built-in rate limiter's implementation for `RateLimiter::GetTotalPendingRequests()` for the total number of requests that are pending for bytes in the rate limiter.
+* Add built-in rate limiter's implementation of `RateLimiter::GetTotalPendingRequest(int64_t* total_pending_requests, const Env::IOPriority pri)` for the total number of requests that are pending for bytes in the rate limiter.
 
 ### Public API change
 * Remove obsolete implementation details FullKey and ParseFullKey from public API
