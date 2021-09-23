@@ -6631,7 +6631,7 @@ class Benchmark {
         if (user_timestamp_size_ == 0) {
           s = db->Put(write_options_, key, val);
         } else {
-          s = db->Put(write_options_, key, val, ts);
+          s = db->Put(write_options_, key, ts, val);
         }
       } else {
         s = db->Merge(write_options_, key, val);
@@ -6940,7 +6940,7 @@ class Benchmark {
         Status s;
         if (user_timestamp_size_ > 0) {
           Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-          s = db->Put(write_options_, key, gen.Generate(), ts);
+          s = db->Put(write_options_, key, ts, gen.Generate());
         } else {
           s = db->Put(write_options_, key, gen.Generate());
         }
@@ -7007,7 +7007,7 @@ class Benchmark {
       Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = db->Put(write_options_, key, val, ts);
+        s = db->Put(write_options_, key, ts, val);
       } else {
         s = db->Put(write_options_, key, val);
       }
@@ -7076,7 +7076,7 @@ class Benchmark {
       Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = db->Put(write_options_, key, Slice(new_value), ts);
+        s = db->Put(write_options_, key, ts, Slice(new_value));
       } else {
         s = db->Put(write_options_, key, Slice(new_value));
       }
@@ -7143,7 +7143,7 @@ class Benchmark {
       Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = db->Put(write_options_, key, value, ts);
+        s = db->Put(write_options_, key, ts, value);
       } else {
         // Write back to the database
         s = db->Put(write_options_, key, value);
@@ -7525,7 +7525,7 @@ class Benchmark {
       GenerateKeyFromInt(i * max_counter, FLAGS_num, &key);
       if (user_timestamp_size_ > 0) {
         Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = db->Put(write_options_, key, gen.Generate(), ts);
+        s = db->Put(write_options_, key, ts, gen.Generate());
       } else {
         s = db->Put(write_options_, key, gen.Generate());
       }
@@ -7561,7 +7561,7 @@ class Benchmark {
                            &key);
         if (user_timestamp_size_ > 0) {
           Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-          s = db->Put(write_options_, key, Slice(), ts);
+          s = db->Put(write_options_, key, ts, Slice());
         } else {
           s = db->Put(write_options_, key, Slice());
         }

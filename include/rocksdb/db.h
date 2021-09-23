@@ -358,14 +358,14 @@ class DB {
                      const Slice& value) = 0;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value, const Slice& ts) = 0;
+                     const Slice& ts, const Slice& value) = 0;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) {
     return Put(options, DefaultColumnFamily(), key, value);
   }
   virtual Status Put(const WriteOptions& options, const Slice& key,
-                     const Slice& value, const Slice& ts) {
-    return Put(options, DefaultColumnFamily(), key, value, ts);
+                     const Slice& ts, const Slice& value) {
+    return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on

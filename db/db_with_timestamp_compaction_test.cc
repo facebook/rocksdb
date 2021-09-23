@@ -79,7 +79,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   for (; key < kNumKeysPerFile - 1; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
     ASSERT_OK(
-        db_->Put(write_opts, Key1(key), "foo_" + std::to_string(key), ts_str));
+        db_->Put(write_opts, Key1(key), ts_str, "foo_" + std::to_string(key)));
   }
   // Write another L0 with keys 99 with newer ts.
   ASSERT_OK(Flush());
@@ -88,7 +88,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   for (int i = 0; i < 4; ++i, ++ts) {
     std::string ts_str = Timestamp(ts);
     ASSERT_OK(
-        db_->Put(write_opts, Key1(key), "bar_" + std::to_string(key), ts_str));
+        db_->Put(write_opts, Key1(key), ts_str, "bar_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   uint64_t saved_read_ts2 = ts++;
@@ -96,7 +96,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   for (; key <= 150; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
     ASSERT_OK(
-        db_->Put(write_opts, Key1(key), "foo1_" + std::to_string(key), ts_str));
+        db_->Put(write_opts, Key1(key), ts_str, "foo1_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   // Wait for compaction to finish

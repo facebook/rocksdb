@@ -542,7 +542,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Put(write_opts, cfh, key, v);
         } else {
-          s = db_->Put(write_opts, cfh, key, v, write_ts);
+          s = db_->Put(write_opts, cfh, key, write_ts, v);
         }
       } else {
 #ifndef ROCKSDB_LITE

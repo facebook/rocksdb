@@ -2863,8 +2863,8 @@ class ModelDB : public DB {
     return Write(o, &batch);
   }
   Status Put(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
-             const Slice& /*k*/, const Slice& /*v*/,
-             const Slice& /*ts*/) override {
+             const Slice& /*k*/, const Slice& /*ts*/,
+             const Slice& /*v*/) override {
     return Status::NotSupported();
   }
   using DB::Close;
