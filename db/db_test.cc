@@ -34,7 +34,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -96,7 +95,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -2812,7 +2811,7 @@ TEST_F(DBTest, GroupCommitTest) {
 #endif  // TRAVIS
 
 namespace {
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 }
 
 class ModelDB : public DB {
@@ -3938,6 +3937,56 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
   ASSERT_LT(ratio, 0.6);
 }
 
+// This is a mocked customed rate limiter without implementing optional APIs
+// (e.g, RateLimiter::GetTotalPendingRequests())
+class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
+ public:
+  MockedRateLimiterWithNoOptionalAPIImpl() {}
+
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
+
+  void SetBytesPerSecond(int64_t bytes_per_second) override {
+    (void)bytes_per_second;
+  }
+
+  using RateLimiter::Request;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override {
+    (void)bytes;
+    (void)pri;
+    (void)stats;
+  }
+
+  int64_t GetSingleBurstBytes() const override { return 200; }
+
+  int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetBytesPerSecond() const override { return 0; }
+};
+
+// To test that customed rate limiter not implementing optional APIs (e.g,
+// RateLimiter::GetTotalPendingRequests()) works fine with RocksDB basic
+// operations (e.g, Put, Get, Flush)
+TEST_F(DBTest, CustomedRateLimiterWithNoOptionalAPIImplTest) {
+  Options options = CurrentOptions();
+  options.rate_limiter.reset(new MockedRateLimiterWithNoOptionalAPIImpl());
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("abc", "def"));
+  ASSERT_EQ(Get("abc"), "def");
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("abc"), "def");
+}
+
 TEST_F(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -4097,6 +4146,39 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
       }
     }
   }
+}
+
+// This test failure will be caught with a probability
+TEST_F(DBTest, ManualFlushWalAndWriteRace) {
+  Options options;
+  options.env = env_;
+  options.manual_wal_flush = true;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.sync = true;
+
+  port::Thread writeThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      auto istr = ToString(i);
+      dbfull()->Put(wopts, "key_" + istr, "value_" + istr);
+    }
+  });
+  port::Thread flushThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(dbfull()->FlushWAL(false));
+    }
+  });
+
+  writeThread.join();
+  flushThread.join();
+  ASSERT_OK(dbfull()->Put(wopts, "foo1", "value1"));
+  ASSERT_OK(dbfull()->Put(wopts, "foo2", "value2"));
+  Reopen(options);
+  ASSERT_EQ("value1", Get("foo1"));
+  ASSERT_EQ("value2", Get("foo2"));
 }
 
 #ifndef ROCKSDB_LITE
@@ -4813,7 +4895,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.level0_stop_writes_trigger = 2;
   options.soft_pending_compaction_bytes_limit = 1024 * 1024;
   options.target_file_size_base = 20;
-
+  options.env = env_;
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 200;
   options.max_bytes_for_level_multiplier = 8;
@@ -5732,8 +5814,8 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   };
 
   Options options = CurrentOptions();
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
@@ -6138,7 +6220,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   options.level0_stop_writes_trigger = 999999;
   options.delayed_write_rate = 20000000;  // Start with 200MB/s
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kEntriesPerMemTable));
+      test::NewSpecialSkipListFactory(kEntriesPerMemTable));
 
   SetTimeElapseOnlySleepOnReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -6201,7 +6283,7 @@ TEST_F(DBTest, HardLimit) {
   options.max_bytes_for_level_base = 10000000000u;
   options.max_background_compactions = 1;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
 
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
@@ -6450,7 +6532,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   options.disable_auto_compactions = true;
   int kNumKeysPerMemtable = 3;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
 
   Reopen(options);
   test::SleepingBackgroundTask sleeping_task;

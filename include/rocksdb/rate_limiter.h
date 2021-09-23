@@ -11,6 +11,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -88,6 +89,20 @@ class RateLimiter {
   // Total # of requests that go through rate limiter
   virtual int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
+
+  // Total # of requests that are pending for bytes in rate limiter
+  // For convenience, this function is supported by the RateLimiter returned
+  // by NewGenericRateLimiter but is not required by RocksDB.
+  //
+  // REQUIRED: total_pending_request != nullptr
+  virtual Status GetTotalPendingRequests(
+      int64_t* total_pending_requests,
+      const Env::IOPriority pri = Env::IO_TOTAL) const {
+    assert(total_pending_requests != nullptr);
+    (void)total_pending_requests;
+    (void)pri;
+    return Status::NotSupported();
+  }
 
   virtual int64_t GetBytesPerSecond() const = 0;
 

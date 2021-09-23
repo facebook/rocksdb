@@ -1124,11 +1124,27 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     //    writer thread, so no one will push to logs_,
     //  - as long as other threads don't modify it, it's safe to read
     //    from std::deque from multiple threads concurrently.
+    //
+    // Sync operation should work with locked log_write_mutex_, because:
+    //   when DBOptions.manual_wal_flush_ is set,
+    //   FlushWAL function will be invoked by another thread.
+    //   if without locked log_write_mutex_, the log file may get data
+    //   corruption
+
+    const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Lock();
+    }
+
     for (auto& log : logs_) {
       io_s = log.writer->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
+    }
+
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Unlock();
     }
 
     if (io_s.ok() && need_log_dir_sync) {
@@ -1998,13 +2014,18 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   size_t ts_sz = ts->size();
   assert(column_family->GetComparator());
   assert(ts_sz == column_family->GetComparator()->timestamp_size());
-  WriteBatch batch(key.size() + ts_sz + value.size() + 24, /*max_bytes=*/0,
-                   ts_sz);
-  Status s = batch.Put(column_family, key, value);
-  if (!s.ok()) {
-    return s;
+  WriteBatch batch;
+  Status s;
+  if (key.data() + key.size() == ts->data()) {
+    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
+    s = batch.Put(column_family, key_with_ts, value);
+  } else {
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    std::array<Slice, 1> value_slices{{value}};
+    SliceParts values(value_slices.data(), 1);
+    s = batch.Put(column_family, key_with_ts, values);
   }
-  s = batch.AssignTimestamp(*ts);
   if (!s.ok()) {
     return s;
   }
@@ -2023,17 +2044,19 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   }
   const Slice* ts = opt.timestamp;
   assert(ts != nullptr);
-  const size_t ts_sz = ts->size();
-  constexpr size_t kKeyAndValueLenSize = 11;
-  constexpr size_t kWriteBatchOverhead =
-      WriteBatchInternal::kHeader + sizeof(ValueType) + kKeyAndValueLenSize;
-  WriteBatch batch(key.size() + ts_sz + kWriteBatchOverhead, /*max_bytes=*/0,
-                   ts_sz);
-  Status s = batch.Delete(column_family, key);
-  if (!s.ok()) {
-    return s;
+  size_t ts_sz = ts->size();
+  assert(column_family->GetComparator());
+  assert(ts_sz == column_family->GetComparator()->timestamp_size());
+  WriteBatch batch;
+  Status s;
+  if (key.data() + key.size() == ts->data()) {
+    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
+    s = batch.Delete(column_family, key_with_ts);
+  } else {
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    s = batch.Delete(column_family, key_with_ts);
   }
-  s = batch.AssignTimestamp(*ts);
   if (!s.ok()) {
     return s;
   }

@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/compaction_filter.h"
 
 namespace ROCKSDB_NAMESPACE {

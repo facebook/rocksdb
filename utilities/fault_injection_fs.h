@@ -138,6 +138,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
@@ -150,10 +152,11 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   FaultInjectionTestFS* fs_;
 };
 
-class TestFSSequentialFile : public FSSequentialFileWrapper {
+class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  public:
-  explicit TestFSSequentialFile(FSSequentialFile* f, FaultInjectionTestFS* fs)
-      : FSSequentialFileWrapper(f), target_guard_(f), fs_(fs) {}
+  explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
+                                FaultInjectionTestFS* fs)
+      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
@@ -161,7 +164,6 @@ class TestFSSequentialFile : public FSSequentialFileWrapper {
                           IODebugContext* dbg) override;
 
  private:
-  std::unique_ptr<FSSequentialFile> target_guard_;
   FaultInjectionTestFS* fs_;
 };
 
@@ -368,6 +370,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
+    kMultiReadSingleReq = 1,
+    kMultiRead = 2,
     kOpen,
   };
 
@@ -438,8 +442,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
+  // fault_injected returns whether a fault is injected. It is needed
+  // because some fault is inected with IOStatus to be OK.
   IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
-                                         bool direct_io, char* scratch);
+                                         bool direct_io, char* scratch,
+                                         bool need_count_increase,
+                                         bool* fault_injected);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -523,6 +531,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int count;
     bool enable_error_injection;
     void* callstack;
+    std::string message;
     int frames;
     ErrorType type;
 

@@ -1021,6 +1021,9 @@ DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
 
+DEFINE_bool(io_uring_enabled, true,
+            "If true, enable the use of IO uring if the platform supports it");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
@@ -1447,30 +1450,6 @@ DEFINE_int64(multiread_stride, 0,
              "Stride length for the keys in a MultiGet batch");
 DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
 
-enum RepFactory {
-  kSkipList,
-  kPrefixHash,
-  kVectorRep,
-  kHashLinkedList,
-};
-
-static enum RepFactory StringToRepFactory(const char* ctype) {
-  assert(ctype);
-
-  if (!strcasecmp(ctype, "skip_list"))
-    return kSkipList;
-  else if (!strcasecmp(ctype, "prefix_hash"))
-    return kPrefixHash;
-  else if (!strcasecmp(ctype, "vector"))
-    return kVectorRep;
-  else if (!strcasecmp(ctype, "hash_linkedlist"))
-    return kHashLinkedList;
-
-  fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
-  return kSkipList;
-}
-
-static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
 DEFINE_bool(use_plain_table, false, "if use plain table "
@@ -1534,8 +1513,33 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
                           &ValidateTableCacheNumshardbits);
 
 namespace ROCKSDB_NAMESPACE {
-
 namespace {
+static Status CreateMemTableRepFactory(
+    const ConfigOptions& config_options,
+    std::shared_ptr<MemTableRepFactory>* factory) {
+  Status s;
+  if (!strcasecmp(FLAGS_memtablerep.c_str(), SkipListFactory::kNickName())) {
+    factory->reset(new SkipListFactory(FLAGS_skip_list_lookahead));
+#ifndef ROCKSDB_LITE
+  } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "prefix_hash")) {
+    factory->reset(NewHashSkipListRepFactory(FLAGS_hash_bucket_count));
+  } else if (!strcasecmp(FLAGS_memtablerep.c_str(),
+                         VectorRepFactory::kNickName())) {
+    factory->reset(new VectorRepFactory());
+  } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "hash_linkedlist")) {
+    factory->reset(NewHashLinkListRepFactory(FLAGS_hash_bucket_count));
+#endif  // ROCKSDB_LITE
+  } else {
+    std::unique_ptr<MemTableRepFactory> unique;
+    s = MemTableRepFactory::CreateFromString(config_options, FLAGS_memtablerep,
+                                             &unique);
+    if (s.ok()) {
+      factory->reset(unique.release());
+    }
+  }
+  return s;
+}
+
 struct ReportFileOpCounters {
   std::atomic<int> open_counter_;
   std::atomic<int> delete_counter_;
@@ -2681,7 +2685,7 @@ class Benchmark {
                         compressed);
   }
 
-  void PrintHeader() {
+  void PrintHeader(const Options& options) {
     PrintEnvironment();
     fprintf(stdout,
             "Keys:       %d bytes each (+ %d bytes user-defined timestamp)\n",
@@ -2731,20 +2735,9 @@ class Benchmark {
     fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
-
-    switch (FLAGS_rep_factory) {
-      case kPrefixHash:
-        fprintf(stdout, "Memtablerep: prefix_hash\n");
-        break;
-      case kSkipList:
-        fprintf(stdout, "Memtablerep: skip_list\n");
-        break;
-      case kVectorRep:
-        fprintf(stdout, "Memtablerep: vector\n");
-        break;
-      case kHashLinkedList:
-        fprintf(stdout, "Memtablerep: hash_linkedlist\n");
-        break;
+    if (options.memtable_factory != nullptr) {
+      fprintf(stdout, "Memtablerep: %s\n",
+              options.memtable_factory->GetId().c_str());
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
 
@@ -3209,7 +3202,7 @@ class Benchmark {
       ErrorExit();
     }
     Open(&open_options_);
-    PrintHeader();
+    PrintHeader(open_options_);
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
     std::unique_ptr<ExpiredTimeFilter> filter;
@@ -3932,6 +3925,7 @@ class Benchmark {
     printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
     ConfigOptions config_options(options);
+    config_options.ignore_unsupported_options = false;
 
     assert(db_.db == nullptr);
 
@@ -4007,42 +4001,25 @@ class Benchmark {
         FLAGS_level_compaction_dynamic_level_bytes;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
-    if ((FLAGS_prefix_size == 0) && (FLAGS_rep_factory == kPrefixHash ||
-                                     FLAGS_rep_factory == kHashLinkedList)) {
+    Status s =
+        CreateMemTableRepFactory(config_options, &options.memtable_factory);
+    if (!s.ok()) {
+      fprintf(stderr, "Could not create memtable factory: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    } else if ((FLAGS_prefix_size == 0) &&
+               (options.memtable_factory->IsInstanceOf("prefix_hash") ||
+                options.memtable_factory->IsInstanceOf("hash_linkedlist"))) {
       fprintf(stderr, "prefix_size should be non-zero if PrefixHash or "
                       "HashLinkedList memtablerep is used\n");
       exit(1);
     }
-    switch (FLAGS_rep_factory) {
-      case kSkipList:
-        options.memtable_factory.reset(new SkipListFactory(
-            FLAGS_skip_list_lookahead));
-        break;
-#ifndef ROCKSDB_LITE
-      case kPrefixHash:
-        options.memtable_factory.reset(
-            NewHashSkipListRepFactory(FLAGS_hash_bucket_count));
-        break;
-      case kHashLinkedList:
-        options.memtable_factory.reset(NewHashLinkListRepFactory(
-            FLAGS_hash_bucket_count));
-        break;
-      case kVectorRep:
-        options.memtable_factory.reset(
-          new VectorRepFactory
-        );
-        break;
-#else
-      default:
-        fprintf(stderr, "Only skip list is supported in lite mode\n");
-        exit(1);
-#endif  // ROCKSDB_LITE
-    }
     if (FLAGS_use_plain_table) {
 #ifndef ROCKSDB_LITE
-      if (FLAGS_rep_factory != kPrefixHash &&
-          FLAGS_rep_factory != kHashLinkedList) {
-        fprintf(stderr, "Waring: plain table is used with skipList\n");
+      if (!options.memtable_factory->IsInstanceOf("prefix_hash") &&
+          !options.memtable_factory->IsInstanceOf("hash_linkedlist")) {
+        fprintf(stderr, "Warning: plain table is used with %s\n",
+                options.memtable_factory->Name());
       }
 
       int bloom_bits_per_key = FLAGS_bloom_bits;
@@ -4298,8 +4275,8 @@ class Benchmark {
 
     // merge operator options
     if (!FLAGS_merge_operator.empty()) {
-      Status s = MergeOperator::CreateFromString(
-          config_options, FLAGS_merge_operator, &options.merge_operator);
+      s = MergeOperator::CreateFromString(config_options, FLAGS_merge_operator,
+                                          &options.merge_operator);
       if (!s.ok()) {
         fprintf(stderr, "invalid merge operator[%s]: %s\n",
                 FLAGS_merge_operator.c_str(), s.ToString().c_str());
@@ -5433,7 +5410,7 @@ class Benchmark {
         }
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
-            fprintf(stdout, "Level[%d]: %s(size: %" ROCKSDB_PRIszt " bytes)\n",
+            fprintf(stdout, "Level[%d]: %s(size: %" PRIi64 " bytes)\n",
                     levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
           }
         } else {
@@ -8043,6 +8020,7 @@ class Benchmark {
 
 int db_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
+  ConfigOptions config_options;
   static bool initialized = false;
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -8059,8 +8037,8 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
-        FLAGS_statistics_string, &dbstats);
+    Status s = Statistics::CreateFromString(config_options,
+                                            FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
       fprintf(stderr,
               "No Statistics registered matching string: %s status=%s\n",
@@ -8106,7 +8084,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (env_opts == 1) {
-    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+    Status s = Env::CreateFromUri(config_options, FLAGS_env_uri, FLAGS_fs_uri,
                                   &FLAGS_env, &env_guard);
     if (!s.ok()) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
@@ -8147,8 +8125,6 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_value_size_distribution_type_e =
     StringToDistributionType(FLAGS_value_size_distribution_type.c_str());
-
-  FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // Note options sanitization may increase thread pool sizes according to
   // max_background_flushes/max_background_compactions/max_background_jobs

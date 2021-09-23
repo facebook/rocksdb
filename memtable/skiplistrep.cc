@@ -9,6 +9,8 @@
 #include "memory/arena.h"
 #include "memtable/inlineskiplist.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -333,6 +335,27 @@ public:
     }
   }
 };
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> skiplist_factory_info = {
+#ifndef ROCKSDB_LITE
+    {"lookahead",
+     {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kDontSerialize /*Since it is part of the ID*/}},
+#endif
+};
+
+SkipListFactory::SkipListFactory(size_t lookahead) : lookahead_(lookahead) {
+  RegisterOptions("SkipListFactoryOptions", &lookahead_,
+                  &skiplist_factory_info);
+}
+
+std::string SkipListFactory::GetId() const {
+  std::string id = Name();
+  if (lookahead_ > 0) {
+    id.append(":").append(ROCKSDB_NAMESPACE::ToString(lookahead_));
+  }
+  return id;
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(

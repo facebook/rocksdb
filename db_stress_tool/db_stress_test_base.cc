@@ -2643,7 +2643,7 @@ void StressTest::Open() {
     assert(!s.ok() || column_families_.size() ==
                           static_cast<size_t>(FLAGS_column_families));
 
-    if (FLAGS_test_secondary) {
+    if (s.ok() && FLAGS_test_secondary) {
 #ifndef ROCKSDB_LITE
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
@@ -2664,13 +2664,12 @@ void StressTest::Open() {
           break;
         }
       }
-      assert(s.ok());
 #else
       fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
       exit(1);
 #endif
     }
-    if (FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+    if (s.ok() && FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;

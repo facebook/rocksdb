@@ -79,7 +79,9 @@ class WinClock : public SystemClock {
   WinClock();
   virtual ~WinClock() {}
 
-  const char* Name() const override { return "WindowsClock"; }
+  static const char* kClassName() { return "WindowsClock"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   uint64_t NowMicros() override;
 
@@ -96,7 +98,7 @@ class WinClock : public SystemClock {
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
  private:
-  typedef VOID(WINAPI* FnGetSystemTimePreciseAsFileTime)(LPFILETIME);
+  using FnGetSystemTimePreciseAsFileTime = VOID(WINAPI*)(LPFILETIME);
 
   uint64_t perf_counter_frequency_;
   uint64_t nano_seconds_per_period_;

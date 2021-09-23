@@ -190,6 +190,20 @@ class Customizable : public Configurable {
   virtual const Customizable* Inner() const { return nullptr; }
 
  protected:
+  // Generates a ID specific for this instance of the customizable.
+  // The unique ID is of the form <name>:<addr>#pid, where:
+  // - name is the Name() of this object;
+  // - addr is the memory address of this object;
+  // - pid is the process ID of this process ID for this process.
+  // Note that if obj1 and obj2 have the same unique IDs, they must be the
+  // same.  However, if an object is deleted and recreated, it may have the
+  // same unique ID as a predecessor
+  //
+  // This method is useful for objects (especially ManagedObjects) that
+  // wish to generate an ID that is specific for this instance and wish to
+  // override the GetId() method.
+  std::string GenerateIndividualId() const;
+
   // Some classes have both a class name (e.g. PutOperator) and a nickname
   // (e.g. put). Classes can override this method to return a
   // nickname.  Nicknames can be used by InstanceOf and object creation.
