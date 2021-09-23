@@ -137,7 +137,7 @@ class TablePropertiesCollectorFactory {
     // properties are being collected.
     int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
-    static const uint32_t kUnknownLevelAtCreation = -1;
+    static const int32_t kUnknownLevelAtCreation = -1;
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
