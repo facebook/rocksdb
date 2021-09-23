@@ -768,7 +768,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation op, Slice* result, bool direct_io, char* /*scratch*/,
+    ErrorOperation op, Slice* result, bool direct_io, char* scratch,
     bool need_count_increase, bool* fault_injected) {
   bool dummy_bool;
   bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
@@ -803,11 +803,15 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       *result = Slice();
       ctx->message += "inject empty result; ";
       ret_fault_injected = true;
-    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7)) {
+    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
+               scratch != nullptr && result->data() == scratch) {
       assert(result);
       // With direct I/O, many extra bytes might be read so corrupting
       // one byte might not cause checksum mismatch. Skip checksum
       // corruption injection.
+      // We only corrupt data if the result is filled to `scratch`. For other
+      // cases, the data might not be able to be modified (e.g mmaped files)
+      // or has unintended side effects.
       // For a small chance, set the failure to status but corrupt the
       // result in a way that checksum checking is supposed to fail.
       // Corrupt the last byte, which is supposed to be a checksum byte
