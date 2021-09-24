@@ -296,8 +296,14 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         r.status = fs_r.status;
         if (r.status.ok()) {
           uint64_t offset = r.offset - fs_r.offset;
-          size_t len = std::min(r.len, static_cast<size_t>(fs_r.len - offset));
-          r.result = Slice(fs_r.scratch + offset, len);
+          if (fs_r.result.size() <= offset) {
+            // No byte in the read range is returned.
+            r.result = Slice();
+          } else {
+            size_t len = std::min(
+                r.len, static_cast<size_t>(fs_r.result.size() - offset));
+            r.result = Slice(fs_r.scratch + offset, len);
+          }
         } else {
           r.result = Slice();
         }

@@ -370,6 +370,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
+    kMultiReadSingleReq = 1,
+    kMultiRead = 2,
     kOpen,
   };
 
@@ -440,8 +442,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
+  // fault_injected returns whether a fault is injected. It is needed
+  // because some fault is inected with IOStatus to be OK.
   IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
-                                         bool direct_io, char* scratch);
+                                         bool direct_io, char* scratch,
+                                         bool need_count_increase,
+                                         bool* fault_injected);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -525,6 +531,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int count;
     bool enable_error_injection;
     void* callstack;
+    std::string message;
     int frames;
     ErrorType type;
 

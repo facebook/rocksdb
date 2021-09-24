@@ -392,10 +392,10 @@ class BackupEngineReadOnlyBase {
   virtual Status GetBackupInfo(BackupID backup_id, BackupInfo* backup_info,
                                bool include_file_details = false) const = 0;
 
-  // Returns info about backups in backup_info
+  // Returns info about non-corrupt backups in backup_infos.
   // Setting include_file_details=true provides information about each
   // backed-up file in BackupInfo::file_details and more.
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_infos,
                              bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups.
@@ -475,13 +475,13 @@ class BackupEngineAppendOnlyBase {
   // Captures the state of the database by creating a new (latest) backup.
   // On success (OK status), the BackupID of the new backup is saved to
   // *new_backup_id when not nullptr.
-  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db,
-                                 BackupID* new_backup_id = nullptr) {
+  virtual IOStatus CreateNewBackup(const CreateBackupOptions& options, DB* db,
+                                   BackupID* new_backup_id = nullptr) {
     return CreateNewBackupWithMetadata(options, db, "", new_backup_id);
   }
 
   // keep here for backward compatibility.
-  virtual Status CreateNewBackup(
+  virtual IOStatus CreateNewBackup(
       DB* db, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) {
     CreateBackupOptions options;
@@ -575,12 +575,12 @@ class BackupEngine : public BackupEngineReadOnlyBase,
 
   // BackupEngineOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngine** backup_engine_ptr);
+  static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
+                       BackupEngine** backup_engine_ptr);
 
   // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngine** backup_engine_ptr) {
+  static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
+                       BackupEngine** backup_engine_ptr) {
     return BackupEngine::Open(options, db_env, backup_engine_ptr);
   }
 
@@ -601,11 +601,11 @@ class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngineReadOnly** backup_engine_ptr);
+  static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
+                       BackupEngineReadOnly** backup_engine_ptr);
   // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngineReadOnly** backup_engine_ptr) {
+  static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
+                       BackupEngineReadOnly** backup_engine_ptr) {
     return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
   }
 };
