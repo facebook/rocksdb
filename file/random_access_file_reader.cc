@@ -233,10 +233,6 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
     }
   }
 
-  if (n > 0) {
-    scratch[0]++;
-  }
-
   IOStatus io_s;
   uint64_t elapsed = 0;
   {
