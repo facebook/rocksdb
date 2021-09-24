@@ -49,7 +49,7 @@ extern const bool kDefaultToAdaptiveMutex = false;
 namespace port {
 
 static int PthreadCall(const char* label, int result) {
-  if (result != 0 && result != ETIMEDOUT) {
+  if (result != 0 && result != ETIMEDOUT && result != EBUSY) {
     fprintf(stderr, "pthread %s: %s\n", label, errnoStr(result).c_str());
     abort();
   }
@@ -90,6 +90,16 @@ void Mutex::Unlock() {
   locked_ = false;
 #endif
   PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+}
+
+bool Mutex::TryLock() {
+  bool ret = PthreadCall("trylock", pthread_mutex_trylock(&mu_)) == 0;
+#ifndef NDEBUG
+  if (ret) {
+    locked_ = true;
+  }
+#endif
+  return ret;
 }
 
 void Mutex::AssertHeld() {
