@@ -233,19 +233,13 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
-      fprintf(stdout, "y7jin %s align=%d\n", file_name().c_str(),
-              (int)alignment);
       for (size_t i = 0; i < num_reqs; i++) {
         const auto& r = Align(read_reqs[i], alignment);
-        fprintf(stdout, "reqs[%d].offse=%d reqs[%d].len=%d\n", (int)i,
-                (int)read_reqs[i].offset, (int)i, (int)read_reqs[i].len);
-        fprintf(stdout, "r.offse=%d len=%d\n\n", (int)r.offset, (int)r.len);
         if (i == 0) {
           // head
           aligned_reqs.push_back(r);
 
         } else if (!TryMerge(&aligned_reqs.back(), r)) {
-          fprintf(stdout, "Can merge\n");
           // head + n
           aligned_reqs.push_back(r);
 
@@ -254,7 +248,6 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           r.status.PermitUncheckedError();
         }
       }
-      fprintf(stdout, "%d elem in aligned_reqs\n", (int)aligned_reqs.size());
       TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
                                &aligned_reqs);
 

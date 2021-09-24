@@ -134,7 +134,6 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   const std::string file_path = dbname_ + "/test.sst";
   {
     SstFileWriter sst_file_writer(EnvOptions(), GetDefaultOptions());
-    fprintf(stdout, "file p %s\n", file_path.c_str());
     Status s = sst_file_writer.Open(file_path);
     ASSERT_OK(s);
     ASSERT_OK(sst_file_writer.Put("b", "b_value"));
