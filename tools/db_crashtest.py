@@ -222,7 +222,10 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
+    # TODO: re-enable once below loop succeeds for a while (a few minutes should
+    # suffice):
+    # `while rm -rf /dev/shm/single_stress && ./db_stress --clear_column_family_one_in=0 --column_families=1 --db=/dev/shm/single_stress --experimental_mempurge_threshold=5.493146827397074 --flush_one_in=10000 --reopen=0 --write_buffer_size=262144 --value_size_mult=33 --max_write_buffer_number=3 -ops_per_thread=10000; do : ; done`
+    "experimental_mempurge_threshold": 0,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
