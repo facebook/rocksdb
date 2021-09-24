@@ -199,6 +199,9 @@ static int RegisterTablePropertiesCollectorFactories(
       [](const std::string& /*uri*/,
          std::unique_ptr<TablePropertiesCollectorFactory>* guard,
          std::string* /* errmsg */) {
+        // By default, create a CompactionOnDeletionCollector that is disabled.
+        // Users will need to provide configuration parameters or call the
+        // corresponding Setter to enable the factory.
         guard->reset(new CompactOnDeletionCollectorFactory(0, 0, 0));
         return guard->get();
       });
