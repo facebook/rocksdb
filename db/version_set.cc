@@ -1921,7 +1921,7 @@ void Version::MultiGetBlob(
         blobs_in_file.begin(), blobs_in_file.end(),
         [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
           assert(lhs.first.file_number() == rhs.first.file_number());
-          return lhs.first.offset() <= rhs.first.offset();
+          return lhs.first.offset() < rhs.first.offset();
         });
 
     autovector<std::reference_wrapper<const KeyContext>> blob_read_key_contexts;

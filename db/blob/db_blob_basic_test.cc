@@ -127,6 +127,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   Options options = GetDefaultOptions();
 
@@ -151,7 +152,12 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   options.sst_partitioner_factory =
       NewSstPartitionerFixedPrefixFactory(key_len);
 
-  Reopen(options);
+  Status s = TryReopen(options);
+  if (s.IsNotSupported()) {
+    ROCKSDB_GTEST_SKIP("This test requires direct IO support");
+    return;
+  }
+  ASSERT_OK(s);
 
   constexpr size_t num_keys = 3;
   constexpr size_t blob_size = 3000;
@@ -256,7 +262,7 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::MultiRead:AlignedReqs", [&](void* arg) {
-        auto* aligned_reqs = reinterpret_cast<std::vector<FSReadRequest>*>(arg);
+        auto* aligned_reqs = static_cast<std::vector<FSReadRequest>*>(arg);
         assert(aligned_reqs);
         ASSERT_EQ(1, aligned_reqs->size());
         called = true;
@@ -295,6 +301,9 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
                   &values[0], &statuses[0]);
 
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
     ASSERT_TRUE(called);
 
     ASSERT_OK(statuses[0]);
@@ -306,9 +315,8 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     ASSERT_OK(statuses[2]);
     ASSERT_EQ(values[2], second_blob);
   }
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   Options options = GetDefaultOptions();
