@@ -12,10 +12,13 @@
 #include <atomic>
 #include <memory>
 
+#include "file/file_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -230,7 +233,9 @@ class FileExpectedStateManager : public ExpectedStateManager {
   std::string GetTempPathForFilename(const std::string& filename);
   std::string GetPathForFilename(const std::string& filename);
 
-  static const std::string kLatestFilename;
+  static const std::string kLatestBasename;
+  static const std::string kStateFilenameSuffix;
+  static const std::string kTraceFilenameSuffix;
   static const std::string kTempFilenamePrefix;
   static const std::string kTempFilenameSuffix;
 

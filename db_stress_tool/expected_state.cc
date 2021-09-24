@@ -8,6 +8,7 @@
 #include "db_stress_tool/expected_state.h"
 
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "rocksdb/trace_reader_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -145,7 +146,9 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
 
 ExpectedStateManager::~ExpectedStateManager() {}
 
-const std::string FileExpectedStateManager::kLatestFilename = "LATEST.state";
+const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
+const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
+const std::string FileExpectedStateManager::kTraceFilenameSuffix = ".trace";
 const std::string FileExpectedStateManager::kTempFilenamePrefix = ".";
 const std::string FileExpectedStateManager::kTempFilenameSuffix = ".tmp";
 
@@ -160,7 +163,8 @@ FileExpectedStateManager::FileExpectedStateManager(
 Status FileExpectedStateManager::Open() {
   Status s = Clean();
 
-  std::string expected_state_file_path = GetPathForFilename(kLatestFilename);
+  std::string expected_state_file_path =
+      GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
   bool found = false;
   if (s.ok()) {
     Status exists_status = Env::Default()->FileExists(expected_state_file_path);
@@ -178,7 +182,7 @@ Status FileExpectedStateManager::Open() {
     // this process is killed during setup, `Clean()` will take care of removing
     // the incomplete expected values file.
     std::string temp_expected_state_file_path =
-        GetTempPathForFilename(kLatestFilename);
+        GetTempPathForFilename(kLatestBasename + kStateFilenameSuffix);
     FileExpectedState temp_expected_state(temp_expected_state_file_path,
                                           max_key_, num_column_families_);
     if (s.ok()) {
@@ -198,8 +202,45 @@ Status FileExpectedStateManager::Open() {
   return s;
 }
 
-Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
-  return Status::OK();
+Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
+  SequenceNumber seqno = db->GetLatestSequenceNumber();
+
+  std::string state_filename = ToString(seqno) + kStateFilenameSuffix;
+  std::string state_file_temp_path = GetTempPathForFilename(state_filename);
+  std::string state_file_path = GetPathForFilename(state_filename);
+
+  std::string latest_file_path =
+      GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
+
+  std::string trace_filename = ToString(seqno) + kTraceFilenameSuffix;
+  std::string trace_file_path = GetPathForFilename(trace_filename);
+
+  // Populate a tempfile and then rename it to atomically create "<seqno>.state"
+  // with contents from "LATEST.state"
+  Status s =
+      CopyFile(FileSystem::Default(), latest_file_path, state_file_temp_path,
+               0 /* size */, false /* use_fsync */);
+  if (s.ok()) {
+    s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
+                                          IOOptions(), nullptr /* dbg */);
+  }
+
+  // If there is a crash now, i.e., after "<seqno>.state" was created but before
+  // "<seqno>.trace" is created, it will be treated as if "<seqno>.trace" were
+  // present but empty.
+
+  // Create "<seqno>.trace" directly. It is initially empty so no need for
+  // tempfile.
+  std::unique_ptr<TraceWriter> trace_writer;
+  if (s.ok()) {
+    s = NewFileTraceWriter(Env::Default(), EnvOptions(), trace_file_path,
+                           &trace_writer);
+  }
+  if (s.ok()) {
+    s = db->StartTrace(TraceOptions(), std::move(trace_writer));
+  }
+  // TODO(ajkr): delete prev valid state/trace file.
+  return s;
 }
 
 Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
