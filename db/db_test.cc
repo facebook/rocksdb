@@ -3937,6 +3937,56 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
   ASSERT_LT(ratio, 0.6);
 }
 
+// This is a mocked customed rate limiter without implementing optional APIs
+// (e.g, RateLimiter::GetTotalPendingRequests())
+class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
+ public:
+  MockedRateLimiterWithNoOptionalAPIImpl() {}
+
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
+
+  void SetBytesPerSecond(int64_t bytes_per_second) override {
+    (void)bytes_per_second;
+  }
+
+  using RateLimiter::Request;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override {
+    (void)bytes;
+    (void)pri;
+    (void)stats;
+  }
+
+  int64_t GetSingleBurstBytes() const override { return 200; }
+
+  int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetBytesPerSecond() const override { return 0; }
+};
+
+// To test that customed rate limiter not implementing optional APIs (e.g,
+// RateLimiter::GetTotalPendingRequests()) works fine with RocksDB basic
+// operations (e.g, Put, Get, Flush)
+TEST_F(DBTest, CustomedRateLimiterWithNoOptionalAPIImplTest) {
+  Options options = CurrentOptions();
+  options.rate_limiter.reset(new MockedRateLimiterWithNoOptionalAPIImpl());
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("abc", "def"));
+  ASSERT_EQ(Get("abc"), "def");
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("abc"), "def");
+}
+
 TEST_F(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
