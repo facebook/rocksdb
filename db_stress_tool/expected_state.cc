@@ -146,6 +146,8 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
 ExpectedStateManager::~ExpectedStateManager() {}
 
 const std::string FileExpectedStateManager::kLatestFilename = "LATEST.state";
+const std::string FileExpectedStateManager::kTempFilenamePrefix = ".";
+const std::string FileExpectedStateManager::kTempFilenameSuffix = ".tmp";
 
 FileExpectedStateManager::FileExpectedStateManager(
     size_t max_key, size_t num_column_families,
@@ -203,22 +205,25 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
 Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
 
 Status FileExpectedStateManager::Clean() {
-  // An incomplete `Open()` could have left behind an invalid temporary file.
-  std::string temp_path = GetTempPathForFilename(kLatestFilename);
-  Status s = Env::Default()->FileExists(temp_path);
-  if (s.ok()) {
-    s = Env::Default()->DeleteFile(temp_path);
-  } else if (s.IsNotFound()) {
-    s = Status::OK();
+  // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
+  // behind invalid temporary files.
+  std::vector<std::string> expected_state_dir_children;
+  Status s = Env::Default()->GetChildren(expected_state_dir_path_,
+                                         &expected_state_dir_children);
+  for (size_t i = 0; s.ok() && i < expected_state_dir_children.size(); ++i) {
+    const auto& filename = expected_state_dir_children[i];
+    if (filename.rfind(kTempFilenamePrefix, 0 /* pos */) == 0 &&
+        filename.size() >= kTempFilenameSuffix.size() &&
+        filename.rfind(kTempFilenameSuffix) ==
+            filename.size() - kTempFilenameSuffix.size()) {
+      s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+    }
   }
   return s;
 }
 
 std::string FileExpectedStateManager::GetTempPathForFilename(
     const std::string& filename) {
-  static const std::string kTempFilenamePrefix = ".";
-  static const std::string kTempFilenameSuffix = ".tmp";
-
   assert(!expected_state_dir_path_.empty());
   std::string expected_state_dir_path_slash =
       expected_state_dir_path_.back() == '/' ? expected_state_dir_path_

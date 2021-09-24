@@ -231,6 +231,8 @@ class FileExpectedStateManager : public ExpectedStateManager {
   std::string GetPathForFilename(const std::string& filename);
 
   static const std::string kLatestFilename;
+  static const std::string kTempFilenamePrefix;
+  static const std::string kTempFilenameSuffix;
 
   const std::string expected_state_dir_path_;
 };
