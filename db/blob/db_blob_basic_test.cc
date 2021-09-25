@@ -289,8 +289,8 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     // If we do not sort them before calling MultiRead() in DirectIO, then the
     // underlying IO merging logic will yield two requests.
     //
-    // [offset=0, len=12288],
-    // [offset=8192, len=4096]
+    // [offset=0, len=4096] (for "a")
+    // [offset=0, len=12288] (result of merging the request for "d" and "b")
     //
     // We need to sort them in Version::MultiGetBlob() so that the underlying
     // IO merging logic in DirectIO mode works as expected. The correct
