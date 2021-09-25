@@ -1866,7 +1866,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
-    const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
+    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
   if (read_options.read_tier == kBlockCacheTier) {
     Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
     for (const auto& elem : blob_rqs) {
@@ -1916,7 +1916,14 @@ void Version::MultiGetBlob(
     const CompressionType compression =
         blob_file_reader.GetValue()->GetCompressionType();
 
-    // TODO: sort blobs_in_file by file offset.
+    // sort blobs_in_file by file offset.
+    std::sort(
+        blobs_in_file.begin(), blobs_in_file.end(),
+        [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
+          assert(lhs.first.file_number() == rhs.first.file_number());
+          return lhs.first.offset() < rhs.first.offset();
+        });
+
     autovector<std::reference_wrapper<const KeyContext>> blob_read_key_contexts;
     autovector<std::reference_wrapper<const Slice>> user_keys;
     autovector<uint64_t> offsets;

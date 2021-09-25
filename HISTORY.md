@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.25.1 (2021-09-28)
+### Bug Fixes
+* Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
+
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
 * Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.
