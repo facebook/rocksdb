@@ -2817,6 +2817,13 @@ void VersionStorageInfo::ComputeCompactionScore(
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_options, mutable_cf_options.periodic_compaction_seconds);
   }
+
+  if (mutable_cf_options.enable_blob_garbage_collection &&
+      mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
+    ComputeFilesMarkedForForcedBlobGC(
+        mutable_cf_options.blob_garbage_collection_force_threshold);
+  }
+
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -2923,6 +2930,67 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         }
       }
     }
+  }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
+    double blob_garbage_collection_force_threshold) {
+  files_marked_for_forced_blob_gc_.clear();
+
+  if (blob_files_.empty()) {
+    return;
+  }
+
+  // Compute the overall ratio of garbage for the oldest batch of blob files
+  // which are referenced by the same linked SSTs
+  auto oldest_it = blob_files_.begin();
+
+  const auto& oldest_meta = oldest_it->second;
+  assert(oldest_meta);
+
+  const auto& linked_ssts = oldest_meta->GetLinkedSsts();
+  assert(!linked_ssts.empty());
+
+  uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
+  uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
+
+  auto it = oldest_it;
+  for (++it; it != blob_files_.end(); ++it) {
+    const auto& meta = it->second;
+    assert(meta);
+
+    if (!meta->GetLinkedSsts().empty()) {
+      break;
+    }
+
+    sum_total_blob_bytes += meta->GetTotalBlobBytes();
+    sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+  }
+
+  const double garbage_ratio =
+      1.0 * sum_garbage_blob_bytes / sum_total_blob_bytes;
+
+  if (garbage_ratio < blob_garbage_collection_force_threshold) {
+    return;
+  }
+
+  for (uint64_t sst_file_number : linked_ssts) {
+    const FileLocation location = GetFileLocation(sst_file_number);
+    assert(location.IsValid());
+
+    const int level = location.GetLevel();
+    assert(level >= 0);
+
+    const size_t pos = location.GetPosition();
+
+    FileMetaData* const sst_meta = files_[level][pos];
+    assert(sst_meta);
+
+    if (sst_meta->being_compacted) {
+      continue;
+    }
+
+    files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
   }
 }
 
