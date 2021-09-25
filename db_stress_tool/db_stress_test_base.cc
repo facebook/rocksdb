@@ -309,7 +309,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
   }
   // TODO(ajkr): First restore if there's already a trace.
   if (FLAGS_sync_fault_injection) {
-    // TODO(ajkr): Also provide an option to explicitly enable tracing history.
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -2802,7 +2801,6 @@ void StressTest::Reopen(ThreadState* thread) {
   Open();
 
   if (FLAGS_sync_fault_injection) {
-    // TODO(ajkr): Also provide an option to explicitly enable tracing history.
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
