@@ -161,8 +161,8 @@ uint32_t Block::ParseKVBefore(uint32_t pos, IterKey* key, bool* is_shared,
                               Slice* value) const {
   assert(key != nullptr);
   assert(value != nullptr);
-  if (pos == 0) {     // First key
-    return limit_;    // Return last to signify end
+  if (pos == 0) {   // First key
+    return limit_;  // Return last to signify end
   }
   uint32_t restart = num_restarts_ - 1;
   uint32_t previous = GetRestartPoint(restart);
