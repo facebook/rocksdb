@@ -276,7 +276,8 @@ const std::string options_file_content = R"OPTIONS_FILE(
   blob_file_size=10485760
   blob_compression_type=kNoCompression
   enable_blob_garbage_collection=true
-  blob_garbage_collection_age_cutoff=0.75
+  blob_garbage_collection_age_cutoff=0.5
+  blob_garbage_collection_force_threshold=0.75
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0
