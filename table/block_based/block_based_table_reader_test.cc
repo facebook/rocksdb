@@ -291,18 +291,14 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
   // Use the top level iterator to find the offset/size of the first
   // 2nd level index block and corrupt the block
-  IndexBlockIter iiter_on_stack;
   BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
-  InternalIteratorBase<IndexValue>* iiter = table->NewIndexIterator(
-      ReadOptions(), /*disable_prefix_seek=*/false, &iiter_on_stack,
-      /*get_context=*/nullptr, &context);
-  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
-  if (iiter != &iiter_on_stack) {
-    iiter_unique_ptr = std::unique_ptr<InternalIteratorBase<IndexValue>>(iiter);
-  }
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter;
+  iiter.reset(table->NewIndexIterator(ReadOptions(),
+                                      /*disable_prefix_seek=*/false, nullptr,
+                                      /*get_context=*/nullptr, &context));
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter)
+  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter.get())
                            ->index_iter_->value()
                            .handle;
   table.reset();

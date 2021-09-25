@@ -148,7 +148,7 @@ class BlocklikeTraits<DataBlock> {
                                size_t length, void* out) {
     assert(from_obj != nullptr);
     Block* ptr = static_cast<Block*>(from_obj);
-    const char* buf = ptr->data();
+    const char* buf = ptr->block_data();
     assert(length == ptr->block_size());
     (void)from_offset;
     memcpy(out, buf, length);
@@ -197,7 +197,7 @@ class BlocklikeTraits<IndexBlock> {
                                size_t length, void* out) {
     assert(from_obj != nullptr);
     IndexBlock* ptr = static_cast<IndexBlock*>(from_obj);
-    const char* buf = ptr->data();
+    const char* buf = ptr->block_data();
     assert(length == ptr->block_size());
     (void)from_offset;
     memcpy(out, buf, length);
@@ -247,7 +247,7 @@ class BlocklikeTraits<MetaBlock> {
                                size_t length, void* out) {
     assert(from_obj != nullptr);
     MetaBlock* ptr = static_cast<MetaBlock*>(from_obj);
-    const char* buf = ptr->data();
+    const char* buf = ptr->block_data();
     assert(length == ptr->block_size());
     (void)from_offset;
     memcpy(out, buf, length);

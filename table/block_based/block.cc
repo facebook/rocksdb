@@ -114,10 +114,11 @@ const char* DecodeKeyV4(const char* p, const char* limit, uint32_t* shared,
 }
 
 Slice Block::DecodeKeyAtRestart(uint32_t index) const {
-  uint32_t offset = GetRestartPoint(index);
+  uint32_t point = GetRestartPoint(index);
   uint32_t shared, non_shared, value_length;
-  const char* ptr = DecodeKV(data_ + offset, data_ + limit_, &shared,
-                             &non_shared, &value_length);
+  const auto data = block_data();
+  const char* ptr = DecodeKV(data + point, data + limit_, &shared, &non_shared,
+                             &value_length);
   if (ptr == nullptr || shared != 0) {
     return Slice();
   } else {
@@ -125,14 +126,15 @@ Slice Block::DecodeKeyAtRestart(uint32_t index) const {
   }
 }
 
-uint32_t Block::ParseKVAfter(uint32_t offset, IterKey* key, bool* is_shared,
+uint32_t Block::ParseKVAfter(uint32_t pos, IterKey* key, bool* is_shared,
                              Slice* value) const {
-  if (offset == limit_) {
+  if (pos == limit_) {
     // On the last key, return the first to signify end
     return 0;
   }
-  const char* p = data_ + offset;
-  const char* limit = data_ + limit_;
+  const auto data = block_data();
+  const char* p = data + pos;
+  const char* limit = data + limit_;
   assert(p < limit);
   assert(key != nullptr);
   assert(value != nullptr);
@@ -140,7 +142,7 @@ uint32_t Block::ParseKVAfter(uint32_t offset, IterKey* key, bool* is_shared,
   uint32_t shared, non_shared, value_length;
   p = DecodeKV(p, limit, &shared, &non_shared, &value_length);
   if (p == nullptr || key->Size() < shared) {
-    return offset;
+    return pos;
   } else if (shared == 0) {
     // If this key doesn't share any bytes with prev key then we don't need
     // to decode it and can use its address in the block directly.
@@ -152,33 +154,34 @@ uint32_t Block::ParseKVAfter(uint32_t offset, IterKey* key, bool* is_shared,
     key->TrimAppend(shared, p, non_shared);
   }
   *value = Slice(p + non_shared, value_length);
-  return value_length + non_shared + static_cast<uint32_t>(p - data_);
+  return value_length + non_shared + static_cast<uint32_t>(p - data);
 }
 
-uint32_t Block::ParseKVBefore(uint32_t offset, IterKey* key, bool* is_shared,
+uint32_t Block::ParseKVBefore(uint32_t pos, IterKey* key, bool* is_shared,
                               Slice* value) const {
   assert(key != nullptr);
   assert(value != nullptr);
-  if (offset == 0) {  // First key
+  if (pos == 0) {     // First key
     return limit_;    // Return last to signify end
   }
   uint32_t restart = num_restarts_ - 1;
   uint32_t previous = GetRestartPoint(restart);
-  while (previous >= offset) {
+  while (previous >= pos) {
     restart--;
     previous = GetRestartPoint(restart);
   }
 
-  const char* limit = data_ + limit_;
+  const auto data = block_data();
+  const char* limit = data + limit_;
   uint32_t current = previous;
-  while (current < offset) {
+  while (current < pos) {
     previous = current;
     // Decode next entry
     uint32_t shared, non_shared, value_length;
     const char* p =
-        DecodeKV(data_ + previous, limit, &shared, &non_shared, &value_length);
+        DecodeKV(data + previous, limit, &shared, &non_shared, &value_length);
     if (p == nullptr || key->Size() < shared) {
-      return offset;
+      return pos;
     } else if (shared == 0) {
       // If this key doesn't share any bytes with prev key then we don't need
       // to decode it and can use its address in the block directly.
@@ -190,7 +193,7 @@ uint32_t Block::ParseKVBefore(uint32_t offset, IterKey* key, bool* is_shared,
       key->TrimAppend(shared, p, non_shared);
     }
     *value = Slice(p + non_shared, value_length);
-    current = value_length + non_shared + static_cast<uint32_t>(p - data_);
+    current = value_length + non_shared + static_cast<uint32_t>(p - data);
   }
   return previous;
 }
@@ -889,7 +892,6 @@ Block::~Block() {
 
 Block::Block(BlockContents&& contents)
     : contents_(std::move(contents)),
-      data_(contents_.data.data()),
       limit_(static_cast<uint32_t>(contents_.data.size())),
       restarts_(nullptr),
       num_restarts_(0) {
@@ -901,17 +903,18 @@ Block::Block(BlockContents&& contents)
 
 IndexBlock::IndexBlock(BlockContents&& contents, bool value_delta_encoded)
     : Block(std::move(contents)), value_delta_encoded_(value_delta_encoded) {
+  const auto data = block_data();
   if (limit_ > 0) {
-    const char* end = data_ + limit_;
+    const char* end = data + limit_;
     // Should only decode restart points for uncompressed blocks
     num_restarts_ = DecodeFixed32(end - sizeof(uint32_t));
     restarts_ = end - ((1 + num_restarts_) * sizeof(uint32_t));
-    if (restarts_ < data_) {
+    if (restarts_ < data) {
       // The size is too small for NumRestarts() and therefore
       // restarts_ wrapped around.
       limit_ = 0;
     } else {
-      limit_ = static_cast<uint32_t>(restarts_ - data_);
+      limit_ = static_cast<uint32_t>(restarts_ - data);
     }
   }
 }
@@ -921,8 +924,9 @@ DataBlock::DataBlock(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     : Block(std::move(contents)),
       index_type_(BlockBasedTableOptions::kDataBlockBinarySearch) {
   TEST_SYNC_POINT("Block::Block:0");
+  const auto data = block_data();
   if (limit_ > 0) {
-    const char* end = data_ + limit_;
+    const char* end = data + limit_;
     // Should only decode restart points for uncompressed blocks
     num_restarts_ = DecodeFixed32(end - sizeof(uint32_t));
     if (limit_ <= kMaxBlockSizeSupportedByHashIndex) {
@@ -942,27 +946,27 @@ DataBlock::DataBlock(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     switch (index_type_) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
         restarts_ = end - ((1 + num_restarts_) * sizeof(uint32_t));
-        if (restarts_ < data_) {
+        if (restarts_ < data) {
           // The size is too small for NumRestarts() and therefore
           // restarts_ wrapped around.
           limit_ = 0;
         } else {
-          limit_ = static_cast<uint32_t>(restarts_ - data_);
+          limit_ = static_cast<uint32_t>(restarts_ - data);
         }
         break;
       case BlockBasedTableOptions::kDataBlockBinaryAndHash: {
         size_t map_size = DataBlockHashIndex::Create(
-            data_, limit_ - sizeof(uint32_t), &data_block_hash_index_);
+            data, limit_ - sizeof(uint32_t), &data_block_hash_index_);
         if (map_size == 0 || map_size > limit_) {
           // map_size is too small for NumRestarts() and
           // therefore restarts_ wrapped around.
           limit_ = 0;
         } else {
           restarts_ = end - map_size - (num_restarts_ + 1) * sizeof(uint32_t);
-          if (restarts_ < data_) {
+          if (restarts_ < data) {
             limit_ = 0;
           } else {
-            limit_ = static_cast<uint32_t>(restarts_ - data_);
+            limit_ = static_cast<uint32_t>(restarts_ - data);
           }
         }
         break;
@@ -980,17 +984,18 @@ DataBlock::DataBlock(BlockContents&& contents, size_t read_amp_bytes_per_bit,
 
 MetaBlock::MetaBlock(BlockContents&& contents) : Block(std::move(contents)) {
   TEST_SYNC_POINT("Block::Block:0");
+  const auto data = block_data();
   if (limit_ > 0) {
-    const char* end = data_ + limit_;
+    const char* end = data + limit_;
     // Should only decode restart points for uncompressed blocks
     num_restarts_ = DecodeFixed32(end - sizeof(uint32_t));
     restarts_ = end - ((1 + num_restarts_) * sizeof(uint32_t));
-    if (restarts_ < data_) {
+    if (restarts_ < data) {
       // The size is too small for NumRestarts() and therefore
       // restarts_ wrapped around.
       limit_ = 0;
     } else {
-      limit_ = static_cast<uint32_t>(restarts_ - data_);
+      limit_ = static_cast<uint32_t>(restarts_ - data);
     }
   }
 }

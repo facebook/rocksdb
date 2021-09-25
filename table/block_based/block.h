@@ -158,14 +158,14 @@ class Block {
 
   virtual ~Block();
 
-  const char* data() const { return data_; }
+  const char* block_data() const { return contents_.data.data(); }
   inline uint32_t block_size() const {
     return static_cast<uint32_t>(contents_.data.size());
   }
   inline uint32_t block_limit() const { return limit_; }
   const char* offset(uint32_t pos) const {
     assert(pos <= limit_);
-    return data_ + pos;
+    return block_data() + pos;
   }
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
@@ -200,7 +200,6 @@ class Block {
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents);
 
-  const char* data_;      // contents_.data.data()
   uint32_t limit_;        // contents_.data.size()
   const char* restarts_;  // Where to find the restarts
   uint32_t num_restarts_;
