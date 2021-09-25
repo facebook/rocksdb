@@ -153,7 +153,7 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
       NewSstPartitionerFixedPrefixFactory(key_len);
 
   Status s = TryReopen(options);
-  if (s.IsNotSupported()) {
+  if (s.IsInvalidArgument()) {
     ROCKSDB_GTEST_SKIP("This test requires direct IO support");
     return;
   }
