@@ -161,7 +161,55 @@ FileExpectedStateManager::FileExpectedStateManager(
 }
 
 Status FileExpectedStateManager::Open() {
-  Status s = Clean();
+  // Before doing anything, sync directory state with ours. That is, determine
+  // `saved_seqno_`, and create any necessary missing files.
+  std::vector<std::string> expected_state_dir_children;
+  Status s = Env::Default()->GetChildren(expected_state_dir_path_,
+                                         &expected_state_dir_children);
+  bool found_trace = false;
+  if (s.ok()) {
+    for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
+      const auto& filename = expected_state_dir_children[i];
+      if (filename.size() >= kStateFilenameSuffix.size() &&
+          filename.rfind(kStateFilenameSuffix) ==
+              filename.size() - kStateFilenameSuffix.size() &&
+          filename.rfind(kLatestBasename, 0) == std::string::npos) {
+        SequenceNumber found_seqno = ParseUint64(
+            filename.substr(0, filename.size() - kStateFilenameSuffix.size()));
+        if (saved_seqno_ == kMaxSequenceNumber || found_seqno > saved_seqno_) {
+          saved_seqno_ = found_seqno;
+        }
+      }
+    }
+    // Check if crash happened after creating state file but before creating
+    // trace file.
+    if (saved_seqno_ != kMaxSequenceNumber) {
+      std::string saved_seqno_trace_path =
+          GetPathForFilename(ToString(saved_seqno_) + kTraceFilenameSuffix);
+      Status exists_status = Env::Default()->FileExists(saved_seqno_trace_path);
+      if (exists_status.ok()) {
+        found_trace = true;
+      } else if (exists_status.IsNotFound()) {
+        found_trace = false;
+      } else {
+        s = exists_status;
+      }
+    }
+  }
+  if (s.ok() && saved_seqno_ != kMaxSequenceNumber && !found_trace) {
+    // Create an empty trace file so later logic does not need to distinguish
+    // missing vs. empty trace file.
+    std::unique_ptr<WritableFile> wfile;
+    const EnvOptions soptions;
+    std::string saved_seqno_trace_path =
+        GetPathForFilename(ToString(saved_seqno_) + kTraceFilenameSuffix);
+    s = Env::Default()->NewWritableFile(saved_seqno_trace_path, &wfile,
+                                        soptions);
+  }
+
+  if (s.ok()) {
+    s = Clean();
+  }
 
   std::string expected_state_file_path =
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
@@ -224,6 +272,11 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
   }
+  SequenceNumber old_saved_seqno;
+  if (s.ok()) {
+    old_saved_seqno = saved_seqno_;
+    saved_seqno_ = seqno;
+  }
 
   // If there is a crash now, i.e., after "<seqno>.state" was created but before
   // "<seqno>.trace" is created, it will be treated as if "<seqno>.trace" were
@@ -239,24 +292,60 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   if (s.ok()) {
     s = db->StartTrace(TraceOptions(), std::move(trace_writer));
   }
-  // TODO(ajkr): delete prev valid state/trace file.
+
+  // Delete old state/trace files. Deletion order does not matter since we only
+  // delete after successfully saving new files, so old files will never be used
+  // again, even if we crash.
+  if (s.ok()) {
+    if (old_saved_seqno != kMaxSequenceNumber) {
+      s = Env::Default()->DeleteFile(
+          GetPathForFilename(ToString(old_saved_seqno) + kStateFilenameSuffix));
+    }
+  }
+  if (s.ok()) {
+    if (old_saved_seqno != kMaxSequenceNumber) {
+      s = Env::Default()->DeleteFile(
+          GetPathForFilename(ToString(old_saved_seqno) + kTraceFilenameSuffix));
+    }
+  }
   return s;
 }
 
 Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
 
 Status FileExpectedStateManager::Clean() {
-  // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
-  // behind invalid temporary files.
   std::vector<std::string> expected_state_dir_children;
   Status s = Env::Default()->GetChildren(expected_state_dir_path_,
                                          &expected_state_dir_children);
+  // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
+  // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could have
+  // also left behind stale state/trace files.
   for (size_t i = 0; s.ok() && i < expected_state_dir_children.size(); ++i) {
     const auto& filename = expected_state_dir_children[i];
     if (filename.rfind(kTempFilenamePrefix, 0 /* pos */) == 0 &&
         filename.size() >= kTempFilenameSuffix.size() &&
         filename.rfind(kTempFilenameSuffix) ==
             filename.size() - kTempFilenameSuffix.size()) {
+      // Delete all temp files.
+      s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+    } else if (filename.size() >= kStateFilenameSuffix.size() &&
+               filename.rfind(kStateFilenameSuffix) ==
+                   filename.size() - kStateFilenameSuffix.size() &&
+               filename.rfind(kLatestBasename, 0) == std::string::npos &&
+               ParseUint64(filename.substr(
+                   0, filename.size() - kStateFilenameSuffix.size())) <
+                   saved_seqno_) {
+      assert(saved_seqno_ != kMaxSequenceNumber);
+      // Delete stale state files.
+      s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+    } else if (filename.size() >= kTraceFilenameSuffix.size() &&
+               filename.rfind(kTraceFilenameSuffix) ==
+                   filename.size() - kTraceFilenameSuffix.size() &&
+               ParseUint64(filename.substr(
+                   0, filename.size() - kTraceFilenameSuffix.size())) <
+                   saved_seqno_) {
+      assert(saved_seqno_ != kMaxSequenceNumber);
+      // Delete stale trace files.
       s = Env::Default()->DeleteFile(GetPathForFilename(filename));
     }
   }

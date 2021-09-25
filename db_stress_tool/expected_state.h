@@ -12,6 +12,7 @@
 #include <atomic>
 #include <memory>
 
+#include "db/dbformat.h"
 #include "file/file_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -240,6 +241,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
   static const std::string kTempFilenameSuffix;
 
   const std::string expected_state_dir_path_;
+  SequenceNumber saved_seqno_ = kMaxSequenceNumber;
 };
 
 // An `AnonExpectedStateManager` implements an `ExpectedStateManager` backed by
