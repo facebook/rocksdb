@@ -142,6 +142,13 @@ class ExpectedStateManager {
   // is executing.
   virtual Status SaveAtAndAfter(DB* db) = 0;
 
+  // Returns true if at least one state of historical expected values can be
+  // restored.
+  //
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
+  virtual bool HasHistory() = 0;
+
   // Restores expected values according to the current state of `db`. See
   // `SaveAtAndAfter()` for conditions where this can be called.
   //
@@ -218,6 +225,9 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // from a different process.
   Status SaveAtAndAfter(DB* db) override;
 
+  // See `ExpectedStateManager::HasHistory()` API doc.
+  bool HasHistory() override;
+
   // See `ExpectedStateManager::Restore()` API doc.
   //
   // Say `db->GetLatestSequenceNumber()` was `a` last time `SaveAtAndAfter()`
@@ -257,6 +267,9 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   Status SaveAtAndAfter(DB* /* db */) override {
     return Status::NotSupported();
   }
+
+  // See `ExpectedStateManager::HasHistory()` API doc.
+  bool HasHistory() override;
 
   // See `ExpectedStateManager::Restore()` API doc.
   //

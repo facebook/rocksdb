@@ -318,6 +318,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
 }
 #endif  // ROCKSDB_LITE
 
+bool FileExpectedStateManager::HasHistory() {
+  return saved_seqno_ != kMaxSequenceNumber;
+}
+
 Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
 
 Status FileExpectedStateManager::Clean() {
@@ -385,6 +389,10 @@ AnonExpectedStateManager::AnonExpectedStateManager(size_t max_key,
 Status AnonExpectedStateManager::Open() {
   latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
   return latest_->Open(true /* create */);
+}
+
+bool AnonExpectedStateManager::HasHistory() {
+  return false;
 }
 
 Status AnonExpectedStateManager::Restore(DB* /* db */) {
