@@ -311,7 +311,7 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   }
   return s;
 }
-#else  // ROCKSDB_LITE
+#else   // ROCKSDB_LITE
 Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
   return Status::NotSupported();
 }
