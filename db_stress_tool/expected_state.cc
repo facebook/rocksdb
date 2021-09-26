@@ -298,13 +298,15 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   // delete after successfully saving new files, so old files will never be used
   // again, even if we crash.
   if (s.ok()) {
-    if (old_saved_seqno != saved_seqno_) {
+    if (old_saved_seqno != kMaxSequenceNumber &&
+        old_saved_seqno != saved_seqno_) {
       s = Env::Default()->DeleteFile(
           GetPathForFilename(ToString(old_saved_seqno) + kStateFilenameSuffix));
     }
   }
   if (s.ok()) {
-    if (old_saved_seqno != saved_seqno_) {
+    if (old_saved_seqno != kMaxSequenceNumber &&
+        old_saved_seqno != saved_seqno_) {
       s = Env::Default()->DeleteFile(
           GetPathForFilename(ToString(old_saved_seqno) + kTraceFilenameSuffix));
     }
