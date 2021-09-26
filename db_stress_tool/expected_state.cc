@@ -311,8 +311,6 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   return s;
 }
 
-Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
-
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;
   Status s = Env::Default()->GetChildren(expected_state_dir_path_,
@@ -381,10 +379,6 @@ Status AnonExpectedStateManager::Open() {
 }
 
 Status AnonExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
-  return Status::NotSupported();
-}
-
-Status AnonExpectedStateManager::Restore(DB* /* db */) {
   return Status::NotSupported();
 }
 
