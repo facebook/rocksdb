@@ -1270,19 +1270,17 @@ inline bool XPRESS_Compress(const char* input, size_t length,
                             std::string* output) {
   return port::xpress::Compress(input, length, output);
 }
-#else
-inline bool XPRESS_Compress(const char* /*input*/, size_t /*length*/,
-                            std::string* /*output*/) {
-  return false;
-}
-#endif
 
-#ifdef XPRESS
 inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
                                size_t* uncompressed_size) {
   return port::xpress::Decompress(input_data, input_length, uncompressed_size);
 }
 #else
+inline bool XPRESS_Compress(const char* /*input*/, size_t /*length*/,
+                            std::string* /*output*/) {
+  return false;
+}
+
 inline char* XPRESS_Uncompress(const char* /*input_data*/,
                                size_t /*input_length*/,
                                size_t* /*uncompressed_size*/) {
