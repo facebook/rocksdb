@@ -322,7 +322,50 @@ bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
 
-Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
+Status FileExpectedStateManager::Restore(DB* /* db */) {
+  std::string state_filename = ToString(saved_seqno_) + kStateFilenameSuffix;
+  std::string state_file_path = GetPathForFilename(state_filename);
+
+  std::string latest_file_temp_path =
+      GetTempPathForFilename(kLatestBasename + kStateFilenameSuffix);
+  std::string latest_file_path =
+      GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
+
+  std::string trace_filename = ToString(saved_seqno_) + kTraceFilenameSuffix;
+  std::string trace_file_path = GetPathForFilename(trace_filename);
+
+  std::unique_ptr<TraceReader> trace_reader;
+  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
+                                &trace_reader);
+
+  if (s.ok()) {
+    // We are going to replay on top of "`seqno`.state" to create a new
+    // "LATEST.state". Start off by creating a tempfile so we can later make the
+    // new "LATEST.state" appear atomically using `RenameFile()`.
+    s = CopyFile(FileSystem::Default(), state_file_path, latest_file_temp_path,
+                 0 /* size */, false /* use_fsync */);
+  }
+
+  // TODO(ajkr): replay!
+
+  if (s.ok()) {
+    s = FileSystem::Default()->RenameFile(latest_file_temp_path,
+                                          latest_file_path, IOOptions(),
+                                          nullptr /* dbg */);
+  }
+
+  // Delete old state/trace files. We must delete the state file first.
+  // Otherwise, a crash-recovery immediately after deleting the trace file could
+  // lead to `Restore()` unable to replay to `seqno`.
+  if (s.ok()) {
+    s = Env::Default()->DeleteFile(state_file_path);
+  }
+  if (s.ok()) {
+    saved_seqno_ = kMaxSequenceNumber;
+    s = Env::Default()->DeleteFile(trace_file_path);
+  }
+  return s;
+}
 
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;
@@ -330,7 +373,8 @@ Status FileExpectedStateManager::Clean() {
                                          &expected_state_dir_children);
   // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
   // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could have
-  // also left behind stale state/trace files.
+  // also left behind stale state/trace files. An incomplete `Restore()` could
+  // have left behind stale trace files.
   for (size_t i = 0; s.ok() && i < expected_state_dir_children.size(); ++i) {
     const auto& filename = expected_state_dir_children[i];
     if (filename.rfind(kTempFilenamePrefix, 0 /* pos */) == 0 &&
@@ -355,7 +399,6 @@ Status FileExpectedStateManager::Clean() {
                ParseUint64(filename.substr(
                    0, filename.size() - kTraceFilenameSuffix.size())) <
                    saved_seqno_) {
-      assert(saved_seqno_ != kMaxSequenceNumber);
       // Delete stale trace files.
       s = Env::Default()->DeleteFile(GetPathForFilename(filename));
     }
