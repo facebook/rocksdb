@@ -250,6 +250,7 @@ Status FileExpectedStateManager::Open() {
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
@@ -310,6 +311,11 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   }
   return s;
 }
+#else  // ROCKSDB_LITE
+Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
+  return Status::NotSupported();
+}
+#endif  // ROCKSDB_LITE
 
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;
