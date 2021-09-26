@@ -318,6 +318,8 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
 }
 #endif  // ROCKSDB_LITE
 
+Status FileExpectedStateManager::Restore(DB* /* db */) { return Status::OK(); }
+
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;
   Status s = Env::Default()->GetChildren(expected_state_dir_path_,
@@ -383,6 +385,10 @@ AnonExpectedStateManager::AnonExpectedStateManager(size_t max_key,
 Status AnonExpectedStateManager::Open() {
   latest_.reset(new AnonExpectedState(max_key_, num_column_families_));
   return latest_->Open(true /* create */);
+}
+
+Status AnonExpectedStateManager::Restore(DB* /* db */) {
+  return Status::NotSupported();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
