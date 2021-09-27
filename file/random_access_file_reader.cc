@@ -42,10 +42,11 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
 
-  // A paranoid check: modify scratch a little bit, so in case underlying
-  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // To be paranoid: modify scratch a little bit, so in case underlying
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
   if (n > 0 && scratch != nullptr) {
+    // This byte might not change anything for direct I/O case, but it's OK.
     scratch[0]++;
   }
 
@@ -223,9 +224,10 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
-  // A paranoid check: modify scratch a little bit, so in case underlying
+  // To be paranoid modify scratch a little bit, so in case underlying
   // FileSystem doesn't fill the buffer but return succee and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
+  // This byte might not change anything for direct I/O case, but it's OK.
   for (size_t i = 0; i < num_reqs; i++) {
     FSReadRequest& r = read_reqs[i];
     if (r.len > 0 && r.scratch != nullptr) {

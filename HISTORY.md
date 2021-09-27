@@ -46,7 +46,7 @@
 * Most `BackupEngine` functions now return `IOStatus` instead of `Status`. Most existing code should be compatible with this change but some calls might need to be updated.
 
 ### Miscellaneous
-* Add a paranoid check where in case FileSystem layer doesn't fill the buffer but returns succeed, checksum is unlikely to match even if buffer contains a previous block. The byte modified is not useful anyway, so it isn't expect to change any behavior.
+* Add a paranoid check where in case FileSystem layer doesn't fill the buffer but returns succeed, checksum is unlikely to match even if buffer contains a previous block. The byte modified is not useful anyway, so it isn't expected to change any behavior when FileSystem is satisfying its contract.
 
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
