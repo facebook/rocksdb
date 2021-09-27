@@ -9,6 +9,7 @@
 
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -326,9 +327,18 @@ Status FileExpectedStateManager::Restore(DB* db) {
   // An `ExpectedStateTraceRecordHandler` applies a configurable number of
   // write operation trace records to the configured expected state.
   class ExpectedStateTraceRecordHandler : public TraceRecord::Handler {
+   public:
+    ExpectedStateTraceRecordHandler(uint64_t max_write_ops,
+                                    ExpectedState* state)
+        : max_write_ops_(max_write_ops), state_(state) {}
+
     Status Handle(const WriteQueryTraceRecord& /* record */,
                   std::unique_ptr<TraceRecordResult>* /* result */) override {
-      // TODO(ajkr): apply to expected state.
+      if (num_write_ops_ == max_write_ops_) {
+        return Status::OK();
+      }
+
+      num_write_ops_++;
       return Status::OK();
     }
 
@@ -349,7 +359,17 @@ Status FileExpectedStateManager::Restore(DB* db) {
                   std::unique_ptr<TraceRecordResult>* /* result */) override {
       return Status::OK();
     }
+
+   private:
+    uint64_t num_write_ops_ = 0;
+    uint64_t max_write_ops_;
+    ExpectedState* state_;
   };
+
+  SequenceNumber seqno = db->GetLatestSequenceNumber();
+  if (seqno < saved_seqno_) {
+    return Status::Corruption("DB is older than any restorable expected state");
+  }
 
   std::string state_filename = ToString(saved_seqno_) + kStateFilenameSuffix;
   std::string state_file_path = GetPathForFilename(state_filename);
@@ -374,25 +394,42 @@ Status FileExpectedStateManager::Restore(DB* db) {
                  0 /* size */, false /* use_fsync */);
   }
 
-  std::unique_ptr<Replayer> replayer;
-  if (s.ok()) {
-    // TODO(ajkr): An API limitation requires we provide `handles` although they
-    // will be unused since we only use the replayer for reading records. Just
-    // give a default CFH for now to satisfy the requirement.
-    s = db->NewDefaultReplayer({db->DefaultColumnFamily()} /* handles */,
-                               std::move(trace_reader), &replayer);
-  }
-  if (s.ok()) {
-    s = replayer->Prepare();
-  }
-  while (s.ok()) {
-    std::unique_ptr<TraceRecord> record;
-    s = replayer->Next(&record);
-  }
-  if (s.IsIncomplete()) {
-    // OK because `Status::Incomplete` is expected upon finishing all the trace
-    // records.
-    s = Status::OK();
+  {
+    std::unique_ptr<Replayer> replayer;
+    std::unique_ptr<ExpectedState> state;
+    std::unique_ptr<TraceRecord::Handler> handler;
+    if (s.ok()) {
+      state.reset(new FileExpectedState(latest_file_temp_path, max_key_,
+                                        num_column_families_));
+      s = state->Open(false /* create */);
+    }
+    if (s.ok()) {
+      handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
+                                                        state.get()));
+      // TODO(ajkr): An API limitation requires we provide `handles` although
+      // they will be unused since we only use the replayer for reading records.
+      // Just give a default CFH for now to satisfy the requirement.
+      s = db->NewDefaultReplayer({db->DefaultColumnFamily()} /* handles */,
+                                 std::move(trace_reader), &replayer);
+    }
+
+    if (s.ok()) {
+      s = replayer->Prepare();
+    }
+    while (true) {
+      std::unique_ptr<TraceRecord> record;
+      s = replayer->Next(&record);
+      if (!s.ok()) {
+        break;
+      }
+      std::unique_ptr<TraceRecordResult> res;
+      record->Accept(handler.get(), &res);
+    }
+    if (s.IsIncomplete()) {
+      // OK because `Status::Incomplete` is expected upon finishing all the
+      // trace records.
+      s = Status::OK();
+    }
   }
 
   if (s.ok()) {
