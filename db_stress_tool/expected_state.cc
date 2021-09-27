@@ -324,6 +324,7 @@ bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
 
+#ifndef ROCKSDB_LITE
 Status FileExpectedStateManager::Restore(DB* db) {
   // An `ExpectedStateTraceRecordHandler` applies a configurable number of
   // write operation trace records to the configured expected state.
@@ -519,6 +520,11 @@ Status FileExpectedStateManager::Restore(DB* db) {
   }
   return s;
 }
+#else   // ROCKSDB_LITE
+Status FileExpectedStateManager::Restore(DB* /* db */) {
+  return Status::NotSupported();
+}
+#endif  // ROCKSDB_LITE
 
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;
