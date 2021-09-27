@@ -360,9 +360,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"prefix_extractor",
-         {offsetof(struct MutableCFOptions, prefix_extractor),
-          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
-          OptionTypeFlags::kMutable}},
+         OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
+             offsetof(struct MutableCFOptions, prefix_extractor),
+             OptionVerificationType::kByNameAllowNull,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
         {"compaction_options_fifo",
          OptionTypeInfo::Struct(
              "compaction_options_fifo", &fifo_compaction_options_type_info,
@@ -567,10 +568,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
              },
              /* Use the default match function*/ nullptr)},
         {"memtable_insert_with_hint_prefix_extractor",
-         {offset_of(
-              &ImmutableCFOptions::memtable_insert_with_hint_prefix_extractor),
-          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
+             offset_of(&ImmutableCFOptions::
+                           memtable_insert_with_hint_prefix_extractor),
+             OptionVerificationType::kByNameAllowNull, OptionTypeFlags::kNone)},
         {"memtable_factory",
          {offset_of(&ImmutableCFOptions::memtable_factory),
           OptionType::kCustomizable, OptionVerificationType::kByName,
@@ -935,9 +936,10 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);
-  ROCKS_LOG_INFO(
-      log, "                         prefix_extractor: %s",
-      prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
+  ROCKS_LOG_INFO(log, "                         prefix_extractor: %s",
+                 prefix_extractor == nullptr
+                     ? "nullptr"
+                     : prefix_extractor->GetId().c_str());
   ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
                  disable_auto_compactions);
   ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,

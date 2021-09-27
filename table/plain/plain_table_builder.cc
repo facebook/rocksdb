@@ -104,9 +104,10 @@ PlainTableBuilder::PlainTableBuilder(
     ROCKS_LOG_INFO(ioptions_.logger, "db_host_id property will not be set");
   }
   properties_.orig_file_number = file_number;
-  properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
-                                          ? moptions_.prefix_extractor->Name()
-                                          : "nullptr";
+  properties_.prefix_extractor_name =
+      moptions_.prefix_extractor != nullptr
+          ? moptions_.prefix_extractor->AsString()
+          : "nullptr";
 
   std::string val;
   PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
