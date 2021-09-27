@@ -2065,12 +2065,36 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
+  Status s;
+  if (opt.timestamp == nullptr) {
+    WriteBatch batch;
+    s = batch.SingleDelete(column_family, key);
+    if (!s.ok()) {
+      return s;
+    }
+    s = Write(opt, &batch);
+    return s;
+  }
+
+  const Slice* ts = opt.timestamp;
+  assert(ts != nullptr);
+  size_t ts_sz = ts->size();
+  assert(column_family->GetComparator());
+  assert(ts_sz == column_family->GetComparator()->timestamp_size());
   WriteBatch batch;
-  Status s = batch.SingleDelete(column_family, key);
+  if (key.data() + key.size() == ts->data()) {
+    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  } else {
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  }
   if (!s.ok()) {
     return s;
   }
-  return Write(opt, &batch);
+  s = Write(opt, &batch);
+  return s;
 }
 
 Status DB::DeleteRange(const WriteOptions& opt,

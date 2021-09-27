@@ -543,9 +543,21 @@ void CompactionIterator::NextFromInput() {
       // we can choose how to handle such a combinations of operations.  We will
       // try to compact out as much as we can in these cases.
       // We will report counts on these anomalous cases.
+      //
+      // Note: If timestamp is enabled, then record will be eligible for
+      // deletion, only if, along with above conditions (Rule 1 and Rule 2)
+      // full_history_ts_low_ is specified and timestamp for that key is less
+      // than *full_history_ts_low_. If it's not eligible for deletion, then we
+      // will output the SingleDelete. For Optimization 3 also, if
+      // full_history_ts_low_ is specified and timestamp for the key is less
+      // than *full_history_ts_low_ then only optimization will be applied.
 
       // The easiest way to process a SingleDelete during iteration is to peek
       // ahead at the next key.
+      const bool is_timestamp_eligible_for_gc =
+          (timestamp_size_ == 0 ||
+           (full_history_ts_low_ && cmp_with_history_ts_low_ < 0));
+
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
 
@@ -554,7 +566,7 @@ void CompactionIterator::NextFromInput() {
       if (input_.Valid() &&
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
-          cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -562,7 +574,6 @@ void CompactionIterator::NextFromInput() {
         TEST_SYNC_POINT_CALLBACK(
             "CompactionIterator::NextFromInput:SingleDelete:1",
             const_cast<Compaction*>(c));
-
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
         if (prev_snapshot == 0 ||
@@ -570,15 +581,20 @@ void CompactionIterator::NextFromInput() {
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
           if (next_ikey.type == kTypeSingleDeletion) {
-            // We encountered two SingleDeletes in a row.  This could be due to
-            // unexpected user input.
-            // Skip the first SingleDelete and let the next iteration decide how
-            // to handle the second SingleDelete
+            // We encountered two SingleDeletes for same key in a row. This
+            // could be due to unexpected user input. Skip the first
+            // SingleDelete and let the next iteration decide how to handle the
+            // second SingleDelete
 
             // First SingleDelete has been skipped since we already called
             // input_.Next().
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
+          } else if (!is_timestamp_eligible_for_gc) {
+            // We cannot drop the SingleDelete as timestamp is enabled, and
+            // timestamp of this key is greater than or equal to
+            // *full_history_ts_low_. We will output the SingleDelete.
+            valid_ = true;
           } else if (has_outputted_key_ ||
                      DefinitelyInSnapshot(ikey_.sequence,
                                           earliest_write_conflict_snapshot_)) {
@@ -635,7 +651,8 @@ void CompactionIterator::NextFromInput() {
         if (compaction_ != nullptr &&
             DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
-                                                       &level_ptrs_)) {
+                                                       &level_ptrs_) &&
+            is_timestamp_eligible_for_gc) {
           // Key doesn't exist outside of this range.
           // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
@@ -987,8 +1004,12 @@ void CompactionIterator::PrepareOutput() {
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge) {
-      assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
-      if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
+      assert(ikey_.type != kTypeDeletion);
+      assert(ikey_.type != kTypeSingleDeletion ||
+             (timestamp_size_ || full_history_ts_low_));
+      if (ikey_.type == kTypeDeletion ||
+          (ikey_.type == kTypeSingleDeletion &&
+           (!timestamp_size_ || !full_history_ts_low_))) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for seq-zero optimization",
                         ikey_.type);
