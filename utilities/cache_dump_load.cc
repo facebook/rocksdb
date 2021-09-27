@@ -15,31 +15,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-IOStatus NewDefaultCacheDumpWriter(const std::shared_ptr<FileSystem>& fs,
-                                   const FileOptions& file_opts,
-                                   const std::string& file_name,
-                                   std::unique_ptr<CacheDumpWriter>* writer) {
+IOStatus NewToFileCacheDumpWriter(const std::shared_ptr<FileSystem>& fs,
+                                  const FileOptions& file_opts,
+                                  const std::string& file_name,
+                                  std::unique_ptr<CacheDumpWriter>* writer) {
   std::unique_ptr<WritableFileWriter> file_writer;
   IOStatus io_s = WritableFileWriter::Create(fs, file_name, file_opts,
                                              &file_writer, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }
-  writer->reset(new DefaultCacheDumpWriter(std::move(file_writer)));
+  writer->reset(new ToFileCacheDumpWriter(std::move(file_writer)));
   return io_s;
 }
 
-IOStatus NewDefaultCacheDumpReader(const std::shared_ptr<FileSystem>& fs,
-                                   const FileOptions& file_opts,
-                                   const std::string& file_name,
-                                   std::unique_ptr<CacheDumpReader>* reader) {
+IOStatus NewFromFileCacheDumpReader(const std::shared_ptr<FileSystem>& fs,
+                                    const FileOptions& file_opts,
+                                    const std::string& file_name,
+                                    std::unique_ptr<CacheDumpReader>* reader) {
   std::unique_ptr<RandomAccessFileReader> file_reader;
   IOStatus io_s = RandomAccessFileReader::Create(fs, file_name, file_opts,
                                                  &file_reader, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }
-  reader->reset(new DefaultCacheDumpReader(std::move(file_reader)));
+  reader->reset(new FromFileCacheDumpReader(std::move(file_reader)));
   return io_s;
 }
 

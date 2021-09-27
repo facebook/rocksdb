@@ -1291,8 +1291,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   cd_options.clock = fault_env_->GetSystemClock().get();
   std::string dump_path = db_->GetName() + "/cache_dump";
   std::unique_ptr<CacheDumpWriter> dump_writer;
-  Status s = NewDefaultCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
-                                       &dump_writer);
+  Status s = NewToFileCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
+                                      &dump_writer);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumper> cache_dumper;
   s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
@@ -1327,8 +1327,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
-  s = NewDefaultCacheDumpReader(fault_fs_, FileOptions(), dump_path,
-                                &dump_reader);
+  s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
+                                 &dump_reader);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumpedLoader> cache_loader;
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
@@ -1451,8 +1451,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   cd_options.clock = fault_env_->GetSystemClock().get();
   std::string dump_path = db1->GetName() + "/cache_dump";
   std::unique_ptr<CacheDumpWriter> dump_writer;
-  Status s = NewDefaultCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
-                                       &dump_writer);
+  Status s = NewToFileCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
+                                      &dump_writer);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumper> cache_dumper;
   s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
@@ -1487,8 +1487,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
   std::unique_ptr<CacheDumpReader> dump_reader;
-  s = NewDefaultCacheDumpReader(fault_fs_, FileOptions(), dump_path,
-                                &dump_reader);
+  s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
+                                 &dump_reader);
   ASSERT_OK(s);
   std::unique_ptr<CacheDumpedLoader> cache_loader;
   s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,

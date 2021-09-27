@@ -21,6 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // the read buffer size of for the default CacheDumpReader
 const unsigned int kDumpReaderBufferSize = 1024;  // 1KB
+static const unsigned int kSizePrefixLen = 4;
 
 enum CacheDumpUnitType : unsigned char {
   kHeader = 1,
@@ -148,30 +149,44 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
 
 // The default implementation of CacheDumpWriter. We write the blocks to a file
 // sequentially.
-class DefaultCacheDumpWriter : public CacheDumpWriter {
+class ToFileCacheDumpWriter : public CacheDumpWriter {
  public:
-  explicit DefaultCacheDumpWriter(
+  explicit ToFileCacheDumpWriter(
       std::unique_ptr<WritableFileWriter>&& file_writer)
       : file_writer_(std::move(file_writer)) {}
 
-  ~DefaultCacheDumpWriter() { Close().PermitUncheckedError(); }
+  ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
+
+  // Write the serilized metadata to the file
+  virtual IOStatus WriteMetadata(const Slice& metadata) override {
+    assert(file_writer_ != nullptr);
+    std::string prefix;
+    PutFixed32(&prefix, static_cast<uint32_t>(metadata.size()));
+    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = file_writer_->Append(metadata);
+    return io_s;
+  }
 
   // Write the serilized data to the file
-  virtual IOStatus Write(const Slice& data) override {
+  virtual IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
-    return file_writer_->Append(data);
+    std::string prefix;
+    PutFixed32(&prefix, static_cast<uint32_t>(data.size()));
+    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = file_writer_->Append(data);
+    return io_s;
   }
 
   // Reset the writer
   virtual IOStatus Close() override {
     file_writer_.reset();
     return IOStatus::OK();
-  }
-
-  // Get the file size
-  virtual uint64_t GetFileSize() override {
-    assert(file_writer_ != nullptr);
-    return file_writer_->GetFileSize();
   }
 
  private:
@@ -181,20 +196,43 @@ class DefaultCacheDumpWriter : public CacheDumpWriter {
 // The default implementation of CacheDumpReader. It is implemented based on
 // RandomAccessFileReader. Note that, we keep an internal variable to remember
 // the current offset.
-class DefaultCacheDumpReader : public CacheDumpReader {
+class FromFileCacheDumpReader : public CacheDumpReader {
  public:
-  explicit DefaultCacheDumpReader(
+  explicit FromFileCacheDumpReader(
       std::unique_ptr<RandomAccessFileReader>&& reader)
       : file_reader_(std::move(reader)),
         offset_(0),
         buffer_(new char[kDumpReaderBufferSize]) {}
 
-  ~DefaultCacheDumpReader() {
-    Close().PermitUncheckedError();
-    delete[] buffer_;
+  ~FromFileCacheDumpReader() { delete[] buffer_; }
+
+  virtual IOStatus ReadMetadata(std::string* metadata) override {
+    uint32_t metadata_len = 0;
+    IOStatus io_s = ReadSizePrefix(&metadata_len);
+    return Read(metadata_len, metadata);
   }
 
-  virtual IOStatus Read(size_t len, std::string* data) override {
+  virtual IOStatus ReadPacket(std::string* data) override {
+    uint32_t data_len = 0;
+    IOStatus io_s = ReadSizePrefix(&data_len);
+    return Read(data_len, data);
+  }
+
+ private:
+  IOStatus ReadSizePrefix(uint32_t* len) {
+    std::string prefix;
+    IOStatus io_s = Read(kSizePrefixLen, &prefix);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    Slice encoded_slice(prefix);
+    if (!GetFixed32(&encoded_slice, len)) {
+      return IOStatus::Corruption("Decode size prefix string failed");
+    }
+    return IOStatus::OK();
+  }
+
+  IOStatus Read(size_t len, std::string* data) {
     assert(file_reader_ != nullptr);
     IOStatus io_s;
 
@@ -221,15 +259,6 @@ class DefaultCacheDumpReader : public CacheDumpReader {
     }
     return io_s;
   }
-
-  virtual size_t GetOffset() const override { return offset_; }
-
-  virtual IOStatus Close() override {
-    file_reader_.reset();
-    return IOStatus::OK();
-  }
-
- private:
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   Slice result_;
   size_t offset_;

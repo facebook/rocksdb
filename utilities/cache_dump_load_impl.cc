@@ -200,12 +200,12 @@ IOStatus CacheDumperImpl::WriteRawBlock(uint64_t timestamp,
 
   // We write the metadata first.
   assert(writer_ != nullptr);
-  IOStatus io_s = writer_->Write(Slice(encoded_meta));
+  IOStatus io_s = writer_->WriteMetadata(Slice(encoded_meta));
   if (!io_s.ok()) {
     return io_s;
   }
   // followed by the dump unit.
-  return writer_->Write(Slice(encoded_data));
+  return writer_->WritePacket(Slice(encoded_data));
 }
 
 // Before we write any block, we write the header first to store the cache dump
@@ -372,7 +372,7 @@ IOStatus CacheDumpedLoaderImpl::ReadDumpUnitMeta(std::string* data,
   assert(reader_ != nullptr);
   assert(data != nullptr);
   assert(unit_meta != nullptr);
-  IOStatus io_s = reader_->Read(kDumpUnitMetaSize, data);
+  IOStatus io_s = reader_->ReadMetadata(data);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -387,9 +387,13 @@ IOStatus CacheDumpedLoaderImpl::ReadDumpUnit(size_t len, std::string* data,
   assert(reader_ != nullptr);
   assert(data != nullptr);
   assert(unit != nullptr);
-  IOStatus io_s = reader_->Read(len, data);
+  IOStatus io_s = reader_->ReadPacket(data);
   if (!io_s.ok()) {
     return io_s;
+  }
+  if (data->size() != len) {
+    return IOStatus::Corruption(
+        "The data being read out does not match the size stored in metadata!");
   }
   Slice block;
   return status_to_io_status(CacheDumperHelper::DecodeDumpUnit(*data, unit));
