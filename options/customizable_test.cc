@@ -23,6 +23,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/secondary_cache.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
@@ -1244,6 +1245,18 @@ class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
+class MockSliceTransform : public SliceTransform {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Mock"; }
+
+  Slice Transform(const Slice& /*key*/) const override { return Slice(); }
+
+  bool InDomain(const Slice& /*key*/) const override { return false; }
+
+  bool InRange(const Slice& /*key*/) const override { return false; }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
@@ -1347,6 +1360,14 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
   // Load any locally defined objects here
+  library.Register<const SliceTransform>(
+      MockSliceTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSliceTransform());
+        return guard->get();
+      });
   library.Register<Statistics>(
       TestStatistics::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
@@ -1561,6 +1582,37 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(),
                  test::SimpleSuffixReverseComparator::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
+  std::shared_ptr<const SliceTransform> result;
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options_, "fixed:16", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.FixedPrefix.22", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options_, "capped:16", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
+
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.CappedPrefix.11", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        SliceTransform::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
   }
 }
 

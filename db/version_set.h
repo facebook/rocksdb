@@ -713,11 +713,11 @@ class Version {
                  const BlobIndex& blob_index, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadRequests = std::vector<
-      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>>;
-  void MultiGetBlob(
-      const ReadOptions& read_options, MultiGetRange& range,
-      const std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
+  using BlobReadRequest =
+      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
+  using BlobReadRequests = std::vector<BlobReadRequest>;
+  void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
+                    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

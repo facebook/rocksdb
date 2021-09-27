@@ -23,10 +23,10 @@
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
-#include "options/options_helper.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
@@ -134,8 +134,7 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
   }
 
   // prefix_extractor and prefix_extractor_block are both non-empty
-  if (table_properties->prefix_extractor_name.compare(
-          prefix_extractor->Name()) != 0) {
+  if (table_properties->prefix_extractor_name != prefix_extractor->AsString()) {
     return true;
   } else {
     return false;
@@ -816,8 +815,19 @@ Status BlockBasedTable::ReadPropertiesBlock(
   }
 #ifndef ROCKSDB_LITE
   if (rep_->table_properties) {
-    ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
-                        &(rep_->table_prefix_extractor));
+    //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
+    // will need to use it
+    ConfigOptions config_options;
+    Status st = SliceTransform::CreateFromString(
+        config_options, rep_->table_properties->prefix_extractor_name,
+        &(rep_->table_prefix_extractor));
+    if (!st.ok()) {
+      //**TODO: Should this be error be returned or swallowed?
+      ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                      "Failed to create prefix extractor[%s]: %s",
+                      rep_->table_properties->prefix_extractor_name.c_str(),
+                      st.ToString().c_str());
+    }
   }
 #endif  // ROCKSDB_LITE
 
@@ -2223,8 +2233,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
         filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
                             no_io, const_ikey_ptr, get_context, lookup_context);
   } else if (!read_options.total_order_seek && prefix_extractor &&
-             rep_->table_properties->prefix_extractor_name.compare(
-                 prefix_extractor->Name()) == 0 &&
+             rep_->table_properties->prefix_extractor_name ==
+                 prefix_extractor->AsString() &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts),
@@ -2265,8 +2275,8 @@ void BlockBasedTable::FullFilterKeysMayMatch(
                                 rep_->level);
     }
   } else if (!read_options.total_order_seek && prefix_extractor &&
-             rep_->table_properties->prefix_extractor_name.compare(
-                 prefix_extractor->Name()) == 0) {
+             rep_->table_properties->prefix_extractor_name ==
+                 prefix_extractor->AsString()) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
