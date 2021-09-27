@@ -322,7 +322,35 @@ bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
 
-Status FileExpectedStateManager::Restore(DB* /* db */) {
+Status FileExpectedStateManager::Restore(DB* db) {
+  // An `ExpectedStateTraceRecordHandler` applies a configurable number of
+  // write operation trace records to the configured expected state.
+  class ExpectedStateTraceRecordHandler : public TraceRecord::Handler {
+    Status Handle(const WriteQueryTraceRecord& /* record */,
+                  std::unique_ptr<TraceRecordResult>* /* result */) override {
+      // TODO(ajkr): apply to expected state.
+      return Status::OK();
+    }
+
+    // Ignore reads.
+    Status Handle(const GetQueryTraceRecord& /* record */,
+                  std::unique_ptr<TraceRecordResult>* /* result */) override {
+      return Status::OK();
+    }
+
+    // Ignore reads.
+    Status Handle(const IteratorSeekQueryTraceRecord& /* record */,
+                  std::unique_ptr<TraceRecordResult>* /* result */) override {
+      return Status::OK();
+    }
+
+    // Ignore reads.
+    Status Handle(const MultiGetQueryTraceRecord& /* record */,
+                  std::unique_ptr<TraceRecordResult>* /* result */) override {
+      return Status::OK();
+    }
+  };
+
   std::string state_filename = ToString(saved_seqno_) + kStateFilenameSuffix;
   std::string state_file_path = GetPathForFilename(state_filename);
 
@@ -346,7 +374,26 @@ Status FileExpectedStateManager::Restore(DB* /* db */) {
                  0 /* size */, false /* use_fsync */);
   }
 
-  // TODO(ajkr): replay!
+  std::unique_ptr<Replayer> replayer;
+  if (s.ok()) {
+    // TODO(ajkr): An API limitation requires we provide `handles` although they
+    // will be unused since we only use the replayer for reading records. Just
+    // give a default CFH for now to satisfy the requirement.
+    s = db->NewDefaultReplayer({db->DefaultColumnFamily()} /* handles */,
+                               std::move(trace_reader), &replayer);
+  }
+  if (s.ok()) {
+    s = replayer->Prepare();
+  }
+  while (s.ok()) {
+    std::unique_ptr<TraceRecord> record;
+    s = replayer->Next(&record);
+  }
+  if (s.IsIncomplete()) {
+    // OK because `Status::Incomplete` is expected upon finishing all the trace
+    // records.
+    s = Status::OK();
+  }
 
   if (s.ok()) {
     s = FileSystem::Default()->RenameFile(latest_file_temp_path,
