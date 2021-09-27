@@ -233,6 +233,11 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   return value_sz;  // the size of the value set.
 }
 
+uint32_t GetValueBase(Slice s) {
+  assert(s.size() >= sizeof(uint32_t));
+  return *((uint32_t*)s.data());
+}
+
 std::string NowNanosStr() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
