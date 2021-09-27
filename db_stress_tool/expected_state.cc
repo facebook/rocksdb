@@ -334,6 +334,10 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                     ExpectedState* state)
         : max_write_ops_(max_write_ops), state_(state) {}
 
+    ~ExpectedStateTraceRecordHandler() {
+      assert(num_write_ops_ == max_write_ops_);
+    }
+
     Status Handle(const WriteQueryTraceRecord& record,
                   std::unique_ptr<TraceRecordResult>* /* result */) override {
       if (num_write_ops_ == max_write_ops_) {
@@ -496,6 +500,11 @@ Status FileExpectedStateManager::Restore(DB* db) {
     s = FileSystem::Default()->RenameFile(latest_file_temp_path,
                                           latest_file_path, IOOptions(),
                                           nullptr /* dbg */);
+  }
+  if (s.ok()) {
+    latest_.reset(new FileExpectedState(latest_file_path,
+                                        max_key_, num_column_families_));
+    s = latest_->Open(false /* create */);
   }
 
   // Delete old state/trace files. We must delete the state file first.
