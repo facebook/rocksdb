@@ -502,8 +502,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                           nullptr /* dbg */);
   }
   if (s.ok()) {
-    latest_.reset(new FileExpectedState(latest_file_path,
-                                        max_key_, num_column_families_));
+    latest_.reset(new FileExpectedState(latest_file_path, max_key_,
+                                        num_column_families_));
     s = latest_->Open(false /* create */);
   }
 
@@ -587,9 +587,7 @@ Status AnonExpectedStateManager::Open() {
   return latest_->Open(true /* create */);
 }
 
-bool AnonExpectedStateManager::HasHistory() {
-  return false;
-}
+bool AnonExpectedStateManager::HasHistory() { return false; }
 
 Status AnonExpectedStateManager::Restore(DB* /* db */) {
   return Status::NotSupported();
