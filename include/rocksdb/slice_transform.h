@@ -67,7 +67,7 @@ class SliceTransform : public Customizable {
   // prefix size of 4.
   //
   // Wiki documentation here:
-  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek
   //
   virtual bool InDomain(const Slice& key) const = 0;
 
@@ -107,10 +107,15 @@ class SliceTransform : public Customizable {
   }
 };
 
+// The prefix is the first `prefix_len` bytes of the key, and keys shorter
+// then `prefix_len` are not InDomain.
 extern const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 
+// The prefix is the first min(length(key),`cap_len`) bytes of the key, and
+// all keys are InDomain.
 extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
+// Prefix is equal to key. All keys are InDomain.
 extern const SliceTransform* NewNoopTransform();
 
 }  // namespace ROCKSDB_NAMESPACE
