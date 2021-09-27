@@ -27,7 +27,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
 #ifndef ROCKSDB_LITE
         {"length",
          {0, OptionType::kSizeT, OptionVerificationType::kNormal,
-          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever, 0}},
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
 #endif  // ROCKSDB_LITE
 };
 
