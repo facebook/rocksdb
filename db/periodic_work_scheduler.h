@@ -11,6 +11,7 @@
 #include "util/timer.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 
 // PeriodicWorkScheduler is a singleton object, which is scheduling/running
 // DumpStats(), PersistStats(), and FlushInfoLog() for all DB instances. All DB
@@ -49,25 +50,26 @@ class PeriodicWorkScheduler {
   //     the `Timer::Cancel()`s and `Timer::Shutdown()` run atomically.
   port::Mutex timer_mu_;
 
-  explicit PeriodicWorkScheduler(Env* env);
+  explicit PeriodicWorkScheduler(const std::shared_ptr<SystemClock>& clock);
 
  private:
   std::string GetTaskName(DBImpl* dbi, const std::string& func_name);
 };
 
 #ifndef NDEBUG
-// PeriodicWorkTestScheduler is for unittest, which can specify the Env like
-// SafeMockTimeEnv. It also contains functions for unittest.
+// PeriodicWorkTestScheduler is for unittest, which can specify the SystemClock
+// It also contains functions for unittest.
 class PeriodicWorkTestScheduler : public PeriodicWorkScheduler {
  public:
-  static PeriodicWorkTestScheduler* Default(Env* env);
+  static PeriodicWorkTestScheduler* Default(
+      const std::shared_ptr<SystemClock>& clock);
 
   void TEST_WaitForRun(std::function<void()> callback) const;
 
   size_t TEST_GetValidTaskNum() const;
 
  private:
-  explicit PeriodicWorkTestScheduler(Env* env);
+  explicit PeriodicWorkTestScheduler(const std::shared_ptr<SystemClock>& clock);
 };
 #endif  // !NDEBUG
 

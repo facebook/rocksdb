@@ -45,7 +45,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   uint64_t total_size = GetTotalFilesSize(level_files);
 
   int64_t _current_time;
-  auto status = ioptions_.env->GetCurrentTime(&_current_time);
+  auto status = ioptions_.clock->GetCurrentTime(&_current_time);
   if (!status.ok()) {
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: Couldn't get current time: %s. "
@@ -244,7 +244,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log);
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
   Compaction* c = PickCompaction(cf_name, mutable_cf_options,
                                  mutable_db_options, vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();

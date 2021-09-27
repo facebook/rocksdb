@@ -76,7 +76,7 @@ class FileChecksumGenFactory {
 };
 
 // FileChecksumList stores the checksum information of a list of files (e.g.,
-// SST files). The FileChecksumLIst can be used to store the checksum
+// SST files). The FileChecksumList can be used to store the checksum
 // information of all SST file getting  from the MANIFEST, which are
 // the checksum information of all valid SST file of a DB instance. It can
 // also be used to store the checksum information of a list of SST files to
@@ -116,7 +116,7 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
-// Return a shared_ptr of the builtin Crc32c based file checksum generatory
+// Return a shared_ptr of the builtin Crc32c based file checksum generator
 // factory object, which can be shared to create the Crc32c based checksum
 // generator object.
 // Note: this implementation is compatible with many other crc32c checksum

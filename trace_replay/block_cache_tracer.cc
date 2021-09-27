@@ -99,9 +99,9 @@ uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
-    Env* env, const TraceOptions& trace_options,
+    SystemClock* clock, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
+    : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
@@ -131,7 +131,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
     std::string rkStorage;
     if ((trace_options_.filter & kTraceFilterReferencedKey) != 0) {
       ParsedInternalKey pk;
-      Status st = ParseInternalKey(rk, &pk);
+      Status st = ParseInternalKey(rk, &pk, false);
       if (!st.ok()) {
         return st;
       }
@@ -157,7 +157,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
 
 Status BlockCacheTraceWriter::WriteHeader() {
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = TraceType::kTraceBegin;
   PutLengthPrefixedSlice(&trace.payload, kTraceMagic);
   PutFixed32(&trace.payload, kMajorVersion);
@@ -459,7 +459,7 @@ BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
 BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
 
 Status BlockCacheTracer::StartTrace(
-    Env* env, const TraceOptions& trace_options,
+    SystemClock* clock, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
@@ -468,7 +468,7 @@ Status BlockCacheTracer::StartTrace(
   get_id_counter_.store(1);
   trace_options_ = trace_options;
   writer_.store(
-      new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
+      new BlockCacheTraceWriter(clock, trace_options, std::move(trace_writer)));
   return writer_.load()->WriteHeader();
 }
 

@@ -39,7 +39,7 @@ class BlockFetcher {
   BlockFetcher(RandomAccessFileReader* file,
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents, const ImmutableCFOptions& ioptions,
+               BlockContents* contents, const ImmutableOptions& ioptions,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
@@ -64,7 +64,7 @@ class BlockFetcher {
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {}
 
-  Status ReadBlockContents();
+  IOStatus ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
 #ifndef NDEBUG
@@ -90,7 +90,7 @@ class BlockFetcher {
   const ReadOptions read_options_;
   const BlockHandle& handle_;
   BlockContents* contents_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const bool do_uncompress_;
   const bool maybe_compressed_;
   const BlockType block_type_;
@@ -100,7 +100,7 @@ class BlockFetcher {
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
-  Status status_;
+  IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   AlignedBuf direct_io_buf_;

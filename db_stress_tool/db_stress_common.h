@@ -132,6 +132,9 @@ DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_int32(top_level_index_pinning);
+DECLARE_int32(partition_pinning);
+DECLARE_int32(unpartitioned_pinning);
 DECLARE_bool(use_clock_cache);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
@@ -141,6 +144,7 @@ DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
+DECLARE_bool(use_ribbon_filter);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
@@ -202,6 +206,7 @@ DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
+DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
@@ -228,6 +233,7 @@ DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 
 #ifndef ROCKSDB_LITE
+// Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
 DECLARE_uint64(blob_db_min_blob_size);
 DECLARE_uint64(blob_db_bytes_per_sync);
@@ -235,6 +241,16 @@ DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
+
+// Options for integrated BlobDB
+DECLARE_bool(allow_setting_blob_options_dynamically);
+DECLARE_bool(enable_blob_files);
+DECLARE_uint64(min_blob_size);
+DECLARE_uint64(blob_file_size);
+DECLARE_string(blob_compression_type);
+DECLARE_bool(enable_blob_garbage_collection);
+DECLARE_double(blob_garbage_collection_age_cutoff);
+
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
 
@@ -242,13 +258,17 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(fail_if_options_file_error);
+DECLARE_uint64(batch_protection_bytes_per_key);
 
-const long KB = 1024;
-const int kRandomValueMaxFactor = 3;
-const int kValueMaxLen = 100;
+DECLARE_uint64(user_timestamp_size);
+
+constexpr long KB = 1024;
+constexpr int kRandomValueMaxFactor = 3;
+constexpr int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
-extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
 class FaultInjectionTestFS;
@@ -543,6 +563,9 @@ extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+extern std::string GenerateTimestampForRead();
+extern std::string NowNanosStr();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

@@ -22,7 +22,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              "=<full_path_to_db_directory> when necessary\n");
   ret.append("\n");
   ret.append("commands can optionally specify --" + LDBCommand::ARG_ENV_URI +
-             "=<uri_of_environment> if necessary\n\n");
+             "=<uri_of_environment> or --" + LDBCommand::ARG_FS_URI +
+             "=<uri_of_filesystem> if necessary\n\n");
   ret.append(
       "The following optional parameters control if keys/values are "
       "input/output as hex or as plain strings:\n");
@@ -87,6 +88,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
+  GetPropertyCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);
   CreateColumnFamilyCommand::Help(ret);
   DropColumnFamilyCommand::Help(ret);

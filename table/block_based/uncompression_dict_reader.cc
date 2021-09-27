@@ -60,11 +60,11 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
       prefetch_buffer, read_options, rep->compression_dict_handle,
       UncompressionDict::GetEmptyDict(), uncompression_dict,
       BlockType::kCompressionDictionary, get_context, lookup_context,
-      /* for_compaction */ false, use_cache);
+      /* for_compaction */ false, use_cache, /* wait_for_cache */ true);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(
-        rep->ioptions.info_log,
+        rep->ioptions.logger,
         "Encountered error while reading data from compression dictionary "
         "block %s",
         s.ToString().c_str());

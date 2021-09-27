@@ -8,15 +8,17 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "monitoring/histogram_windowing.h"
-#include "monitoring/histogram.h"
-#include "util/cast_util.h"
 
 #include <algorithm>
+
+#include "monitoring/histogram.h"
+#include "rocksdb/system_clock.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 HistogramWindowingImpl::HistogramWindowingImpl() {
-  env_ = Env::Default();
+  clock_ = SystemClock::Default();
   window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
   Clear();
 }
@@ -28,7 +30,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(
       num_windows_(num_windows),
       micros_per_window_(micros_per_window),
       min_num_per_window_(min_num_per_window) {
-  env_ = Env::Default();
+  clock_ = SystemClock::Default();
   window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
   Clear();
 }
@@ -44,7 +46,7 @@ void HistogramWindowingImpl::Clear() {
     window_stats_[i].Clear();
   }
   current_window_.store(0, std::memory_order_relaxed);
-  last_swap_time_.store(env_->NowMicros(), std::memory_order_relaxed);
+  last_swap_time_.store(clock_->NowMicros(), std::memory_order_relaxed);
 }
 
 bool HistogramWindowingImpl::Empty() const { return stats_.Empty(); }
@@ -129,7 +131,7 @@ void HistogramWindowingImpl::Data(HistogramData * const data) const {
 }
 
 void HistogramWindowingImpl::TimerTick() {
-  uint64_t curr_time = env_->NowMicros();
+  uint64_t curr_time = clock_->NowMicros();
   size_t curr_window_ = static_cast<size_t>(current_window());
   if (curr_time - last_swap_time() > micros_per_window_ &&
       window_stats_[curr_window_].num() >= min_num_per_window_) {
@@ -144,7 +146,7 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
   // If mutex is held by Merge() or Clear(), next Add() will take care of the
   // swap, if needed.
   if (mutex_.try_lock()) {
-    last_swap_time_.store(env_->NowMicros(), std::memory_order_relaxed);
+    last_swap_time_.store(clock_->NowMicros(), std::memory_order_relaxed);
 
     uint64_t curr_window = current_window();
     uint64_t next_window = (curr_window == num_windows_ - 1) ?

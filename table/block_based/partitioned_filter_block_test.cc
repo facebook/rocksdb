@@ -12,7 +12,6 @@
 #include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -59,7 +58,7 @@ class PartitionedFilterBlockTest
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
   InternalKeyComparator icomp_;

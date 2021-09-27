@@ -90,6 +90,9 @@ class SstFileWriter {
   // ascending order.
   // If unsafe_disable_sync is false, SstFileWriter will not sync new sst file
   // on close.
+  // The `skip_filters` option is DEPRECATED and could be removed in the
+  // future. Use `BlockBasedTableOptions::filter_policy` to control filter
+  // generation.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,

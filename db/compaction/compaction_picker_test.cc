@@ -12,7 +12,6 @@
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -31,7 +30,7 @@ class CompactionPickerTest : public testing::Test {
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
   LevelCompactionPicker level_compaction_picker;
@@ -142,7 +141,7 @@ class CompactionPickerTest : public testing::Test {
     if (temp_vstorage_) {
       VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
                              vstorage_.get(), nullptr);
-      builder.SaveTo(temp_vstorage_.get());
+      ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
@@ -651,7 +650,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction3) {
 
 TEST_F(CompactionPickerTest, UniversalPeriodicCompaction4) {
   // The case where universal periodic compaction couldn't form
-  // a compaction that inlcudes any file marked for periodic compaction.
+  // a compaction that includes any file marked for periodic compaction.
   // Right now we form the compaction anyway if it is more than one
   // sorted run. Just put the case here to validate that it doesn't
   // crash.
@@ -801,7 +800,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
   Add(2, 6U, "150", "175",
       60000000U);  // Overlaps with file 26, 27, total size 521M
   Add(2, 7U, "176", "200", 60000000U);  // Overlaps with file 27, 28, total size
-                                        // 520M, the smalelst overlapping
+                                        // 520M, the smallest overlapping
   Add(2, 8U, "201", "300",
       60000000U);  // Overlaps with file 28, 29, total size 521M
 
@@ -1229,7 +1228,7 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {
   Add(0, 32U, "001", "400", 1000000000U, 0, 0);
   Add(0, 33U, "001", "400", 1000000000U, 0, 0);
 
-  // L1 total size 2GB, score 2.2. If one file being comapcted, score 1.1.
+  // L1 total size 2GB, score 2.2. If one file being compacted, score 1.1.
   Add(1, 4U, "050", "300", 1000000000U, 0, 0);
   file_map_[4u].first->being_compacted = true;
   Add(1, 5U, "301", "350", 1000000000U, 0, 0);
@@ -1262,7 +1261,7 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri2) {
   Add(0, 32U, "001", "400", 1000000000U, 0, 0);
   Add(0, 33U, "001", "400", 1000000000U, 0, 0);
 
-  // L1 total size 2GB, score 2.2. If one file being comapcted, score 1.1.
+  // L1 total size 2GB, score 2.2. If one file being compacted, score 1.1.
   Add(1, 4U, "050", "300", 1000000000U, 0, 0);
   Add(1, 5U, "301", "350", 1000000000U, 0, 0);
 

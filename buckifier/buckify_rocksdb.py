@@ -24,10 +24,10 @@ from util import ColorString
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
 # $python3 buckifier/buckify_rocksdb.py \
-#        '{"fake": { \
-#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
-#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
-#                  } \
+#        '{"fake": {
+#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],
+#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"]
+#                  }
 #         }'
 # (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
 # unit tests, and will use the extra_compiler_flags to compile the unit test
@@ -69,25 +69,25 @@ def get_cc_files(repo_path):
     return cc_files
 
 
-# Get parallel tests from Makefile
-def get_parallel_tests(repo_path):
+# Get non_parallel tests from Makefile
+def get_non_parallel_tests(repo_path):
     Makefile = repo_path + "/Makefile"
 
     s = set({})
 
-    found_parallel_tests = False
+    found_non_parallel_tests = False
     for line in open(Makefile):
         line = line.strip()
-        if line.startswith("PARALLEL_TEST ="):
-            found_parallel_tests = True
-        elif found_parallel_tests:
+        if line.startswith("NON_PARALLEL_TEST ="):
+            found_non_parallel_tests = True
+        elif found_non_parallel_tests:
             if line.endswith("\\"):
                 # remove the trailing \
                 line = line[:-1]
                 line = line.strip()
                 s.add(line)
             else:
-                # we consumed all the parallel tests
+                # we consumed all the non_parallel tests
                 break
 
     return s
@@ -123,23 +123,33 @@ def generate_targets(repo_path, deps_map):
     src_mk = parse_src_mk(repo_path)
     # get all .cc files
     cc_files = get_cc_files(repo_path)
-    # get parallel tests from Makefile
-    parallel_tests = get_parallel_tests(repo_path)
+    # get non_parallel tests from Makefile
+    non_parallel_tests = get_non_parallel_tests(repo_path)
 
-    if src_mk is None or cc_files is None or parallel_tests is None:
+    if src_mk is None or cc_files is None or non_parallel_tests is None:
         return False
 
-    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
+    extra_argv = ""
+    if len(sys.argv) >= 2:
+        # Heuristically quote and canonicalize whitespace for inclusion
+        # in how the file was generated.
+        extra_argv = " '{0}'".format(" ".join(sys.argv[1].split()))
+
+    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path, extra_argv)
 
     # rocksdb_lib
     TARGETS.add_library(
         "rocksdb_lib",
         src_mk["LIB_SOURCES"] +
+        # always add range_tree, it's only excluded on ppc64, which we don't use internally
+        src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"])
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
         src_mk["LIB_SOURCES"] +
+        # always add range_tree, it's only excluded on ppc64, which we don't use internally
+        src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"],
         deps=None,
         headers=None,
@@ -162,6 +172,11 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("BENCH_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []) +
         ["test_util/testutil.cc"],
+        [":rocksdb_lib"])
+    # rocksdb_cache_bench_tools_lib
+    TARGETS.add_library(
+        "rocksdb_cache_bench_tools_lib",
+        src_mk.get("CACHE_BENCH_LIB_SOURCES", []),
         [":rocksdb_lib"])
     # rocksdb_stress_lib
     TARGETS.add_rocksdb_library(
@@ -201,7 +216,7 @@ def generate_targets(repo_path, deps_map):
             TARGETS.register_test(
                 test_target_name,
                 test_src,
-                test in parallel_tests,
+                test not in non_parallel_tests,
                 json.dumps(deps['extra_deps']),
                 json.dumps(deps['extra_compiler_flags']))
 

@@ -41,6 +41,7 @@ class KafkaWritableFile : public CloudLogWritableFile {
   }
 
   ~KafkaWritableFile() {}
+  using CloudLogWritableFile::Append;
   virtual Status Append(const Slice& data);
   virtual Status Close();
   virtual bool IsSyncThreadSafe() const;

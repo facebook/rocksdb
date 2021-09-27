@@ -6,18 +6,21 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // NOTE: SpecialEnv offers most of this functionality, along with hooks
 // for safe DB behavior under a mock time environment, so should be used
-// instead of MockTimeEnv for DB tests.
-class MockTimeEnv : public EnvWrapper {
+// instead of MockSystemClock for DB tests.
+class MockSystemClock : public SystemClockWrapper {
  public:
-  explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
+  explicit MockSystemClock(const std::shared_ptr<SystemClock>& base)
+      : SystemClockWrapper(base) {}
 
+  const char* Name() const override { return "MockSystemClock"; }
   virtual Status GetCurrentTime(int64_t* time_sec) override {
     assert(time_sec != nullptr);
     *time_sec = static_cast<int64_t>(current_time_us_ / kMicrosInSecond);
@@ -33,9 +36,9 @@ class MockTimeEnv : public EnvWrapper {
     return current_time_us_ * 1000;
   }
 
-  uint64_t RealNowMicros() { return target()->NowMicros(); }
+  uint64_t RealNowMicros() { return target_->NowMicros(); }
 
-  void set_current_time(uint64_t time_sec) {
+  void SetCurrentTime(uint64_t time_sec) {
     assert(time_sec < std::numeric_limits<uint64_t>::max() / kMicrosInSecond);
     assert(time_sec * kMicrosInSecond >= current_time_us_);
     current_time_us_ = time_sec * kMicrosInSecond;

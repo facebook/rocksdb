@@ -20,35 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 // of configuring the objects.
 class ConfigurableHelper {
  public:
-  // Registers the input name with the options and associated map.
-  // When classes register their options in this manner, most of the
-  // functionality (excluding unknown options and validate/prepare) is
-  // implemented by the base class.
-  //
-  // This method should be called in the class constructor to register the
-  // option set for this object.  For example, to register the options
-  // associated with the BlockBasedTableFactory, the constructor calls this
-  // method passing in:
-  // - the name of the options ("BlockBasedTableOptions");
-  // - the options object (the BlockBasedTableOptions object for this object;
-  // - the options type map for the BlockBasedTableOptions.
-  // This registration allows the Configurable class to process the option
-  // values associated with the BlockBasedTableOptions without further code in
-  // the derived class.
-  //
-  // @param name    The name of this set of options (@see GetOptionsPtr)
-  // @param opt_ptr Pointer to the options to associate with this name
-  // @param opt_map Options map that controls how this option is configured.
-  template <typename T>
-  static void RegisterOptions(
-      Configurable& configurable, T* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
-    RegisterOptions(configurable, T::kName(), opt_ptr, opt_map);
-  }
-  static void RegisterOptions(
-      Configurable& configurable, const std::string& name, void* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
-
+  constexpr static const char* kIdPropName = "id";
+  constexpr static const char* kIdPropSuffix = ".id";
   // Configures the input Configurable object based on the parameters.
   // On successful completion, the Configurable is updated with the settings
   // from the opt_map.
@@ -74,6 +47,43 @@ class ConfigurableHelper {
       const ConfigOptions& config_options, Configurable& configurable,
       const std::unordered_map<std::string, std::string>& options,
       std::unordered_map<std::string, std::string>* unused);
+
+  // Helper method for configuring a new customizable object.
+  // If base_opts are set, this is the "default" options to use for the new
+  // object.  Then any values in "new_opts" are applied to the object.
+  // Returns OK if the object could be successfully configured
+  // @return NotFound If any of the names in the base or new opts were not valid
+  //      for this object.
+  // @return NotSupported  If any of the names are valid but the object does
+  //       not know how to convert the value.  This can happen if, for example,
+  //       there is some nested Configurable that cannot be created.
+  // @return InvalidArgument If any of the values cannot be successfully
+  //       parsed.
+  static Status ConfigureNewObject(
+      const ConfigOptions& config_options, Configurable* object,
+      const std::string& id, const std::string& base_opts,
+      const std::unordered_map<std::string, std::string>& new_opts);
+
+  // Splits the input opt_value into the ID field and the remaining options.
+  // The input opt_value can be in the form of "name" or "name=value
+  // [;name=value]". The first form uses the "name" as an id with no options The
+  // latter form converts the input into a map of name=value pairs and sets "id"
+  // to the "id" value from the map.
+  // @param opt_value The value to split into id and options
+  // @param id The id field from the opt_value
+  // @param options The remaining name/value pairs from the opt_value
+  // @param default_id If specified and there is no id field in the map, this
+  // value is returned as the ID
+  // @return OK if the value was converted to a map succesfully and an ID was
+  // found.
+  // @return InvalidArgument if the value could not be converted to a map or
+  // there was or there is no id property in the map.
+  static Status GetOptionsMap(
+      const std::string& opt_value, const Customizable* custom, std::string* id,
+      std::unordered_map<std::string, std::string>* options);
+  static Status GetOptionsMap(
+      const std::string& opt_value, const std::string& default_id,
+      std::string* id, std::unordered_map<std::string, std::string>* options);
 
 #ifndef ROCKSDB_LITE
   // Internal method to configure a set of options for this object.
@@ -205,6 +215,11 @@ class ConfigurableHelper {
   static const OptionTypeInfo* FindOption(
       const std::vector<Configurable::RegisteredOptions>& options,
       const std::string& name, std::string* opt_name, void** opt_ptr);
+
+  static Status ConfigureCustomizableOption(
+      const ConfigOptions& config_options, Configurable& configurable,
+      const OptionTypeInfo& opt_info, const std::string& opt_name,
+      const std::string& name, const std::string& value, void* opt_ptr);
 #endif  // ROCKSDB_LITE
 };
 

@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <algorithm>
 #include <memory>
-#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 
@@ -129,6 +128,10 @@ class BytewiseComparatorImpl : public Comparator {
   int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/, const Slice& b,
                               bool /*b_has_ts*/) const override {
     return a.compare(b);
+  }
+
+  bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const override {
+    return a == b;
   }
 };
 

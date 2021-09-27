@@ -15,7 +15,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "port/stack_trace.h"

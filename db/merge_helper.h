@@ -25,6 +25,7 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
+class SystemClock;
 
 class MergeHelper {
  public:
@@ -48,7 +49,7 @@ class MergeHelper {
                                const Slice& key, const Slice* value,
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
-                               Statistics* statistics, Env* env,
+                               Statistics* statistics, SystemClock* clock,
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
 
@@ -66,6 +67,8 @@ class MergeHelper {
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
+  // allow_data_in_errors: (IN) if true, data details will be displayed in
+  //                   error/log messages.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -80,7 +83,8 @@ class MergeHelper {
   Status MergeUntil(InternalIterator* iter,
                     CompactionRangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false);
+                    const bool at_bottom = false,
+                    const bool allow_data_in_errors = false);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.
@@ -137,6 +141,7 @@ class MergeHelper {
 
  private:
   Env* env_;
+  SystemClock* clock_;
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   const CompactionFilter* compaction_filter_;

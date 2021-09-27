@@ -22,42 +22,63 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
       whole_key_filtering_(whole_key_filtering),
       last_whole_key_recorded_(false),
       last_prefix_recorded_(false),
-      num_added_(0) {
+      last_key_in_domain_(false),
+      any_added_(false) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
 }
 
-void FullFilterBlockBuilder::Add(const Slice& key) {
-  const bool add_prefix = prefix_extractor_ && prefix_extractor_->InDomain(key);
+size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
+  return filter_bits_builder_->EstimateEntriesAdded();
+}
+
+void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  const bool add_prefix =
+      prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
+
+  if (!last_prefix_recorded_ && last_key_in_domain_) {
+    // We can reach here when a new filter partition starts in partitioned
+    // filter. The last prefix in the previous partition should be added if
+    // necessary regardless of key_without_ts, to support prefix SeekForPrev.
+    AddKey(last_prefix_str_);
+    last_prefix_recorded_ = true;
+  }
+
   if (whole_key_filtering_) {
     if (!add_prefix) {
-      AddKey(key);
+      AddKey(key_without_ts);
     } else {
       // if both whole_key and prefix are added to bloom then we will have whole
-      // key and prefix addition being interleaved and thus cannot rely on the
-      // bits builder to properly detect the duplicates by comparing with the
-      // last item.
+      // key_without_ts and prefix addition being interleaved and thus cannot
+      // rely on the bits builder to properly detect the duplicates by comparing
+      // with the last item.
       Slice last_whole_key = Slice(last_whole_key_str_);
-      if (!last_whole_key_recorded_ || last_whole_key.compare(key) != 0) {
-        AddKey(key);
+      if (!last_whole_key_recorded_ ||
+          last_whole_key.compare(key_without_ts) != 0) {
+        AddKey(key_without_ts);
         last_whole_key_recorded_ = true;
-        last_whole_key_str_.assign(key.data(), key.size());
+        last_whole_key_str_.assign(key_without_ts.data(),
+                                   key_without_ts.size());
       }
     }
   }
   if (add_prefix) {
-    AddPrefix(key);
+    last_key_in_domain_ = true;
+    AddPrefix(key_without_ts);
+  } else {
+    last_key_in_domain_ = false;
   }
 }
 
 // Add key to filter if needed
 inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
   filter_bits_builder_->AddKey(key);
-  num_added_++;
+  any_added_ = true;
 }
 
 // Add prefix to filter if needed
 void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
+  assert(prefix_extractor_ && prefix_extractor_->InDomain(key));
   Slice prefix = prefix_extractor_->Transform(key);
   if (whole_key_filtering_) {
     // if both whole_key and prefix are added to bloom then we will have whole
@@ -85,8 +106,8 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
-  if (num_added_ != 0) {
-    num_added_ = 0;
+  if (any_added_) {
+    any_added_ = false;
     return filter_bits_builder_->Finish(&filter_data_);
   }
   return Slice();
@@ -245,9 +266,9 @@ void FullFilterBlockReader::MayMatch(
   MultiGetRange filter_range(*range, range->begin(), range->end());
   for (auto iter = filter_range.begin(); iter != filter_range.end(); ++iter) {
     if (!prefix_extractor) {
-      keys[num_keys++] = &iter->ukey;
-    } else if (prefix_extractor->InDomain(iter->ukey)) {
-      prefixes.emplace_back(prefix_extractor->Transform(iter->ukey));
+      keys[num_keys++] = &iter->ukey_without_ts;
+    } else if (prefix_extractor->InDomain(iter->ukey_without_ts)) {
+      prefixes.emplace_back(prefix_extractor->Transform(iter->ukey_without_ts));
       keys[num_keys++] = &prefixes.back();
     } else {
       filter_range.SkipKey(iter);
@@ -283,16 +304,16 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 bool FullFilterBlockReader::RangeMayExist(
-    const Slice* iterate_upper_bound, const Slice& user_key,
+    const Slice* iterate_upper_bound, const Slice& user_key_without_ts,
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
     bool need_upper_bound_check, bool no_io,
     BlockCacheLookupContext* lookup_context) {
-  if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
+  if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
   }
-  Slice prefix = prefix_extractor->Transform(user_key);
+  Slice prefix = prefix_extractor->Transform(user_key_without_ts);
   if (need_upper_bound_check &&
       !IsFilterCompatible(iterate_upper_bound, prefix, comparator)) {
     *filter_checked = false;
@@ -318,7 +339,8 @@ bool FullFilterBlockReader::IsFilterCompatible(
     }
     Slice upper_bound_xform = prefix_extractor->Transform(*iterate_upper_bound);
     // first check if user_key and upper_bound all share the same prefix
-    if (!comparator->Equal(prefix, upper_bound_xform)) {
+    if (comparator->CompareWithoutTimestamp(prefix, false, upper_bound_xform,
+                                            false) != 0) {
       // second check if user_key's prefix is the immediate predecessor of
       // upper_bound and have the same length. If so, we know for sure all
       // keys in the range [user_key, upper_bound) share the same prefix.

@@ -112,12 +112,18 @@ struct ParsedInternalKey {
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
+  std::string DebugString(bool log_err_key, bool hex) const;
 
   void clear() {
     user_key.clear();
     sequence = 0;
     type = kTypeDeletion;
+  }
+
+  void SetTimestamp(const Slice& ts) {
+    assert(ts.size() <= user_key.size());
+    const char* addr = user_key.data() + user_key.size() - ts.size();
+    memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
 };
 
@@ -140,8 +146,10 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
   *seq = packed >> 8;
   *t = static_cast<ValueType>(packed & 0xff);
 
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
+  // Commented the following two assertions in order to test key-value checksum
+  // on corrupted keys without crashing ("DbKvChecksumTest").
+  // assert(*seq <= kMaxSequenceNumber);
+  // assert(IsExtendedValueType(*t));
 }
 
 EntryType GetEntryType(ValueType value_type);
@@ -161,12 +169,20 @@ extern void AppendInternalKeyWithDifferentTimestamp(
 extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                                     ValueType t);
 
+// Append the key and a minimal timestamp to *result
+extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
+// Append the key and a maximal timestamp to *result
+extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
 // On error, returns false, leaves "*result" in an undefined state.
 extern Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result);
+                               ParsedInternalKey* result, bool log_err_key);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -285,8 +301,8 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return (ParseInternalKey(Slice(rep_), &parsed) == Status::OK()) ? true
-                                                                    : false;
+    return (ParseInternalKey(Slice(rep_), &parsed, false /* log_err_key */)
+                .ok());  // TODO
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
@@ -319,7 +335,7 @@ class InternalKey {
     AppendInternalKeyFooter(&rep_, s, t);
   }
 
-  std::string DebugString(bool hex = false) const;
+  std::string DebugString(bool hex) const;
 };
 
 inline int InternalKeyComparator::Compare(const InternalKey& a,
@@ -328,20 +344,27 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
 }
 
 inline Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result) {
+                               ParsedInternalKey* result, bool log_err_key) {
   const size_t n = internal_key.size();
+
   if (n < kNumInternalBytes) {
-    return Status::Corruption("Internal Key too small");
+    return Status::Corruption("Corrupted Key: Internal Key too small. Size=" +
+                              std::to_string(n) + ". ");
   }
+
   uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - kNumInternalBytes);
-  return IsExtendedValueType(result->type)
-             ? Status::OK()
-             : Status::Corruption("Invalid Key Type");
+
+  if (IsExtendedValueType(result->type)) {
+    return Status::OK();
+  } else {
+    return Status::Corruption("Corrupted Key",
+                              result->DebugString(log_err_key, true));
+  }
 }
 
 // Update the sequence number in the internal key.
@@ -475,15 +498,21 @@ class IterKey {
 
   // Update the sequence number in the internal key.  Guarantees not to
   // invalidate slices to the key (and the user key).
-  void UpdateInternalKey(uint64_t seq, ValueType t) {
+  void UpdateInternalKey(uint64_t seq, ValueType t, const Slice* ts = nullptr) {
     assert(!IsKeyPinned());
     assert(key_size_ >= kNumInternalBytes);
+    if (ts) {
+      assert(key_size_ >= kNumInternalBytes + ts->size());
+      memcpy(&buf_[key_size_ - kNumInternalBytes - ts->size()], ts->data(),
+             ts->size());
+    }
     uint64_t newval = (seq << 8) | t;
     EncodeFixed64(&buf_[key_size_ - kNumInternalBytes], newval);
   }
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
+  // user_key does not have timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -587,7 +616,7 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
-// Convert from a SliceTranform of user keys, to a SliceTransform of
+// Convert from a SliceTransform of user keys, to a SliceTransform of
 // user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:

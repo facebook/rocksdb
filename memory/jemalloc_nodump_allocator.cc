@@ -132,6 +132,9 @@ size_t JemallocNodumpAllocator::UsableSize(void* p,
 Status NewJemallocNodumpAllocator(
     JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
+  if (memory_allocator == nullptr) {
+    return Status::InvalidArgument("memory_allocator must be non-null.");
+  }
   *memory_allocator = nullptr;
   Status unsupported = Status::NotSupported(
       "JemallocNodumpAllocator only available with jemalloc version >= 5 "
@@ -142,9 +145,6 @@ Status NewJemallocNodumpAllocator(
 #else
   if (!HasJemalloc()) {
     return unsupported;
-  }
-  if (memory_allocator == nullptr) {
-    return Status::InvalidArgument("memory_allocator must be non-null.");
   }
   if (options.limit_tcache_size &&
       options.tcache_size_lower_bound >= options.tcache_size_upper_bound) {

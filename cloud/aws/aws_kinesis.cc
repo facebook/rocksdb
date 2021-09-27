@@ -55,6 +55,7 @@ class KinesisWritableFile : public CloudLogWritableFile {
   }
   virtual ~KinesisWritableFile() {}
 
+  using CloudLogWritableFile::Append;
   virtual Status Append(const Slice& data) override;
   virtual Status Close() override;
   virtual Status LogDelete() override;

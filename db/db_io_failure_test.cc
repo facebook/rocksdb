@@ -43,11 +43,15 @@ TEST_F(DBIOFailureTest, DropWrites) {
           if (level > 0 && level == dbfull()->NumberLevels() - 1) {
             break;
           }
-          dbfull()->TEST_CompactRange(level, nullptr, nullptr, nullptr,
-                                      true /* disallow trivial move */);
+          Status s =
+              dbfull()->TEST_CompactRange(level, nullptr, nullptr, nullptr,
+                                          true /* disallow trivial move */);
+          ASSERT_TRUE(s.ok() || s.IsCorruption());
         }
       } else {
-        dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+        Status s =
+            dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+        ASSERT_TRUE(s.ok() || s.IsCorruption());
       }
     }
 
@@ -56,7 +60,8 @@ TEST_F(DBIOFailureTest, DropWrites) {
     ASSERT_EQ("5", property_value);
 
     env_->drop_writes_.store(false, std::memory_order_release);
-    ASSERT_LT(CountFiles(), num_files + 3);
+    const size_t count = CountFiles();
+    ASSERT_LT(count, num_files + 3);
 
     // Check that compaction attempts slept after errors
     // TODO @krad: Figure out why ASSERT_EQ 5 keeps failing in certain compiler
@@ -82,7 +87,8 @@ TEST_F(DBIOFailureTest, DropWritesFlush) {
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("0", property_value);
 
-    dbfull()->TEST_FlushMemTable(true);
+    // ASSERT file is too short
+    ASSERT_TRUE(dbfull()->TEST_FlushMemTable(true).IsCorruption());
 
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("1", property_value);
@@ -166,7 +172,7 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
     ASSERT_EQ("bar", Get("foo"));
 
     // Memtable compaction (will succeed)
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_EQ("bar", Get("foo"));
     const int last = 2;
     MoveFilesToLevel(2);
@@ -174,7 +180,8 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
 
     // Merging compaction (will fail)
     error_type->store(true, std::memory_order_release);
-    dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
+    ASSERT_NOK(
+        dbfull()->TEST_CompactRange(last, nullptr, nullptr));  // Should fail
     ASSERT_EQ("bar", Get("foo"));
 
     error_type->store(false, std::memory_order_release);
@@ -192,7 +199,13 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
 
     // Merging compaction (will fail)
     error_type->store(true, std::memory_order_release);
-    dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
+    Status s =
+        dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
+    if (iter == 0) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_TRUE(s.IsIOError());
+    }
     ASSERT_EQ("bar", Get("foo"));
 
     // Recovery: should not lose data
@@ -220,18 +233,15 @@ TEST_F(DBIOFailureTest, PutFailsParanoid) {
   options.paranoid_checks = true;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
 
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
   // simulate error
   env_->log_write_error_.store(true, std::memory_order_release);
-  s = Put(1, "foo2", "bar2");
-  ASSERT_TRUE(!s.ok());
+  ASSERT_NOK(Put(1, "foo2", "bar2"));
   env_->log_write_error_.store(false, std::memory_order_release);
-  s = Put(1, "foo3", "bar3");
   // the next put should fail, too
-  ASSERT_TRUE(!s.ok());
+  ASSERT_NOK(Put(1, "foo3", "bar3"));
   // but we're still able to read
   ASSERT_EQ("bar", Get(1, "foo"));
 
@@ -244,12 +254,10 @@ TEST_F(DBIOFailureTest, PutFailsParanoid) {
   ASSERT_OK(Put(1, "foo1", "bar1"));
   // simulate error
   env_->log_write_error_.store(true, std::memory_order_release);
-  s = Put(1, "foo2", "bar2");
-  ASSERT_TRUE(!s.ok());
+  ASSERT_NOK(Put(1, "foo2", "bar2"));
   env_->log_write_error_.store(false, std::memory_order_release);
-  s = Put(1, "foo3", "bar3");
   // the next put should NOT fail
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(Put(1, "foo3", "bar3"));
 }
 #if !(defined NDEBUG) || !defined(OS_WIN)
 TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
@@ -269,14 +277,14 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
 
+  const char* io_error_msg = "range sync dummy error";
   std::atomic<int> range_sync_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::RangeSync", [&](void* arg) {
         if (range_sync_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("range sync dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -298,7 +306,9 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
   ASSERT_OK(Put(1, "foo3_2", rnd_str));
   ASSERT_OK(Put(1, "foo3_3", rnd_str));
   ASSERT_OK(Put(1, "foo4", "bar"));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  Status s = dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as flush failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));
@@ -328,7 +338,6 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
 
   Random rnd(301);
   std::string rnd_str =
@@ -342,21 +351,22 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
   ASSERT_OK(Put(1, "foo1_1", rnd_str));
   ASSERT_OK(Put(1, "foo1_2", rnd_str));
   ASSERT_OK(Put(1, "foo1_3", rnd_str));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo3_1", rnd_str));
   ASSERT_OK(Put(1, "foo3_2", rnd_str));
   ASSERT_OK(Put(1, "foo3_3", rnd_str));
   ASSERT_OK(Put(1, "foo4", "bar"));
-  Flush(1);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
 
+  const char* io_error_msg = "range sync dummy error";
   std::atomic<int> range_sync_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::RangeSync", [&](void* arg) {
         if (range_sync_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("range sync dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -365,7 +375,9 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
                                  {
                                      {"disable_auto_compactions", "false"},
                                  }));
-  dbfull()->TEST_WaitForCompact();
+  Status s = dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as flush failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));
@@ -389,13 +401,14 @@ TEST_F(DBIOFailureTest, FlushSstCloseError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
+
+  const char* io_error_msg = "close dummy error";
   std::atomic<int> close_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::Close", [&](void* arg) {
         if (close_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("close dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
 
@@ -404,7 +417,9 @@ TEST_F(DBIOFailureTest, FlushSstCloseError) {
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
   ASSERT_OK(Put(1, "foo", "bar2"));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  Status s = dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as flush failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));
@@ -429,25 +444,25 @@ TEST_F(DBIOFailureTest, CompactionSstCloseError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
 
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   ASSERT_OK(Put(1, "foo", "bar2"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   ASSERT_OK(Put(1, "foo", "bar3"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  const char* io_error_msg = "close dummy error";
   std::atomic<int> close_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::Close", [&](void* arg) {
         if (close_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("close dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
 
@@ -456,7 +471,9 @@ TEST_F(DBIOFailureTest, CompactionSstCloseError) {
                                  {
                                      {"disable_auto_compactions", "false"},
                                  }));
-  dbfull()->TEST_WaitForCompact();
+  Status s = dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as compaction failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));
@@ -480,13 +497,14 @@ TEST_F(DBIOFailureTest, FlushSstSyncError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
+
+  const char* io_error_msg = "sync dummy error";
   std::atomic<int> sync_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::Sync", [&](void* arg) {
         if (sync_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("sync dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
 
@@ -495,7 +513,9 @@ TEST_F(DBIOFailureTest, FlushSstSyncError) {
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
   ASSERT_OK(Put(1, "foo", "bar2"));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  Status s = dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as flush failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));
@@ -521,25 +541,25 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
-  Status s;
 
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   ASSERT_OK(Put(1, "foo", "bar2"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
+  ASSERT_OK(Flush(1));
   ASSERT_OK(Put(1, "foo", "bar3"));
   ASSERT_OK(Put(1, "foo2", "bar"));
-  Flush(1);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  const char* io_error_msg = "sync dummy error";
   std::atomic<int> sync_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::Sync", [&](void* arg) {
         if (sync_called.fetch_add(1) == 0) {
           Status* st = static_cast<Status*>(arg);
-          *st = Status::IOError("close dummy error");
+          *st = Status::IOError(io_error_msg);
         }
       });
 
@@ -548,7 +568,9 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
                                  {
                                      {"disable_auto_compactions", "false"},
                                  }));
-  dbfull()->TEST_WaitForCompact();
+  Status s = dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_STREQ(s.getState(), io_error_msg);
 
   // Following writes should fail as compaction failed.
   ASSERT_NOK(Put(1, "foo2", "bar3"));

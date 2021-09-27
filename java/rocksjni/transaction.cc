@@ -689,6 +689,7 @@ void txn_write_kv_parts_helper(JNIEnv* env,
       // out of memory
       env->DeleteLocalRef(jobj_value_part);
       env->DeleteLocalRef(jobj_key_part);
+      env->ReleaseByteArrayElements(jba_key_part, jkey_part, JNI_ABORT);
       free_parts(env, jparts_to_free);
       return;
     }
@@ -698,6 +699,7 @@ void txn_write_kv_parts_helper(JNIEnv* env,
       env->ReleaseByteArrayElements(jba_value_part, jvalue_part, JNI_ABORT);
       env->DeleteLocalRef(jobj_value_part);
       env->DeleteLocalRef(jobj_key_part);
+      env->ReleaseByteArrayElements(jba_key_part, jkey_part, JNI_ABORT);
       free_parts(env, jparts_to_free);
       return;
     }

@@ -50,22 +50,18 @@ TEST_F(CloudManifestTest, BasicTest) {
       // serialize and deserialize
       auto tmpfile = tmp_dir_ + "/cloudmanifest";
       {
-        std::unique_ptr<WritableFile> file;
-        ASSERT_OK(env_->NewWritableFile(tmpfile, &file, EnvOptions()));
-        ASSERT_OK(manifest->WriteToLog(
-            std::unique_ptr<WritableFileWriter>(new WritableFileWriter(
-                NewLegacyWritableFileWrapper(std::move(file)), tmpfile,
-                EnvOptions()))));
+        std::unique_ptr<WritableFileWriter> writer;
+        ASSERT_OK(WritableFileWriter::Create(env_->GetFileSystem(), tmpfile,
+                                             FileOptions(), &writer, nullptr));
+        ASSERT_OK(manifest->WriteToLog(std::move(writer)));
       }
 
       manifest.reset();
       {
-        std::unique_ptr<SequentialFile> file;
-        ASSERT_OK(env_->NewSequentialFile(tmpfile, &file, EnvOptions()));
-        CloudManifest::LoadFromLog(
-            std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
-                NewLegacySequentialFileWrapper(file), tmpfile)),
-            &manifest);
+        std::unique_ptr<SequentialFileReader> reader;
+        ASSERT_OK(SequentialFileReader::Create(
+            env_->GetFileSystem(), tmpfile, FileOptions(), &reader, nullptr));
+        ASSERT_OK(CloudManifest::LoadFromLog(std::move(reader), &manifest));
       }
     }
   }

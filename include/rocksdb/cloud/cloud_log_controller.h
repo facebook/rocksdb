@@ -34,6 +34,7 @@ class CloudLogWritableFile : public WritableFile {
   virtual Status status() { return status_; }
 
   // Appends data to the file. If the file doesn't exist, it'll get created.
+  using WritableFile::Append;
   virtual Status Append(const Slice& data) = 0;
 
   // Closes a file by writing an EOF marker to the Cloud stream.

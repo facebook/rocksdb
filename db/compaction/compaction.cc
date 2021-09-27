@@ -204,27 +204,24 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-Compaction::Compaction(VersionStorageInfo* vstorage,
-                       const ImmutableCFOptions& _immutable_cf_options,
-                       const MutableCFOptions& _mutable_cf_options,
-                       const MutableDBOptions& _mutable_db_options,
-                       std::vector<CompactionInputFiles> _inputs,
-                       int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
-                       CompressionType _compression,
-                       CompressionOptions _compression_opts,
-                       uint32_t _max_subcompactions,
-                       std::vector<FileMetaData*> _grandparents,
-                       bool _manual_compaction, double _score,
-                       bool _deletion_compaction,
-                       CompactionReason _compaction_reason)
+Compaction::Compaction(
+    VersionStorageInfo* vstorage, const ImmutableOptions& _immutable_options,
+    const MutableCFOptions& _mutable_cf_options,
+    const MutableDBOptions& _mutable_db_options,
+    std::vector<CompactionInputFiles> _inputs, int _output_level,
+    uint64_t _target_file_size, uint64_t _max_compaction_bytes,
+    uint32_t _output_path_id, CompressionType _compression,
+    CompressionOptions _compression_opts, uint32_t _max_subcompactions,
+    std::vector<FileMetaData*> _grandparents, bool _manual_compaction,
+    double _score, bool _deletion_compaction,
+    CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
       max_subcompactions_(_max_subcompactions),
-      immutable_cf_options_(_immutable_cf_options),
+      immutable_options_(_immutable_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
       number_levels_(vstorage->num_levels()),
@@ -247,12 +244,6 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
   }
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = _mutable_db_options.max_subcompactions;
-  }
-  if (!bottommost_level_) {
-    // Currently we only enable dictionary compression during compaction to the
-    // bottommost level.
-    output_compression_opts_.max_dict_bytes = 0;
-    output_compression_opts_.zstd_max_train_bytes = 0;
   }
 
 #ifndef NDEBUG
@@ -284,7 +275,7 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
+  bool matches = (GetCompressionType(immutable_options_, input_vstorage_,
                                      mutable_cf_options_, start_level_,
                                      base_level) == output_compression_);
   if (matches) {
@@ -309,8 +300,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (is_manual_compaction_ &&
-      (immutable_cf_options_.compaction_filter != nullptr ||
-       immutable_cf_options_.compaction_filter_factory != nullptr)) {
+      (immutable_options_.compaction_filter != nullptr ||
+       immutable_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
@@ -383,7 +374,13 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
         auto* f = files[level_ptrs->at(lvl)];
         if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
           // We've advanced far enough
-          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+          // In the presence of user-defined timestamp, we may need to handle
+          // the case in which f->smallest.user_key() (including ts) has the
+          // same user key, but the ts part is smaller. If so,
+          // Compare(user_key, f->smallest.user_key()) returns -1.
+          // That's why we need CompareWithoutTimestamp().
+          if (user_cmp->CompareWithoutTimestamp(user_key,
+                                                f->smallest.user_key()) >= 0) {
             // Key falls in this file's range, so it may
             // exist beyond output level
             return false;
@@ -512,14 +509,14 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
   }
 
   if (max_output_file_size_ != port::kMaxUint64 &&
-      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+      (immutable_options_.compaction_style == kCompactionStyleLevel ||
        output_level() > 0)) {
     preallocation_size = std::min(max_output_file_size_, preallocation_size);
   }
 
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  // No point to prellocate more than 1GB.
+  // No point to preallocate more than 1GB.
   return std::min(uint64_t{1073741824},
                   preallocation_size + (preallocation_size / 10));
 }
@@ -529,16 +526,23 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
     return nullptr;
   }
 
+  if (!cfd_->ioptions()
+           ->compaction_filter_factory->ShouldFilterTableFileCreation(
+               TableFileCreationReason::kCompaction)) {
+    return nullptr;
+  }
+
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
+  context.reason = TableFileCreationReason::kCompaction;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }
 
 std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
-  if (!immutable_cf_options_.sst_partitioner_factory) {
+  if (!immutable_options_.sst_partitioner_factory) {
     return nullptr;
   }
 
@@ -548,8 +552,7 @@ std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
   context.output_level = output_level_;
   context.smallest_user_key = smallest_user_key_;
   context.largest_user_key = largest_user_key_;
-  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
-      context);
+  return immutable_options_.sst_partitioner_factory->CreatePartitioner(context);
 }
 
 bool Compaction::IsOutputLevelEmpty() const {
@@ -560,6 +563,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
+
+  // Note: the subcompaction boundary picking logic does not currently guarantee
+  // that all user keys that differ only by timestamp get processed by the same
+  // subcompaction.
+  if (cfd_->user_comparator()->timestamp_size() > 0) {
+    return false;
+  }
+
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
            !IsOutputLevelEmpty();

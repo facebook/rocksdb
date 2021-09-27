@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
@@ -60,10 +61,9 @@ class FlushJob {
   // IMPORTANT: mutable_cf_options needs to be alive while FlushJob is alive
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
-           const MutableCFOptions& mutable_cf_options,
-           const uint64_t* max_memtable_id, const FileOptions& file_options,
-           VersionSet* versions, InstrumentedMutex* db_mutex,
-           std::atomic<bool>* shutting_down,
+           const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
+           const FileOptions& file_options, VersionSet* versions,
+           InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
@@ -73,8 +73,9 @@ class FlushJob {
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-           const std::string& db_id = "",
-           const std::string& db_session_id = "");
+           const std::string& db_id = "", const std::string& db_session_id = "",
+           std::string full_history_ts_low = "",
+           BlobFileCompletionCallback* blob_callback = nullptr);
 
   ~FlushJob();
 
@@ -110,12 +111,11 @@ class FlushJob {
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
-  // Pointer to a variable storing the largest memtable id to flush in this
+  // A variable storing the largest memtable id to flush in this
   // flush job. RocksDB uses this variable to select the memtables to flush in
   // this job. All memtables in this column family with an ID smaller than or
-  // equal to *max_memtable_id_ will be selected for flush. If null, then all
-  // memtables in the column family will be selected.
-  const uint64_t* max_memtable_id_;
+  // equal to max_memtable_id_ will be selected for flush.
+  uint64_t max_memtable_id_;
   const FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
@@ -164,6 +164,10 @@ class FlushJob {
   IOStatus io_status_;
 
   const std::shared_ptr<IOTracer> io_tracer_;
+  SystemClock* clock_;
+
+  const std::string full_history_ts_low_;
+  BlobFileCompletionCallback* blob_callback_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

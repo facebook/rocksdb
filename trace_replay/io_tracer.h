@@ -9,44 +9,64 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
-#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_reader_writer.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
+class TraceReader;
+class TraceWriter;
+
+/* In order to log new data in trace record for specified operations, do
+   following:
+   1. Add new data in IOTraceOP (say kIONewData= 3)
+   2. Log it in IOTraceWriter::WriteIOOp, and read that in
+   IOTraceReader::ReadIOOp and
+   IOTraceRecordParser::PrintHumanReadableIOTraceRecord in the switch case.
+   3. In the FileSystemTracer APIs where this data will be logged with, update
+   io_op_data |= (1 << IOTraceOp::kIONewData).
+*/
+enum IOTraceOp : char {
+  // The value of each enum represents the bitwise position for
+  // IOTraceRecord.io_op_data.
+  kIOFileSize = 0,
+  kIOLen = 1,
+  kIOOffset = 2,
+};
 
 struct IOTraceRecord {
   // Required fields for all accesses.
   uint64_t access_timestamp = 0;
   TraceType trace_type = TraceType::kTraceMax;
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record.
+  uint64_t io_op_data = 0;
   std::string file_operation;
   uint64_t latency = 0;
   std::string io_status;
-  // Required fields for read.
+  // Stores file name instead of full path.
   std::string file_name;
+
+  // Fields added to record based on IO operation.
   uint64_t len = 0;
   uint64_t offset = 0;
   uint64_t file_size = 0;
 
+  // Additional information passed in IODebugContext.
+  uint64_t trace_data = 0;
+  std::string request_id;
+
   IOTraceRecord() {}
 
   IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation, const uint64_t& _latency,
-                const std::string& _io_status, const std::string& _file_name)
+                const uint64_t& _io_op_data, const std::string& _file_operation,
+                const uint64_t& _latency, const std::string& _io_status,
+                const std::string& _file_name, const uint64_t& _file_size = 0)
       : access_timestamp(_access_timestamp),
         trace_type(_trace_type),
-        file_operation(_file_operation),
-        latency(_latency),
-        io_status(_io_status),
-        file_name(_file_name) {}
-
-  IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation, const uint64_t& _latency,
-                const std::string& _io_status, const std::string& _file_name,
-                const uint64_t& _file_size)
-      : access_timestamp(_access_timestamp),
-        trace_type(_trace_type),
+        io_op_data(_io_op_data),
         file_operation(_file_operation),
         latency(_latency),
         io_status(_io_status),
@@ -54,14 +74,17 @@ struct IOTraceRecord {
         file_size(_file_size) {}
 
   IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation, const uint64_t& _latency,
-                const std::string& _io_status, const uint64_t& _len = 0,
-                const uint64_t& _offset = 0)
+                const uint64_t& _io_op_data, const std::string& _file_operation,
+                const uint64_t& _latency, const std::string& _io_status,
+                const std::string& _file_name, const uint64_t& _len,
+                const uint64_t& _offset)
       : access_timestamp(_access_timestamp),
         trace_type(_trace_type),
+        io_op_data(_io_op_data),
         file_operation(_file_operation),
         latency(_latency),
         io_status(_io_status),
+        file_name(_file_name),
         len(_len),
         offset(_offset) {}
 };
@@ -76,7 +99,7 @@ struct IOTraceHeader {
 // timestamp and type, followed by the trace payload.
 class IOTraceWriter {
  public:
-  IOTraceWriter(Env* env, const TraceOptions& trace_options,
+  IOTraceWriter(SystemClock* clock, const TraceOptions& trace_options,
                 std::unique_ptr<TraceWriter>&& trace_writer);
   ~IOTraceWriter() = default;
   // No copy and move.
@@ -85,14 +108,14 @@ class IOTraceWriter {
   IOTraceWriter(IOTraceWriter&&) = delete;
   IOTraceWriter& operator=(IOTraceWriter&&) = delete;
 
-  Status WriteIOOp(const IOTraceRecord& record);
+  Status WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg);
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
   Status WriteHeader();
 
  private:
-  Env* env_;
+  SystemClock* clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
@@ -150,7 +173,7 @@ class IOTracer {
 
   // Start writing IO operations to the trace_writer.
   TSAN_SUPPRESSION Status
-  StartIOTrace(Env* env, const TraceOptions& trace_options,
+  StartIOTrace(SystemClock* clock, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing IO operations to the trace_writer.
@@ -158,7 +181,7 @@ class IOTracer {
 
   TSAN_SUPPRESSION bool is_tracing_enabled() const { return tracing_enabled; }
 
-  Status WriteIOOp(const IOTraceRecord& record);
+  void WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg);
 
  private:
   TraceOptions trace_options_;

@@ -3,21 +3,21 @@ dist: trusty
 language: cpp
 os:
   - linux
-  - osx
 arch:
-  - amd64
   - arm64
   - ppc64le
 compiler:
   - gcc
-osx_image: xcode9.4
 cache:
   directories:
   - "$BUILD_DIR/aws"
 addons:
-   apt:
-      packages:
-      - zlib1g-dev
+  apt:
+    update: true
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - libgflags-dev
       - libbz2-dev
       - libsnappy-dev
       - curl

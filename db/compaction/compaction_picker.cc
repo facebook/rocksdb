@@ -139,18 +139,16 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
   if (!enable_compression) {
     return cf_options.compression_opts;
   }
-  // If bottommost_compression is set and we are compacting to the
-  // bottommost level then we should use the specified compression options
-  // for the bottmomost_compression.
-  if (cf_options.bottommost_compression != kDisableCompressionOption &&
-      level >= (vstorage->num_non_empty_levels() - 1) &&
+  // If bottommost_compression_opts is enabled and we are compacting to the
+  // bottommost level then we should use the specified compression options.
+  if (level >= (vstorage->num_non_empty_levels() - 1) &&
       cf_options.bottommost_compression_opts.enabled) {
     return cf_options.bottommost_compression_opts;
   }
   return cf_options.compression_opts;
 }
 
-CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
+CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 
@@ -532,7 +530,7 @@ bool CompactionPicker::SetupOtherInputs(
       }
     }
     if (expand_inputs) {
-      ROCKS_LOG_INFO(ioptions_.info_log,
+      ROCKS_LOG_INFO(ioptions_.logger,
                      "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
                      "(%" PRIu64 "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt
                      "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 " bytes)\n",
@@ -672,17 +670,41 @@ Compaction* CompactionPicker::CompactRange(
   // two files overlap.
   if (input_level > 0) {
     const uint64_t limit = mutable_cf_options.max_compaction_bytes;
-    uint64_t total = 0;
+    uint64_t input_level_total = 0;
+    int hint_index = -1;
+    InternalKey* smallest = nullptr;
+    InternalKey* largest = nullptr;
     for (size_t i = 0; i + 1 < inputs.size(); ++i) {
+      if (!smallest) {
+        smallest = &inputs[i]->smallest;
+      }
+      largest = &inputs[i]->largest;
+
       uint64_t s = inputs[i]->compensated_file_size;
-      total += s;
-      if (total >= limit) {
+      uint64_t output_level_total = 0;
+      if (output_level < vstorage->num_non_empty_levels()) {
+        std::vector<FileMetaData*> files;
+        vstorage->GetOverlappingInputsRangeBinarySearch(
+            output_level, smallest, largest, &files, hint_index, &hint_index);
+        for (const auto& file : files) {
+          output_level_total += file->compensated_file_size;
+        }
+      }
+
+      input_level_total += s;
+
+      if (input_level_total + output_level_total >= limit) {
         covering_the_whole_range = false;
+        // still include the current file, so the compaction could be larger
+        // than max_compaction_bytes, which is also to make sure the compaction
+        // can make progress even `max_compaction_bytes` is small (e.g. smaller
+        // than an SST file).
         inputs.files.resize(i + 1);
         break;
       }
     }
   }
+
   assert(compact_range_options.target_path_id <
          static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
@@ -1006,6 +1028,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
+    int input_file_level = -1;
     for (const auto& level_meta : cf_meta.levels) {
       for (const auto& file_meta : level_meta.files) {
         if (file_num == TableFileNameToNumber(file_meta.name)) {
@@ -1015,6 +1038,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
                                    " is already being compacted.");
           }
           found = true;
+          input_file_level = level_meta.level;
           break;
         }
       }
@@ -1026,6 +1050,13 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
       return Status::InvalidArgument(
           "Specified compaction input file " + MakeTableFileName("", file_num) +
           " does not exist in column family " + cf_meta.name + ".");
+    }
+    if (input_file_level > output_level) {
+      return Status::InvalidArgument(
+          "Cannot compact file to up level, input file: " +
+          MakeTableFileName("", file_num) + " level " +
+          ToString(input_file_level) + " > output level " +
+          ToString(output_level));
     }
   }
 
@@ -1045,6 +1076,8 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
     level0_compactions_in_progress_.insert(c);
   }
   compactions_in_progress_.insert(c);
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::RegisterCompaction:Registered",
+                           c);
 }
 
 void CompactionPicker::UnregisterCompaction(Compaction* c) {

@@ -3,9 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/slice.h"
+
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/slice.h"
+#include "rocksdb/data_structure.h"
+#include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -152,6 +155,22 @@ TEST_F(PinnableSliceTest, Move) {
   }
   // No Cleanable is moved from v1 to v2, so no more cleanup.
   ASSERT_EQ(2, res);
+}
+
+// Unit test for SmallEnumSet
+class SmallEnumSetTest : public testing::Test {
+ public:
+  SmallEnumSetTest() {}
+  ~SmallEnumSetTest() {}
+};
+
+TEST_F(SmallEnumSetTest, SmallSetTest) {
+  FileTypeSet fs;
+  ASSERT_TRUE(fs.Add(FileType::kIdentityFile));
+  ASSERT_FALSE(fs.Add(FileType::kIdentityFile));
+  ASSERT_TRUE(fs.Add(FileType::kInfoLogFile));
+  ASSERT_TRUE(fs.Contains(FileType::kIdentityFile));
+  ASSERT_FALSE(fs.Contains(FileType::kDBLockFile));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
