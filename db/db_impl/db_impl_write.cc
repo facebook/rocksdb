@@ -56,6 +56,12 @@ Status DBImpl::SingleDelete(const WriteOptions& write_options,
   return DB::SingleDelete(write_options, column_family, key);
 }
 
+Status DBImpl::SingleDelete(const WriteOptions& write_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            const Slice& ts) {
+  return DB::SingleDelete(write_options, column_family, key, ts);
+}
+
 void DBImpl::SetRecoverableStatePreReleaseCallback(
     PreReleaseCallback* callback) {
   recoverable_state_pre_release_callback_.reset(callback);
@@ -2150,6 +2156,39 @@ Status DB::SingleDelete(const WriteOptions& opt,
 
   WriteBatch batch;
   Status s = batch.SingleDelete(column_family, key);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
+Status DB::SingleDelete(const WriteOptions& opt,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) {
+  column_family = column_family ? column_family : DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument(
+        "Cannot call this method on column family disabling timestamp");
+  }
+  size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    assert(false);
+    return Status::InvalidArgument("Timestamp size mismatch");
+  }
+  WriteBatch batch;
+  Status s;
+  if (key.data() + key.size() == ts.data()) {
+    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  } else {
+    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  }
   if (!s.ok()) {
     return s;
   }

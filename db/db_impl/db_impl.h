@@ -164,9 +164,13 @@ class DBImpl : public DB {
                 const Slice& key, const Slice& ts) override;
 
   using DB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& options,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
+
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;

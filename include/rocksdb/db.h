@@ -405,8 +405,15 @@ class DB {
   virtual Status SingleDelete(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key) = 0;
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& ts) = 0;
   virtual Status SingleDelete(const WriteOptions& options, const Slice& key) {
     return SingleDelete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status SingleDelete(const WriteOptions& options, const Slice& key,
+                              const Slice& ts) {
+    return SingleDelete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,

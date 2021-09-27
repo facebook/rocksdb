@@ -181,6 +181,11 @@ class StackableDB : public DB {
                               const Slice& key) override {
     return db_->SingleDelete(wopts, column_family, key);
   }
+  Status SingleDelete(const WriteOptions& wopts,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override {
+    return db_->SingleDelete(wopts, column_family, key, ts);
+  }
 
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
