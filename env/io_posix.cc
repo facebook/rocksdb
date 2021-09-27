@@ -121,25 +121,27 @@ bool PosixWrite(int fd, const char* buf, size_t nbyte) {
 }
 
 async_result AsyncPosixWrite(int fd, const char* buf, size_t nbyte) {
-  // TODO: use liburing
-  const size_t kLimit1Gb = 1UL << 30;
-
-  const char* src = buf;
-  size_t left = nbyte;
-
-  while (left != 0) {
-    size_t bytes_to_write = std::min(left, kLimit1Gb);
-
-    ssize_t done = write(fd, src, bytes_to_write);
-    if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      co_return false;
-    }
-    left -= done;
-    src += done;
+  static const int PageSize = 4096;
+  int pages = (int)std::ceil((float)nbyte / PageSize);
+  int last_page_size = nbyte % PageSize;
+  int page_size = PageSize;
+  file_page *data = new file_page(pages);
+  char *no_const_buf = const_cast<char *>(buf);
+  for (int i = 0; i < pages; i++) {
+    data->iov[i].iov_base = no_const_buf + i * page_size;
+    if (i == pages - 1 && last_page_size != 0)
+      page_size = last_page_size;
+    data->iov[i].iov_len = page_size;
   }
+
+  auto sqe = io_uring_get_sqe(ioring);
+  io_uring_prep_writev(sqe, fd, data->iov, pages, 0);
+  io_uring_sqe_set_data(sqe, data);
+  io_uring_submit(ioring);
+
+  async_result a_result(true, data);
+  co_await a_result;
+
   co_return true;
 }
 
@@ -169,26 +171,26 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
 
 async_result AsyncPosixPositionedWrite(int fd, const char* buf, size_t nbyte,
                                        off_t offset) {
-  // TODO: use liburing
-  const size_t kLimit1Gb = 1UL << 30;
-
-  const char* src = buf;
-  size_t left = nbyte;
-
-  while (left != 0) {
-    size_t bytes_to_write = std::min(left, kLimit1Gb);
-
-    ssize_t done = pwrite(fd, src, bytes_to_write, offset);
-    if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      co_return false;
-    }
-    left -= done;
-    offset += done;
-    src += done;
+  static const int PageSize = 4096;
+  int pages = (int)std::ceil((float)nbyte / PageSize);
+  int last_page_size = nbyte % PageSize;
+  int page_size = PageSize;
+  file_page *data = new file_page(pages);
+  char *no_const_buf = const_cast<char *>(buf);
+  for (int i = 0; i < pages; i++) {
+    data->iov[i].iov_base = no_const_buf + i * page_size;
+    if (i == pages - 1 && last_page_size != 0)
+      page_size = last_page_size;
+    data->iov[i].iov_len = page_size;
   }
+
+  auto sqe = io_uring_get_sqe(ioring);
+  io_uring_prep_writev(sqe, fd, data->iov, pages, offset);
+  io_uring_sqe_set_data(sqe, data);
+  io_uring_submit(ioring);
+
+  async_result a_result(true, data);
+  co_await a_result;
 
   co_return true;
 }
@@ -672,7 +674,7 @@ async_result PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
   int last_page_size = n % PageSize;
   int page_size = PageSize;
 
-  file_read_page* data = new file_read_page(pages);
+  file_page* data = new file_page(pages);
 
   for  (int i = 0; i < pages; i++) { 
     data->iov[i].iov_base = scratch + i * page_size;

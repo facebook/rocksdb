@@ -13,7 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct file_read_page;
+struct file_page;
 
 struct async_result {
   struct promise_type {
@@ -60,7 +60,7 @@ struct async_result {
 
   async_result() : async_(false) {}
 
-  async_result(bool async, struct file_read_page* context) : async_(async), context_(context) {}
+  async_result(bool async, struct file_page* context) : async_(async), context_(context) {}
 
   async_result(std::coroutine_handle<promise_type> h) : h_{h} {}
 
@@ -89,11 +89,12 @@ struct async_result {
 
   std::coroutine_handle<promise_type> h_;
   bool async_ = false;
-  struct file_read_page* context_;
+  struct file_page* context_;
 };
 
-struct file_read_page {
-  file_read_page(int pages) {
+// used for liburing read or write
+struct file_page {
+  file_page(int pages) {
     iov = (iovec*)calloc(pages, sizeof(struct iovec));
   }
 
