@@ -4059,8 +4059,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kWalFile ||
                    type == kBlobFile) {
-          del = DeleteDBFile(&soptions, path_to_delete, dbname,
-                             /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          del = DeleteDBFile(
+              &soptions, path_to_delete, dbname,
+              /*force_bg=*/false,
+              /*force_fg=*/(type == kWalFile) ? !wal_in_db_path : false);
         } else {
           del = env->DeleteFile(path_to_delete);
         }

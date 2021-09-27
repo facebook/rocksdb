@@ -330,9 +330,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 
   Status file_deletion_status;
   if (type == kTableFile || type == kBlobFile || type == kWalFile) {
-    file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
-                     /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
+    // Rate limit WAL deletion only if its in the DB dir
+    file_deletion_status = DeleteDBFile(
+        &immutable_db_options_, fname, path_to_sync,
+        /*force_bg=*/false,
+        /*force_fg=*/(type == kWalFile) ? !wal_in_db_path_ : false);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
