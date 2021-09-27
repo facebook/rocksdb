@@ -143,6 +143,27 @@ struct CompressionOptions {
   // Default: false.
   bool enabled;
 
+  // Limit on data buffering when gathering samples to build a dictionary. Zero
+  // means no limit. When dictionary is disabled (`max_dict_bytes == 0`),
+  // enabling this limit (`max_dict_buffer_bytes != 0`) has no effect.
+  //
+  // In compaction, the buffering is limited to the target file size (see
+  // `target_file_size_base` and `target_file_size_multiplier`) even if this
+  // setting permits more buffering. Since we cannot determine where the file
+  // should be cut until data blocks are compressed with dictionary, buffering
+  // more than the target file size could lead to selecting samples that belong
+  // to a later output SST.
+  //
+  // Limiting too strictly may harm dictionary effectiveness since it forces
+  // RocksDB to pick samples from the initial portion of the output SST, which
+  // may not be representative of the whole file. Configuring this limit below
+  // `zstd_max_train_bytes` (when enabled) can restrict how many samples we can
+  // pass to the dictionary trainer. Configuring it below `max_dict_bytes` can
+  // restrict the size of the final dictionary.
+  //
+  // Default: 0 (unlimited)
+  uint64_t max_dict_buffer_bytes;
+
   CompressionOptions()
       : window_bits(-14),
         level(kDefaultCompressionLevel),
@@ -150,17 +171,30 @@ struct CompressionOptions {
         max_dict_bytes(0),
         zstd_max_train_bytes(0),
         parallel_threads(1),
-        enabled(false) {}
+        enabled(false),
+        max_dict_buffer_bytes(0) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
                      int _zstd_max_train_bytes, int _parallel_threads,
-                     bool _enabled)
+                     bool _enabled, uint64_t _max_dict_buffer_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
         zstd_max_train_bytes(_zstd_max_train_bytes),
         parallel_threads(_parallel_threads),
-        enabled(_enabled) {}
+        enabled(_enabled),
+        max_dict_buffer_bytes(_max_dict_buffer_bytes) {}
+};
+
+// Temperature of a file. Used to pass to FileSystem for a different
+// placement and/or coding.
+// Reserve some numbers in the middle, in case we need to insert new tier
+// there.
+enum class Temperature : uint8_t {
+  kUnknown = 0,
+  kHot = 0x04,
+  kWarm = 0x08,
+  kCold = 0x0C,
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
@@ -237,6 +271,7 @@ struct AdvancedColumnFamilyOptions {
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  // Backward iteration on memtables will not work either.
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
@@ -356,7 +391,8 @@ struct AdvancedColumnFamilyOptions {
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
-  // writer_buffer_size, rounded up to a multiple of 4KB).
+  // writer_buffer_size, rounded up to a multiple of 4KB, or 1MB which ever is
+  // smaller).
   //
   // There are two additional restriction of the specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
@@ -674,10 +710,14 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Files older than TTL will go through the compaction process.
+  // Files containing updates older than TTL will go through the compaction
+  // process. This usually happens in a cascading way so that those entries
+  // will be compacted to bottommost level/file.
+  // The feature is used to remove stale entries that have been deleted or
+  // updated from the file system.
   // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
-  //           compation process.
+  //           compaction process.
   // In FIFO: Files older than TTL will be deleted.
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // In FIFO, this option will have the same meaning as
@@ -694,6 +734,9 @@ struct AdvancedColumnFamilyOptions {
 
   // Files older than this value will be picked up for compaction, and
   // re-written to the same level as they were before.
+  // One main use of the feature is to make sure a file goes through compaction
+  // filters periodically. Users can also use the feature to clear up SST
+  // files using old format.
   //
   // A file's age is computed by looking at file_creation_time or creation_time
   // table properties in order, if they have valid non-zero values; if not, the
@@ -727,19 +770,25 @@ struct AdvancedColumnFamilyOptions {
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
+  // EXPERIMENTAL
+  // The feature is still in development and is incomplete.
+  // If this option is set, when creating bottommost files, pass this
+  // temperature to FileSystem used. Should be no-op for default FileSystem
+  // and users need to plug in their own FileSystem to take advantage of it.
+  Temperature bottommost_temperature = Temperature::kUnknown;
+
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
-  // blob_file_size, and blob_compression_type below.
+  // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
+  // and blob_garbage_collection_age_cutoff below.
   //
   // Default: false
   //
   // Dynamically changeable through the SetOptions() API
   bool enable_blob_files = false;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The size of the smallest value to be stored separately in a blob file.
   // Values which have an uncompressed size smaller than this threshold are
   // stored alongside the keys in SST files in the usual fashion. A value of
@@ -752,7 +801,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t min_blob_size = 0;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The size limit for blob files. When writing blob files, a new file is
   // opened once this limit is reached. Note that enable_blob_files has to be
   // set in order for this option to have any effect.
@@ -762,7 +810,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_file_size = 1ULL << 28;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The compression algorithm to use for large values stored in blob files.
   // Note that enable_blob_files has to be set in order for this option to have
   // any effect.
@@ -771,6 +818,28 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
+
+  // Enables garbage collection of blobs. Blob GC is performed as part of
+  // compaction. Valid blobs residing in blob files older than a cutoff get
+  // relocated to new files as they are encountered during compaction, which
+  // makes it possible to clean up blob files once they contain nothing but
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_garbage_collection = false;
+
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N blob files will be relocated when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_blob_files.
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  //
+  // Default: 0.25
+  //
+  // Dynamically changeable through the SetOptions() API
+  double blob_garbage_collection_age_cutoff = 0.25;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

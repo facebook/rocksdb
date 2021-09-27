@@ -31,6 +31,102 @@ enum TxnDBWritePolicy {
 
 const uint32_t kInitialMaxDeadlocks = 5;
 
+class LockManager;
+struct RangeLockInfo;
+
+// A lock manager handle
+// The workflow is as follows:
+//  * Use a factory method (like NewRangeLockManager()) to create a lock
+//    manager and get its handle.
+//  * A Handle for a particular kind of lock manager will have extra
+//    methods and parameters to control the lock manager
+//  * Pass the handle to RocksDB in TransactionDBOptions::lock_mgr_handle. It
+//    will be used to perform locking.
+class LockManagerHandle {
+ public:
+  // PessimisticTransactionDB will call this to get the Lock Manager it's going
+  // to use.
+  virtual LockManager* getLockManager() = 0;
+
+  virtual ~LockManagerHandle() {}
+};
+
+// Same as class Endpoint, but use std::string to manage the buffer allocation
+struct EndpointWithString {
+  std::string slice;
+  bool inf_suffix;
+};
+
+struct RangeDeadlockInfo {
+  TransactionID m_txn_id;
+  uint32_t m_cf_id;
+  bool m_exclusive;
+
+  EndpointWithString m_start;
+  EndpointWithString m_end;
+};
+
+struct RangeDeadlockPath {
+  std::vector<RangeDeadlockInfo> path;
+  bool limit_exceeded;
+  int64_t deadlock_time;
+
+  explicit RangeDeadlockPath(std::vector<RangeDeadlockInfo> path_entry,
+                             const int64_t& dl_time)
+      : path(path_entry), limit_exceeded(false), deadlock_time(dl_time) {}
+
+  // empty path, limit exceeded constructor and default constructor
+  explicit RangeDeadlockPath(const int64_t& dl_time = 0, bool limit = false)
+      : path(0), limit_exceeded(limit), deadlock_time(dl_time) {}
+
+  bool empty() { return path.empty() && !limit_exceeded; }
+};
+
+// A handle to control RangeLockManager (Range-based lock manager) from outside
+// RocksDB
+class RangeLockManagerHandle : public LockManagerHandle {
+ public:
+  // Set total amount of lock memory to use.
+  //
+  //  @return 0 Ok
+  //  @return EDOM Failed to set because currently using more memory than
+  //        specified
+  virtual int SetMaxLockMemory(size_t max_lock_memory) = 0;
+  virtual size_t GetMaxLockMemory() = 0;
+
+  using RangeLockStatus =
+      std::unordered_multimap<ColumnFamilyId, RangeLockInfo>;
+
+  virtual RangeLockStatus GetRangeLockStatusData() = 0;
+
+  class Counters {
+   public:
+    // Number of times lock escalation was triggered (for all column families)
+    uint64_t escalation_count;
+
+    // How much memory is currently used for locks (total for all column
+    // families)
+    uint64_t current_lock_memory;
+  };
+
+  // Get the current counter values
+  virtual Counters GetStatus() = 0;
+
+  // Functions for range-based Deadlock reporting.
+  virtual std::vector<RangeDeadlockPath> GetRangeDeadlockInfoBuffer() = 0;
+  virtual void SetRangeDeadlockInfoBufferSize(uint32_t target_size) = 0;
+
+  virtual ~RangeLockManagerHandle() {}
+};
+
+// A factory function to create a Range Lock Manager. The created object should
+// be:
+//  1. Passed in TransactionDBOptions::lock_mgr_handle to open the database in
+//     range-locking mode
+//  2. Used to control the lock manager when the DB is already open.
+RangeLockManagerHandle* NewRangeLockManager(
+    std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
+
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -92,9 +188,13 @@ struct TransactionDBOptions {
   // for the special way that myrocks uses this operands.
   bool rollback_merge_operands = false;
 
+  // nullptr means use default lock manager.
+  // Other value means the user provides a custom lock manager.
+  std::shared_ptr<LockManagerHandle> lock_mgr_handle;
+
   // If true, the TransactionDB implementation might skip concurrency control
   // unless it is overridden by TransactionOptions or
-  // TransactionDBWriteOptimizations. This can be used in conjuction with
+  // TransactionDBWriteOptimizations. This can be used in conjunction with
   // DBOptions::unordered_write when the TransactionDB is used solely for write
   // ordering rather than concurrency control.
   bool skip_concurrency_control = false;
@@ -202,6 +302,13 @@ struct KeyLockInfo {
   bool exclusive;
 };
 
+struct RangeLockInfo {
+  EndpointWithString start;
+  EndpointWithString end;
+  std::vector<TransactionID> ids;
+  bool exclusive;
+};
+
 struct DeadlockInfo {
   TransactionID m_txn_id;
   uint32_t m_cf_id;
@@ -236,6 +343,17 @@ class TransactionDB : public StackableDB {
     // The default implementation ignores TransactionDBWriteOptimizations and
     // falls back to the un-optimized version of ::Write
     return Write(opts, updates);
+  }
+  // Transactional `DeleteRange()` is not yet supported.
+  // However, users who know their deleted range does not conflict with
+  // anything can still use it via the `Write()` API. In all cases, the
+  // `Write()` overload specifying `TransactionDBWriteOptimizations` must be
+  // used and `skip_concurrency_control` must be set. When using either
+  // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
+  // additionally be set.
+  virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
+                             const Slice&, const Slice&) override {
+    return Status::NotSupported();
   }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
@@ -296,6 +414,7 @@ class TransactionDB : public StackableDB {
   // The mapping is column family id -> KeyLockInfo
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
+
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 

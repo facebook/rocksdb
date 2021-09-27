@@ -355,6 +355,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_FILESTRING std::wstring
 #define RX_FN(a) ROCKSDB_NAMESPACE::port::utf8_to_utf16(a)
 #define FN_TO_RX(a) ROCKSDB_NAMESPACE::port::utf16_to_utf8(a)
+#define RX_FNCMP(a, b) ::wcscmp(a, RX_FN(b).c_str())
 #define RX_FNLEN(a) ::wcslen(a)
 
 #define RX_DeleteFile DeleteFileW
@@ -379,6 +380,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_FILESTRING std::string
 #define RX_FN(a) a
 #define FN_TO_RX(a) a
+#define RX_FNCMP(a, b) strcmp(a, b)
 #define RX_FNLEN(a) strlen(a)
 
 #define RX_DeleteFile DeleteFileA
@@ -388,7 +390,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_FindFirstFileEx FindFirstFileExA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_FindNextFile FindNextFileA
-#define RX_WIN32_FIND_DATA WIN32_FIND_DATA
+#define RX_WIN32_FIND_DATA WIN32_FIND_DATAA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_RemoveDirectory RemoveDirectoryA
 #define RX_GetFileAttributesEx GetFileAttributesExA

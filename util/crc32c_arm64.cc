@@ -5,9 +5,11 @@
 
 #include "util/crc32c_arm64.h"
 
-#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+#if defined(HAVE_ARM64_CRC)
 
+#if defined(__linux__)
 #include <asm/hwcap.h>
+#endif
 #ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
 #include <sys/auxv.h>
 #endif
@@ -16,6 +18,9 @@
 #endif
 #ifndef HWCAP_PMULL
 #define HWCAP_PMULL (1 << 4)
+#endif
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
 #endif
 
 #ifdef HAVE_ARM64_CRYPTO
@@ -41,20 +46,33 @@
 extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
-#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
-  uint64_t auxv = getauxval(AT_HWCAP);
+#if !defined(__APPLE__)
+  uint64_t auxv = 0;
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
+  auxv = getauxval(AT_HWCAP);
+#elif defined(__FreeBSD__)
+  elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
+#endif
   return (auxv & HWCAP_CRC32) != 0;
 #else
-  return 0;
+  int r;
+  size_t l = sizeof(r);
+  if (sysctlbyname("hw.optional.armv8_crc32", &r, &l, NULL, 0) == -1) return 0;
+  return r == 1;
 #endif
 }
 
 bool crc32c_pmull_runtime_check(void) {
-#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
-  uint64_t auxv = getauxval(AT_HWCAP);
+#if !defined(__APPLE__)
+  uint64_t auxv = 0;
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
+  auxv = getauxval(AT_HWCAP);
+#elif defined(__FreeBSD__)
+  elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
+#endif
   return (auxv & HWCAP_PMULL) != 0;
 #else
-  return false;
+  return true;
 #endif
 }
 
@@ -65,8 +83,8 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
-                             unsigned len) {
+uint32_t
+crc32c_arm64(uint32_t crc, unsigned char const *data, size_t len) {
   const uint8_t *buf8;
   const uint64_t *buf64 = (uint64_t *)data;
   int length = (int)len;

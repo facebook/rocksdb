@@ -17,6 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
@@ -136,6 +137,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
+          FileTypeSet checksum_handoff_file_types;
          */
         {"advise_random_on_open",
          {offsetof(struct ImmutableDBOptions, advise_random_on_open),
@@ -196,6 +198,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"paranoid_checks",
          {offsetof(struct ImmutableDBOptions, paranoid_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"flush_verify_memtable_count",
+         {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"track_and_verify_wals_in_manifest",
+         {offsetof(struct ImmutableDBOptions,
+                   track_and_verify_wals_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
@@ -265,11 +276,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_dir), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"WAL_size_limit_MB",
-         {offsetof(struct ImmutableDBOptions, wal_size_limit_mb),
+         {offsetof(struct ImmutableDBOptions, WAL_size_limit_MB),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"WAL_ttl_seconds",
-         {offsetof(struct ImmutableDBOptions, wal_ttl_seconds),
+         {offsetof(struct ImmutableDBOptions, WAL_ttl_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"max_manifest_file_size",
@@ -388,6 +399,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, bgerror_resume_retry_interval),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"db_host_id",
+         {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -397,9 +411,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as a RateLimiter
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto limiter =
-                reinterpret_cast<std::shared_ptr<RateLimiter>*>(addr);
+             const std::string& value, void* addr) {
+            auto limiter = static_cast<std::shared_ptr<RateLimiter>*>(addr);
             limiter->reset(NewGenericRateLimiter(
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
@@ -409,11 +422,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal,
           (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
           // Parse the input value as an Env
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto old_env = reinterpret_cast<Env**>(addr);  // Get the old value
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            auto old_env = static_cast<Env**>(addr);       // Get the old value
             Env* new_env = *old_env;                       // Set new to old
-            Status s = Env::LoadEnv(value, &new_env);      // Update new value
+            Status s = Env::CreateFromString(opts, value,
+                                             &new_env);    // Update new value
             if (s.ok()) {                                  // It worked
               *old_env = new_env;                          // Update the old one
             }
@@ -433,10 +447,9 @@ const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 
 class MutableDBConfigurable : public Configurable {
  public:
-  MutableDBConfigurable(const MutableDBOptions& mdb) {
+  explicit MutableDBConfigurable(const MutableDBOptions& mdb) {
     mutable_ = mdb;
-    ConfigurableHelper::RegisterOptions(*this, &mutable_,
-                                        &db_mutable_options_type_info);
+    RegisterOptions(&mutable_, &db_mutable_options_type_info);
   }
 
  protected:
@@ -445,7 +458,7 @@ class MutableDBConfigurable : public Configurable {
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  DBOptionsConfigurable(const DBOptions& opts)
+  explicit DBOptionsConfigurable(const DBOptions& opts)
       : MutableDBConfigurable(MutableDBOptions(opts)), db_options_(opts) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is
@@ -456,8 +469,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
-    ConfigurableHelper::RegisterOptions(*this, &immutable_,
-                                        &db_immutable_options_type_info);
+    RegisterOptions(&immutable_, &db_immutable_options_type_info);
   }
 
  protected:
@@ -465,8 +477,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       const ConfigOptions& config_options,
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused) override {
-    Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
-                                                    opts_map, unused);
+    Status s = Configurable::ConfigureOptions(config_options, opts_map, unused);
     if (s.ok()) {
       db_options_ = BuildDBOptions(immutable_, mutable_);
       s = PrepareOptions(config_options);
@@ -505,8 +516,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
+      flush_verify_memtable_count(options.flush_verify_memtable_count),
+      track_and_verify_wals_in_manifest(
+          options.track_and_verify_wals_in_manifest),
       env(options.env),
-      fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
@@ -523,8 +536,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       recycle_log_file_num(options.recycle_log_file_num),
       max_manifest_file_size(options.max_manifest_file_size),
       table_cache_numshardbits(options.table_cache_numshardbits),
-      wal_ttl_seconds(options.WAL_ttl_seconds),
-      wal_size_limit_mb(options.WAL_size_limit_MB),
+      WAL_ttl_seconds(options.WAL_ttl_seconds),
+      WAL_size_limit_MB(options.WAL_size_limit_MB),
       max_write_batch_group_size_bytes(
           options.max_write_batch_group_size_bytes),
       manifest_preallocation_size(options.manifest_preallocation_size),
@@ -579,7 +592,19 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       max_bgerror_resume_count(options.max_bgerror_resume_count),
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
       allow_data_in_errors(options.allow_data_in_errors),
-      disable_manifest_sync(options.disable_manifest_sync) {
+      disable_manifest_sync(options.disable_manifest_sync),
+      db_host_id(options.db_host_id),
+      checksum_handoff_file_types(options.checksum_handoff_file_types),
+      compaction_service(options.compaction_service) {
+  stats = statistics.get();
+  fs = env->GetFileSystem();
+  if (env != nullptr) {
+    clock = env->GetSystemClock().get();
+  } else {
+    clock = SystemClock::Default().get();
+  }
+  logger = info_log.get();
+  stats = statistics.get();
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -589,6 +614,12 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    create_if_missing);
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
+  ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
+                   flush_verify_memtable_count);
+  ROCKS_LOG_HEADER(log,
+                   "                              "
+                   "Options.track_and_verify_wals_in_manifest: %d",
+                   track_and_verify_wals_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
@@ -598,7 +629,7 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
                    max_file_opening_threads);
   ROCKS_LOG_HEADER(log, "                             Options.statistics: %p",
-                   statistics.get());
+                   stats);
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
   ROCKS_LOG_HEADER(
@@ -638,10 +669,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    table_cache_numshardbits);
   ROCKS_LOG_HEADER(log,
                    "                        Options.WAL_ttl_seconds: %" PRIu64,
-                   wal_ttl_seconds);
+                   WAL_ttl_seconds);
   ROCKS_LOG_HEADER(log,
                    "                      Options.WAL_size_limit_MB: %" PRIu64,
-                   wal_size_limit_mb);
+                   WAL_size_limit_MB);
   ROCKS_LOG_HEADER(log,
                    "                       "
                    "Options.max_write_batch_group_size_bytes: %" PRIu64,
@@ -739,6 +770,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "           Options.disable_manifest_sync: %d",
                    disable_manifest_sync);
+  ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
+                   db_host_id.c_str());
 }
 
 MutableDBOptions::MutableDBOptions()
@@ -827,4 +860,27 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
 }
 
+#ifndef ROCKSDB_LITE
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  ConfigOptions config_options;
+  Status s = OptionTypeInfo::ParseType(
+      config_options, options_map, db_mutable_options_type_info, new_options);
+  if (!s.ok()) {
+    *new_options = base_options;
+  }
+  return s;
+}
+
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string) {
+  return OptionTypeInfo::SerializeType(
+      config_options, db_mutable_options_type_info, &mutable_opts, opt_string);
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

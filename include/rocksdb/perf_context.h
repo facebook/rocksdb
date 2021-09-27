@@ -57,7 +57,7 @@ struct PerfContext {
   // enable per level perf context and allocate storage for PerfContextByLevel
   void EnablePerLevelPerfContext();
 
-  // temporarily disable per level perf contxt by setting the flag to false
+  // temporarily disable per level perf context by setting the flag to false
   void DisablePerLevelPerfContext();
 
   // free the space for PerfContextByLevel, also disable per level perf context
@@ -230,8 +230,15 @@ struct PerfContext {
   bool per_level_perf_context_enabled = false;
 };
 
-// Get Thread-local PerfContext object pointer
-// if defined(NPERF_CONTEXT), then the pointer is not thread-local
+// If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,
+// non-thread-local PerfContext object will be returned. Attempts to update
+// this object will be ignored, and reading from it will also be no-op.
+// Otherwise,
+// a) if thread-local is supported on the platform, then a pointer to
+//    a thread-local PerfContext object will be returned.
+// b) if thread-local is NOT supported, then compilation will fail.
+//
+// This function never returns nullptr.
 PerfContext* get_perf_context();
 
 }  // namespace ROCKSDB_NAMESPACE

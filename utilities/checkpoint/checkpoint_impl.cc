@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "db/wal_manager.h"
@@ -51,12 +52,14 @@ void CheckpointImpl::CleanStagingDirectory(
   }
   ROCKS_LOG_INFO(info_log, "File exists %s -- %s",
                  full_private_path.c_str(), s.ToString().c_str());
-  db_->GetEnv()->GetChildren(full_private_path, &subchildren);
-  for (auto& subchild : subchildren) {
-    std::string subchild_path = full_private_path + "/" + subchild;
-    s = db_->GetEnv()->DeleteFile(subchild_path);
-    ROCKS_LOG_INFO(info_log, "Delete file %s -- %s",
-                   subchild_path.c_str(), s.ToString().c_str());
+  s = db_->GetEnv()->GetChildren(full_private_path, &subchildren);
+  if (s.ok()) {
+    for (auto& subchild : subchildren) {
+      std::string subchild_path = full_private_path + "/" + subchild;
+      s = db_->GetEnv()->DeleteFile(subchild_path);
+      ROCKS_LOG_INFO(info_log, "Delete file %s -- %s", subchild_path.c_str(),
+                     s.ToString().c_str());
+    }
   }
   // finally delete the private dir
   s = db_->GetEnv()->DeleteDir(full_private_path);
@@ -109,33 +112,44 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
   if (s.ok()) {
-    db_->DisableFileDeletions();
-    s = CreateCustomCheckpoint(
-        db_options,
-        [&](const std::string& src_dirname, const std::string& fname,
-            FileType) {
-          ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", fname.c_str());
-          return db_->GetFileSystem()->LinkFile(src_dirname + fname,
-                                                full_private_path + fname,
-                                                IOOptions(), nullptr);
-        } /* link_file_cb */,
-        [&](const std::string& src_dirname, const std::string& fname,
-            uint64_t size_limit_bytes, FileType,
-            const std::string& /* checksum_func_name */,
-            const std::string& /* checksum_val */) {
-          ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-          return CopyFile(db_->GetFileSystem(), src_dirname + fname,
-                          full_private_path + fname, size_limit_bytes,
-                          db_options.use_fsync);
-        } /* copy_file_cb */,
-        [&](const std::string& fname, const std::string& contents, FileType) {
-          ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetFileSystem(), full_private_path + fname,
-                            contents, db_options.use_fsync);
-        } /* create_file_cb */,
-        &sequence_number, log_size_for_flush);
-    // we copied all the files, enable file deletions
-    db_->EnableFileDeletions(false);
+    // enable file deletions
+    s = db_->DisableFileDeletions();
+    const bool disabled_file_deletions = s.ok();
+
+    if (s.ok() || s.IsNotSupported()) {
+      s = CreateCustomCheckpoint(
+          db_options,
+          [&](const std::string& src_dirname, const std::string& fname,
+              FileType) {
+            ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
+                           fname.c_str());
+            return db_->GetFileSystem()->LinkFile(src_dirname + fname,
+                                                  full_private_path + fname,
+                                                  IOOptions(), nullptr);
+          } /* link_file_cb */,
+          [&](const std::string& src_dirname, const std::string& fname,
+              uint64_t size_limit_bytes, FileType,
+              const std::string& /* checksum_func_name */,
+              const std::string& /* checksum_val */) {
+            ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
+            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
+                            full_private_path + fname, size_limit_bytes,
+                            db_options.use_fsync);
+          } /* copy_file_cb */,
+          [&](const std::string& fname, const std::string& contents, FileType) {
+            ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
+            return CreateFile(db_->GetFileSystem(), full_private_path + fname,
+                              contents, db_options.use_fsync);
+          } /* create_file_cb */,
+          &sequence_number, log_size_for_flush);
+
+      // we copied all the files, enable file deletions
+      if (disabled_file_deletions) {
+        Status ss = db_->EnableFileDeletions(false);
+        assert(ss.ok());
+        ss.PermitUncheckedError();
+      }
+    }
   }
 
   if (s.ok()) {
@@ -144,8 +158,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   }
   if (s.ok()) {
     std::unique_ptr<Directory> checkpoint_directory;
-    db_->GetEnv()->NewDirectory(checkpoint_dir, &checkpoint_directory);
-    if (checkpoint_directory != nullptr) {
+    s = db_->GetEnv()->NewDirectory(checkpoint_dir, &checkpoint_directory);
+    if (s.ok() && checkpoint_directory != nullptr) {
       s = checkpoint_directory->Fsync();
     }
   }
@@ -191,68 +205,61 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   VectorLogPtr live_wal_files;
 
   bool flush_memtable = true;
-  if (s.ok()) {
-    if (!db_options.allow_2pc) {
-      if (log_size_for_flush == port::kMaxUint64) {
+  if (!db_options.allow_2pc) {
+    if (log_size_for_flush == port::kMaxUint64) {
+      flush_memtable = false;
+    } else if (log_size_for_flush > 0) {
+      // If out standing log files are small, we skip the flush.
+      s = db_->GetSortedWalFiles(live_wal_files);
+
+      if (!s.ok()) {
+        return s;
+      }
+
+      // Don't flush column families if total log size is smaller than
+      // log_size_for_flush. We copy the log files instead.
+      // We may be able to cover 2PC case too.
+      uint64_t total_wal_size = 0;
+      for (auto& wal : live_wal_files) {
+        total_wal_size += wal->SizeFileBytes();
+      }
+      if (total_wal_size < log_size_for_flush) {
         flush_memtable = false;
-      } else if (log_size_for_flush > 0) {
-        // If out standing log files are small, we skip the flush.
-        s = db_->GetSortedWalFiles(live_wal_files);
-
-        if (!s.ok()) {
-          return s;
-        }
-
-        // Don't flush column families if total log size is smaller than
-        // log_size_for_flush. We copy the log files instead.
-        // We may be able to cover 2PC case too.
-        uint64_t total_wal_size = 0;
-        for (auto& wal : live_wal_files) {
-          total_wal_size += wal->SizeFileBytes();
-        }
-        if (total_wal_size < log_size_for_flush) {
-          flush_memtable = false;
-        }
-        live_wal_files.clear();
       }
+      live_wal_files.clear();
     }
-
-    // this will return live_files prefixed with "/"
-    s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-
-    if (s.ok() && db_options.allow_2pc) {
-      // If 2PC is enabled, we need to get minimum log number after the flush.
-      // Need to refetch the live files to recapture the snapshot.
-      if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep,
-                               &min_log_num)) {
-        return Status::InvalidArgument(
-            "2PC enabled but cannot fine the min log number to keep.");
-      }
-      // We need to refetch live files with flush to handle this case:
-      // A previous 000001.log contains the prepare record of transaction tnx1.
-      // The current log file is 000002.log, and sequence_number points to this
-      // file.
-      // After calling GetLiveFiles(), 000003.log is created.
-      // Then tnx1 is committed. The commit record is written to 000003.log.
-      // Now we fetch min_log_num, which will be 3.
-      // Then only 000002.log and 000003.log will be copied, and 000001.log will
-      // be skipped. 000003.log contains commit message of tnx1, but we don't
-      // have respective prepare record for it.
-      // In order to avoid this situation, we need to force flush to make sure
-      // all transactions committed before getting min_log_num will be flushed
-      // to SST files.
-      // We cannot get min_log_num before calling the GetLiveFiles() for the
-      // first time, because if we do that, all the logs files will be included,
-      // far more than needed.
-      s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-    }
-
-    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
-    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
-    db_->FlushWAL(false /* sync */);
   }
+
+  // this will return live_files prefixed with "/"
+  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+
+  if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
+    return Status::InvalidArgument("cannot get the min log number to keep.");
+  }
+  // Between GetLiveFiles and getting min_log_num, flush might happen
+  // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
+  // not get the new MANIFEST size, the deleted WALs might not be reflected in
+  // the checkpoint's MANIFEST.
+  //
+  // If we get min_log_num before the above GetLiveFiles, then there might
+  // be too many unnecessary WALs to be included in the checkpoint.
+  //
+  // Ideally, min_log_num should be got together with manifest_file_size in
+  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
+  // which is a public API.
+  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
+
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
+
+  if (s.ok()) {
+    s = db_->FlushWAL(false /* sync */);
+  }
+
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
+
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {
     s = db_->GetSortedWalFiles(live_wal_files);
@@ -263,10 +270,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   size_t wal_size = live_wal_files.size();
 
-  // process live files, non-table files first
+  // process live files, non-table, non-blob files first
   std::string manifest_fname, current_fname;
-  // record table files for processing next
-  std::vector<std::pair<std::string, uint64_t>> live_table_files;
+  // record table and blob files for processing next
+  std::vector<std::tuple<std::string, uint64_t, FileType>>
+      live_table_and_blob_files;
   for (auto& live_file : live_files) {
     if (!s.ok()) {
       break;
@@ -278,8 +286,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       s = Status::Corruption("Can't parse file name. This is very bad");
       break;
     }
-    // we should only get sst, options, manifest and current files here
-    assert(type == kTableFile || type == kDescriptorFile ||
+    // we should only get sst, blob, options, manifest and current files here
+    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
            type == kCurrentFile || type == kOptionsFile);
     assert(live_file.size() > 0 && live_file[0] == '/');
     if (type == kCurrentFile) {
@@ -291,20 +299,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     } else if (type == kDescriptorFile) {
       manifest_fname = live_file;
     }
-    if (type != kTableFile) {
-      // copy non-table files here
+
+    if (type != kTableFile && type != kBlobFile) {
+      // copy non-table, non-blob files here
       // * if it's kDescriptorFile, limit the size to manifest_file_size
       s = copy_file_cb(db_->GetName(), live_file,
                        (type == kDescriptorFile) ? manifest_file_size : 0, type,
                        kUnknownFileChecksumFuncName, kUnknownFileChecksum);
     } else {
-      // process table files below
-      live_table_files.push_back(make_pair(live_file, number));
+      // process table and blob files below
+      live_table_and_blob_files.emplace_back(live_file, number, type);
     }
   }
 
-  // get checksum info for table files
-  // get table file checksums if get_live_table_checksum is true
+  // get checksum info for table and blob files.
+  // get table and blob file checksums if get_live_table_checksum is true
   std::unique_ptr<FileChecksumList> checksum_list;
 
   if (s.ok() && get_live_table_checksum) {
@@ -316,19 +325,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
                                      manifest_file_size, checksum_list.get());
   }
 
-  // copy/hard link live table files
-  for (auto& ltf : live_table_files) {
+  // copy/hard link live table and blob files
+  for (const auto& file : live_table_and_blob_files) {
     if (!s.ok()) {
       break;
     }
-    std::string& src_fname = ltf.first;
-    uint64_t number = ltf.second;
+
+    const std::string& src_fname = std::get<0>(file);
+    const uint64_t number = std::get<1>(file);
+    const FileType type = std::get<2>(file);
 
     // rules:
-    // * for kTableFile, attempt hard link instead of copy.
+    // * for kTableFile/kBlobFile, attempt hard link instead of copy.
     // * but can't hard link across filesystems.
     if (same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, kTableFile);
+      s = link_file_cb(db_->GetName(), src_fname, type);
       if (s.IsNotSupported()) {
         same_fs = false;
         s = Status::OK();
@@ -339,7 +350,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       std::string checksum_value = kUnknownFileChecksum;
 
       // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum lsit for old table files that have no file
+      // obtain the checksum list for old table files that have no file
       // checksums
       if (get_live_table_checksum) {
         // find checksum info for table files
@@ -353,13 +364,13 @@ Status CheckpointImpl::CreateCustomCheckpoint(
           assert(checksum_value == kUnknownFileChecksum);
         }
       }
-      s = copy_file_cb(db_->GetName(), src_fname, 0, kTableFile, checksum_name,
+      s = copy_file_cb(db_->GetName(), src_fname, 0, type, checksum_name,
                        checksum_value);
     }
   }
   if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
-    create_file_cb(current_fname, manifest_fname.substr(1) + "\n",
-                   kCurrentFile);
+    s = create_file_cb(current_fname, manifest_fname.substr(1) + "\n",
+                       kCurrentFile);
   }
   ROCKS_LOG_INFO(db_options.info_log, "Number of log files %" ROCKSDB_PRIszt,
                  live_wal_files.size());
@@ -369,18 +380,17 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
         (!flush_memtable ||
-         live_wal_files[i]->StartSequence() >= *sequence_number ||
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         live_wal_files[i]->SizeFileBytes(), kLogFile,
+                         live_wal_files[i]->SizeFileBytes(), kWalFile,
                          kUnknownFileChecksumFuncName, kUnknownFileChecksum);
         break;
       }
       if (same_fs) {
         // we only care about live log files
         s = link_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         kLogFile);
+                         kWalFile);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
@@ -388,7 +398,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       }
       if (!same_fs) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(), 0,
-                         kLogFile, kUnknownFileChecksumFuncName,
+                         kWalFile, kUnknownFileChecksumFuncName,
                          kUnknownFileChecksum);
       }
     }

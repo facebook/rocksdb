@@ -29,21 +29,22 @@ namespace {
  */
 class ConstantSizeSstFileManager : public SstFileManagerImpl {
  public:
-  ConstantSizeSstFileManager(int64_t constant_file_size, Env* env,
+  ConstantSizeSstFileManager(int64_t constant_file_size,
+                             const std::shared_ptr<SystemClock>& clock,
+                             const std::shared_ptr<FileSystem>& fs,
                              std::shared_ptr<Logger> logger,
                              int64_t rate_bytes_per_sec,
                              double max_trash_db_ratio,
                              uint64_t bytes_max_delete_chunk)
-      : SstFileManagerImpl(env, std::make_shared<LegacyFileSystemWrapper>(env),
-                           std::move(logger), rate_bytes_per_sec,
+      : SstFileManagerImpl(clock, fs, std::move(logger), rate_bytes_per_sec,
                            max_trash_db_ratio, bytes_max_delete_chunk),
         constant_file_size_(constant_file_size) {
     assert(constant_file_size_ >= 0);
   }
 
-  Status OnAddFile(const std::string& file_path, bool compaction) override {
+  Status OnAddFile(const std::string& file_path) override {
     return SstFileManagerImpl::OnAddFile(
-        file_path, uint64_t(constant_file_size_), compaction);
+        file_path, uint64_t(constant_file_size_));
   }
 
  private:
@@ -107,7 +108,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     // If users don't use Options.sst_file_manager, then these values are used
     // currently when creating an SST File Manager.
     options.sst_file_manager = std::make_shared<ConstantSizeSstFileManager>(
-        constant_sst_file_size, options.env, options.info_log,
+        constant_sst_file_size, options.env->GetSystemClock(),
+        options.env->GetFileSystem(), options.info_log,
         0 /* rate_bytes_per_sec */, 0.25 /* max_trash_db_ratio */,
         64 * 1024 * 1024 /* bytes_max_delete_chunk */);
   }
@@ -318,9 +320,9 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch().ToString();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
-  LegacyFileSystemWrapper fs(base_env);
+  auto fs = base_env->GetFileSystem();
   st =
-      CopyFile(&fs, GetName() + "/" + manifest_fname,
+      CopyFile(fs.get(), GetName() + "/" + manifest_fname,
                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
   if (!st.ok()) {
     return st;

@@ -27,9 +27,9 @@ class IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) = 0;
 
-  virtual void BlockAdd(uint64_t blockRawBytes,
-                        uint64_t blockCompressedBytesFast,
-                        uint64_t blockCompressedBytesSlow) = 0;
+  virtual void BlockAdd(uint64_t block_raw_bytes,
+                        uint64_t block_compressed_bytes_fast,
+                        uint64_t block_compressed_bytes_slow) = 0;
 
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
@@ -48,6 +48,13 @@ class IntTblPropCollectorFactory {
   virtual const char* Name() const = 0;
 };
 
+using IntTblPropCollectorFactories =
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>;
+using IntTblPropCollectorFactoryIter =
+    IntTblPropCollectorFactories::const_iterator;
+using IntTblPropCollectorFactoryRange =
+    std::pair<IntTblPropCollectorFactoryIter, IntTblPropCollectorFactoryIter>;
+
 // When rocksdb creates a new table, it will encode all "user keys" into
 // "internal keys", which contains meta information of a given entry.
 //
@@ -64,9 +71,9 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) override;
 
-  virtual void BlockAdd(uint64_t blockRawBytes,
-                        uint64_t blockCompressedBytesFast,
-                        uint64_t blockCompressedBytesSlow) override;
+  virtual void BlockAdd(uint64_t block_raw_bytes,
+                        uint64_t block_compressed_bytes_fast,
+                        uint64_t block_compressed_bytes_slow) override;
 
   virtual Status Finish(UserCollectedProperties* properties) override;
 

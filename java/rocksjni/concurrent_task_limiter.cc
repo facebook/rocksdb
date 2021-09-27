@@ -15,7 +15,7 @@
  */
 jlong Java_org_rocksdb_ConcurrentTaskLimiterImpl_newConcurrentTaskLimiterImpl0(
     JNIEnv* env, jclass, jstring jname, jint limit) {
-  jboolean has_exception;
+  jboolean has_exception = JNI_FALSE;
   std::string name =
       ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jname, &has_exception);
   if (JNI_TRUE == has_exception) {

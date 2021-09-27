@@ -20,15 +20,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionBaseImpl::TransactionBaseImpl(DB* db,
-                                         const WriteOptions& write_options)
+TransactionBaseImpl::TransactionBaseImpl(
+    DB* db, const WriteOptions& write_options,
+    const LockTrackerFactory& lock_tracker_factory)
     : db_(db),
       dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
-      start_time_(db_->GetEnv()->NowMicros()),
+      lock_tracker_factory_(lock_tracker_factory),
+      start_time_(dbimpl_->GetSystemClock()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
-      tracked_locks_(NewLockTracker()),
+      tracked_locks_(lock_tracker_factory_.Create()),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -65,7 +67,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   name_.clear();
   log_number_ = 0;
   write_options_ = write_options;
-  start_time_ = db_->GetEnv()->NowMicros();
+  start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
 }
@@ -125,7 +127,8 @@ void TransactionBaseImpl::SetSavePoint() {
     save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>());
   }
   save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
-                        num_puts_, num_deletes_, num_merges_);
+                        num_puts_, num_deletes_, num_merges_,
+                        lock_tracker_factory_);
   write_batch_.SetSavePoint();
 }
 
@@ -172,7 +175,7 @@ Status TransactionBaseImpl::PopSavePoint() {
   if (save_points_->size() == 1) {
     save_points_->pop();
   } else {
-    TransactionBaseImpl::SavePoint top;
+    TransactionBaseImpl::SavePoint top(lock_tracker_factory_);
     std::swap(top, save_points_->top());
     save_points_->pop();
 
@@ -303,7 +306,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(db_->DefaultColumnFamily(), db_iter,
+                                          &read_options);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -527,7 +531,9 @@ Status TransactionBaseImpl::SingleDeleteUntracked(
 }
 
 void TransactionBaseImpl::PutLogData(const Slice& blob) {
-  write_batch_.PutLogData(blob);
+  auto s = write_batch_.PutLogData(blob);
+  (void)s;
+  assert(s.ok());
 }
 
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
@@ -535,7 +541,7 @@ WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
 }
 
 uint64_t TransactionBaseImpl::GetElapsedTime() const {
-  return (db_->GetEnv()->NowMicros() - start_time_) / 1000;
+  return (dbimpl_->GetSystemClock()->NowMicros() - start_time_) / 1000;
 }
 
 uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }

@@ -28,7 +28,7 @@ struct DBOptions;
 // standard way of configuring objects.  A Configurable object can:
 //   -> Populate itself given:
 //        - One or more "name/value" pair strings
-//        - A string repesenting the set of name=value properties
+//        - A string representing the set of name=value properties
 //        - A map of name/value properties.
 //   -> Convert itself into its string representation
 //   -> Dump itself to a Logger
@@ -166,7 +166,7 @@ class Configurable {
   // This is the inverse of ConfigureFromString.
   // @param config_options Controls how serialization happens.
   // @param result The string representation of this object.
-  // @return OK If the options for this object wer successfully serialized.
+  // @return OK If the options for this object were successfully serialized.
   // @return InvalidArgument If one or more of the options could not be
   // serialized.
   Status GetOptionString(const ConfigOptions& config_options,
@@ -240,7 +240,7 @@ class Configurable {
   // @param config_options Controls how the object is prepared.  Also contains
   //      a Logger and Env that can be used to initialize this object.
   // @return OK If the object was successfully initialized.
-  // @return InvalidArgument If this object could not be successfull
+  // @return InvalidArgument If this object could not be successfully
   // initialized.
   virtual Status PrepareOptions(const ConfigOptions& config_options);
 
@@ -270,18 +270,13 @@ class Configurable {
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
   bool prepared_;
-  // If this class is a wrapper (has-a), this method should be
-  // over-written to return the inner configurable (like an EnvWrapper).
-  // This method should NOT recurse, but should instead return the
-  // direct Inner object.
-  virtual Configurable* Inner() const { return nullptr; }
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the
   // Classes may override this method to provide further specialization (such as
   // returning a sub-option)
   //
-  // The default implemntation looks at the registered options.  If the
+  // The default implementation looks at the registered options.  If the
   // input name matches that of a registered option, the pointer registered
   // with that name is returned.
   // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns
@@ -354,6 +349,35 @@ class Configurable {
 
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   virtual std::string GetOptionName(const std::string& long_name) const;
+
+  // Registers the input name with the options and associated map.
+  // When classes register their options in this manner, most of the
+  // functionality (excluding unknown options and validate/prepare) is
+  // implemented by the base class.
+  //
+  // This method should be called in the class constructor to register the
+  // option set for this object.  For example, to register the options
+  // associated with the BlockBasedTableFactory, the constructor calls this
+  // method passing in:
+  // - the name of the options ("BlockBasedTableOptions");
+  // - the options object (the BlockBasedTableOptions object for this object;
+  // - the options type map for the BlockBasedTableOptions.
+  // This registration allows the Configurable class to process the option
+  // values associated with the BlockBasedTableOptions without further code in
+  // the derived class.
+  //
+  // @param name    The name of this set of options (@see GetOptionsPtr)
+  // @param opt_ptr Pointer to the options to associate with this name
+  // @param opt_map Options map that controls how this option is configured.
+  template <typename T>
+  void RegisterOptions(
+      T* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
+    RegisterOptions(T::kName(), opt_ptr, opt_map);
+  }
+  void RegisterOptions(
+      const std::string& name, void* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
 
  private:
   // Contains the collection of options (name, opt_ptr, opt_map) associated with

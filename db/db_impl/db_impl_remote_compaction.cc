@@ -127,15 +127,18 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
 
   // create compaction job
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), immutable_db_options_,
+      job_context->job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-      GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
-      &error_handler_, existing_snapshots, earliest_write_conflict_snapshot,
-      snapshot_checker, table_cache_, &event_logger_,
+      GetDataDir(c->column_family_data(), c->output_path_id()),
+      GetDataDir(c->column_family_data(), 0), stats_, &mutex_, &error_handler_,
+      existing_snapshots, earliest_write_conflict_snapshot, snapshot_checker,
+      table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER, nullptr);
+      &compaction_job_stats, Env::Priority::USER, io_tracer_,
+      &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
+      c->column_family_data()->GetFullHistoryTsLow());
 
   compaction_job.Prepare();
   mutex_.Unlock();

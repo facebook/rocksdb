@@ -10,15 +10,20 @@
 // A portable implementation of crc32c, optimized to handle
 // four bytes at a time.
 #include "util/crc32c.h"
+
 #include <stdint.h>
+
+#include <array>
+#include <utility>
 #ifdef HAVE_SSE42
 #include <nmmintrin.h>
 #include <wmmintrin.h>
 #endif
+
 #include "port/lang.h"
 #include "util/coding.h"
-
 #include "util/crc32c_arm64.h"
+#include "util/math.h"
 
 #ifdef __powerpc64__
 #include "util/crc32c_ppc.h"
@@ -37,11 +42,15 @@
 #define AT_HWCAP2 26
 #endif
 
+#elif __FreeBSD__
+#include <machine/cpu.h>
+#include <sys/auxv.h>
+#include <sys/elf_common.h>
 #endif /* __linux__ */
 
 #endif
 
-#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+#if defined(HAVE_ARM64_CRC)
 bool pmull_runtime_flag = false;
 #endif
 
@@ -346,6 +355,9 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#if (!(defined(HAVE_POWER8) && defined(HAS_ALTIVEC))) && \
+        (!defined(HAVE_ARM64_CRC)) ||                    \
+    defined(NO_THREEWAY_CRC32C)
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifndef HAVE_SSE42
   Slow_CRC32(l, p);
@@ -359,6 +371,7 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
 #endif
 }
+#endif
 
 template<void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -463,6 +476,18 @@ static int arch_ppc_probe(void) {
 
   return arch_ppc_crc32;
 }
+#elif __FreeBSD__
+static int arch_ppc_probe(void) {
+  unsigned long cpufeatures;
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  elf_aux_info(AT_HWCAP2, &cpufeatures, sizeof(cpufeatures));
+  if (cpufeatures & PPC_FEATURE2_HAS_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif  /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
 #endif  // __linux__
 
 static bool isAltiVec() {
@@ -474,7 +499,7 @@ static bool isAltiVec() {
 }
 #endif
 
-#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+#if defined(HAVE_ARM64_CRC)
 uint32_t ExtendARMImpl(uint32_t crc, const char *buf, size_t size) {
   return crc32c_arm64(crc, (const unsigned char *)buf, size);
 }
@@ -494,7 +519,7 @@ std::string IsFastCrc32Supported() {
   has_fast_crc = false;
   arch = "PPC";
 #endif
-#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+#elif defined(HAVE_ARM64_CRC)
   if (crc32c_runtime_check()) {
     has_fast_crc = true;
     arch = "Arm64";
@@ -1227,7 +1252,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
-#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+#elif defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
     pmull_runtime_flag = crc32c_pmull_runtime_check();
     return ExtendARMImpl;
@@ -1258,6 +1283,165 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);
 }
 
+
+// The code for crc32c combine, copied with permission from folly
+
+// Standard galois-field multiply.  The only modification is that a,
+// b, m, and p are all bit-reflected.
+//
+// https://en.wikipedia.org/wiki/Finite_field_arithmetic
+static constexpr uint32_t gf_multiply_sw_1(
+    size_t i, uint32_t p, uint32_t a, uint32_t b, uint32_t m) {
+  // clang-format off
+  return i == 32 ? p : gf_multiply_sw_1(
+      /* i = */ i + 1,
+      /* p = */ p ^ ((0u-((b >> 31) & 1)) & a),
+      /* a = */ (a >> 1) ^ ((0u-(a & 1)) & m),
+      /* b = */ b << 1,
+      /* m = */ m);
+  // clang-format on
+}
+static constexpr uint32_t gf_multiply_sw(uint32_t a, uint32_t b, uint32_t m) {
+  return gf_multiply_sw_1(/* i = */ 0, /* p = */ 0, a, b, m);
+}
+
+static constexpr uint32_t gf_square_sw(uint32_t a, uint32_t m) {
+  return gf_multiply_sw(a, a, m);
+}
+
+template <size_t i, uint32_t m>
+struct gf_powers_memo {
+  static constexpr uint32_t value =
+      gf_square_sw(gf_powers_memo<i - 1, m>::value, m);
+};
+template <uint32_t m>
+struct gf_powers_memo<0, m> {
+  static constexpr uint32_t value = m;
+};
+
+template <typename T, T... Ints>
+struct integer_sequence {
+  typedef T value_type;
+  static constexpr size_t size() { return sizeof...(Ints); }
+};
+
+template <typename T, std::size_t N, T... Is>
+struct make_integer_sequence : make_integer_sequence<T, N - 1, N - 1, Is...> {};
+
+template <typename T, T... Is>
+struct make_integer_sequence<T, 0, Is...> : integer_sequence<T, Is...> {};
+
+template <std::size_t N>
+using make_index_sequence = make_integer_sequence<std::size_t, N>;
+
+template <uint32_t m>
+struct gf_powers_make {
+  template <size_t... i>
+  using index_sequence = integer_sequence<size_t, i...>;
+  template <size_t... i>
+  constexpr std::array<uint32_t, sizeof...(i)> operator()(
+      index_sequence<i...>) const {
+    return std::array<uint32_t, sizeof...(i)>{{gf_powers_memo<i, m>::value...}};
+  }
+};
+
+static constexpr uint32_t crc32c_m = 0x82f63b78;
+
+static constexpr std::array<uint32_t, 62> const crc32c_powers =
+    gf_powers_make<crc32c_m>{}(make_index_sequence<62>{});
+
+// Expects a "pure" crc (see Crc32cCombine)
+static uint32_t Crc32AppendZeroes(
+    uint32_t crc, size_t len_over_4, uint32_t polynomial,
+    std::array<uint32_t, 62> const& powers_array) {
+  auto powers = powers_array.data();
+  // Append by multiplying by consecutive powers of two of the zeroes
+  // array
+  size_t len_bits = len_over_4;
+
+  while (len_bits) {
+    // Advance directly to next bit set.
+    auto r = CountTrailingZeroBits(len_bits);
+    len_bits >>= r;
+    powers += r;
+
+    crc = gf_multiply_sw(crc, *powers, polynomial);
+
+    len_bits >>= 1;
+    powers++;
+  }
+
+  return crc;
+}
+
+static inline uint32_t InvertedToPure(uint32_t crc) { return ~crc; }
+
+static inline uint32_t PureToInverted(uint32_t crc) { return ~crc; }
+
+static inline uint32_t PureExtend(uint32_t crc, const char* buf, size_t size) {
+  return InvertedToPure(Extend(PureToInverted(crc), buf, size));
+}
+
+// Background:
+// RocksDB uses two kinds of crc32c values: masked and unmasked. Neither is
+// a "pure" CRC because a pure CRC satisfies (^ for xor)
+//  crc(a ^ b) = crc(a) ^ crc(b)
+// The unmasked is closest, and this function takes unmasked crc32c values.
+// The unmasked values are impure in two ways:
+// * The initial setting at the start of CRC computation is all 1 bits
+// (like -1) instead of zero.
+// * The result has all bits invered.
+// Note that together, these result in the empty string having a crc32c of
+// zero. See
+// https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks#CRC_variants
+//
+// Simplified version of strategy, using xor through pure CRCs (+ for concat):
+//
+// pure_crc(str1 + str2) = pure_crc(str1 + zeros(len(str2))) ^
+//                         pure_crc(zeros(len(str1)) + str2)
+//
+// because the xor of these two zero-padded strings is str1 + str2. For pure
+// CRC, leading zeros don't affect the result, so we only need
+//
+// pure_crc(str1 + str2) = pure_crc(str1 + zeros(len(str2))) ^
+//                         pure_crc(str2)
+//
+// Considering we aren't working with pure CRCs, what is actually in the input?
+//
+// crc1 = PureToInverted(PureExtendCrc32c(-1, zeros, crc1len) ^
+//                       PureCrc32c(str1, crc1len))
+// crc2 = PureToInverted(PureExtendCrc32c(-1, zeros, crc2len) ^
+//                       PureCrc32c(str2, crc2len))
+//
+// The result we want to compute is
+// combined = PureToInverted(PureExtendCrc32c(PureExtendCrc32c(-1, zeros,
+//                                                             crc1len) ^
+//                                            PureCrc32c(str1, crc1len),
+//                                            zeros, crc2len) ^
+//                           PureCrc32c(str2, crc2len))
+//
+// Thus, in addition to extending crc1 over the length of str2 in (virtual)
+// zeros, we need to cancel out the -1 initializer that was used in computing
+// crc2. To cancel it out, we also need to extend it over crc2len in zeros.
+// To simplify, since the end of str1 and that -1 initializer for crc2 are at
+// the same logical position, we can combine them before we extend over the
+// zeros.
+uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len) {
+  uint32_t pure_crc1_with_init = InvertedToPure(crc1);
+  uint32_t pure_crc2_with_init = InvertedToPure(crc2);
+  uint32_t pure_crc2_init = static_cast<uint32_t>(-1);
+
+  // Append up to 32 bits of zeroes in the normal way
+  char zeros[4] = {0, 0, 0, 0};
+  auto len = crc2len & 3;
+  uint32_t tmp = pure_crc1_with_init ^ pure_crc2_init;
+  if (len) {
+    tmp = PureExtend(tmp, zeros, len);
+  }
+  return PureToInverted(
+      Crc32AppendZeroes(tmp, crc2len / 4, crc32c_m, crc32c_powers) ^
+      pure_crc2_with_init);
+}
 
 }  // namespace crc32c
 }  // namespace ROCKSDB_NAMESPACE

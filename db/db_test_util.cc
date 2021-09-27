@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 
 #include "db/forward_iterator.h"
+#include "env/mock_env.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "util/stderr_logger.h"
@@ -52,6 +53,7 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   manifest_sync_error_.store(false, std::memory_order_release);
   manifest_write_error_.store(false, std::memory_order_release);
   log_write_error_.store(false, std::memory_order_release);
+  no_file_overwrite_.store(false, std::memory_order_release);
   random_file_open_counter_.store(0, std::memory_order_relaxed);
   delete_count_.store(0, std::memory_order_relaxed);
   num_open_wal_file_.store(0);
@@ -70,16 +72,8 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
       option_config_(kDefault),
       s3_env_(nullptr) {
   Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-  const char* test_env_uri = getenv("TEST_ENV_URI");
-  if (test_env_uri) {
-    Env* test_env = nullptr;
-    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-    base_env = test_env;
-    EXPECT_OK(s);
-    EXPECT_NE(Env::Default(), base_env);
-  }
-#endif  // !ROCKSDB_LITE
+  ConfigOptions config_options;
+  EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
     mem_env_ = new MockEnv(base_env);
@@ -88,7 +82,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
     Status s = EncryptionProvider::CreateFromString(
-        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
+        config_options, std::string("test://") + getenv("ENCRYPTED_ENV"),
         &provider);
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
@@ -254,28 +248,28 @@ bool DBTestBase::ChangeCompactOptions() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -290,7 +284,7 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kDBLogDir) {
     option_config_ = kWalDirAndMmapReads;
@@ -298,14 +292,14 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kWalDirAndMmapReads) {
     option_config_ = kRecycleLogFiles;
     Destroy(last_options_);
     auto options = CurrentOptions();
     Destroy(options);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -385,7 +379,7 @@ Options DBTestBase::CurrentOptions(
   return GetOptions(option_config_, default_options, options_override);
 }
 
-Options DBTestBase::GetDefaultOptions() {
+Options DBTestBase::GetDefaultOptions() const {
   Options options;
   options.write_buffer_size = 4090 * 4096;
   options.target_file_size_base = 2 * 1024 * 1024;
@@ -393,6 +387,10 @@ Options DBTestBase::GetDefaultOptions() {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  options.env = env_;
+  if (!env_->skip_fsync_) {
+    options.track_and_verify_wals_in_manifest = true;
+  }
   return options;
 }
 
@@ -421,28 +419,28 @@ Options DBTestBase::GetOptions(
       options.unordered_write = false;
       break;
     case kPlainTableFirstBytePrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableCappedPrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableCappedPrefixNonMmap:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
       options.allow_mmap_reads = false;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableAllBytesPrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewNoopTransform());
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
@@ -536,6 +534,7 @@ Options DBTestBase::GetOptions(
     }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
+      options.max_open_files = -1;
       break;
     }
     case kBlockBasedTableWithPrefixHashIndex: {
@@ -549,6 +548,7 @@ Options DBTestBase::GetOptions(
       break;
     }
     case kBlockBasedTableWithPartitionedIndex: {
+      table_options.format_version = 3;
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.prefix_extractor.reset(NewNoopTransform());
       break;
@@ -774,7 +774,7 @@ void DBTestBase::Close() {
 void DBTestBase::DestroyAndReopen(const Options& options) {
   // Destroy using last options
   Destroy(last_options_);
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 }
 
 void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
@@ -819,9 +819,9 @@ Status DBTestBase::TryReopen(const Options& options) {
   // Note: operator= is an unsafe approach here since it destructs
   // std::shared_ptr in the same order of their creation, in contrast to
   // destructors which destructs them in the opposite order of creation. One
-  // particular problme is that the cache destructor might invoke callback
+  // particular problem is that the cache destructor might invoke callback
   // functions that use Option members such as statistics. To work around this
-  // problem, we manually call destructor of table_facotry which eventually
+  // problem, we manually call destructor of table_factory which eventually
   // clears the block cache.
   last_options_ = options;
   MaybeInstallTimeElapseOnlySleep(options);
@@ -1078,7 +1078,8 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
     bool first = true;
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
+      if (ParseInternalKey(iter->key(), &ikey, true /* log_err_key */) !=
+          Status::OK()) {
         result += "CORRUPTED";
       } else {
         if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
@@ -1235,29 +1236,77 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   result.resize(last_non_zero_offset);
   return result;
 }
+
 #endif  // !ROCKSDB_LITE
 
-size_t DBTestBase::CountFiles() {
-  std::vector<std::string> files;
-  env_->GetChildren(dbname_, &files);
+std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
 
-  std::vector<std::string> logfiles;
-  if (dbname_ != last_options_.wal_dir) {
-    env_->GetChildren(last_options_.wal_dir, &logfiles);
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  std::vector<uint64_t> result;
+  result.reserve(blob_files.size());
+
+  for (const auto& blob_file : blob_files) {
+    result.emplace_back(blob_file.first);
   }
 
-  return files.size() + logfiles.size();
+  return result;
 }
 
-uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
-  Range r(start, limit);
-  uint64_t size;
-  if (cf == 0) {
-    db_->GetApproximateSizes(&r, 1, &size);
-  } else {
-    db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+size_t DBTestBase::CountFiles() {
+  size_t count = 0;
+  std::vector<std::string> files;
+  if (env_->GetChildren(dbname_, &files).ok()) {
+    count += files.size();
   }
-  return size;
+
+  if (dbname_ != last_options_.wal_dir) {
+    if (env_->GetChildren(last_options_.wal_dir, &files).ok()) {
+      count += files.size();
+    }
+  }
+
+  return count;
+};
+
+Status DBTestBase::CountFiles(size_t* count) {
+  std::vector<std::string> files;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (!s.ok()) {
+    return s;
+  }
+  size_t files_count = files.size();
+
+  if (dbname_ != last_options_.wal_dir) {
+    s = env_->GetChildren(last_options_.wal_dir, &files);
+    if (!s.ok()) {
+      return s;
+    }
+    *count = files_count + files.size();
+  }
+
+  return Status::OK();
+}
+
+Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
+                        uint64_t* size) {
+  Range r(start, limit);
+  if (cf == 0) {
+    return db_->GetApproximateSizes(&r, 1, size);
+  } else {
+    return db_->GetApproximateSizes(handles_[1], &r, 1, size);
+  }
 }
 
 void DBTestBase::Compact(int cf, const Slice& start, const Slice& limit,
@@ -1376,8 +1425,8 @@ void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   }
   ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1485,12 +1534,12 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
                                            kMaxSequenceNumber));
   }
   iter->SeekToFirst();
-  ASSERT_EQ(iter->status().ok(), true);
+  ASSERT_OK(iter->status());
   int seq = numValues;
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ikey.clear();
-    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
 
     // checks sequence number for updates
     ASSERT_EQ(ikey.sequence, (unsigned)seq--);
@@ -1523,26 +1572,26 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
-Status DBTestBase::GetAllSSTFiles(
-    std::unordered_map<std::string, uint64_t>* sst_files,
+Status DBTestBase::GetAllDataFiles(
+    const FileType file_type, std::unordered_map<std::string, uint64_t>* files,
     uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;
   }
-  std::vector<std::string> files;
-  Status s = env_->GetChildren(dbname_, &files);
+  std::vector<std::string> children;
+  Status s = env_->GetChildren(dbname_, &children);
   if (s.ok()) {
-    for (auto& file_name : files) {
+    for (auto& file_name : children) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      if (ParseFileName(file_name, &number, &type) && type == file_type) {
         std::string file_path = dbname_ + "/" + file_name;
         uint64_t file_size = 0;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
           break;
         }
-        (*sst_files)[file_path] = file_size;
+        (*files)[file_path] = file_size;
         if (total_size) {
           *total_size += file_size;
         }
@@ -1695,7 +1744,7 @@ void DBTestBase::VerifyDBInternal(
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
-    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
     ASSERT_EQ(p.first, ikey.user_key);
     ASSERT_EQ(p.second, iter->value());
     iter->Next();

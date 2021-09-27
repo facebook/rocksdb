@@ -473,6 +473,52 @@ class LDBTestCase(unittest.TestCase):
                              expected_pattern, unexpected=False,
                              isPattern=True)
 
+        # Check if null characters doesn't infer with output format.
+        self.assertRunOK("put a1 b1", "OK")
+        self.assertRunOK("put a2 b2", "OK")
+        self.assertRunOK("put --hex 0x12000DA0 0x80C0000B", "OK")
+        self.assertRunOK("put --hex 0x7200004f 0x80000004", "OK")
+        self.assertRunOK("put --hex 0xa000000a 0xf000000f", "OK")
+        self.assertRunOK("put a3 b3", "OK")
+        self.assertRunOK("put a4 b4", "OK")
+
+        # Verifies that all "levels" are printed out.
+        # There should be 66 mentions of levels.
+        expected_verbose_output = re.compile("matched")
+        # Test manifest_dump verbose and verify that key 0x7200004f
+        # is present. Note that we are forced to use grep here because
+        # an output with a non-terminating null character in it isn't piped
+        # correctly through the Python subprocess object.
+        # Also note that 0x72=r and 0x4f=O, hence the regex \'r.{2}O\'
+        # (we cannot use null character in the subprocess input either,
+        # so we have to use '.{2}')
+        cmd_verbose = "manifest_dump --verbose --db=%s | grep -aq $'\'r.{2}O\'' && echo 'matched' || echo 'not matched'" %dbPath
+
+        self.assertRunOKFull(cmd_verbose , expected_verbose_output,
+                             unexpected=False, isPattern=True)
+
+
+    def testGetProperty(self):
+        print("Running testGetProperty...")
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put 1 1 --create_if_missing", "OK")
+        self.assertRunOK("put 2 2", "OK")
+        # A "string" property
+        cmd = "--db=%s get_property rocksdb.estimate-num-keys"
+        self.assertRunOKFull(cmd % dbPath,
+                             "rocksdb.estimate-num-keys: 2")
+        # A "map" property
+        # FIXME: why doesn't this pick up two entries?
+        cmd = "--db=%s get_property rocksdb.aggregated-table-properties"
+        part = "rocksdb.aggregated-table-properties.num_entries: "
+        expected_pattern = re.compile(part)
+        self.assertRunOKFull(cmd % dbPath,
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+        # An invalid property
+        cmd = "--db=%s get_property rocksdb.this-property-does-not-exist"
+        self.assertRunFAILFull(cmd % dbPath)
+
     def testSSTDump(self):
         print("Running testSSTDump...")
 

@@ -712,25 +712,98 @@ TEST_P(CacheTest, OverCapacity) {
 }
 
 namespace {
-std::vector<std::pair<int, int>> callback_state;
-void callback(void* entry, size_t charge) {
-  callback_state.push_back({DecodeValue(entry), static_cast<int>(charge)});
+std::vector<std::pair<int, int>> legacy_callback_state;
+void legacy_callback(void* value, size_t charge) {
+  legacy_callback_state.push_back(
+      {DecodeValue(value), static_cast<int>(charge)});
 }
 };
 
-TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
+TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::vector<std::pair<int, int>> inserted;
-  callback_state.clear();
+  legacy_callback_state.clear();
 
   for (int i = 0; i < 10; ++i) {
     Insert(i, i * 2, i + 1);
     inserted.push_back({i * 2, i + 1});
   }
-  cache_->ApplyToAllCacheEntries(callback, true);
+  cache_->ApplyToAllCacheEntries(legacy_callback, true);
+
+  std::sort(inserted.begin(), inserted.end());
+  std::sort(legacy_callback_state.begin(), legacy_callback_state.end());
+  ASSERT_EQ(inserted.size(), legacy_callback_state.size());
+  for (size_t i = 0; i < inserted.size(); ++i) {
+    EXPECT_EQ(inserted[i], legacy_callback_state[i]);
+  }
+}
+
+TEST_P(CacheTest, ApplyToAllEntriesTest) {
+  std::vector<std::string> callback_state;
+  const auto callback = [&](const Slice& key, void* value, size_t charge,
+                            Cache::DeleterFn deleter) {
+    callback_state.push_back(ToString(DecodeKey(key)) + "," +
+                             ToString(DecodeValue(value)) + "," +
+                             ToString(charge));
+    assert(deleter == &CacheTest::Deleter);
+  };
+
+  std::vector<std::string> inserted;
+  callback_state.clear();
+
+  for (int i = 0; i < 10; ++i) {
+    Insert(i, i * 2, i + 1);
+    inserted.push_back(ToString(i) + "," + ToString(i * 2) + "," +
+                       ToString(i + 1));
+  }
+  cache_->ApplyToAllEntries(callback, /*opts*/ {});
 
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
-  ASSERT_TRUE(inserted == callback_state);
+  ASSERT_EQ(inserted.size(), callback_state.size());
+  for (size_t i = 0; i < inserted.size(); ++i) {
+    EXPECT_EQ(inserted[i], callback_state[i]);
+  }
+}
+
+TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
+  // This is a mini-stress test of ApplyToAllEntries, to ensure
+  // items in the cache that are neither added nor removed
+  // during ApplyToAllEntries are counted exactly once.
+
+  // Insert some entries that we expect to be seen exactly once
+  // during iteration.
+  constexpr int kSpecialCharge = 2;
+  constexpr int kNotSpecialCharge = 1;
+  constexpr int kSpecialCount = 100;
+  for (int i = 0; i < kSpecialCount; ++i) {
+    Insert(i, i * 2, kSpecialCharge);
+  }
+
+  // For callback
+  int special_count = 0;
+  const auto callback = [&](const Slice&, void*, size_t charge,
+                            Cache::DeleterFn) {
+    if (charge == static_cast<size_t>(kSpecialCharge)) {
+      ++special_count;
+    }
+  };
+
+  // Start counting
+  std::thread apply_thread([&]() {
+    // Use small average_entries_per_lock to make the problem difficult
+    Cache::ApplyToAllEntriesOptions opts;
+    opts.average_entries_per_lock = 2;
+    cache_->ApplyToAllEntries(callback, opts);
+  });
+
+  // In parallel, add more entries, enough to cause resize but not enough
+  // to cause ejections
+  for (int i = kSpecialCount * 1; i < kSpecialCount * 6; ++i) {
+    Insert(i, i * 2, kNotSpecialCharge);
+  }
+
+  apply_thread.join();
+  ASSERT_EQ(special_count, kSpecialCount);
 }
 
 TEST_P(CacheTest, DefaultShardBits) {
@@ -749,11 +822,12 @@ TEST_P(CacheTest, DefaultShardBits) {
   ASSERT_EQ(6, sc->GetNumShardBits());
 }
 
-TEST_P(CacheTest, GetCharge) {
+TEST_P(CacheTest, GetChargeAndDeleter) {
   Insert(1, 2);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
   ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
   ASSERT_EQ(1, cache_->GetCharge(h1));
+  ASSERT_EQ(&CacheTest::Deleter, cache_->GetDeleter(h1));
   cache_->Release(h1);
 }
 

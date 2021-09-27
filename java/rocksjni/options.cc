@@ -553,7 +553,8 @@ jlong Java_org_rocksdb_Options_dbPathsLen(
 void Java_org_rocksdb_Options_dbPaths(
     JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
     jlongArray jtarget_sizes) {
-  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  jboolean is_copy;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, &is_copy);
   if (ptr_jtarget_size == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -581,7 +582,8 @@ void Java_org_rocksdb_Options_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size,
+                                is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
@@ -943,6 +945,7 @@ rocksdb_convert_cf_paths_from_java_helper(JNIEnv* env, jobjectArray path_array,
   jlong* size_array_ptr = env->GetLongArrayElements(size_array, nullptr);
   if (nullptr == size_array_ptr) {
     // exception thrown: OutOfMemoryError
+    *has_exception = JNI_TRUE;
     return {};
   }
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths;
@@ -975,7 +978,7 @@ void Java_org_rocksdb_Options_setCfPaths(JNIEnv* env, jclass, jlong jhandle,
                                          jobjectArray path_array,
                                          jlongArray size_array) {
   auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  jboolean has_exception;
+  jboolean has_exception = JNI_FALSE;
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths =
       rocksdb_convert_cf_paths_from_java_helper(env, path_array, size_array,
                                                 &has_exception);
@@ -1765,6 +1768,76 @@ jboolean Java_org_rocksdb_Options_strictBytesPerSync(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jboolean>(opt->strict_bytes_per_sync);
+}
+
+// Note: the RocksJava API currently only supports EventListeners implemented in
+// Java. It could be extended in future to also support adding/removing
+// EventListeners implemented in C++.
+static void rocksdb_set_event_listeners_helper(
+    JNIEnv* env, jlongArray jlistener_array,
+    std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>&
+        listener_sptr_vec) {
+  jlong* ptr_jlistener_array =
+      env->GetLongArrayElements(jlistener_array, nullptr);
+  if (ptr_jlistener_array == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  const jsize array_size = env->GetArrayLength(jlistener_array);
+  listener_sptr_vec.clear();
+  for (jsize i = 0; i < array_size; ++i) {
+    const auto& listener_sptr =
+        *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(
+            ptr_jlistener_array[i]);
+    listener_sptr_vec.push_back(listener_sptr);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEventListeners
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_Options_setEventListeners(JNIEnv* env, jclass,
+                                                jlong jhandle,
+                                                jlongArray jlistener_array) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  rocksdb_set_event_listeners_helper(env, jlistener_array, opt->listeners);
+}
+
+// Note: the RocksJava API currently only supports EventListeners implemented in
+// Java. It could be extended in future to also support adding/removing
+// EventListeners implemented in C++.
+static jobjectArray rocksdb_get_event_listeners_helper(
+    JNIEnv* env,
+    const std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>&
+        listener_sptr_vec) {
+  jsize sz = static_cast<jsize>(listener_sptr_vec.size());
+  jclass jlistener_clazz =
+      ROCKSDB_NAMESPACE::AbstractEventListenerJni::getJClass(env);
+  jobjectArray jlisteners = env->NewObjectArray(sz, jlistener_clazz, nullptr);
+  if (jlisteners == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  for (jsize i = 0; i < sz; ++i) {
+    const auto* jni_cb =
+        static_cast<ROCKSDB_NAMESPACE::EventListenerJniCallback*>(
+            listener_sptr_vec[i].get());
+    env->SetObjectArrayElement(jlisteners, i, jni_cb->GetJavaObject());
+  }
+  return jlisteners;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    eventListeners
+ * Signature: (J)[Lorg/rocksdb/AbstractEventListener;
+ */
+jobjectArray Java_org_rocksdb_Options_eventListeners(JNIEnv* env, jclass,
+                                                     jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return rocksdb_get_event_listeners_helper(env, opt->listeners);
 }
 
 /*
@@ -4070,7 +4143,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCfPaths(JNIEnv* env, jclass,
                                                      jlongArray size_array) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  jboolean has_exception;
+  jboolean has_exception = JNI_FALSE;
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths =
       rocksdb_convert_cf_paths_from_java_helper(env, path_array, size_array,
                                                 &has_exception);
@@ -4959,8 +5032,8 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditiona
     JNIEnv* env, jobject, jlong jhandle,
     jintArray jmax_bytes_for_level_multiplier_additional) {
   jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
-  jint* additionals =
-      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+  jint* additionals = env->GetIntArrayElements(
+      jmax_bytes_for_level_multiplier_additional, nullptr);
   if (additionals == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -5612,7 +5685,8 @@ jlong Java_org_rocksdb_DBOptions_dbPathsLen(
 void Java_org_rocksdb_DBOptions_dbPaths(
     JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
     jlongArray jtarget_sizes) {
-  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  jboolean is_copy;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, &is_copy);
   if (ptr_jtarget_size == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -5640,7 +5714,8 @@ void Java_org_rocksdb_DBOptions_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size,
+                                is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
@@ -6547,6 +6622,29 @@ jboolean Java_org_rocksdb_DBOptions_strictBytesPerSync(
   return static_cast<jboolean>(
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
           ->strict_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEventListeners
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_DBOptions_setEventListeners(JNIEnv* env, jclass,
+                                                  jlong jhandle,
+                                                  jlongArray jlistener_array) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  rocksdb_set_event_listeners_helper(env, jlistener_array, opt->listeners);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    eventListeners
+ * Signature: (J)[Lorg/rocksdb/AbstractEventListener;
+ */
+jobjectArray Java_org_rocksdb_DBOptions_eventListeners(JNIEnv* env, jclass,
+                                                       jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  return rocksdb_get_event_listeners_helper(env, opt->listeners);
 }
 
 /*

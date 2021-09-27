@@ -15,7 +15,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "db/dbformat.h"
+#include "db/kv_checksum.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
@@ -24,7 +26,6 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
@@ -36,9 +37,10 @@ struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
+class SystemClock;
 
 struct ImmutableMemTableOptions {
-  explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
+  explicit ImmutableMemTableOptions(const ImmutableOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
@@ -70,7 +72,7 @@ using MultiGetRange = MultiGetContext::Range;
 // Note:  Many of the methods in this class have comments indicating that
 // external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
-// invokation of these methods.  This is usually done by acquiring either
+// invocation of these methods.  This is usually done by acquiring either
 // the db mutex or the single writer thread.
 //
 // Some of these methods are documented to only require external
@@ -101,7 +103,7 @@ class MemTable {
   // used, but this may prevent some transactions from succeeding until the
   // first key is inserted into the memtable.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    const ImmutableCFOptions& ioptions,
+                    const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
@@ -137,7 +139,7 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
 
-  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
+  // As a cheap version of `ApproximateMemoryUsage()`, this function doesn't
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
@@ -175,6 +177,9 @@ class MemTable {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options, SequenceNumber read_seq);
 
+  Status VerifyEncodedEntry(Slice encoded,
+                            const ProtectionInfoKVOTS64& kv_prot_info);
+
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
   // Typically value will be empty if type==kTypeDeletion.
@@ -182,12 +187,14 @@ class MemTable {
   // REQUIRES: if allow_concurrent = false, external synchronization to prevent
   // simultaneous operations on the same MemTable.
   //
-  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
-  // the <key, seq> already exists.
-  bool Add(SequenceNumber seq, ValueType type, const Slice& key,
-           const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr,
-           void** hint = nullptr);
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
+  Status Add(SequenceNumber seq, ValueType type, const Slice& key,
+             const Slice& value, const ProtectionInfoKVOTS64* kv_prot_info,
+             bool allow_concurrent = false,
+             MemTablePostProcessInfo* post_process_info = nullptr,
+             void** hint = nullptr);
 
   // Used to Get value associated with key or Get Merge Operands associated
   // with key.
@@ -237,37 +244,38 @@ class MemTable {
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback, bool* is_blob);
+                ReadCallback* callback);
 
-  // Attempts to update the new_value inplace, else does normal Add
-  // Pseudocode
-  //   if key exists in current memtable && prev_value is of type kTypeValue
-  //     if new sizeof(new_value) <= sizeof(prev_value)
-  //       update inplace
-  //     else add(key, new_value)
-  //   else add(key, new_value)
+  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // value is at least as large as the new value, updates it in-place. Otherwise
+  // adds the new value to the memtable out-of-place.
+  //
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void Update(SequenceNumber seq,
-              const Slice& key,
-              const Slice& value);
+  Status Update(SequenceNumber seq, const Slice& key, const Slice& value,
+                const ProtectionInfoKVOTS64* kv_prot_info);
 
-  // If prev_value for key exists, attempts to update it inplace.
-  // else returns false
-  // Pseudocode
-  //   if key exists in current memtable && prev_value is of type kTypeValue
-  //     new_value = delta(prev_value)
-  //     if sizeof(new_value) <= sizeof(prev_value)
-  //       update inplace
-  //     else add(key, new_value)
-  //   else return false
+  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // value is at least as large as the new value, updates it in-place. Otherwise
+  // if `key` exists in current memtable with type `kTypeValue`, adds the new
+  // value to the memtable out-of-place.
+  //
+  // Returns `Status::NotFound` if `key` does not exist in current memtable or
+  // the latest version of `key` does not have `kTypeValue`.
+  //
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  bool UpdateCallback(SequenceNumber seq,
-                      const Slice& key,
-                      const Slice& delta);
+  Status UpdateCallback(SequenceNumber seq, const Slice& key,
+                        const Slice& delta,
+                        const ProtectionInfoKVOTS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
   // entry for the key up to the last non-merge entry or last entry for the
@@ -504,7 +512,7 @@ class MemTable {
 
   std::atomic<FlushStateEnum> flush_state_;
 
-  Env* env_;
+  SystemClock* clock_;
 
   // Extract sequential insert prefixes.
   const SliceTransform* insert_with_hint_prefix_extractor_;
@@ -525,7 +533,7 @@ class MemTable {
   SequenceNumber atomic_flush_seqno_;
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
-  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
 #ifndef ROCKSDB_LITE

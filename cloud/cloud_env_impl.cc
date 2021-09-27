@@ -859,17 +859,15 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
 Status CloudEnvImpl::LoadLocalCloudManifest(
     const std::string& dbname, Env* base_env,
     std::unique_ptr<CloudManifest>* cloud_manifest) {
-  std::unique_ptr<SequentialFile> file;
+  std::unique_ptr<SequentialFileReader> reader;
   auto cloud_manifest_file_name = CloudManifestFile(dbname);
-  auto s = base_env->NewSequentialFile(cloud_manifest_file_name, &file,
-                                       EnvOptions());
+  auto s = SequentialFileReader::Create(base_env->GetFileSystem(),
+                                        cloud_manifest_file_name, FileOptions(),
+                                        &reader, nullptr);
   if (!s.ok()) {
     return s;
   }
-  return CloudManifest::LoadFromLog(
-      std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(file), cloud_manifest_file_name)),
-      cloud_manifest);
+  return CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
 }
 
 std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
@@ -1005,12 +1003,11 @@ Status CloudEnvImpl::writeCloudManifest(CloudManifest* manifest,
   // Write to tmp file and atomically rename later. This helps if we crash
   // mid-write :)
   auto tmp_fname = fname + ".tmp";
-  std::unique_ptr<WritableFile> file;
-  Status s = local_env->NewWritableFile(tmp_fname, &file, EnvOptions());
+  std::unique_ptr<WritableFileWriter> writer;
+  Status s = WritableFileWriter::Create(local_env->GetFileSystem(), tmp_fname,
+                                        FileOptions(), &writer, nullptr);
   if (s.ok()) {
-    s = manifest->WriteToLog(std::unique_ptr<WritableFileWriter>(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               tmp_fname, EnvOptions())));
+    s = manifest->WriteToLog(std::move(writer));
   }
   if (s.ok()) {
     s = local_env->RenameFile(tmp_fname, fname);
@@ -1788,8 +1785,8 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
     // However, we don't move here, we copy. If we moved and crashed immediately
     // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
     // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
-    LegacyFileSystemWrapper fs(GetBaseEnv());
-    st = CopyFile(&fs, ManifestFileWithEpoch(local_dbname, oldEpoch),
+    const auto& fs = GetBaseEnv()->GetFileSystem();
+    st = CopyFile(fs.get(), ManifestFileWithEpoch(local_dbname, oldEpoch),
                   ManifestFileWithEpoch(local_dbname, newEpoch), 0, true);
     if (!st.ok()) {
       return st;

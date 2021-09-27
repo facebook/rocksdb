@@ -22,7 +22,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "rocksdb/configurable.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -49,6 +49,55 @@ enum ChecksumType : char {
   kCRC32c = 0x1,
   kxxHash = 0x2,
   kxxHash64 = 0x3,
+};
+
+// `PinningTier` is used to specify which tier of block-based tables should
+// be affected by a block cache pinning setting (see
+// `MetadataCacheOptions` below).
+enum class PinningTier {
+  // For compatibility, this value specifies to fallback to the behavior
+  // indicated by the deprecated options,
+  // `pin_l0_filter_and_index_blocks_in_cache` and
+  // `pin_top_level_index_and_filter`.
+  kFallback,
+
+  // This tier contains no block-based tables.
+  kNone,
+
+  // This tier contains block-based tables that may have originated from a
+  // memtable flush. In particular, it includes tables from L0 that are smaller
+  // than 1.5 times the current `write_buffer_size`. Note these criteria imply
+  // it can include intra-L0 compaction outputs and ingested files, as long as
+  // they are not abnormally large compared to flushed files in L0.
+  kFlushedAndSimilar,
+
+  // This tier contains all block-based tables.
+  kAll,
+};
+
+// `MetadataCacheOptions` contains members indicating the desired caching
+// behavior for the different categories of metadata blocks.
+struct MetadataCacheOptions {
+  // The tier of block-based tables whose top-level index into metadata
+  // partitions will be pinned. Currently indexes and filters may be
+  // partitioned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise any top-level index into metadata partitions would be
+  // held in table reader memory, outside the block cache.
+  PinningTier top_level_index_pinning = PinningTier::kFallback;
+
+  // The tier of block-based tables whose metadata partitions will be pinned.
+  // Currently indexes and filters may be partitioned.
+  PinningTier partition_pinning = PinningTier::kFallback;
+
+  // The tier of block-based tables whose unpartitioned metadata blocks will be
+  // pinned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise the unpartitioned meta-blocks would be held in table
+  // reader memory, outside the block cache.
+  PinningTier unpartitioned_pinning = PinningTier::kFallback;
 };
 
 // For advanced user only
@@ -79,18 +128,56 @@ struct BlockBasedTableOptions {
   // than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect by updating each of the following variables that
+  // has the default value, `PinningTier::kFallback`:
+  //
+  // - `MetadataCacheOptions::partition_pinning`
+  // - `MetadataCacheOptions::unpartitioned_pinning`
+  //
+  // The updated value is chosen as follows:
+  //
+  // - `pin_l0_filter_and_index_blocks_in_cache == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_l0_filter_and_index_blocks_in_cache == true` ->
+  //   `PinningTier::kFlushedAndSimilar`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCacheOptions` as described above.
+  //
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
   // held in the "table reader" object so the blocks are pinned and only
   // evicted from cache when the table reader is freed.
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect by updating
+  // `MetadataCacheOptions::top_level_index_pinning` when it has the
+  // default value, `PinningTier::kFallback`.
+  //
+  // The updated value is chosen as follows:
+  //
+  // - `pin_top_level_index_and_filter == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_top_level_index_and_filter == true` ->
+  //   `PinningTier::kAll`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCacheOptions` as described above.
+  //
   // If cache_index_and_filter_blocks is true and the below is true, then
   // the top-level index of partitioned filter and index blocks are stored in
   // the cache, but a reference is held in the "table reader" object so the
   // blocks are pinned and only evicted from cache when the table reader is
   // freed. This is not limited to l0 in LSM tree.
   bool pin_top_level_index_and_filter = true;
+
+  // The desired block cache pinning behavior for the different categories of
+  // metadata blocks. While pinning can reduce block cache contention, users
+  // must take care not to pin excessive amounts of data, which risks
+  // overflowing block cache.
+  MetadataCacheOptions metadata_cache_options;
 
   // The index type that will be used for this table.
   enum IndexType : char {
@@ -201,13 +288,13 @@ struct BlockBasedTableOptions {
   // incompatible with block-based filters.
   bool partition_filters = false;
 
-  // EXPERIMENTAL Option to generate Bloom filters that minimize memory
+  // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
   //
   // When false, malloc_usable_size is not available, or format_version < 5,
   // filters are generated without regard to internal fragmentation when
   // loaded into memory (historical behavior). When true (and
-  // malloc_usable_size is available and format_version >= 5), then Bloom
+  // malloc_usable_size is available and format_version >= 5), then
   // filters are generated to "round up" and "round down" their sizes to
   // minimize internal fragmentation when loaded into memory, assuming the
   // reading DB has the same memory allocation characteristics as the
@@ -226,7 +313,8 @@ struct BlockBasedTableOptions {
   // NOTE: Because some memory counted by block cache might be unmapped pages
   // within internal fragmentation, this option can increase observed RSS
   // memory usage. With cache_index_and_filter_blocks=true, this option makes
-  // the block cache better at using space it is allowed.
+  // the block cache better at using space it is allowed. (These issues
+  // should not arise with partitioned filters.)
   //
   // NOTE: Do not set to true if you do not trust malloc_usable_size. With
   // this option, RocksDB might access an allocated memory object beyond its
@@ -304,7 +392,7 @@ struct BlockBasedTableOptions {
   // 5 -- Can be read by RocksDB's versions since 6.6.0. Full and partitioned
   // filters use a generally faster and more accurate Bloom filter
   // implementation, with a different schema.
-  uint32_t format_version = 4;
+  uint32_t format_version = 5;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
@@ -348,6 +436,55 @@ struct BlockBasedTableOptions {
 
   IndexShorteningMode index_shortening =
       IndexShorteningMode::kShortenSeparators;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead
+  // starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size and max_auto_readahead_size can be configured.
+  //
+  // Special Value: 0 - If max_auto_readahead_size is set 0 then no implicit
+  // auto prefetching will be done. If max_auto_readahead_size provided is less
+  // than 8KB (which is initial readahead size used by rocksdb in case of
+  // auto-readahead), readahead size will remain same as
+  // max_auto_readahead_size.
+  //
+  // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
+  // the blocks.
+  //
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{max_auto_readahead_size=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 256 KB (256 * 1024).
+  size_t max_auto_readahead_size = 256 * 1024;
+
+  // If enabled, prepopulate warm/hot data blocks which are already in memory
+  // into block cache at the time of flush. On a flush, the data block that is
+  // in memory (in memtables) get flushed to the device. If using Direct IO,
+  // additional IO is incurred to read this data back into memory again, which
+  // is avoided by enabling this option. This further helps if the workload
+  // exhibits high temporal locality, where most of the reads go to recently
+  // written data. This also helps in case of Distributed FileSystem.
+  //
+  // Right now, this is enabled only for flush for data blocks. We plan to
+  // expand this option to cover compactions in the future and for other types
+  // of blocks.
+  enum class PrepopulateBlockCache : char {
+    // Disable prepopulate block cache.
+    kDisable,
+    // Prepopulate data blocks during flush only. Plan to extend it to all block
+    // types.
+    kFlushOnly,
+  };
+
+  PrepopulateBlockCache prepopulate_block_cache =
+      PrepopulateBlockCache::kDisable;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -441,7 +578,7 @@ struct PlainTableOptions {
 
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
-  //                       file, index will be mmaped instead of recomputation.
+  //                       file, index will be mapped instead of recomputation.
   bool store_index_in_file = false;
 };
 
@@ -526,7 +663,7 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory : public Configurable {
+class TableFactory : public Customizable {
  public:
   virtual ~TableFactory() override {}
 
@@ -540,21 +677,7 @@ class TableFactory : public Configurable {
                                  const std::string& id,
                                  std::shared_ptr<TableFactory>* factory);
 
-  // The type of the table.
-  //
-  // The client of this package should switch to a new name whenever
-  // the table format implementation changes.
-  //
-  // Names starting with "rocksdb." are reserved and should not be used
-  // by any clients of this package.
-  virtual const char* Name() const = 0;
-
-  // Returns true if the class is an instance of the input name.
-  // This is typically determined by if the input name matches the
-  // name of this object.
-  virtual bool IsInstanceOf(const std::string& name) const {
-    return name == Name();
-  }
+  static const char* Type() { return "TableFactory"; }
 
   // Returns a Table object table that can fetch data from file specified
   // in parameter file. It's the caller's responsibility to make sure
@@ -611,7 +734,7 @@ class TableFactory : public Configurable {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const = 0;
+      WritableFileWriter* file) const = 0;
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

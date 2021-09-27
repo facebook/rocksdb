@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "db/merge_context.h"
+#include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
@@ -21,7 +23,57 @@
 namespace ROCKSDB_NAMESPACE {
 
 class MergeContext;
+class WBWIIteratorImpl;
+class WriteBatchWithIndexInternal;
 struct Options;
+
+// when direction == forward
+// * current_at_base_ <=> base_iterator > delta_iterator
+// when direction == backwards
+// * current_at_base_ <=> base_iterator < delta_iterator
+// always:
+// * equal_keys_ <=> base_iterator == delta_iterator
+class BaseDeltaIterator : public Iterator {
+ public:
+  BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
+                    WBWIIteratorImpl* delta_iterator,
+                    const Comparator* comparator,
+                    const ReadOptions* read_options = nullptr);
+
+  ~BaseDeltaIterator() override {}
+
+  bool Valid() const override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Seek(const Slice& k) override;
+  void SeekForPrev(const Slice& k) override;
+  void Next() override;
+  void Prev() override;
+  Slice key() const override;
+  Slice value() const override;
+  Status status() const override;
+  void Invalidate(Status s);
+
+ private:
+  void AssertInvariants();
+  void Advance();
+  void AdvanceDelta();
+  void AdvanceBase();
+  bool BaseValid() const;
+  bool DeltaValid() const;
+  void UpdateCurrent();
+
+  std::unique_ptr<WriteBatchWithIndexInternal> wbwii_;
+  bool forward_;
+  bool current_at_base_;
+  bool equal_keys_;
+  mutable Status status_;
+  std::unique_ptr<Iterator> base_iterator_;
+  std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
+  const Comparator* comparator_;  // not owned
+  const Slice* iterate_upper_bound_;
+  mutable PinnableSlice merge_result_;
+};
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
 struct WriteBatchIndexEntry {
@@ -122,9 +174,120 @@ class WriteBatchEntryComparator {
   const ReadableWriteBatch* write_batch_;
 };
 
-class WriteBatchWithIndexInternal {
+typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
+    WriteBatchEntrySkipList;
+
+class WBWIIteratorImpl : public WBWIIterator {
  public:
   enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
+  WBWIIteratorImpl(uint32_t column_family_id,
+                   WriteBatchEntrySkipList* skip_list,
+                   const ReadableWriteBatch* write_batch,
+                   WriteBatchEntryComparator* comparator)
+      : column_family_id_(column_family_id),
+        skip_list_iter_(skip_list),
+        write_batch_(write_batch),
+        comparator_(comparator) {}
+
+  ~WBWIIteratorImpl() override {}
+
+  bool Valid() const override {
+    if (!skip_list_iter_.Valid()) {
+      return false;
+    }
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    return (iter_entry != nullptr &&
+            iter_entry->column_family == column_family_id_);
+  }
+
+  void SeekToFirst() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+  }
+
+  void SeekToLast() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_ + 1,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+    if (!skip_list_iter_.Valid()) {
+      skip_list_iter_.SeekToLast();
+    } else {
+      skip_list_iter_.Prev();
+    }
+  }
+
+  void Seek(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      true /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+  }
+
+  void SeekForPrev(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      false /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.SeekForPrev(&search_entry);
+  }
+
+  void Next() override { skip_list_iter_.Next(); }
+
+  void Prev() override { skip_list_iter_.Prev(); }
+
+  WriteEntry Entry() const override;
+
+  Status status() const override {
+    // this is in-memory data structure, so the only way status can be non-ok is
+    // through memory corruption
+    return Status::OK();
+  }
+
+  const WriteBatchIndexEntry* GetRawEntry() const {
+    return skip_list_iter_.key();
+  }
+
+  bool MatchesKey(uint32_t cf_id, const Slice& key);
+
+  // Moves the to first entry of the previous key.
+  void PrevKey();
+  // Moves the to first entry of the next key.
+  void NextKey();
+
+  // Moves the iterator to the Update (Put or Delete) for the current key
+  // If there are no Put/Delete, the Iterator will point to the first entry for
+  // this key
+  // @return kFound if a Put was found for the key
+  // @return kDeleted if a delete was found for the key
+  // @return kMergeInProgress if only merges were fouund for the key
+  // @return kError if an unsupported operation was found for the key
+  // @return kNotFound if no operations were found for this key
+  //
+  Result FindLatestUpdate(const Slice& key, MergeContext* merge_context);
+  Result FindLatestUpdate(MergeContext* merge_context);
+
+ protected:
+  void AdvanceKey(bool forward);
+
+ private:
+  uint32_t column_family_id_;
+  WriteBatchEntrySkipList::Iterator skip_list_iter_;
+  const ReadableWriteBatch* write_batch_;
+  WriteBatchEntryComparator* comparator_;
+};
+
+class WriteBatchWithIndexInternal {
+ public:
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(DB* db,
+                                       ColumnFamilyHandle* column_family);
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
+  // For GetFromBatch or similar
+  explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
+                                       ColumnFamilyHandle* column_family);
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -134,11 +297,30 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  static WriteBatchWithIndexInternal::Result GetFromBatch(
-      const ImmutableDBOptions& ioptions, WriteBatchWithIndex* batch,
-      ColumnFamilyHandle* column_family, const Slice& key,
-      MergeContext* merge_context, WriteBatchEntryComparator* cmp,
-      std::string* value, bool overwrite_key, Status* s);
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key, std::string* value,
+                                        Status* s) {
+    return GetFromBatch(batch, key, &merge_context_, value, s);
+  }
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key,
+                                        MergeContext* merge_context,
+                                        std::string* value, Status* s);
+  Status MergeKey(const Slice& key, const Slice* value,
+                  std::string* result) const {
+    return MergeKey(key, value, merge_context_, result);
+  }
+  Status MergeKey(const Slice& key, const Slice* value,
+                  const MergeContext& context, std::string* result) const;
+  size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
+  MergeContext* GetMergeContext() { return &merge_context_; }
+  Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
+
+ private:
+  DB* db_;
+  const DBOptions* db_options_;
+  ColumnFamilyHandle* column_family_;
+  MergeContext merge_context_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

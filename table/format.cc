@@ -14,11 +14,11 @@
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
-#include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
@@ -41,6 +41,7 @@ extern const uint64_t kPlainTableMagicNumber;
 const uint64_t kLegacyPlainTableMagicNumber = 0;
 const uint64_t kPlainTableMagicNumber = 0;
 #endif
+const char* kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&
@@ -306,8 +307,9 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // for iterator, TryReadFromCache might do a readahead. Revisit to see if we
   // need to pass a timeout at that point
   if (prefetch_buffer == nullptr ||
-      !prefetch_buffer->TryReadFromCache(
-          IOOptions(), read_offset, Footer::kMaxEncodedLength, &footer_input)) {
+      !prefetch_buffer->TryReadFromCache(IOOptions(), read_offset,
+                                         Footer::kMaxEncodedLength,
+                                         &footer_input, nullptr)) {
     if (file->use_direct_io()) {
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf);
@@ -345,14 +347,14 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator) {
   Status ret = Status::OK();
 
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(ioptions.env, ShouldReportDetailedTime(
-                                        ioptions.env, ioptions.statistics));
+  StopWatchNano timer(ioptions.clock,
+                      ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
       UncompressData(uncompression_info, data, n, &uncompressed_size,
@@ -365,13 +367,13 @@ Status UncompressBlockContentsForCompressionType(
 
   *contents = BlockContents(std::move(ubuf), uncompressed_size);
 
-  if (ShouldReportDetailedTime(ioptions.env, ioptions.statistics)) {
-    RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
+  if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
+    RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTimeToHistogram(ioptions.statistics, BYTES_DECOMPRESSED,
+  RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
                         contents->data.size());
-  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
   TEST_SYNC_POINT_CALLBACK(
       "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
@@ -394,7 +396,7 @@ Status UncompressBlockContentsForCompressionType(
 Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
-                               const ImmutableCFOptions& ioptions,
+                               const ImmutableOptions& ioptions,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == static_cast<char>(uncompression_info.type()));
@@ -403,4 +405,18 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                                    ioptions, allocator);
 }
 
+// Replace the contents of db_host_id with the actual hostname, if db_host_id
+// matches the keyword kHostnameForDbHostId
+Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
+  assert(db_host_id);
+  if (*db_host_id == kHostnameForDbHostId) {
+    Status s = env->GetHostNameString(db_host_id);
+    if (!s.ok()) {
+      db_host_id->clear();
+    }
+    return s;
+  }
+
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE

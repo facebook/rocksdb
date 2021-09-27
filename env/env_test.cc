@@ -11,6 +11,11 @@
 #include <sys/ioctl.h>
 #endif
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#include <sys/uio.h>
+#endif
+
 #include <sys/types.h>
 
 #include <iostream>
@@ -35,10 +40,12 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -89,6 +96,11 @@ class EnvPosixTest : public testing::Test {
   Env* env_;
   bool direct_io_;
   EnvPosixTest() : env_(Env::Default()), direct_io_(false) {}
+  ~EnvPosixTest() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
 };
 
 class EnvPosixTestWithParam
@@ -913,7 +925,7 @@ class IoctlFriendlyTmpdir {
       } else {
         // mkdtemp failed: diagnose it, but don't give up.
         fprintf(stderr, "mkdtemp(%s/...) failed: %s\n", d.c_str(),
-                strerror(errno));
+                errnoStr(errno).c_str());
       }
     }
 
@@ -1038,7 +1050,8 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     int err_number = 0;
     if (alloc_status != 0) {
       err_number = errno;
-      fprintf(stderr, "Warning: fallocate() fails, %s\n", strerror(err_number));
+      fprintf(stderr, "Warning: fallocate() fails, %s\n",
+              errnoStr(err_number).c_str());
     }
     close(fd);
     ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
@@ -1265,7 +1278,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
 }
 
 TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
-  // In this test we don't do aligned read, wo it doesn't work for
+  // In this test we don't do aligned read, so it doesn't work for
   // direct I/O case.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
@@ -1355,6 +1368,121 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+void GenerateFilesAndRequest(Env* env, const std::string& fname,
+                             std::vector<ReadRequest>* ret_reqs,
+                             std::vector<std::string>* scratches) {
+  const size_t kTotalSize = 81920;
+  Random rnd(301);
+  std::string expected_data = rnd.RandomString(kTotalSize);
+
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env->NewWritableFile(fname, &wfile, EnvOptions()));
+    ASSERT_OK(wfile->Append(expected_data));
+    ASSERT_OK(wfile->Close());
+  }
+
+  // Right now kIoUringDepth is hard coded as 256, so we need very large
+  // number of keys to cover the case of multiple rounds of submissions.
+  // Right now the test latency is still acceptable. If it ends up with
+  // too long, we can modify the io uring depth with SyncPoint here.
+  const int num_reads = 3;
+  std::vector<size_t> offsets = {10000, 20000, 30000};
+  std::vector<size_t> lens = {3000, 200, 100};
+
+  // Create requests
+  scratches->reserve(num_reads);
+  std::vector<ReadRequest>& reqs = *ret_reqs;
+  reqs.resize(num_reads);
+  for (int i = 0; i < num_reads; ++i) {
+    reqs[i].offset = offsets[i];
+    reqs[i].len = lens[i];
+    scratches->emplace_back(reqs[i].len, ' ');
+    reqs[i].scratch = const_cast<char*>(scratches->back().data());
+  }
+}
+
+TEST_F(EnvPosixTest, MultiReadIOUringError) {
+  // In this test we don't do aligned read, so we can't do direct I/O.
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  std::vector<std::string> scratches;
+  std::vector<ReadRequest> reqs;
+  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  // Query the data
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+
+  bool io_uring_wait_cqe_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return",
+      [&](void* arg) {
+        if (!io_uring_wait_cqe_called) {
+          io_uring_wait_cqe_called = true;
+          ssize_t& ret = *(static_cast<ssize_t*>(arg));
+          ret = 1;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = file->MultiRead(reqs.data(), reqs.size());
+  if (io_uring_wait_cqe_called) {
+    ASSERT_NOK(s);
+  } else {
+    s.PermitUncheckedError();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(EnvPosixTest, MultiReadIOUringError2) {
+  // In this test we don't do aligned read, so we can't do direct I/O.
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  std::vector<std::string> scratches;
+  std::vector<ReadRequest> reqs;
+  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  // Query the data
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+
+  bool io_uring_submit_and_wait_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+      [&](void* arg) {
+        io_uring_submit_and_wait_called = true;
+        ssize_t* ret = static_cast<ssize_t*>(arg);
+        (*ret)--;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+      [&](void* arg) {
+        struct io_uring* iu = static_cast<struct io_uring*>(arg);
+        struct io_uring_cqe* cqe;
+        assert(io_uring_wait_cqe(iu, &cqe) == 0);
+        io_uring_cqe_seen(iu, cqe);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = file->MultiRead(reqs.data(), reqs.size());
+  if (io_uring_submit_and_wait_called) {
+    ASSERT_NOK(s);
+  } else {
+    s.PermitUncheckedError();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
 #ifdef OS_WIN
@@ -1667,8 +1795,22 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       return Status::OK();
     }
 
+    Status Append(
+        const Slice& /*data*/,
+        const DataVerificationInfo& /* verification_info */) override {
+      inc(1);
+      return Status::OK();
+    }
+
     Status PositionedAppend(const Slice& /*data*/,
                             uint64_t /*offset*/) override {
+      inc(2);
+      return Status::OK();
+    }
+
+    Status PositionedAppend(
+        const Slice& /*data*/, uint64_t /*offset*/,
+        const DataVerificationInfo& /* verification_info */) override {
       inc(2);
       return Status::OK();
     }
@@ -2051,6 +2193,26 @@ TEST_F(EnvTest, Close) {
   delete env;
 }
 
+class LogvWithInfoLogLevelLogger : public Logger {
+ public:
+  using Logger::Logv;
+  void Logv(const InfoLogLevel /* log_level */, const char* /* format */,
+            va_list /* ap */) override {}
+};
+
+TEST_F(EnvTest, LogvWithInfoLogLevel) {
+  // Verifies the log functions work on a `Logger` that only overrides the
+  // `Logv()` overload including `InfoLogLevel`.
+  const std::string kSampleMessage("sample log message");
+  LogvWithInfoLogLevelLogger logger;
+  ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
@@ -2146,7 +2308,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 
     ASSERT_OK(db->Close());
     delete db;
-    DestroyDB(dbname, opts);
+    ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;
   }
@@ -2193,13 +2355,36 @@ TEST_F(EnvTest, IsDirectory) {
     ASSERT_OK(s);
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
-                                         FileOptions(), Env::Default()));
+                                         FileOptions(),
+                                         SystemClock::Default().get()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
   ASSERT_FALSE(is_dir);
+}
+
+TEST_F(EnvTest, EnvWriteVerificationTest) {
+  Status s = Env::Default()->CreateDirIfMissing(test_directory_);
+  const std::string test_file_path = test_directory_ + "file1";
+  ASSERT_OK(s);
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::unique_ptr<WritableFile> file;
+  s = fault_fs_env->NewWritableFile(test_file_path, &file, EnvOptions());
+  ASSERT_OK(s);
+
+  DataVerificationInfo v_info;
+  std::string test_data = "test";
+  std::string checksum;
+  uint32_t v_crc32c = crc32c::Extend(0, test_data.c_str(), test_data.size());
+  PutFixed32(&checksum, v_crc32c);
+  v_info.checksum = Slice(checksum);
+  s = file->Append(Slice(test_data), v_info);
+  ASSERT_OK(s);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
