@@ -673,6 +673,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
               return Status::NotFound("Mismatched table option: ", name);
             }
           }}},
+        {"table_properties_collectors",
+         OptionTypeInfo::Vector<
+             std::shared_ptr<TablePropertiesCollectorFactory>>(
+             offset_of(
+                 &ImmutableCFOptions::table_properties_collector_factories),
+             OptionVerificationType::kByName, OptionTypeFlags::kNone,
+             OptionTypeInfo::AsCustomSharedPtr<TablePropertiesCollectorFactory>(
+                 0, OptionVerificationType::kByName, OptionTypeFlags::kNone))},
         {"compaction_filter",
          OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
              offset_of(&ImmutableCFOptions::compaction_filter),
@@ -694,6 +702,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ImmutableCFOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"sst_partitioner_factory",
+         OptionTypeInfo::AsCustomSharedPtr<SstPartitionerFactory>(
+             offset_of(&ImmutableCFOptions::sst_partitioner_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";

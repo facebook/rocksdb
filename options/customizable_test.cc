@@ -20,9 +20,11 @@
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -32,6 +34,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_checksum_helper.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
@@ -1297,6 +1300,41 @@ class MockCipher : public BlockCipher {
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
 
+#endif  // ROCKSDB_LITE
+
+class MockTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ private:
+ public:
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return nullptr;
+  }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+};
+
+class MockSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return nullptr;
+  }
+};
+
+class MockFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& /*context*/) override {
+    return nullptr;
+  }
+};
+
+#ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
@@ -1365,6 +1403,33 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TestSecondaryCache());
+        return guard->get();
+      });
+
+  library.Register<SstPartitionerFactory>(
+      MockSstPartitionerFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<SstPartitionerFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSstPartitionerFactory());
+        return guard->get();
+      });
+
+  library.Register<FileChecksumGenFactory>(
+      MockFileChecksumGenFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FileChecksumGenFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockFileChecksumGenFactory());
+        return guard->get();
+      });
+
+  library.Register<TablePropertiesCollectorFactory>(
+      MockTablePropertiesCollectorFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
   return static_cast<int>(library.GetFactoryCount(&num_types));
@@ -1440,6 +1505,58 @@ TEST_F(LoadCustomizableTest, LoadSecondaryCacheTest) {
         config_options_, TestSecondaryCache::kClassName(), &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), TestSecondaryCache::kClassName());
+  }
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(LoadCustomizableTest, LoadSstPartitionerFactoryTest) {
+  std::shared_ptr<SstPartitionerFactory> factory;
+  ASSERT_NOK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
+                                                     &factory));
+  ASSERT_OK(SstPartitionerFactory::CreateFromString(
+      config_options_, SstPartitionerFixedPrefixFactory::kClassName(),
+      &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), SstPartitionerFixedPrefixFactory::kClassName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
+                                                      &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "Mock");
+  }
+}
+#endif  // ROCKSDB_LITE
+
+TEST_F(LoadCustomizableTest, LoadChecksumGenFactoryTest) {
+  std::shared_ptr<FileChecksumGenFactory> factory;
+  ASSERT_NOK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
+                                                      &factory));
+  ASSERT_OK(FileChecksumGenFactory::CreateFromString(
+      config_options_, FileChecksumGenCrc32cFactory::kClassName(), &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), FileChecksumGenCrc32cFactory::kClassName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
+                                                       &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "Mock");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadTablePropertiesCollectorFactoryTest) {
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  ASSERT_NOK(TablePropertiesCollectorFactory::CreateFromString(
+      config_options_, MockTablePropertiesCollectorFactory::kClassName(),
+      &factory));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+        config_options_, MockTablePropertiesCollectorFactory::kClassName(),
+        &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(),
+                 MockTablePropertiesCollectorFactory::kClassName());
   }
 }
 
