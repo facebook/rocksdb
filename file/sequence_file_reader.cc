@@ -58,6 +58,14 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, r);
 #endif  // !ROCKSDB_LITE
   } else {
+    // To be paranoid, modify scratch a little bit, so in case underlying
+    // FileSystem doesn't fill the buffer but return succee and `scratch`
+    // returns contains a previous block, returned value will not pass
+    // checksum.
+    // It's hard to find useful byte for direct I/O case, so we skip it.
+    if (n > 0 && scratch != nullptr) {
+      scratch[0]++;
+    }
     io_s = file_->Read(n, IOOptions(), result, scratch, nullptr);
   }
   IOSTATS_ADD(bytes_read, result->size());

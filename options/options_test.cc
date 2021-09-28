@@ -19,6 +19,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -1959,6 +1960,133 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, ColumnFamilyOptions(),
                                              opt_str, &cf_opts));
   delete cf_opts.compaction_filter;
+}
+
+TEST_F(OptionsTest, SstPartitionerTest) {
+  ConfigOptions cfg_opts;
+  ColumnFamilyOptions cf_opts, new_opt;
+  std::string opts_str, mismatch;
+
+  ASSERT_OK(SstPartitionerFactory::CreateFromString(
+      cfg_opts, SstPartitionerFixedPrefixFactory::kClassName(),
+      &cf_opts.sst_partitioner_factory));
+  ASSERT_NE(cf_opts.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(cf_opts.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      std::string("sst_partitioner_factory={id=") +
+          SstPartitionerFixedPrefixFactory::kClassName() + "; unknown=10;}",
+      &cf_opts));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      std::string("sst_partitioner_factory={id=") +
+          SstPartitionerFixedPrefixFactory::kClassName() + "; length=10;}",
+      &cf_opts));
+  ASSERT_NE(cf_opts.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(cf_opts.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, cf_opts, &opts_str));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(cfg_opts, cf_opts, opts_str, &new_opt));
+  ASSERT_NE(new_opt.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(new_opt.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, cf_opts, new_opt));
+  ASSERT_TRUE(cf_opts.sst_partitioner_factory->AreEquivalent(
+      cfg_opts, new_opt.sst_partitioner_factory.get(), &mismatch));
+}
+
+TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
+  ConfigOptions cfg_opts;
+  DBOptions db_opts, new_opt;
+  std::string opts_str, mismatch;
+  auto factory = GetFileChecksumGenCrc32cFactory();
+
+  cfg_opts.ignore_unsupported_options = false;
+
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
+
+  ASSERT_NE(factory, nullptr);
+  ASSERT_OK(FileChecksumGenFactory::CreateFromString(
+      cfg_opts, factory->Name(), &db_opts.file_checksum_gen_factory));
+  ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_NOK(GetDBOptionsFromString(
+      cfg_opts, DBOptions(), "file_checksum_gen_factory=unknown", &db_opts));
+  ASSERT_OK(GetDBOptionsFromString(
+      cfg_opts, DBOptions(),
+      std::string("file_checksum_gen_factory=") + factory->Name(), &db_opts));
+  ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
+  ASSERT_NE(new_opt.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(new_opt.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(cfg_opts, db_opts, new_opt));
+  ASSERT_TRUE(factory->AreEquivalent(
+      cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
+  ASSERT_TRUE(db_opts.file_checksum_gen_factory->AreEquivalent(
+      cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
+}
+
+class TestTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ private:
+  std::string id_;
+
+ public:
+  explicit TestTablePropertiesCollectorFactory(const std::string& id)
+      : id_(id) {}
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return nullptr;
+  }
+  static const char* kClassName() { return "TestCollector"; }
+  const char* Name() const override { return kClassName(); }
+  std::string GetId() const override {
+    return std::string(kClassName()) + ":" + id_;
+  }
+};
+
+TEST_F(OptionsTest, OptionTablePropertiesTest) {
+  ConfigOptions cfg_opts;
+  ColumnFamilyOptions orig, copy;
+  orig.table_properties_collector_factories.push_back(
+      std::make_shared<TestTablePropertiesCollectorFactory>("1"));
+  orig.table_properties_collector_factories.push_back(
+      std::make_shared<TestTablePropertiesCollectorFactory>("2"));
+
+  // Push two TablePropertiesCollectorFactories then create a new
+  // ColumnFamilyOptions based on those settings.  The copy should
+  // have no properties but still match the original
+  std::string opts_str;
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, orig, &opts_str));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, orig, opts_str, &copy));
+  ASSERT_EQ(copy.table_properties_collector_factories.size(), 0);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, orig, copy));
+
+  // Now register a TablePropertiesCollectorFactory
+  // Repeat the experiment.  The copy should have the same
+  // properties as the original
+  cfg_opts.registry->AddLibrary("collector")
+      ->Register<TablePropertiesCollectorFactory>(
+          std::string(TestTablePropertiesCollectorFactory::kClassName()) +
+              ":.*",
+          [](const std::string& name,
+             std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+             std::string* /* errmsg */) {
+            std::string id = name.substr(
+                strlen(TestTablePropertiesCollectorFactory::kClassName()) + 1);
+            guard->reset(new TestTablePropertiesCollectorFactory(id));
+            return guard->get();
+          });
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, orig, opts_str, &copy));
+  ASSERT_EQ(copy.table_properties_collector_factories.size(), 2);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, orig, copy));
 }
 #endif  // !ROCKSDB_LITE
 

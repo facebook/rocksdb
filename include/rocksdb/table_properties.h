@@ -5,8 +5,12 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
+#include <memory>
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -129,7 +133,7 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
-class TablePropertiesCollectorFactory {
+class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
     uint32_t column_family_id;
@@ -137,6 +141,11 @@ class TablePropertiesCollectorFactory {
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
+  static const char* Type() { return "TablePropertiesCollectorFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<TablePropertiesCollectorFactory>* result);
+
   // has to be thread-safe
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
