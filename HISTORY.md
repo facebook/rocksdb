@@ -5,11 +5,13 @@
 
 ### New Features
 * Provided support for SingleDelete with user defined timestamp.
+* Experimental new function DB::GetLiveFilesStorageInfo offers essentially a unified version of other functions like GetLiveFiles, GetLiveFilesChecksumInfo, and GetSortedWalFiles. Checkpoints and backups could show small behavioral changes as they now use this new API.
 
 ### Public API change
 * Made SystemClock extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 * Made SliceTransform extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.  The Capped and Prefixed transform classes return a short name (no length); use GetId for the fully qualified name.
 * Made FileChecksumGenFactory, SstPartitionerFactory, TablePropertiesCollectorFactory, and WalFilter extend the Customizable class and added a CreateFromString method.
+* Some fields of SstFileMetaData are deprecated for compatibility with new base class FileStorageInfo.
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
