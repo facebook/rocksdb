@@ -3014,8 +3014,6 @@ TEST_F(BackupEngineTest, EnvFailures) {
 TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   DestroyDB(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
-  // options_.info_log.reset(new StderrLogger());
-  // backupable_options_->info_log = options_.info_log.get();
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 

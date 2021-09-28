@@ -274,9 +274,6 @@ Status DBImpl::GetLiveFilesStorageInfo(
     assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
            type == kCurrentFile || type == kOptionsFile);
     assert(live_file.size() > 0 && live_file[0] == '/');
-    if (type == kDescriptorFile) {
-      manifest_fname = live_file;
-    }
 
     result->infos.emplace_back();
     FileStorageInfo& info = result->infos.back();
@@ -287,6 +284,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
     if (type == kDescriptorFile) {
       info.size = manifest_file_size;
       info.trim_to_size = true;
+      assert(manifest_fname.empty());
+      manifest_fname = live_file;
     } else if (type == kCurrentFile) {
       info.size = 0;
       info.trim_to_size = true;
