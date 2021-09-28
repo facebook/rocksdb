@@ -507,7 +507,8 @@ struct BlockBasedTableBuilder::Rep {
       assert(factory);
 
       table_properties_collectors.emplace_back(
-          factory->CreateIntTblPropCollector(tbo.column_family_id));
+          factory->CreateIntTblPropCollector(tbo.column_family_id,
+                                             tbo.level_at_creation));
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
