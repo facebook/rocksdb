@@ -152,7 +152,7 @@ FileExpectedStateManager::FileExpectedStateManager(
     std::string expected_state_dir_path)
     : ExpectedStateManager(max_key, num_column_families),
       expected_state_dir_path_(std::move(expected_state_dir_path)) {
-  assert(expected_state_dir_path_ != "");
+  assert(!expected_state_dir_path_.empty());
 }
 
 Status FileExpectedStateManager::Open() {
