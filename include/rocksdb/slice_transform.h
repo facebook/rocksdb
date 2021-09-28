@@ -14,13 +14,16 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
+struct ConfigOptions;
 
 /*
  * A SliceTransform is a generic pluggable way of transforming one string
@@ -28,12 +31,22 @@ class Slice;
  * to store prefix blooms by setting prefix_extractor in
  * ColumnFamilyOptions.
  */
-class SliceTransform {
+class SliceTransform : public Customizable {
  public:
   virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
   virtual const char* Name() const = 0;
+  static const char* Type() { return "SliceTransform"; }
+
+  // Creates and configures a new SliceTransform from the input options and id.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<const SliceTransform>* result);
+
+  // Returns a string representation of this SliceTransform, representing the ID
+  // and any additional properties
+  std::string AsString() const;
 
   // Extract a prefix from a specified key. This method is called when
   // a key is inserted into the db, and the returned slice is used to

@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -72,17 +73,21 @@ class GenericRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
-  virtual int64_t GetTotalPendingRequests(
+  virtual Status GetTotalPendingRequests(
+      int64_t* total_pending_requests,
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    assert(total_pending_requests != nullptr);
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
       int64_t total_pending_requests_sum = 0;
       for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
         total_pending_requests_sum += static_cast<int64_t>(queue_[i].size());
       }
-      return total_pending_requests_sum;
+      *total_pending_requests = total_pending_requests_sum;
+    } else {
+      *total_pending_requests = static_cast<int64_t>(queue_[pri].size());
     }
-    return static_cast<int64_t>(queue_[pri].size());
+    return Status::OK();
   }
 
   virtual int64_t GetBytesPerSecond() const override {

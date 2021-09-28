@@ -116,7 +116,7 @@ class CompactionJob {
   void AggregateStatistics();
   void UpdateCompactionStats();
   void LogCompaction();
-  void RecordCompactionIOStats();
+  virtual void RecordCompactionIOStats();
   void CleanupCompaction();
 
   // Call compaction filter. Then iterate through input and compact the
@@ -145,7 +145,7 @@ class CompactionJob {
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
 
-  void ProcessKeyValueCompactionWithCompactionService(
+  CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.
@@ -303,10 +303,10 @@ struct CompactionServiceResult {
   std::string output_path;
 
   // some statistics about the compaction
-  uint64_t num_output_records;
-  uint64_t total_bytes;
-  uint64_t bytes_read;
-  uint64_t bytes_written;
+  uint64_t num_output_records = 0;
+  uint64_t total_bytes = 0;
+  uint64_t bytes_read = 0;
+  uint64_t bytes_written = 0;
   CompactionJobStats stats;
 
   // serialization interface to read and write the object
@@ -345,6 +345,9 @@ class CompactionServiceCompactionJob : private CompactionJob {
   void CleanupCompaction();
 
   IOStatus io_status() const { return CompactionJob::io_status(); }
+
+ protected:
+  void RecordCompactionIOStats() override;
 
  private:
   // Get table file name in output_path

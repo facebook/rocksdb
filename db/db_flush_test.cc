@@ -1381,7 +1381,7 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   options.disable_auto_compactions = true;
   options.max_background_flushes = 2;
   options.use_direct_io_for_flush_and_compaction = GetParam();
-  options.env = new MockEnv(Env::Default());
+  options.env = MockEnv::Create(Env::Default());
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:create_file", [&](void* arg) {
         bool* use_direct_writes = static_cast<bool*>(arg);

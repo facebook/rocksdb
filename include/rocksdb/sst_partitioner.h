@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 
@@ -77,9 +78,13 @@ class SstPartitioner {
   };
 };
 
-class SstPartitionerFactory {
+class SstPartitionerFactory : public Customizable {
  public:
   virtual ~SstPartitionerFactory() {}
+  static const char* Type() { return "SstPartitionerFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<SstPartitionerFactory>* result);
 
   virtual std::unique_ptr<SstPartitioner> CreatePartitioner(
       const SstPartitioner::Context& context) const = 0;
@@ -114,13 +119,12 @@ class SstPartitionerFixedPrefix : public SstPartitioner {
  */
 class SstPartitionerFixedPrefixFactory : public SstPartitionerFactory {
  public:
-  explicit SstPartitionerFixedPrefixFactory(size_t len) : len_(len) {}
+  explicit SstPartitionerFixedPrefixFactory(size_t len);
 
   virtual ~SstPartitionerFixedPrefixFactory() {}
 
-  const char* Name() const override {
-    return "SstPartitionerFixedPrefixFactory";
-  }
+  static const char* kClassName() { return "SstPartitionerFixedPrefixFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   std::unique_ptr<SstPartitioner> CreatePartitioner(
       const SstPartitioner::Context& /* context */) const override;

@@ -372,7 +372,7 @@ extern const char* kHostnameForDbHostId;
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
-  kUseLocal,  // TODO: Add support for use local compaction
+  kUseLocal,
 };
 
 struct CompactionServiceJobInfo {

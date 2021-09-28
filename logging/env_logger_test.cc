@@ -5,7 +5,6 @@
 //
 
 #include "logging/env_logger.h"
-#include "env/mock_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
