@@ -60,7 +60,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "expected_values_path": lambda: setup_expected_values_file(),
+    "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
@@ -172,23 +172,23 @@ def get_dbname(test_name):
         os.mkdir(dbname)
     return dbname
 
-expected_values_file = None
-def setup_expected_values_file():
-    global expected_values_file
-    if expected_values_file is not None:
-        return expected_values_file
-    expected_file_name = "rocksdb_crashtest_" + "expected"
+expected_values_dir = None
+def setup_expected_values_dir():
+    global expected_values_dir
+    if expected_values_dir is not None:
+        return expected_values_dir
+    expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
-        expected_values_file = tempfile.NamedTemporaryFile(
-            prefix=expected_file_name, delete=False).name
+        expected_values_dir = tempfile.mkdtemp(
+            prefix=expected_dir_prefix)
     else:
-        # if tmpdir is specified, store the expected_values_file in the same dir
-        expected_values_file = test_tmpdir + "/" + expected_file_name
-        if os.path.exists(expected_values_file):
-            os.remove(expected_values_file)
-        open(expected_values_file, 'a').close()
-    return expected_values_file
+        # if tmpdir is specified, store the expected_values_dir under that dir
+        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
+        if os.path.exists(expected_values_dir):
+            shutil.rmtree(expected_values_dir)
+        os.mkdir(expected_values_dir)
+    return expected_values_dir
 
 
 def is_direct_io_supported(dbname):
@@ -673,7 +673,7 @@ def whitebox_crash_main(args, unknown_args):
             # success
             shutil.rmtree(dbname, True)
             os.mkdir(dbname)
-            cmd_params.pop('expected_values_path', None)
+            cmd_params.pop('expected_values_dir', None)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
@@ -718,9 +718,9 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
         whitebox_crash_main(args, unknown_args)
-    # Only delete the `expected_values_file` if test passes
-    if os.path.exists(expected_values_file):
-        os.remove(expected_values_file)
+    # Only delete the `expected_values_dir` if test passes
+    if expected_values_dir is not None:
+        shutil.rmtree(expected_values_dir)
 
 
 if __name__ == '__main__':

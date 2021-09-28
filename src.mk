@@ -345,6 +345,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_shared_state.cc                     \
   db_stress_tool/db_stress_tool.cc                             \
+  db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
