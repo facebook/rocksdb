@@ -1937,8 +1937,9 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
     uint64_t size_limit, Env* src_env, Env* dst_env,
     const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
-    std::function<void()> progress_callback, size_t* bytes_toward_next_callback,
-    uint64_t* size, std::string* checksum_hex) {
+    std::function<void()> progress_callback,
+    uint64_t* bytes_toward_next_callback, uint64_t* size,
+    std::string* checksum_hex) {
   assert(src.empty() != contents.empty());
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> dst_file;

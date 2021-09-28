@@ -162,6 +162,7 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
 namespace {
 
+// TODO: create a space efficient OnDemandSequence<FileStorageInfo>
 struct FilesStorageInfoImpl : public OnDemandSequence<FileStorageInfo> {
   std::vector<FileStorageInfo> infos;
 
@@ -180,6 +181,9 @@ Status DBImpl::GetLiveFilesStorageInfo(
   uint64_t manifest_file_size = 0;
   uint64_t min_log_num = port::kMaxUint64;
   VectorLogPtr live_wal_files;
+
+  // Set to nullptr on all error paths
+  files->reset();
 
   // This implementation was migrated from Checkpoint.
   // TODO: refactor to take advantage of being inside DBImpl to get
@@ -308,7 +312,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   // get checksum info
-  if (opts.include_checksum_info) {
+  if (s.ok() && opts.include_checksum_info) {
     for (FileStorageInfo& info : result->infos) {
       info.file_checksum_func_name = kUnknownFileChecksumFuncName;
       info.file_checksum = kUnknownFileChecksum;
@@ -355,7 +359,9 @@ Status DBImpl::GetLiveFilesStorageInfo(
     }
   }
 
-  *files = std::move(result);
+  if (s.ok()) {
+    *files = std::move(result);
+  }
   return s;
 }
 
