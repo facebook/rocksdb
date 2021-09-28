@@ -1701,9 +1701,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
     jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
     if (jcfh == nullptr) {
       // exception thrown: OutOfMemoryError
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                   "Insufficient Memory for CF handle array."));
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for CF handle array.");
       return nullptr;
     }
 
@@ -1718,9 +1718,8 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
   if (jkey_off == nullptr) {
     // exception thrown: OutOfMemoryError
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Insufficient Memory for key offset array."));
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key offset array.");
     return nullptr;
   }
 
@@ -1728,9 +1727,8 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   if (jkey_len == nullptr) {
     // exception thrown: OutOfMemoryError
     env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Insufficient Memory for key length array."));
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key length array.");
     return nullptr;
   }
 
@@ -1744,9 +1742,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
       multi_get_helper_release_keys(keys_to_free);
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                   "Insufficient Memory for key object array."));
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for key object array.");
       return nullptr;
     }
 
@@ -1762,9 +1760,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
       multi_get_helper_release_keys(keys_to_free);
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                   "Could not fetch byte array region."));
+      jclass exception_cls =
+          (env)->FindClass("java/lang/ArrayIndexOutOfBoundsException");
+      (env)->ThrowNew(exception_cls, "Invalid byte array region index.");
       return nullptr;
     }
 
@@ -1795,9 +1793,8 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
       env, static_cast<jsize>(s.size()));
   if (jresults == nullptr) {
     // exception occurred
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Insufficient Memory for results."));
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
     return nullptr;
   }
 
