@@ -214,6 +214,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {VERIFY_CHECKSUM_READ_BYTES, "rocksdb.verify_checksum.read.bytes"},
     {BACKUP_READ_BYTES, "rocksdb.backup.read.bytes"},
     {BACKUP_WRITE_BYTES, "rocksdb.backup.write.bytes"},
+    {REMOTE_COMPACT_READ_BYTES, "rocksdb.remote.compact.read.bytes"},
+    {REMOTE_COMPACT_WRITE_BYTES, "rocksdb.remote.compact.write.bytes"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

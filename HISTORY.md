@@ -5,6 +5,7 @@
 
 ### New Features
 * Provided support for SingleDelete with user defined timestamp.
+* Add remote compaction read/write bytes statistics: `REMOTE_COMPACT_READ_BYTES`, `REMOTE_COMPACT_WRITE_BYTES`.
 
 ### Public API change
 * Made SystemClock extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
