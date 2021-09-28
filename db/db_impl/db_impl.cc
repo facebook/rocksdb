@@ -4006,19 +4006,19 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() {}
 
 Status DBImpl::Close() {
-  if (!closed_) {
-    {
-      InstrumentedMutexLock l(&mutex_);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (closed_) {
+      return Status::OK();
+    } else {
       // If there is unreleased snapshot, fail the close call
       if (!snapshots_.empty()) {
         return Status::Aborted("Cannot close DB with unreleased snapshot.");
       }
     }
-
     closed_ = true;
-    return CloseImpl();
   }
-  return Status::OK();
+  return CloseImpl();
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
