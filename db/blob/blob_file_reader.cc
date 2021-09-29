@@ -358,10 +358,17 @@ void BlobFileReader::MultiGetBlob(
     const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
     autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
   const size_t num_blobs = user_keys.size();
+  assert(num_blobs > 0);
   assert(num_blobs == offsets.size());
   assert(num_blobs == value_sizes.size());
   assert(num_blobs == statuses.size());
   assert(num_blobs == values.size());
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < offsets.size() - 1; ++i) {
+    assert(offsets[i] <= offsets[i + 1]);
+  }
+#endif  // !NDEBUG
 
   std::vector<FSReadRequest> read_reqs(num_blobs);
   autovector<uint64_t> adjustments;
