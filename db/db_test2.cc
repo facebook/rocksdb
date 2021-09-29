@@ -3678,6 +3678,7 @@ TEST_F(DBTest2, IterRaceFlush1) {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
@@ -3708,6 +3709,7 @@ TEST_F(DBTest2, IterRaceFlush2) {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v1", it->value().ToString());
   }
 
   t1.join();
@@ -3740,6 +3742,7 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
