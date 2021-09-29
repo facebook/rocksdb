@@ -3670,8 +3670,8 @@ TEST_F(DBTest2, IterRaceFlush1) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned after second Put(), so it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
@@ -3701,8 +3701,8 @@ TEST_F(DBTest2, IterRaceFlush2) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned before second Put(), thus it must see v1.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
@@ -3732,8 +3732,8 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is refreshed after the first Put(), and its sequence number is
+  // assigned after second Put(), thus it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     ASSERT_OK(it->status());
