@@ -16,6 +16,7 @@ int main() {
 #include <string>
 #include <vector>
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"

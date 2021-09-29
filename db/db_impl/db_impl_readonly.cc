@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/merge_context.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
