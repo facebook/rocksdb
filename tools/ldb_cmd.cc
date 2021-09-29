@@ -3444,88 +3444,101 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   }
   Status s;
 
-  std::cout << "Live SST Files:" << std::endl;
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
+  std::cout << "Live SST and Blob Files:" << std::endl;
+  std::vector<ColumnFamilyMetaData> metadata;
+  db_->GetAllColumnFamilyMetaData(&metadata);
   if (sort_by_filename_) {
     // Sort metadata vector by filename.
-    std::sort(metadata.begin(), metadata.end(),
-              [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
-                std::string aName = a.db_path + a.name;
-                std::string bName = b.db_path + b.name;
-                return (aName.compare(bName) < 0);
-              });
-    for (auto& fileMetadata : metadata) {
-      // The fileMetada.name alwasy starts with "/",
-      // however fileMetada.db_path is the string provided by
-      // the user as an input. Therefore we check if we can
-      // concantenate the two string sdirectly or if we need to
-      // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-      // Drops any repeating '/' character that could happen during
-      // concatenation of db path and file name.
-      filename = NormalizePath(filename);
-      std::string cf = fileMetadata.column_family_name;
-      int level = fileMetadata.level;
-      std::cout << filename << " : level " << level << ", column family '" << cf
-                << "'" << std::endl;
+    std::map<std::string, std::string> filenametoOutputStr;
+    for (auto& columnMetadata : metadata) {
+      // Iterate Levels
+      auto& levels = columnMetadata.levels;
+      std::string cf = columnMetadata.name;
+      for (auto& levelMetadata : levels) {
+        // Iterate SST files
+        auto& sstFiles = levelMetadata.files;
+        int level = levelMetadata.level;
+        for (auto& sstMetadata : sstFiles) {
+          // The fileMetada.name alwasy starts with "/",
+          // however fileMetada.db_path is the string provided by
+          // the user as an input. Therefore we check if we can
+          // concantenate the two string sdirectly or if we need to
+          // drop a possible extra "/" at the end of fileMetadata.db_path.
+          std::string filename = sstMetadata.db_path + "/" + sstMetadata.name;
+          // Drops any repeating '/' character that could happen during
+          // concatenation of db path and file name.
+          filename = NormalizePath(filename);
+          filenametoOutputStr[filename] = filename + " : level " +
+                                          std::to_string(level) +
+                                          ", column family '" + cf + "'";
+        }  // End of for-loop over sst files
+      }    // End of for-loop over levels
+
+      auto& blobFiles = columnMetadata.blob_files;
+      for (auto& blobMetadata : blobFiles) {
+        // The fileMetada.name alwasy starts with "/",
+        // however fileMetada.db_path is the string provided by
+        // the user as an input. Therefore we check if we can
+        // concantenate the two string sdirectly or if we need to
+        // drop a possible extra "/" at the end of fileMetadata.db_path.
+        std::string filename =
+            blobMetadata.blob_file_path + "/" + blobMetadata.blob_file_name;
+        // Drops any repeating '/' character that could happen during
+        // concatenation of db path and file name.
+        filename = NormalizePath(filename);
+        filenametoOutputStr[filename] =
+            filename + ", column family '" + cf + "'";
+      }  // End of for-loop over blob files
+    }    // End of for-loop over column metadata
+
+    for (auto const& item : filenametoOutputStr) {
+      std::cout << item.second << std::endl;
     }
   } else {
-    std::map<std::string, std::map<int, std::vector<std::string>>>
-        filesPerLevelPerCf;
-    // Collect live files metadata.
-    // Store filenames into a 2D map, that will automatically
-    // sort by column family (first key) and by level (second key).
-    for (auto& fileMetadata : metadata) {
-      std::string cf = fileMetadata.column_family_name;
-      int level = fileMetadata.level;
-      if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
-        filesPerLevelPerCf.emplace(cf,
-                                   std::map<int, std::vector<std::string>>());
-      }
-      if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
-        filesPerLevelPerCf[cf].emplace(level, std::vector<std::string>());
-      }
-
-      // The fileMetada.name alwasy starts with "/",
-      // however fileMetada.db_path is the string provided by
-      // the user as an input. Therefore we check if we can
-      // concantenate the two string sdirectly or if we need to
-      // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-      // Drops any repeating '/' character that could happen during
-      // concatenation of db path and file name.
-      filename = NormalizePath(filename);
-      filesPerLevelPerCf[cf][level].push_back(filename);
-    }
-    // For each column family,
-    // iterate through the levels and print out the live SST file names.
-    for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
-         it++) {
-      // it->first: Column Family name (string)
-      // it->second: map[level]={SST files...}.
-      std::cout << "===== Column Family: " << it->first
+    // Using GetAllColumnFamilyMetaData
+    for (auto& columnMetadata : metadata) {
+      std::cout << "===== Column Family: " << columnMetadata.name
                 << " =====" << std::endl;
 
-      // For simplicity, create reference to the inner map (level={live SST
-      // files}).
-      std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
-      int maxLevel = filesPerLevel.rbegin()->first;
+      std::cout << "Live SST Files:" << std::endl;
+      // Iterate levels
+      auto& levels = columnMetadata.levels;
+      for (auto& levelMetadata : levels) {
+        std::cout << "---------- level " << levelMetadata.level << " ----------"
+                  << std::endl;
+        // Iterate SST files
+        auto& sstFiles = levelMetadata.files;
+        for (auto& sstfileMetadata : sstFiles) {
+          // The fileMetada.name alwasy starts with "/",
+          // however fileMetada.db_path is the string provided by
+          // the user as an input. Therefore we check if we can
+          // concantenate the two string sdirectly or if we need to
+          // drop a possible extra "/" at the end of fileMetadata.db_path.
+          std::string filename =
+              sstfileMetadata.db_path + "/" + sstfileMetadata.name;
+          // Drops any repeating '/' character that could happen during
+          // concatenation of db path and file name.
+          filename = NormalizePath(filename);
+          std::cout << filename << std::endl;
+        }  // End of for-loop over SST Files.
+      }    // End of for-loop over levels.
 
-      // Even if the first few levels are empty, they are printed out.
-      for (int level = 0; level <= maxLevel; level++) {
-        std::cout << "---------- level " << level << " ----------" << std::endl;
-        if (filesPerLevel.find(level) != filesPerLevel.end()) {
-          std::vector<std::string>& fileList = filesPerLevel[level];
-
-          // Locally sort by filename for better information display.
-          std::sort(fileList.begin(), fileList.end());
-          for (const std::string& filename : fileList) {
-            std::cout << filename << std::endl;
-          }
-        }
-      }  // End of for-loop over levels.
-    }    // End of for-loop over filesPerLevelPerCf.
+      std::cout << "Live Blob Files:" << std::endl;
+      auto& blobFiles = columnMetadata.blob_files;
+      for (auto& blobMetadata : blobFiles) {
+        // The fileMetada.name alwasy starts with "/",
+        // however fileMetada.db_path is the string provided by
+        // the user as an input. Therefore we check if we can
+        // concantenate the two string sdirectly or if we need to
+        // drop a possible extra "/" at the end of fileMetadata.db_path.
+        std::string filename =
+            blobMetadata.blob_file_path + "/" + blobMetadata.blob_file_name;
+        // Drops any repeating '/' character that could happen during
+        // concatenation of db path and file name.
+        filename = NormalizePath(filename);
+        std::cout << filename << std::endl;
+      }  // End of for-loop over Blob files.
+    }    // End of for-loop over column metadata
   }      // End of else ("not sort_by_filename").
   std::cout << "------------------------------" << std::endl;
 }
