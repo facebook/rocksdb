@@ -82,6 +82,7 @@ class DbStressListener : public EventListener {
       assert(info.table_properties.num_entries > 0);
     }
     --num_pending_file_creations_;
+    // TODO: verify unique ids
   }
 
   void OnMemTableSealed(const MemTableInfo& /*info*/) override {

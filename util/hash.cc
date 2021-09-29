@@ -120,4 +120,11 @@ void Hash2x64(const char* data, size_t n, uint64_t* high64, uint64_t* low64) {
   *low64 = h.low64;
 }
 
+void Hash2x64(const char* data, size_t n, uint64_t seed, uint64_t* high64,
+              uint64_t* low64) {
+  auto h = XXH3_128bits_withSeed(data, n, seed);
+  *high64 = h.high64;
+  *low64 = h.low64;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

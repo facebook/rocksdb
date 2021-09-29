@@ -302,7 +302,13 @@ TEST(HashTest, Hash128Misc) {
 
       // Seed changes hash value (with high probability)
       for (uint64_t var_seed = 1; var_seed != 0; var_seed <<= 1) {
-        EXPECT_NE(here, Hash128(str.data(), size, var_seed));
+        Unsigned128 seeded = Hash128(str.data(), size, var_seed);
+        EXPECT_NE(here, seeded);
+        // Must match seeded Hash2x64
+        uint64_t hi, lo;
+        Hash2x64(str.data(), size, var_seed, &hi, &lo);
+        EXPECT_EQ(Lower64of128(seeded), lo);
+        EXPECT_EQ(Upper64of128(seeded), hi);
       }
 
       // Size changes hash value (with high probability)

@@ -13,7 +13,7 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/emulated_clock.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"

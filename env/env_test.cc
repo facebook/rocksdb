@@ -39,7 +39,7 @@
 #include "env/emulated_clock.h"
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "port/malloc.h"
@@ -2696,6 +2696,23 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackRandomDeviceOnly) {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
       TEST_GenerateRawUniqueId(&p.first, &p.second, true, true, false);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, SemiStructuredUniqueIdGenTest) {
+  // Must be thread safe and usable as a static
+  static SemiStructuredUniqueIdGen gen;
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      gen.GenerateNext(&p.first, &p.second);
       return p;
     }
   };

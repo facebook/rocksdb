@@ -15,6 +15,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "block_fetcher.h"
@@ -37,7 +38,9 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
+#include "rocksdb/unique_id.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -51,6 +54,7 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -1386,6 +1390,262 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
     ASSERT_TRUE(pos == props.end() ||
                 pos->first.compare(0, prefix.size(), prefix) != 0);
   }
+}
+
+namespace {
+struct TestIds {
+  std::array<uint64_t, 3> internal_id;
+  std::array<uint64_t, 3> external_id;
+};
+
+inline bool operator==(const TestIds& lhs, const TestIds& rhs) {
+  return lhs.internal_id == rhs.internal_id &&
+         lhs.external_id == rhs.external_id;
+}
+
+std::ostream& operator<<(std::ostream& os, const TestIds& ids) {
+  return os << "{{ " << ids.internal_id[0] << "U, " << ids.internal_id[1]
+            << "U, " << ids.internal_id[2] << "U }, { " << ids.external_id[0]
+            << "U, " << ids.external_id[1] << "U, " << ids.external_id[2]
+            << "U }}";
+}
+
+TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
+                    const std::string& db_id, const std::string& db_session_id,
+                    uint64_t file_number) {
+  // First test session id logic
+  if (db_session_id.size() == 20) {
+    uint64_t upper;
+    uint64_t lower;
+    EXPECT_OK(DecodeSessionId(db_session_id, &upper, &lower));
+    EXPECT_EQ(EncodeSessionId(upper, lower), db_session_id);
+  }
+
+  // Get external using public API
+  tp->db_id = db_id;
+  tp->db_session_id = db_session_id;
+  tp->orig_file_number = file_number;
+  TestIds t;
+  EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &t.external_id));
+  // All these should be effectively random
+  EXPECT_TRUE(seen->insert(t.external_id[0]).second);
+  EXPECT_TRUE(seen->insert(t.external_id[1]).second);
+  EXPECT_TRUE(seen->insert(t.external_id[2]).second);
+
+  // Get internal with internal API
+  EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number,
+                                   &t.internal_id));
+
+  // Verify relationship
+  std::array<uint64_t, 3> tmp = t.internal_id;
+  InternalUniqueIdToExternal(&tmp);
+  EXPECT_EQ(tmp, t.external_id);
+  ExternalUniqueIdToInternal(&tmp);
+  EXPECT_EQ(tmp, t.internal_id);
+  return t;
+}
+}  // namespace
+
+TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
+  // To ensure the computation only depends on the expected entries, we set
+  // the rest randomly
+  TableProperties tp;
+  TEST_SetRandomTableProperties(&tp);
+
+  // DB id is normally RFC-4122
+  const std::string db_id1 = "7265b6eb-4e42-4aec-86a4-0dc5e73a228d";
+  // Allow other forms of DB id
+  const std::string db_id2 = "1728000184588763620";
+  const std::string db_id3 = "x";
+
+  // DB session id is normally 20 chars in base-36, but 13 to 24 chars
+  // is ok, roughly 64 to 128 bits.
+  const std::string ses_id1 = "ABCDEFGHIJ0123456789";
+  // Same trailing 13 digits
+  const std::string ses_id2 = "HIJ0123456789";
+  const std::string ses_id3 = "0123ABCDEFGHIJ0123456789";
+  // Different trailing 12 digits
+  const std::string ses_id4 = "ABCDEFGH888888888888";
+  // And change length
+  const std::string ses_id5 = "ABCDEFGHIJ012";
+  const std::string ses_id6 = "ABCDEFGHIJ0123456789ABCD";
+
+  using T = TestIds;
+  std::unordered_set<uint64_t> seen;
+  // Establish a stable schema for the unique IDs. These values must not
+  // change for existing table files.
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 1),
+      T({{1589057819469371389U, 7050346682568527641U, 10412113293178512639U},
+         {16851110714347026578U, 9067015114467937773U, 5643798996617179987U}}));
+  // Only change internal_id[0] with file number
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 2),
+      T({{1589057819469371390U, 7050346682568527641U, 10412113293178512639U},
+         {14485418747566015688U, 18412373657496897914U, 307768319864024241U}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 123456789),
+      T({{1589057819558845161U, 7050346682568527641U, 10412113293178512639U},
+         {9468854913540790479U, 14371008877032306366U, 1113299529331574655U}}));
+  // Change internal_id[0] and internal_id[2] with db_id
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id2, ses_id1, 1),
+      T({{17914271617705250085U, 7050346682568527641U, 2238054126009591166U},
+         {8657223717931449699U, 3956037658591562608U, 6478858561251560311U}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id3, ses_id1, 1),
+      T({{18361905378910427088U, 7050346682568527641U, 628588297088391656U},
+         {14706964798620975771U, 1252987493481608398U,
+          11817800365200686757U}}));
+  // Keeping same last 13 digits of ses_id keeps same internal_id[1]
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id2, 1),
+      T({{429755456866822344U, 7050346682568527641U, 8894754800566752326U},
+         {2407952258165122681U, 12668986456088033081U,
+          17603981052373163541U}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id3, 1),
+      T({{18190657402950614690U, 7050346682568527641U, 13850694712287857101U},
+         {1651080363581169809U, 2788487681367052245U, 11674848077313241794U}}));
+  // Changing last 12 digits of ses_id only changes internal_id[1]
+  // (vs. db_id1, ses_id1, 1)
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id4, 1),
+      T({{1589057819469371389U, 5694744610043757480U, 10412113293178512639U},
+         {5124155710197560344U, 960253078957941185U, 2838390718412107716U}}));
+  // ses_id can change everything.
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id5, 1),
+      T({{14003263902495702163U, 10716445666725887206U, 62608388621275683U},
+         {12810231601493518571U, 7212512268885594832U, 973095669804875256U}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id6, 1),
+      T({{2755173846888770075U, 4886318732730110189U, 18071979072732320413U},
+         {10585296269625372219U, 7520711732401947915U, 1777107602088568036U}}));
+
+  // Now verify more thoroughly that any small change in inputs completely
+  // changes external unique id.
+  // (Relying on 'seen' checks etc. in GetUniqueId)
+  std::string db_id = "00000000-0000-0000-0000-000000000000";
+  std::string ses_id = "000000000000000000000000";
+  uint64_t file_num = 1;
+  // change db_id
+  for (size_t i = 0; i < db_id.size(); ++i) {
+    if (db_id[i] == '-') {
+      continue;
+    }
+    for (char alt : std::string("123456789abcdef")) {
+      db_id[i] = alt;
+      GetUniqueId(&tp, &seen, db_id, ses_id, file_num);
+    }
+    db_id[i] = '0';
+  }
+  // change ses_id
+  for (size_t i = 0; i < ses_id.size(); ++i) {
+    for (char alt : std::string("123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
+      ses_id[i] = alt;
+      GetUniqueId(&tp, &seen, db_id, ses_id, file_num);
+    }
+    ses_id[i] = '0';
+  }
+  // change file_num
+  for (int i = 1; i < 64; ++i) {
+    GetUniqueId(&tp, &seen, db_id, ses_id, file_num << i);
+  }
+}
+
+namespace {
+void SetGoodTableProperties(TableProperties* tp) {
+  // To ensure the computation only depends on the expected entries, we set
+  // the rest randomly
+  TEST_SetRandomTableProperties(tp);
+  tp->db_id = "7265b6eb-4e42-4aec-86a4-0dc5e73a228d";
+  tp->db_session_id = "ABCDEFGHIJ0123456789";
+  tp->orig_file_number = 1;
+}
+
+template <size_t kStart, size_t kLen, typename T, size_t kBaseLen>
+const std::array<T, kLen>& AsSubArray(const std::array<T, kBaseLen>& a) {
+  static_assert(kStart + kLen <= kBaseLen, "Sub-array out of bounds");
+  return *reinterpret_cast<const std::array<T, kLen>*>(&a[kStart]);
+}
+
+template <typename T, size_t kMaxLen>
+void TestShortened(const TableProperties& tp,
+                   const std::array<T, kMaxLen> expected) {
+  std::array<T, kMaxLen> tmp;
+
+  // std::array
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_EQ(tmp, expected);
+
+  // pointer to array
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, tmp.data(), tmp.size()));
+  EXPECT_EQ(tmp, expected);
+
+  // Recurse to test smaller prefixes
+  TestShortened(tp, AsSubArray<0, kMaxLen - 1>(expected));
+}
+
+// Base cases
+template <>
+void TestShortened(const TableProperties& /*tp*/,
+                   const std::array<uint64_t, 0> /*expected*/) {}
+
+template <>
+void TestShortened(const TableProperties& /*tp*/,
+                   const std::array<char, 0> /*expected*/) {}
+
+}  // namespace
+
+TEST_F(TablePropertyTest, UniqueIdsShortened) {
+  TableProperties tp;
+  SetGoodTableProperties(&tp);
+
+  // Test uint64_t API
+  TestShortened(
+      tp, std::array<uint64_t, 3>{16851110714347026578U, 9067015114467937773U,
+                                  5643798996617179987U});
+
+  // Test char API
+  TestShortened(
+      tp, std::array<char, 24>{'\x92', '\xF8', '\x6E', '\xE7', '\xE9', '\x2B',
+                               '\xDB', '\xE9', '\xED', '\x8D', '\xF5', '\x1E',
+                               '\x35', '\x82', '\xD4', '\x7D', '\x53', '\xB3',
+                               '\x12', '\x09', '\x49', '\xCD', '\x52', '\x4E'});
+}
+
+TEST_F(TablePropertyTest, UniqueIdsFailure) {
+  TableProperties tp;
+  std::array<uint64_t, 3> tmp;
+  std::array<char, 24> tmp_char;
+
+  // Missing DB id
+  SetGoodTableProperties(&tp);
+  tp.db_id = "";
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+
+  // Missing session id
+  SetGoodTableProperties(&tp);
+  tp.db_session_id = "";
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+
+  // Missing file number
+  SetGoodTableProperties(&tp);
+  tp.orig_file_number = 0;
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+
+  // Ask for too much data
+  SetGoodTableProperties(&tp);
+  EXPECT_TRUE(
+      GetUniqueIdFromTableProperties(tp, tmp.data(), 4).IsInvalidArgument());
+  EXPECT_TRUE(
+      GetUniqueIdFromTableProperties(tp, tmp.data(), 1024).IsInvalidArgument());
+
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, tmp_char.data(), 25)
+                  .IsInvalidArgument());
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, tmp_char.data(), 1024)
+                  .IsInvalidArgument());
 }
 
 // This test include all the basic checks except those for index size and block
