@@ -50,10 +50,6 @@ class MergingIterator : public InternalIterator {
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
-    for (auto& child : children_) {
-      AddToMinHeapOrCheckStatus(&child);
-    }
-    current_ = CurrentForward();
   }
 
   void considerStatus(Status s) {
@@ -68,11 +64,9 @@ class MergingIterator : public InternalIterator {
     if (pinned_iters_mgr_) {
       iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
-    auto new_wrapper = children_.back();
-    AddToMinHeapOrCheckStatus(&new_wrapper);
-    if (new_wrapper.Valid()) {
-      current_ = CurrentForward();
-    }
+    // Invalidate to ensure `Seek*()` is called to construct the heaps before
+    // use.
+    current_ = nullptr;
   }
 
   ~MergingIterator() override {
