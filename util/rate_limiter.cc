@@ -143,7 +143,8 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Request cannot be satisfied at this moment, enqueue
   Req r(bytes, &request_mutex_);
   queue_[pri].push_back(&r);
-
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostEnqueueRequest",
+                           &request_mutex_);
   // A thread representing a queued request coordinates with other such threads.
   // There are two main duties.
   //

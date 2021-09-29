@@ -18,6 +18,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
@@ -170,6 +171,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"wal_filter",
+         OptionTypeInfo::AsCustomRawPtr<WalFilter>(
+             offsetof(struct ImmutableDBOptions, wal_filter),
+             OptionVerificationType::kByName,
+             (OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever))},
         {"create_if_missing",
          {offsetof(struct ImmutableDBOptions, create_if_missing),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -443,6 +449,19 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"file_checksum_gen_factory",
+         OptionTypeInfo::AsCustomSharedPtr<FileChecksumGenFactory>(
+             offsetof(struct ImmutableDBOptions, file_checksum_gen_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
+        {"statistics",
+         OptionTypeInfo::AsCustomSharedPtr<Statistics>(
+             // Statistics should not be compared and can be null
+             // Statistics are maked "don't serialize" until they can be shared
+             // between DBs
+             offsetof(struct ImmutableDBOptions, statistics),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
+                 OptionTypeFlags::kAllowNull)},
         // Allow EventListeners that have a non-empty Name() to be read/written
         // as options Each listener will either be
         // - A simple name (e.g. "MyEventListener")

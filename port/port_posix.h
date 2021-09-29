@@ -116,6 +116,9 @@ class Mutex {
 
   void Lock();
   void Unlock();
+
+  bool TryLock();
+
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();

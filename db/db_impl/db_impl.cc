@@ -237,7 +237,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
-                     &error_handler_) {
+                     &error_handler_, &event_logger_,
+                     immutable_db_options_.listeners, dbname_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -2161,7 +2162,7 @@ bool DBImpl::MultiCFSnapshot(
     // consecutive retries, it means the write rate is very high. In that case
     // its probably ok to take the mutex on the 3rd try so we can succeed for
     // sure
-    static const int num_retries = 3;
+    constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
       last_try = (i == num_retries - 1);
       bool retry = false;
@@ -2191,8 +2192,9 @@ bool DBImpl::MultiCFSnapshot(
           *snapshot = versions_->LastPublishedSequence();
         }
       } else {
-        *snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                        ->number_;
+        *snapshot =
+            static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
+                ->number_;
       }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
@@ -2393,17 +2395,9 @@ void DBImpl::PrepareMultiGetKeys(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
   if (sorted_input) {
 #ifndef NDEBUG
-    CompareKeyContext key_context_less;
-
-    for (size_t index = 1; index < sorted_keys->size(); ++index) {
-      const KeyContext* const lhs = (*sorted_keys)[index - 1];
-      const KeyContext* const rhs = (*sorted_keys)[index];
-
-      // lhs should be <= rhs, or in other words, rhs should NOT be < lhs
-      assert(!key_context_less(rhs, lhs));
-    }
+    assert(std::is_sorted(sorted_keys->begin(), sorted_keys->end(),
+                          CompareKeyContext()));
 #endif
-
     return;
   }
 

@@ -1021,6 +1021,9 @@ DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
 
+DEFINE_bool(io_uring_enabled, true,
+            "If true, enable the use of IO uring if the platform supports it");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
@@ -5407,7 +5410,7 @@ class Benchmark {
         }
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
-            fprintf(stdout, "Level[%d]: %s(size: %" ROCKSDB_PRIszt " bytes)\n",
+            fprintf(stdout, "Level[%d]: %s(size: %" PRIi64 " bytes)\n",
                     levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
           }
         } else {
@@ -8017,6 +8020,7 @@ class Benchmark {
 
 int db_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
+  ConfigOptions config_options;
   static bool initialized = false;
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -8033,8 +8037,8 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
-        FLAGS_statistics_string, &dbstats);
+    Status s = Statistics::CreateFromString(config_options,
+                                            FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
       fprintf(stderr,
               "No Statistics registered matching string: %s status=%s\n",
@@ -8080,7 +8084,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (env_opts == 1) {
-    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+    Status s = Env::CreateFromUri(config_options, FLAGS_env_uri, FLAGS_fs_uri,
                                   &FLAGS_env, &env_guard);
     if (!s.ok()) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());

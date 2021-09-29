@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <limits>
 
+#include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -19,6 +20,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"

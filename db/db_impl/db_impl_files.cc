@@ -16,6 +16,7 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "util/autovector.h"
 
@@ -359,6 +360,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
         immutable_db_options_.listeners);
+  }
+  if (type == kBlobFile) {
+    EventHelpers::LogAndNotifyBlobFileDeletion(
+        &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
+        file_deletion_status, GetName());
   }
 }
 

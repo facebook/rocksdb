@@ -51,6 +51,7 @@
 #endif
 #define XXPH_NAMESPACE ROCKSDB_
 #define XXPH_INLINE_ALL
+#include <cstring>
 /* END RocksDB customizations */
 
 #if defined (__cplusplus)

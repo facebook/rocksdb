@@ -16,6 +16,7 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"

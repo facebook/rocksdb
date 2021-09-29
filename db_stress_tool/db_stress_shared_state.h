@@ -11,6 +11,7 @@
 #pragma once
 
 #include "db_stress_tool/db_stress_stat.h"
+#include "db_stress_tool/expected_state.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/sync_point.h"
@@ -23,7 +24,7 @@ DECLARE_uint64(log2_keys_per_lock);
 DECLARE_int32(threads);
 DECLARE_int32(column_families);
 DECLARE_int32(nooverwritepercent);
-DECLARE_string(expected_values_path);
+DECLARE_string(expected_values_dir);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -81,7 +82,7 @@ class SharedState {
         verification_failure_(false),
         should_stop_test_(false),
         no_overwrite_ids_(FLAGS_column_families),
-        values_(nullptr),
+        expected_state_manager_(nullptr),
         printing_verification_results_(false) {
     // Pick random keys in each column family that will not experience
     // overwrite
@@ -110,65 +111,38 @@ class SharedState {
     }
     delete[] permutation;
 
-    size_t expected_values_size =
-        sizeof(std::atomic<uint32_t>) * FLAGS_column_families * max_key_;
-    bool values_init_needed = false;
     Status status;
-    if (!FLAGS_expected_values_path.empty()) {
+    // TODO: We should introduce a way to explicitly disable verification
+    // during shutdown. When that is disabled and FLAGS_expected_values_dir
+    // is empty (disabling verification at startup), we can skip tracking
+    // expected state. Only then should we permit bypassing the below feature
+    // compatibility checks.
+    if (!FLAGS_expected_values_dir.empty()) {
       if (!std::atomic<uint32_t>{}.is_lock_free()) {
         status = Status::InvalidArgument(
-            "Cannot use --expected_values_path on platforms without lock-free "
+            "Cannot use --expected_values_dir on platforms without lock-free "
             "std::atomic<uint32_t>");
       }
       if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
         status = Status::InvalidArgument(
-            "Cannot use --expected_values_path on when "
+            "Cannot use --expected_values_dir on when "
             "--clear_column_family_one_in is greater than zero.");
       }
-      uint64_t size = 0;
-      Env* default_env = Env::Default();
-      if (status.ok()) {
-        status = default_env->GetFileSize(FLAGS_expected_values_path, &size);
-      }
-      std::unique_ptr<WritableFile> wfile;
-      if (status.ok() && size == 0) {
-        const EnvOptions soptions;
-        status = default_env->NewWritableFile(FLAGS_expected_values_path,
-                                              &wfile, soptions);
-      }
-      if (status.ok() && size == 0) {
-        std::string buf(expected_values_size, '\0');
-        status = wfile->Append(buf);
-        values_init_needed = true;
-      }
-      if (status.ok()) {
-        status = default_env->NewMemoryMappedFileBuffer(
-            FLAGS_expected_values_path, &expected_mmap_buffer_);
-      }
-      if (status.ok()) {
-        assert(expected_mmap_buffer_->GetLen() == expected_values_size);
-        values_ = static_cast<std::atomic<uint32_t>*>(
-            expected_mmap_buffer_->GetBase());
-        assert(values_ != nullptr);
+    }
+    if (status.ok()) {
+      if (FLAGS_expected_values_dir.empty()) {
+        expected_state_manager_.reset(
+            new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
-        fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
-                FLAGS_expected_values_path.c_str(), status.ToString().c_str());
-        assert(values_ == nullptr);
+        expected_state_manager_.reset(new FileExpectedStateManager(
+            FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
       }
+      status = expected_state_manager_->Open();
     }
-    if (values_ == nullptr) {
-      values_allocation_.reset(
-          new std::atomic<uint32_t>[FLAGS_column_families * max_key_]);
-      values_ = &values_allocation_[0];
-      values_init_needed = true;
-    }
-    assert(values_ != nullptr);
-    if (values_init_needed) {
-      for (int i = 0; i < FLAGS_column_families; ++i) {
-        for (int j = 0; j < max_key_; ++j) {
-          Delete(i, j, false /* pending */);
-        }
-      }
+    if (!status.ok()) {
+      fprintf(stderr, "Failed setting up expected state with error: %s\n",
+              status.ToString().c_str());
+      exit(1);
     }
 
     if (FLAGS_test_batches_snapshots) {
@@ -257,89 +231,76 @@ class SharedState {
 
   bool ShouldStopTest() const { return should_stop_test_.load(); }
 
+  // Returns a lock covering `key` in `cf`.
   port::Mutex* GetMutexForKey(int cf, int64_t key) {
     return key_locks_[cf][key >> log2_keys_per_lock_].get();
   }
 
+  // Acquires locks for all keys in `cf`.
   void LockColumnFamily(int cf) {
     for (auto& mutex : key_locks_[cf]) {
       mutex->Lock();
     }
   }
 
+  // Releases locks for all keys in `cf`.
   void UnlockColumnFamily(int cf) {
     for (auto& mutex : key_locks_[cf]) {
       mutex->Unlock();
     }
   }
 
-  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
-    return values_[cf * max_key_ + key];
-  }
-
+  // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
-    std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
-              DELETION_SENTINEL);
+    return expected_state_manager_->ClearColumnFamily(cf);
   }
 
   // @param pending True if the update may have started but is not yet
   //    guaranteed finished. This is useful for crash-recovery testing when the
   //    process may crash before updating the expected values array.
+  //
+  // Requires external locking covering `key` in `cf`.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    if (!pending) {
-      // prevent expected-value update from reordering before Write
-      std::atomic_thread_fence(std::memory_order_release);
-    }
-    Value(cf, key).store(pending ? UNKNOWN_SENTINEL : value_base,
-                         std::memory_order_relaxed);
-    if (pending) {
-      // prevent Write from reordering before expected-value update
-      std::atomic_thread_fence(std::memory_order_release);
-    }
+    return expected_state_manager_->Put(cf, key, value_base, pending);
   }
 
-  uint32_t Get(int cf, int64_t key) const { return Value(cf, key); }
+  // Requires external locking covering `key` in `cf`.
+  uint32_t Get(int cf, int64_t key) const {
+    return expected_state_manager_->Get(cf, key);
+  }
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool Delete(int cf, int64_t key, bool pending) {
-    if (Value(cf, key) == DELETION_SENTINEL) {
-      return false;
-    }
-    Put(cf, key, DELETION_SENTINEL, pending);
-    return true;
+    return expected_state_manager_->Delete(cf, key, pending);
   }
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
+  //
+  // Requires external locking covering `key` in `cf`.
   bool SingleDelete(int cf, int64_t key, bool pending) {
-    return Delete(cf, key, pending);
+    return expected_state_manager_->Delete(cf, key, pending);
   }
 
   // @param pending See comment above Put()
   // Returns number of keys deleted by the call.
+  //
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
   int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
-    int covered = 0;
-    for (int64_t key = begin_key; key < end_key; ++key) {
-      if (Delete(cf, key, pending)) {
-        ++covered;
-      }
-    }
-    return covered;
+    return expected_state_manager_->DeleteRange(cf, begin_key, end_key,
+                                                pending);
   }
 
   bool AllowsOverwrite(int64_t key) {
     return no_overwrite_ids_.find(key) == no_overwrite_ids_.end();
   }
 
+  // Requires external locking covering `key` in `cf`.
   bool Exists(int cf, int64_t key) {
-    // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
-    // is disallowed can't be accidentally added a second time, in which case
-    // SingleDelete wouldn't be able to properly delete the key. It does allow
-    // the case where a SingleDelete might be added which covers nothing, but
-    // that's not a correctness issue.
-    uint32_t expected_value = Value(cf, key).load();
-    return expected_value != DELETION_SENTINEL;
+    return expected_state_manager_->Exists(cf, key);
   }
 
   uint32_t GetSeed() const { return seed_; }
@@ -355,7 +316,7 @@ class SharedState {
   }
 
   bool ShouldVerifyAtBeginning() const {
-    return expected_mmap_buffer_.get() != nullptr;
+    return !FLAGS_expected_values_dir.empty();
   }
 
   bool PrintingVerificationResults() {
@@ -395,12 +356,10 @@ class SharedState {
   // Keys that should not be overwritten
   std::unordered_set<size_t> no_overwrite_ids_;
 
-  std::atomic<uint32_t>* values_;
-  std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
+  std::unique_ptr<ExpectedStateManager> expected_state_manager_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
-  std::unique_ptr<MemoryMappedFileBuffer> expected_mmap_buffer_;
   std::atomic<bool> printing_verification_results_;
 };
 

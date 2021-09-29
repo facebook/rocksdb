@@ -364,61 +364,6 @@ std::vector<CompressionType> GetSupportedDictCompressions() {
 }
 
 #ifndef ROCKSDB_LITE
-bool ParseSliceTransformHelper(
-    const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
-    const std::string& value,
-    std::shared_ptr<const SliceTransform>* slice_transform) {
-  const char* no_op_name = "rocksdb.Noop";
-  size_t no_op_length = strlen(no_op_name);
-  auto& pe_value = value;
-  if (pe_value.size() > kFixedPrefixName.size() &&
-      pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
-    int prefix_length = ParseInt(trim(value.substr(kFixedPrefixName.size())));
-    slice_transform->reset(NewFixedPrefixTransform(prefix_length));
-  } else if (pe_value.size() > kCappedPrefixName.size() &&
-             pe_value.compare(0, kCappedPrefixName.size(), kCappedPrefixName) ==
-                 0) {
-    int prefix_length =
-        ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
-    slice_transform->reset(NewCappedPrefixTransform(prefix_length));
-  } else if (pe_value.size() == no_op_length &&
-             pe_value.compare(0, no_op_length, no_op_name) == 0) {
-    const SliceTransform* no_op_transform = NewNoopTransform();
-    slice_transform->reset(no_op_transform);
-  } else if (value == kNullptrString) {
-    slice_transform->reset();
-  } else {
-    return false;
-  }
-
-  return true;
-}
-
-bool ParseSliceTransform(
-    const std::string& value,
-    std::shared_ptr<const SliceTransform>* slice_transform) {
-  // While we normally don't convert the string representation of a
-  // pointer-typed option into its instance, here we do so for backward
-  // compatibility as we allow this action in SetOption().
-
-  // TODO(yhchiang): A possible better place for these serialization /
-  // deserialization is inside the class definition of pointer-typed
-  // option itself, but this requires a bigger change of public API.
-  bool result =
-      ParseSliceTransformHelper("fixed:", "capped:", value, slice_transform);
-  if (result) {
-    return result;
-  }
-  result = ParseSliceTransformHelper(
-      "rocksdb.FixedPrefix.", "rocksdb.CappedPrefix.", value, slice_transform);
-  if (result) {
-    return result;
-  }
-  // TODO(yhchiang): we can further support other default
-  //                 SliceTransforms here.
-  return false;
-}
-
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {
@@ -466,10 +411,6 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
           static_cast<CompressionType*>(opt_address));
-    case OptionType::kSliceTransform:
-      return ParseSliceTransform(
-          value,
-          static_cast<std::shared_ptr<const SliceTransform>*>(opt_address));
     case OptionType::kChecksumType:
       return ParseEnum<ChecksumType>(checksum_type_string_map, value,
                                      static_cast<ChecksumType*>(opt_address));
@@ -554,14 +495,7 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
-    case OptionType::kSliceTransform: {
-      const auto* slice_transform_ptr =
-          static_cast<const std::shared_ptr<const SliceTransform>*>(
-              opt_address);
-      *value = slice_transform_ptr->get() ? slice_transform_ptr->get()->Name()
-                                          : kNullptrString;
       break;
-    }
     case OptionType::kFilterPolicy: {
       const auto* ptr =
           static_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
@@ -1068,6 +1002,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     return serialize_func_(config_options, opt_name, opt_addr, opt_value);
   } else if (IsCustomizable()) {
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
+    opt_value->clear();
     if (custom == nullptr) {
       // We do not have a custom object to serialize.
       // If the option is not mutable and we are doing only mutable options,
@@ -1081,7 +1016,9 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
       }
     } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
                !config_options.IsDetailed()) {
-      *opt_value = custom->GetId();
+      if (!config_options.mutable_options_only || IsMutable()) {
+        *opt_value = custom->GetId();
+      }
     } else {
       ConfigOptions embedded = config_options;
       embedded.delimiter = ";";
