@@ -17,6 +17,9 @@ class AWSCredentialsProvider;
 namespace Client {
 struct ClientConfiguration;
 }  // namespace Client
+namespace S3 {
+class S3Client;
+}
 }  // namespace Aws
 
 namespace ROCKSDB_NAMESPACE {
@@ -86,6 +89,10 @@ class AwsCloudAccessCredentials {
   // If non-nullptr, all of the above options are ignored.
   std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
 };
+
+using S3ClientFactory = std::function<std::shared_ptr<Aws::S3::S3Client>(
+    const std::shared_ptr<Aws::Auth::AWSCredentialsProvider>&,
+    const Aws::Client::ClientConfiguration&)>;
 
 // Defines parameters required to connect to Kafka
 class KafkaLogOptions {
@@ -210,6 +217,9 @@ class CloudEnvOptions {
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
+
+  // If present, s3_client_factory will be used to create S3Client instances
+  S3ClientFactory s3_client_factory;
 
   // Only used if keep_local_log_files is true and log_type is kKafka.
   KafkaLogOptions kafka_log_options;

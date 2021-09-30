@@ -114,7 +114,9 @@ class AwsS3ClientWrapper {
       const Aws::Client::ClientConfiguration& config,
       const CloudEnvOptions& cloud_options)
       : cloud_request_callback_(cloud_options.cloud_request_callback) {
-    if (creds) {
+    if (cloud_options.s3_client_factory) {
+      client_ = cloud_options.s3_client_factory(creds, config);
+    } else if (creds) {
       client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
     } else {
       client_ = std::make_shared<Aws::S3::S3Client>(config);
