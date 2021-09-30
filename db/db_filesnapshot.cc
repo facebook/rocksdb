@@ -7,14 +7,17 @@
 #ifndef ROCKSDB_LITE
 
 #include <stdint.h>
+
 #include <algorithm>
 #include <cinttypes>
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"

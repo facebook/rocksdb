@@ -39,8 +39,17 @@ class DbStressCompactionFilter : public CompactionFilter {
     bool ok = GetIntVal(key.ToString(), &key_num);
     assert(ok);
     (void)ok;
-    MutexLock key_lock(state_->GetMutexForKey(cf_id_, key_num));
-    if (!state_->Exists(cf_id_, key_num)) {
+    port::Mutex* key_mutex = state_->GetMutexForKey(cf_id_, key_num);
+    if (!key_mutex->TryLock()) {
+      return Decision::kKeep;
+    }
+    // Reaching here means we acquired the lock.
+
+    bool key_exists = state_->Exists(cf_id_, key_num);
+
+    key_mutex->Unlock();
+
+    if (!key_exists) {
       return Decision::kRemove;
     }
     return Decision::kKeep;

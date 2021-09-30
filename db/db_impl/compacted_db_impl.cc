@@ -8,6 +8,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "table/get_context.h"
 #include "util/cast_util.h"
 

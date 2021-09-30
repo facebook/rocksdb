@@ -16,6 +16,7 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "util/autovector.h"
 

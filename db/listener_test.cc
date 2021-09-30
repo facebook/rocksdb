@@ -1427,12 +1427,6 @@ TEST_F(EventListenerTest, BlobDBCompactFiles) {
 
 class BlobDBFileLevelEventListener : public EventListener {
  public:
-  BlobDBFileLevelEventListener() {
-    files_started_.store(0);
-    files_created_.store(0);
-    files_deleted_.store(0);
-  }
-
   void OnBlobFileCreationStarted(
       const BlobFileCreationBriefInfo& info) override {
     files_started_++;
@@ -1471,9 +1465,9 @@ class BlobDBFileLevelEventListener : public EventListener {
   }
 
  private:
-  std::atomic<uint32_t> files_started_;
-  std::atomic<uint32_t> files_created_;
-  std::atomic<uint32_t> files_deleted_;
+  std::atomic<uint32_t> files_started_{};
+  std::atomic<uint32_t> files_created_{};
+  std::atomic<uint32_t> files_deleted_{};
 };
 
 TEST_F(EventListenerTest, BlobDBFileTest) {

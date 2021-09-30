@@ -1111,8 +1111,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   sub_compact->num_output_records = compaction_result.num_output_records;
   sub_compact->approx_size = compaction_input.approx_size;  // is this used?
   sub_compact->total_bytes = compaction_result.total_bytes;
-  IOSTATS_ADD(bytes_written, compaction_result.bytes_written);
-  IOSTATS_ADD(bytes_read, compaction_result.bytes_read);
+  RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
+  RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
+             compaction_result.bytes_written);
   return CompactionServiceJobStatus::kSuccess;
 }
 #endif  // !ROCKSDB_LITE
@@ -2246,6 +2247,12 @@ std::string CompactionServiceCompactionJob::GetTableFileName(
   return MakeTableFileName(output_path_, file_number);
 }
 
+void CompactionServiceCompactionJob::RecordCompactionIOStats() {
+  compaction_result_->bytes_read += IOSTATS(bytes_read);
+  compaction_result_->bytes_written += IOSTATS(bytes_written);
+  CompactionJob::RecordCompactionIOStats();
+}
+
 CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
@@ -2336,9 +2343,6 @@ Status CompactionServiceCompactionJob::Run() {
   // Finish up all book-keeping to unify the subcompaction results
   AggregateStatistics();
   UpdateCompactionStats();
-
-  compaction_result_->bytes_written = IOSTATS(bytes_written);
-  compaction_result_->bytes_read = IOSTATS(bytes_read);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);

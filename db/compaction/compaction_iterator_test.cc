@@ -1258,6 +1258,101 @@ TEST_P(CompactionIteratorTsGcTest, RewriteTs) {
   }
 }
 
+TEST_P(CompactionIteratorTsGcTest, SingleDeleteNoKeyEligibleForGC) {
+  constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(/*ts=*/104, user_key[0], /*seq=*/4, kTypeSingleDeletion),
+      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/3, kTypeValue),
+      test::KeyStr(/*ts=*/102, user_key[1], /*seq=*/2, kTypeValue)};
+  const std::vector<std::string> input_values = {"", "a3", "b2"};
+  std::string full_history_ts_low;
+  // All keys' timestamps are newer than or equal to 102, thus none of them
+  // will be eligible for GC.
+  PutFixed64(&full_history_ts_low, 102);
+  const std::vector<std::string>& expected_keys = input_keys;
+  const std::vector<std::string>& expected_values = input_values;
+  const std::vector<std::pair<bool, bool>> params = {
+      {false, false}, {false, true}, {true, true}};
+  for (const std::pair<bool, bool>& param : params) {
+    const bool bottommost_level = param.first;
+    const bool key_not_exists_beyond_output_level = param.second;
+    RunTest(input_keys, input_values, expected_keys, expected_values,
+            /*last_committed_seq=*/kMaxSequenceNumber,
+            /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
+            bottommost_level,
+            /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+            key_not_exists_beyond_output_level, &full_history_ts_low);
+  }
+}
+
+TEST_P(CompactionIteratorTsGcTest, SingleDeleteDropTombstones) {
+  constexpr char user_key[] = "a";
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeSingleDeletion),
+      test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
+      test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeSingleDeletion),
+      test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
+  const std::vector<std::string> input_values = {"", "a2", "", "a0"};
+  const std::vector<std::string> expected_keys = {input_keys[0], input_keys[1]};
+  const std::vector<std::string> expected_values = {"", "a2"};
+
+  // Take a snapshot at seq 2.
+  AddSnapshot(2);
+  {
+    const std::vector<std::pair<bool, bool>> params = {
+        {false, false}, {false, true}, {true, true}};
+    for (const std::pair<bool, bool>& param : params) {
+      const bool bottommost_level = param.first;
+      const bool key_not_exists_beyond_output_level = param.second;
+      std::string full_history_ts_low;
+      PutFixed64(&full_history_ts_low, 102);
+      RunTest(input_keys, input_values, expected_keys, expected_values,
+              /*last_committed_seq=*/kMaxSequenceNumber,
+              /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
+              bottommost_level,
+              /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+              key_not_exists_beyond_output_level, &full_history_ts_low);
+    }
+  }
+}
+
+TEST_P(CompactionIteratorTsGcTest, SingleDeleteAllKeysOlderThanThreshold) {
+  constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/4, kTypeSingleDeletion),
+      test::KeyStr(/*ts=*/102, user_key[0], /*seq=*/3, kTypeValue),
+      test::KeyStr(/*ts=*/104, user_key[1], /*seq=*/5, kTypeValue)};
+  const std::vector<std::string> input_values = {"", "a2", "b5"};
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
+  {
+    // With a snapshot at seq 3, both the deletion marker and the key at 3 must
+    // be preserved.
+    AddSnapshot(3);
+    const std::vector<std::string> expected_keys = {
+        input_keys[0], input_keys[1], input_keys[2]};
+    const std::vector<std::string> expected_values = {"", "a2", "b5"};
+    RunTest(input_keys, input_values, expected_keys, expected_values,
+            /*last_committed_seq=*/kMaxSequenceNumber,
+            /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
+            /*bottommost_level=*/false,
+            /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+            /*key_not_exists_beyond_output_level=*/false, &full_history_ts_low);
+    ClearSnapshots();
+  }
+  {
+    // No snapshot.
+    const std::vector<std::string> expected_keys = {input_keys[2]};
+    const std::vector<std::string> expected_values = {"b5"};
+    RunTest(input_keys, input_values, expected_keys, expected_values,
+            /*last_committed_seq=*/kMaxSequenceNumber,
+            /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
+            /*bottommost_level=*/false,
+            /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+            /*key_not_exists_beyond_output_level=*/false, &full_history_ts_low);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(CompactionIteratorTsGcTestInstance,
                         CompactionIteratorTsGcTest,
                         testing::Values(true, false));
