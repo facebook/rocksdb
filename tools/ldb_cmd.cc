@@ -3448,8 +3448,8 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   db_->GetAllColumnFamilyMetaData(&metadata);
   if (sort_by_filename_) {
     std::cout << "Live SST and Blob Files:" << std::endl;
-    // tuple of <filename, output_str>
-    std::vector<std::tuple<std::string, std::string>> fn_out_vec;
+    // tuple of <file path, level, column family name>
+    std::vector<std::tuple<std::string, int, std::string>> all_files;
 
     for (const auto& column_metadata : metadata) {
       // Iterate Levels
@@ -3467,10 +3467,7 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
           // drop a possible extra "/" at the end of SstFileMetaData.db_path.
           std::string filename =
               NormalizePath(sst_metadata.db_path + "/" + sst_metadata.name);
-          std::string output_str = filename + " : level " +
-                                   std::to_string(level) + ", column family '" +
-                                   cf + "'";
-          fn_out_vec.push_back(std::make_tuple(filename, output_str));
+          all_files.emplace_back(filename, level, cf);
         }  // End of for-loop over sst files
       }    // End of for-loop over levels
 
@@ -3483,15 +3480,24 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
         // drop a possible extra "/" at the end of BlobMetaData.blob_file_path.
         std::string filename = NormalizePath(
             blob_metadata.blob_file_path + "/" + blob_metadata.blob_file_name);
-        std::string output_str = filename + ", column family '" + cf + "'";
-        fn_out_vec.push_back(std::make_tuple(filename, output_str));
+        // Level for blob files is encoded as -1
+        all_files.emplace_back(filename, -1, cf);
       }  // End of for-loop over blob files
     }    // End of for-loop over column metadata
 
     // Sort by filename (i.e. first entry in tuple)
-    std::sort(fn_out_vec.begin(), fn_out_vec.end());
-    for (const auto& item : fn_out_vec) {
-      std::cout << std::get<1>(item) << std::endl;
+    std::sort(all_files.begin(), all_files.end());
+
+    for (const auto& item : all_files) {
+      const std::string& filename = std::get<0>(item);
+      int level = std::get<1>(item);
+      const std::string& cf = std::get<2>(item);
+      if (level == -1) { // Blob File
+        std::cout << filename << ", column family '" << cf << "'" << std::endl;
+      }
+      else{ // SST file
+        std::cout << filename << " : level " << level << ", column family '" << cf << "'" << std::endl;
+      }
     }
   } else {
     for (const auto& column_metadata : metadata) {
