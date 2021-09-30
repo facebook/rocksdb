@@ -11,10 +11,11 @@
 #include "rocksdb/status.h"
 #include "io_status.h"
 
-namespace ROCKSDB_NAMESPACE {
-
 // when using debug mode, print some debug info
 extern bool debug_mode;
+
+namespace ROCKSDB_NAMESPACE {
+
 struct file_page;
 
 // used to store co_return value
