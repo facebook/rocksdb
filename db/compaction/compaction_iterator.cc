@@ -11,6 +11,7 @@
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_index.h"
 #include "db/snapshot_checker.h"
+#include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
 #include "table/internal_iterator.h"

@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
 #include "env/file_system_tracer.h"

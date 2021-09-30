@@ -25,6 +25,7 @@
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
