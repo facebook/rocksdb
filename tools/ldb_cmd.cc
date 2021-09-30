@@ -3492,11 +3492,11 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
       const std::string& filename = std::get<0>(item);
       int level = std::get<1>(item);
       const std::string& cf = std::get<2>(item);
-      if (level == -1) { // Blob File
+      if (level == -1) {  // Blob File
         std::cout << filename << ", column family '" << cf << "'" << std::endl;
-      }
-      else{ // SST file
-        std::cout << filename << " : level " << level << ", column family '" << cf << "'" << std::endl;
+      } else {  // SST file
+        std::cout << filename << " : level " << level << ", column family '"
+                  << cf << "'" << std::endl;
       }
     }
   } else {
