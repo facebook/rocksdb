@@ -41,6 +41,7 @@
 #include "env/env_encryption_ctr.h"
 #include "env/unique_id.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"

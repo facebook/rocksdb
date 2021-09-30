@@ -8,12 +8,13 @@
 
 #include <assert.h>
 
-#include <string>
 #include <limits>
 #include <map>
+#include <string>
 
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
