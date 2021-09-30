@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include "rocksdb/status.h"
-
 #include <memory>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,12 +16,12 @@ namespace ROCKSDB_NAMESPACE {
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class MemoryAllocator {
+class MemoryAllocator : public Customizable {
  public:
-  virtual ~MemoryAllocator() = default;
-
-  // Name of the cache allocator, printed in the log
-  virtual const char* Name() const = 0;
+  static const char* Type() { return "MemoryAllocator"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<MemoryAllocator>* result);
 
   // Allocate a block of at least size. Has to be thread-safe.
   virtual void* Allocate(size_t size) = 0;
@@ -34,9 +35,38 @@ class MemoryAllocator {
     // default implementation just returns the allocation size
     return allocation_size;
   }
+
+  std::string GetId() const override { return GenerateIndividualId(); }
+};
+
+class MemoryAllocatorWrapper : public MemoryAllocator {
+ public:
+  // Initialize an EnvWrapper that delegates all calls to *t
+  explicit MemoryAllocatorWrapper(const std::shared_ptr<MemoryAllocator>& t);
+  ~MemoryAllocatorWrapper() override {}
+
+  // Return the target to which to forward all calls
+  MemoryAllocator* target() const { return target_.get(); }
+  // Allocate a block of at least size. Has to be thread-safe.
+  void* Allocate(size_t size) override { return target_->Allocate(size); }
+
+  // Deallocate previously allocated block. Has to be thread-safe.
+  void Deallocate(void* p) override { return target_->Deallocate(p); }
+
+  // Returns the memory size of the block allocated at p. The default
+  // implementation that just returns the original allocation_size is fine.
+  size_t UsableSize(void* p, size_t allocation_size) const override {
+    return target_->UsableSize(p, allocation_size);
+  }
+
+  const Customizable* Inner() const override { return target_.get(); }
+
+ protected:
+  std::shared_ptr<MemoryAllocator> target_;
 };
 
 struct JemallocAllocatorOptions {
+  static const char* kName() { return "JemallocAllocatorOptions"; }
   // Jemalloc tcache cache allocations by size class. For each size class,
   // it caches between 20 (for large size classes) to 200 (for small size
   // classes). To reduce tcache memory usage in case the allocator is access
