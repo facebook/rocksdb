@@ -341,20 +341,32 @@ async_result BlockFetcher::AsyncReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
+        if (debug_mode) {
+          std::cout << "before AsyncRead call" << std::endl;
+        }
         a_result =
             file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
         co_await a_result;
+        if (debug_mode) {
+          std::cout << "resume from AsyncRead" << std::endl;
+        }
         //io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
+        if (debug_mode) {
+          std::cout << "before AsyncRead 2 call" << std::endl;
+        }
         a_result =
             file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr, for_compaction_);
         co_await a_result;
+        if (debug_mode) {
+          std::cout << "resume from AsyncRead 2" << std::endl;
+        }
         //io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG

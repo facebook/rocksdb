@@ -2096,6 +2096,9 @@ async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey&
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
+    if (debug_mode) {
+      std::cout << "before AsyncGet 3 call" << std::endl;
+    }
     auto a_result = table_cache_->AsyncGet(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -2104,6 +2107,9 @@ async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey&
                         fp.IsHitFileLastInLevel()),
         fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
     co_await a_result;
+    if (debug_mode) {
+      std::cout << "resume from AsyncGet 3" << std::endl;
+    }
     *status = a_result.result();
 
     // TODO: examine the behavior for corrupted key

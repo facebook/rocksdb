@@ -234,9 +234,15 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t o
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
+          if (debug_mode) {
+            std::cout << "before AsyncRead 3 call" << std::endl;
+          }
           auto a_result = file_->AsyncRead(aligned_offset + buf.CurrentSize(), allowed, opts,
                              &tmp, buf.Destination(), nullptr);
           co_await a_result;
+          if (debug_mode) {
+            std::cout << "resume from AsyncRead 3" << std::endl;
+          }
           io_s = a_result.result();
         }
         if (ShouldNotifyListeners()) {
@@ -296,9 +302,15 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t o
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == n);
+          if (debug_mode) {
+            std::cout << "before AsyncRead 4 call" << std::endl;
+          }
           auto a_result = file_->AsyncRead(offset + pos, allowed, opts, &tmp_result,
                              scratch + pos, nullptr);
           co_await a_result;
+          if (debug_mode) {
+            std::cout << "before AsyncRead 4 call" << std::endl;
+          }
           io_s = a_result.result();
         }
 #ifndef ROCKSDB_LITE
