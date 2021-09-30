@@ -184,7 +184,6 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   Status s = NewJemallocNodumpAllocator(jopts, &allocator);
   std::string msg;
   if (!JemallocNodumpAllocator::IsSupported(&msg)) {
-    printf("MJR: Unsupported: %s\n", msg.c_str());
     ASSERT_TRUE(s.IsNotSupported());
     ROCKSDB_GTEST_SKIP("JEMALLOC not supported");
     return;
