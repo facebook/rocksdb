@@ -1209,7 +1209,7 @@ TEST_F(EventListenerTest, OnWALOperationTest) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 
-  unsigned long seq_reads = listener->file_seq_reads_.load();
+  size_t seq_reads = listener->file_seq_reads_.load();
   Reopen(options);
   ASSERT_GT(listener->file_seq_reads_.load(), seq_reads);
 }
