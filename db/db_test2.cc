@@ -6537,18 +6537,15 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_read_count, 0);
 
   ASSERT_EQ("bar", Get("foo"));
 
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
   ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_bytes_read, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6558,11 +6555,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_read_count, 1);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
   ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
-  ASSERT_GT(iostats->file_io_stats_by_temperature.unknown_file_bytes_read, 0);
 
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
@@ -6634,17 +6629,14 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_read_count, 0);
   ASSERT_EQ("bar", Get("foo"));
 
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.unknown_file_read_count, 1);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
-  ASSERT_GT(iostats->file_io_stats_by_temperature.unknown_file_bytes_read, 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
