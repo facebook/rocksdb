@@ -181,7 +181,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       }
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+    IOSTATS_ADD(bytes_read, result->size());
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -346,7 +346,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                start_ts, finish_ts, read_reqs[i].status);
       }
 #endif  // ROCKSDB_LITE
-      IOSTATS_ADD_IF_POSITIVE(bytes_read, read_reqs[i].result.size());
+      IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
     }
     SetPerfLevel(prev_perf_level);
   }
