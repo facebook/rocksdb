@@ -2782,12 +2782,6 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
             static_cast<int>(cmp->timestamp_size()));
     exit(1);
   }
-  if (FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "-nooverwritepercent must be 0 because SingleDelete must be "
-            "disabled.\n");
-    exit(1);
-  }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     fprintf(stderr, "Merge does not support timestamp yet.\n");
     exit(1);
