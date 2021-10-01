@@ -224,6 +224,12 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_reqs - 1; ++i) {
+    assert(read_reqs[i].offset <= read_reqs[i + 1].offset);
+  }
+#endif  // !NDEBUG
+
   // To be paranoid modify scratch a little bit, so in case underlying
   // FileSystem doesn't fill the buffer but return succee and `scratch` returns
   // contains a previous block, returned value will not pass checksum.

@@ -4736,10 +4736,10 @@ class Benchmark {
     }
 
     Duration duration(test_duration, max_ops, ops_per_stage);
+    const uint64_t num_per_key_gen = num_ + max_num_range_tombstones_;
     for (size_t i = 0; i < num_key_gens; i++) {
       key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
-                                         num_ + max_num_range_tombstones_,
-                                         ops_per_stage));
+                                         num_per_key_gen, ops_per_stage));
     }
 
     if (num_ != FLAGS_num) {
@@ -4849,7 +4849,7 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
-    while (!duration.Done(entries_per_batch_)) {
+    while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
         if (db_.db != nullptr) {

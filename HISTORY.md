@@ -2,8 +2,10 @@
 ## Unreleased
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
+* Fix the incorrect disabling of SST rate limited deletion when the WAL and DB are in different directories. Only WAL rate limited deletion should be disabled if its in a different directory.
 
 ### New Features
+* Print information about blob files when using "ldb list_live_files_metadata"
 * Provided support for SingleDelete with user defined timestamp.
 * Add remote compaction read/write bytes statistics: `REMOTE_COMPACT_READ_BYTES`, `REMOTE_COMPACT_WRITE_BYTES`.
 
