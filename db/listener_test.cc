@@ -1205,7 +1205,6 @@ TEST_F(EventListenerTest, ReadManifestAndWALOnRecovery) {
   }
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "aaa"));
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 
   size_t seq_reads = listener->file_seq_reads_.load();

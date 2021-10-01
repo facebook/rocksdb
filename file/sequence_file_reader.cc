@@ -91,7 +91,7 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = FileOperationInfo::FinishNow();
-      size_t offset = offset_.fetch_add(n);
+      size_t offset = offset_.fetch_add(result->size());
       NotifyOnFileReadFinish(offset, result->size(), start_ts, finish_ts, io_s);
     }
 #endif
