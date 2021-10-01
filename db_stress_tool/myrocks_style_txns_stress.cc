@@ -347,16 +347,13 @@ std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
   if (primary_index_value.size() != 8) {
     return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
   }
-  const char* const buf = primary_index_value.data();
-  uint32_t b = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  b += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
-
-  uint32_t c = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
-  c += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
+  uint32_t b = 0;
+  uint32_t c = 0;
+  if (!GetFixed32(&primary_index_value, &b) ||
+      !GetFixed32(&primary_index_value, &c)) {
+    assert(false);
+    return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
+  }
   return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
 }
 
@@ -384,9 +381,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
 
   std::string primary_index_value;
   EncodeFixed32(buf, b_);
-  std::reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
-  std::reverse(buf + 4, buf + 8);
   primary_index_value.assign(buf, sizeof(buf));
   return std::make_pair(primary_index_key, primary_index_value);
 }
@@ -403,9 +398,7 @@ std::string MyRocksRecord::EncodePrimaryKey() const {
 std::string MyRocksRecord::EncodePrimaryIndexValue() const {
   char buf[8];
   EncodeFixed32(buf, b_);
-  std::reverse(buf, buf + 4);
   EncodeFixed32(buf + 4, c_);
-  std::reverse(buf + 4, buf + 8);
   return std::string(buf, sizeof(buf));
 }
 
@@ -790,6 +783,7 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   std::string empty_value;
   s = txn->GetForUpdate(ropts, new_pk, &empty_value);
   if (s.ok()) {
+    assert(!empty_value.empty());
     s = Status::Busy();
     return s;
   }
@@ -802,11 +796,12 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   uint32_t b = std::get<1>(result);
   uint32_t c = std::get<2>(result);
 
-  s = txn->Delete(old_pk);
+  ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
+  s = txn->Delete(cf, old_pk, /*assume_tracked=*/true);
   if (!s.ok()) {
     return s;
   }
-  s = txn->Put(new_pk, value);
+  s = txn->Put(cf, new_pk, value, /*assume_tracked=*/true);
   if (!s.ok()) {
     return s;
   }
@@ -947,7 +942,8 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     }
     MyRocksRecord new_rec(record.a_value(), b, new_c);
     std::string new_primary_index_value = new_rec.EncodePrimaryIndexValue();
-    s = txn->Put(pk, new_primary_index_value);
+    ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
+    s = txn->Put(cf, pk, new_primary_index_value, /*assume_tracked=*/true);
     if (!s.ok()) {
       break;
     }
@@ -1027,7 +1023,8 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
   uint32_t c = std::get<2>(result);
   MyRocksRecord record(a, b, c);
   std::string primary_index_value = record.EncodePrimaryIndexValue();
-  s = txn->Put(pk_str, primary_index_value);
+  ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
+  s = txn->Put(cf, pk_str, primary_index_value, /*assume_tracked=*/true);
   if (!s.ok()) {
     return s;
   }
@@ -1039,32 +1036,82 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
 Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
                                                   ReadOptions ropts,
                                                   uint32_t a) {
+#ifdef ROCKSDB_LITE
+  (void)thread;
+  (void)ropts;
+  (void)a;
+  return Status::NotSupported();
+#else
   std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
   // pk may or may not exist
   PinnableSlice value;
-  Status s = db_->Get(ropts, db_->DefaultColumnFamily(), pk_str, &value);
-  if (s.ok()) {
-    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
-  } else if (s.IsNotFound()) {
-    thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
-  } else {
+
+  Transaction* txn = nullptr;
+  WriteOptions wopts;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
     thread->stats.AddErrors(1);
+    return s;
+  }
+
+  const Defer cleanup([&s, thread, txn, this]() {
+    if (s.ok()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
+      return;
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+
+  s = txn->Get(ropts, db_->DefaultColumnFamily(), pk_str, &value);
+  if (s.ok()) {
+    s = txn->Commit();
   }
   return s;
+#endif  // !ROCKSDB_LITE
 }
 
 Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                                 ReadOptions ropts, uint32_t c) {
+#ifdef ROCKSDB_LITE
+  (void)thread;
+  (void)ropts;
+  (void)c;
+  return Status::NotSupported();
+#else
   std::string sk = MyRocksRecord::EncodeSecondaryKey(c);
-  std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
-  iter->Seek(sk);
-  if (!iter->status().ok()) {
+
+  Transaction* txn = nullptr;
+  WriteOptions wopts;
+  Status s = NewTxn(wopts, &txn);
+  if (!s.ok()) {
+    assert(!txn);
     thread->stats.AddErrors(1);
+    return s;
+  }
+
+  const Defer cleanup([&s, thread, txn, this]() {
+    if (s.ok()) {
+      thread->stats.AddIterations(1);
+      return;
+    }
+    thread->stats.AddErrors(1);
+    RollbackTxn(txn).PermitUncheckedError();
+  });
+  std::unique_ptr<Iterator> iter(txn->GetIterator(ropts));
+  iter->Seek(sk);
+  if (iter->status().ok()) {
+    s = txn->Commit();
   } else {
-    thread->stats.AddIterations(1);
+    s = iter->status();
   }
   // TODO (yanqin) more Seek/SeekForPrev/Next/Prev/SeekToFirst/SeekToLast
-  return iter->status();
+  return s;
+#endif  // !ROCKSDB_LITE
 }
 
 void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
@@ -1128,7 +1175,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
       // Form a primary key and search in the primary index.
       std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
       std::string value;
-      s = db_->Get(ReadOptions(), pk, &value);
+      s = db_->Get(ropts, pk, &value);
       if (!s.ok()) {
         std::ostringstream oss;
         oss << "Error searching pk " << Slice(pk).ToString(/*hex=*/true) << ". "
