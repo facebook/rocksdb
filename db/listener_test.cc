@@ -1188,7 +1188,7 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
   }
 }
 
-TEST_F(EventListenerTest, OnWALOperationTest) {
+TEST_F(EventListenerTest, ReadManifestAndWALOnRecovery) {
   Options options;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
@@ -1205,7 +1205,6 @@ TEST_F(EventListenerTest, OnWALOperationTest) {
   }
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "aaa"));
-  ASSERT_OK(dbfull()->Flush(FlushOptions()));
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   Close();
 
