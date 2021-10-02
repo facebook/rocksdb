@@ -266,7 +266,7 @@ Status WritePreparedTxn::RollbackInternal() {
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands, ReadOptions _roptions)
+        bool rollback_merge_operands, const ReadOptions& _roptions)
         : db_(db),
           callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),

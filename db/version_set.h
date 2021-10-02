@@ -857,7 +857,7 @@ class Version {
   std::shared_ptr<IOTracer> io_tracer_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
-          MutableCFOptions mutable_cf_options,
+          const MutableCFOptions& mutable_cf_options,
           const std::shared_ptr<IOTracer>& io_tracer,
           uint64_t version_number = 0);
 

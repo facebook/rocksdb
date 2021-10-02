@@ -225,9 +225,9 @@ struct PerfContext {
   uint64_t iter_seek_cpu_nanos;
 
   // Time spent in encrypting data. Populated when EncryptedEnv is used.
-  uint64_t encrypt_data_nanos;
+  uint64_t encrypt_data_nanos = 0;
   // Time spent in decrypting data. Populated when EncryptedEnv is used.
-  uint64_t decrypt_data_nanos;
+  uint64_t decrypt_data_nanos = 0;
 
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;

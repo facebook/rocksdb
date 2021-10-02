@@ -70,6 +70,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   seek_child_seek_time = other.seek_child_seek_time;
   seek_child_seek_count = other.seek_child_seek_count;
   seek_min_heap_time = other.seek_min_heap_time;
+  seek_max_heap_time = other.seek_max_heap_time;
   seek_internal_seek_time = other.seek_internal_seek_time;
   find_next_user_entry_time = other.find_next_user_entry_time;
   write_pre_and_post_process_time = other.write_pre_and_post_process_time;
@@ -120,6 +121,9 @@ PerfContext::PerfContext(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  encrypt_data_nanos = other.encrypt_data_nanos;
+  decrypt_data_nanos = other.decrypt_data_nanos;
+
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -168,6 +172,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   seek_child_seek_time = other.seek_child_seek_time;
   seek_child_seek_count = other.seek_child_seek_count;
   seek_min_heap_time = other.seek_min_heap_time;
+  seek_max_heap_time = other.seek_max_heap_time;
   seek_internal_seek_time = other.seek_internal_seek_time;
   find_next_user_entry_time = other.find_next_user_entry_time;
   write_pre_and_post_process_time = other.write_pre_and_post_process_time;
@@ -218,6 +223,8 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  encrypt_data_nanos = other.encrypt_data_nanos;
+  decrypt_data_nanos = other.decrypt_data_nanos;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -268,6 +275,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   seek_child_seek_time = other.seek_child_seek_time;
   seek_child_seek_count = other.seek_child_seek_count;
   seek_min_heap_time = other.seek_min_heap_time;
+  seek_max_heap_time = other.seek_max_heap_time;
   seek_internal_seek_time = other.seek_internal_seek_time;
   find_next_user_entry_time = other.find_next_user_entry_time;
   write_pre_and_post_process_time = other.write_pre_and_post_process_time;
@@ -318,6 +326,8 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  encrypt_data_nanos = other.encrypt_data_nanos;
+  decrypt_data_nanos = other.decrypt_data_nanos;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -366,6 +376,7 @@ void PerfContext::Reset() {
   seek_child_seek_time = 0;
   seek_child_seek_count = 0;
   seek_min_heap_time = 0;
+  seek_max_heap_time = 0;
   seek_internal_seek_time = 0;
   find_next_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
@@ -413,6 +424,8 @@ void PerfContext::Reset() {
   iter_next_cpu_nanos = 0;
   iter_prev_cpu_nanos = 0;
   iter_seek_cpu_nanos = 0;
+  encrypt_data_nanos = 0;
+  decrypt_data_nanos = 0;
   if (per_level_perf_context_enabled && level_to_perf_context) {
     for (auto& kv : *level_to_perf_context) {
       kv.second.Reset();
@@ -486,6 +499,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(seek_child_seek_time);
   PERF_CONTEXT_OUTPUT(seek_child_seek_count);
   PERF_CONTEXT_OUTPUT(seek_min_heap_time);
+  PERF_CONTEXT_OUTPUT(seek_max_heap_time);
   PERF_CONTEXT_OUTPUT(seek_internal_seek_time);
   PERF_CONTEXT_OUTPUT(find_next_user_entry_time);
   PERF_CONTEXT_OUTPUT(write_pre_and_post_process_time);
@@ -532,6 +546,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(iter_next_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_prev_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_seek_cpu_nanos);
+  PERF_CONTEXT_OUTPUT(encrypt_data_nanos);
+  PERF_CONTEXT_OUTPUT(decrypt_data_nanos);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);

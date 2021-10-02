@@ -112,7 +112,7 @@ class UniversalCompactionBuilder {
 
   const ImmutableOptions& ioptions_;
   const InternalKeyComparator* icmp_;
-  double score_;
+  double score_ = 0.0;
   std::vector<SortedRun> sorted_runs_;
   const std::string& cf_name_;
   const MutableCFOptions& mutable_cf_options_;

@@ -855,7 +855,7 @@ struct AdvancedColumnFamilyOptions {
 
   // NOT SUPPORTED ANYMORE
   // This does not do anything anymore.
-  int max_mem_compaction_level;
+  int max_mem_compaction_level = 0;
 
   // NOT SUPPORTED ANYMORE -- this options is no longer used
   // Puts are delayed to options.delayed_write_rate when any level has a
