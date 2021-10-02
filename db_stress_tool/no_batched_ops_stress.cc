@@ -502,6 +502,10 @@ class NonBatchedOpsStressTest : public StressTest {
         write_ts = write_ts_str;
       }
     }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
+    }
 
     std::string key_str = Key(rand_key);
     Slice key = key_str;
@@ -604,6 +608,10 @@ class NonBatchedOpsStressTest : public StressTest {
         write_ts = write_ts_str;
       }
     }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
+    }
 
     std::string key_str = Key(rand_key);
     Slice key = key_str;
@@ -652,7 +660,11 @@ class NonBatchedOpsStressTest : public StressTest {
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->SingleDelete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->SingleDelete(write_opts, cfh, key);
+        } else {
+          s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
