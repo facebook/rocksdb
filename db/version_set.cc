@@ -2132,8 +2132,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    std::string tmp_value;
-    std::string* str_value = value != nullptr ? value->GetSelf() : &tmp_value;
+    std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
         str_value, info_log_, db_statistics_, clock_,
@@ -2375,9 +2374,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string tmp_value;
       std::string* str_value =
-          iter->value != nullptr ? iter->value->GetSelf() : &tmp_value;
+          iter->value != nullptr ? iter->value->GetSelf() : nullptr;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,

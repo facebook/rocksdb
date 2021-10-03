@@ -75,6 +75,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   Slice tmp_result_operand(nullptr, 0);
   const MergeOperator::MergeOperationInput merge_in(key, value, operands,
                                                     logger);
+  assert(result != nullptr);
   MergeOperator::MergeOperationOutput merge_out(*result, tmp_result_operand);
   {
     // Setup to time the merge
