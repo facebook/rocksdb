@@ -874,7 +874,7 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 
 #ifndef NDEBUG
   auto version_iter = versions_.find(edit.GetColumnFamily());
-  assert(version_iter != versions_.end());
+  assert(version_iter == versions_.end());
 #endif  // !NDEBUG
   return Status::OK();
 }
