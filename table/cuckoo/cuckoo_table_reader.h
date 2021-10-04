@@ -14,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"

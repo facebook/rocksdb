@@ -14,6 +14,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "rocksdb/status.h"
 #include "util/cast_util.h"
 

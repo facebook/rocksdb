@@ -5,6 +5,7 @@
 
 #include "trace_replay/io_tracer.h"
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"

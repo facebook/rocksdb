@@ -29,6 +29,7 @@
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"

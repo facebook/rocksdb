@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"

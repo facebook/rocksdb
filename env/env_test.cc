@@ -42,6 +42,7 @@
 #include "env/fs_readonly.h"
 #include "env/unique_id.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"

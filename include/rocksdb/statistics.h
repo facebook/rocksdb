@@ -413,6 +413,10 @@ enum Tickers : uint32_t {
   BACKUP_READ_BYTES,
   BACKUP_WRITE_BYTES,
 
+  // Remote compaction read/write statistics
+  REMOTE_COMPACT_READ_BYTES,
+  REMOTE_COMPACT_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 

@@ -41,6 +41,15 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
+
+  // To be paranoid: modify scratch a little bit, so in case underlying
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
+  // contains a previous block, returned value will not pass checksum.
+  if (n > 0 && scratch != nullptr) {
+    // This byte might not change anything for direct I/O case, but it's OK.
+    scratch[0]++;
+  }
+
   IOStatus io_s;
   uint64_t elapsed = 0;
   {
@@ -172,7 +181,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       }
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+    IOSTATS_ADD(bytes_read, result->size());
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -214,6 +223,24 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                            AlignedBuf* aligned_buf) const {
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_reqs - 1; ++i) {
+    assert(read_reqs[i].offset <= read_reqs[i + 1].offset);
+  }
+#endif  // !NDEBUG
+
+  // To be paranoid modify scratch a little bit, so in case underlying
+  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // contains a previous block, returned value will not pass checksum.
+  // This byte might not change anything for direct I/O case, but it's OK.
+  for (size_t i = 0; i < num_reqs; i++) {
+    FSReadRequest& r = read_reqs[i];
+    if (r.len > 0 && r.scratch != nullptr) {
+      r.scratch[0]++;
+    }
+  }
+
   IOStatus io_s;
   uint64_t elapsed = 0;
   {
@@ -296,8 +323,14 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         r.status = fs_r.status;
         if (r.status.ok()) {
           uint64_t offset = r.offset - fs_r.offset;
-          size_t len = std::min(r.len, static_cast<size_t>(fs_r.len - offset));
-          r.result = Slice(fs_r.scratch + offset, len);
+          if (fs_r.result.size() <= offset) {
+            // No byte in the read range is returned.
+            r.result = Slice();
+          } else {
+            size_t len = std::min(
+                r.len, static_cast<size_t>(fs_r.result.size() - offset));
+            r.result = Slice(fs_r.scratch + offset, len);
+          }
         } else {
           r.result = Slice();
         }
@@ -313,7 +346,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                start_ts, finish_ts, read_reqs[i].status);
       }
 #endif  // ROCKSDB_LITE
-      IOSTATS_ADD_IF_POSITIVE(bytes_read, read_reqs[i].result.size());
+      IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
     }
     SetPerfLevel(prev_perf_level);
   }

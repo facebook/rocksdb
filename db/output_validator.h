@@ -5,9 +5,8 @@
 //
 #pragma once
 #include "db/dbformat.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "test_util/sync_point.h"
-#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 // A class that validates key/value that is inserted to an SST file.
