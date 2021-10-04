@@ -11,6 +11,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
@@ -1124,11 +1125,27 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     //    writer thread, so no one will push to logs_,
     //  - as long as other threads don't modify it, it's safe to read
     //    from std::deque from multiple threads concurrently.
+    //
+    // Sync operation should work with locked log_write_mutex_, because:
+    //   when DBOptions.manual_wal_flush_ is set,
+    //   FlushWAL function will be invoked by another thread.
+    //   if without locked log_write_mutex_, the log file may get data
+    //   corruption
+
+    const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Lock();
+    }
+
     for (auto& log : logs_) {
       io_s = log.writer->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
+    }
+
+    if (UNLIKELY(needs_locking)) {
+      log_write_mutex_.Unlock();
     }
 
     if (io_s.ok() && need_log_dir_sync) {
@@ -2049,12 +2066,36 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
+  Status s;
+  if (opt.timestamp == nullptr) {
+    WriteBatch batch;
+    s = batch.SingleDelete(column_family, key);
+    if (!s.ok()) {
+      return s;
+    }
+    s = Write(opt, &batch);
+    return s;
+  }
+
+  const Slice* ts = opt.timestamp;
+  assert(ts != nullptr);
+  size_t ts_sz = ts->size();
+  assert(column_family->GetComparator());
+  assert(ts_sz == column_family->GetComparator()->timestamp_size());
   WriteBatch batch;
-  Status s = batch.SingleDelete(column_family, key);
+  if (key.data() + key.size() == ts->data()) {
+    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  } else {
+    std::array<Slice, 2> key_with_ts_slices{{key, *ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    s = batch.SingleDelete(column_family, key_with_ts);
+  }
   if (!s.ok()) {
     return s;
   }
-  return Write(opt, &batch);
+  s = Write(opt, &batch);
+  return s;
 }
 
 Status DB::DeleteRange(const WriteOptions& opt,

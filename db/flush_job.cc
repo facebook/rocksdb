@@ -900,9 +900,10 @@ Status FlushJob::WriteLevel0Table() {
           &blob_file_additions, existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          &io_s, io_tracer_, event_logger_, job_context_->job_id, Env::IO_HIGH,
-          &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-          &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
+          &io_s, io_tracer_, BlobFileCreationReason::kFlush, event_logger_,
+          job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_, &num_input_entries,
+          &memtable_payload_bytes, &memtable_garbage_bytes);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }
@@ -1021,8 +1022,21 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
   info->flush_reason = cfd_->GetFlushReason();
+  info->blob_compression_type = mutable_cf_options_.blob_compression_type;
+
+  // Update BlobFilesInfo.
+  for (const auto& blob_file : edit_->GetBlobFileAdditions()) {
+    BlobFileAdditionInfo blob_file_addition_info(
+        BlobFileName(cfd_->ioptions()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber()) /*blob_file_path*/,
+        blob_file.GetBlobFileNumber(), blob_file.GetTotalBlobCount(),
+        blob_file.GetTotalBlobBytes());
+    info->blob_file_addition_infos.emplace_back(
+        std::move(blob_file_addition_info));
+  }
   return info;
 }
+
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

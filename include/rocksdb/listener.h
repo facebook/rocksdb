@@ -29,8 +29,16 @@ class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
 
-struct TableFileCreationBriefInfo {
-  // the name of the database where the file was created
+struct FileCreationBriefInfo {
+  FileCreationBriefInfo() = default;
+  FileCreationBriefInfo(const std::string& _db_name,
+                        const std::string& _cf_name,
+                        const std::string& _file_path, int _job_id)
+      : db_name(_db_name),
+        cf_name(_cf_name),
+        file_path(_file_path),
+        job_id(_job_id) {}
+  // the name of the database where the file was created.
   std::string db_name;
   // the name of the column family where the file was created.
   std::string cf_name;
@@ -38,7 +46,10 @@ struct TableFileCreationBriefInfo {
   std::string file_path;
   // the id of the job (which could be flush or compaction) that
   // created the file.
-  int job_id;
+  int job_id = 0;
+};
+
+struct TableFileCreationBriefInfo : public FileCreationBriefInfo {
   // reason of creating the table.
   TableFileCreationReason reason;
 };
@@ -56,6 +67,44 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   // The checksum of the table file being created
   std::string file_checksum;
   // The checksum function name of checksum generator used for this table file
+  std::string file_checksum_func_name;
+};
+
+struct BlobFileCreationBriefInfo : public FileCreationBriefInfo {
+  BlobFileCreationBriefInfo(const std::string& _db_name,
+                            const std::string& _cf_name,
+                            const std::string& _file_path, int _job_id,
+                            BlobFileCreationReason _reason)
+      : FileCreationBriefInfo(_db_name, _cf_name, _file_path, _job_id),
+        reason(_reason) {}
+  // reason of creating the blob file.
+  BlobFileCreationReason reason;
+};
+
+struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
+  BlobFileCreationInfo(const std::string& _db_name, const std::string& _cf_name,
+                       const std::string& _file_path, int _job_id,
+                       BlobFileCreationReason _reason,
+                       uint64_t _total_blob_count, uint64_t _total_blob_bytes,
+                       Status _status, const std::string& _file_checksum,
+                       const std::string& _file_checksum_func_name)
+      : BlobFileCreationBriefInfo(_db_name, _cf_name, _file_path, _job_id,
+                                  _reason),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes),
+        status(_status),
+        file_checksum(_file_checksum),
+        file_checksum_func_name(_file_checksum_func_name) {}
+
+  // the number of blob in a file.
+  uint64_t total_blob_count;
+  // the total bytes in a file.
+  uint64_t total_blob_bytes;
+  // The status indicating whether the creation was successful or not.
+  Status status;
+  // The checksum of the blob file being created.
+  std::string file_checksum;
+  // The checksum function name of checksum generator used for this blob file.
   std::string file_checksum_func_name;
 };
 
@@ -150,15 +199,32 @@ struct WriteStallInfo {
 
 #ifndef ROCKSDB_LITE
 
-struct TableFileDeletionInfo {
+struct FileDeletionInfo {
+  FileDeletionInfo() = default;
+
+  FileDeletionInfo(const std::string& _db_name, const std::string& _file_path,
+                   int _job_id, Status _status)
+      : db_name(_db_name),
+        file_path(_file_path),
+        job_id(_job_id),
+        status(_status) {}
   // The name of the database where the file was deleted.
   std::string db_name;
   // The path to the deleted file.
   std::string file_path;
   // The id of the job which deleted the file.
-  int job_id;
+  int job_id = 0;
   // The status indicating whether the deletion was successful or not.
   Status status;
+};
+
+struct TableFileDeletionInfo : public FileDeletionInfo {};
+
+struct BlobFileDeletionInfo : public FileDeletionInfo {
+  BlobFileDeletionInfo(const std::string& _db_name,
+                       const std::string& _file_path, int _job_id,
+                       Status _status)
+      : FileDeletionInfo(_db_name, _file_path, _job_id, _status) {}
 };
 
 enum class FileOperationType {
@@ -206,6 +272,39 @@ struct FileOperationInfo {
   }
 };
 
+struct BlobFileInfo {
+  BlobFileInfo(const std::string& _blob_file_path,
+               const uint64_t _blob_file_number)
+      : blob_file_path(_blob_file_path), blob_file_number(_blob_file_number) {}
+
+  std::string blob_file_path;
+  uint64_t blob_file_number;
+};
+
+struct BlobFileAdditionInfo : public BlobFileInfo {
+  BlobFileAdditionInfo(const std::string& _blob_file_path,
+                       const uint64_t _blob_file_number,
+                       const uint64_t _total_blob_count,
+                       const uint64_t _total_blob_bytes)
+      : BlobFileInfo(_blob_file_path, _blob_file_number),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes) {}
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+};
+
+struct BlobFileGarbageInfo : public BlobFileInfo {
+  BlobFileGarbageInfo(const std::string& _blob_file_path,
+                      const uint64_t _blob_file_number,
+                      const uint64_t _garbage_blob_count,
+                      const uint64_t _garbage_blob_bytes)
+      : BlobFileInfo(_blob_file_path, _blob_file_number),
+        garbage_blob_count(_garbage_blob_count),
+        garbage_blob_bytes(_garbage_blob_bytes) {}
+  uint64_t garbage_blob_count;
+  uint64_t garbage_blob_bytes;
+};
+
 struct FlushJobInfo {
   // the id of the column family
   uint32_t cf_id;
@@ -239,6 +338,12 @@ struct FlushJobInfo {
   TableProperties table_properties;
 
   FlushReason flush_reason;
+
+  // Compression algorithm used for blob output files
+  CompressionType blob_compression_type;
+
+  // Information about blob files created during flush in Integrated BlobDB.
+  std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
 };
 
 struct CompactionFileInfo {
@@ -299,6 +404,17 @@ struct CompactionJobInfo {
 
   // Statistics and other additional details on the compaction
   CompactionJobStats stats;
+
+  // Compression algorithm used for blob output files.
+  CompressionType blob_compression_type;
+
+  // Information about blob files created during compaction in Integrated
+  // BlobDB.
+  std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
+
+  // Information about blob files deleted during compaction in Integrated
+  // BlobDB.
+  std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
 };
 
 struct MemTableInfo {
@@ -554,6 +670,34 @@ class EventListener : public Customizable {
   // means normal writes to the database can be issued and the user can
   // initiate any further recovery actions needed
   virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+
+  // A callback function for RocksDB which will be called before
+  // a blob file is being created. It will follow by OnBlobFileCreated after
+  // the creation finishes.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileCreationStarted(
+      const BlobFileCreationBriefInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is created.
+  // It will be called whether the file is successfully created or not. User can
+  // check info.status to see if it succeeded or not.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileCreated(const BlobFileCreationInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is deleted.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
 
   virtual ~EventListener() {}
 };

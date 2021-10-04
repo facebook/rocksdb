@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -63,9 +64,13 @@ class FileChecksumGenerator {
 };
 
 // Create the FileChecksumGenerator object for each SST file.
-class FileChecksumGenFactory {
+class FileChecksumGenFactory : public Customizable {
  public:
   virtual ~FileChecksumGenFactory() {}
+  static const char* Type() { return "FileChecksumGenFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<FileChecksumGenFactory>* result);
 
   // Create a new FileChecksumGenerator.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(

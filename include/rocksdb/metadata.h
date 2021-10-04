@@ -62,7 +62,7 @@ struct SstFileMetaData {
         file_checksum_func_name(_file_checksum_func_name) {}
 
   // File size in bytes.
-  size_t size;
+  uint64_t size;
   // The name of the file.
   std::string name;
   // The id of the file.

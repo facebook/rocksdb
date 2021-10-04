@@ -13,8 +13,10 @@
 #include <cinttypes>
 #include <string>
 #include <vector>
+
 #include "db/column_family.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {

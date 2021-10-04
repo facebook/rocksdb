@@ -18,3 +18,4 @@ KERNEL_HEADERS_BASE=/mnt/gvfs/third-party2/kernel-headers/32b8a2407b634df3f8f948
 BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/08634589372fa5f237bfd374e8c644a8364e78c1/2.32/platform009/ba86d1f/
 VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/6ae525939ad02e5e676855082fbbc7828dbafeac/3.15.0/platform009/7f3b187
 LUA_BASE=/mnt/gvfs/third-party2/lua/162efd9561a3d21f6869f4814011e9cf1b3ff4dc/5.3.4/platform009/a6271c4
+BENCHMARK_BASE=/mnt/gvfs/third-party2/benchmark/bce8d9564eaf161700aa3a20b1051564acf555fb/1.5.5/platform009/7f3b187

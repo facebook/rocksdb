@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"

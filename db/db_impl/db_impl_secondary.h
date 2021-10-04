@@ -9,7 +9,9 @@
 
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 

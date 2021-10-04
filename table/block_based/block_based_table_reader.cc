@@ -22,16 +22,18 @@
 #include "file/file_prefetch_buffer.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "options/options_helper.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
@@ -134,8 +136,7 @@ bool PrefixExtractorChanged(const TableProperties* table_properties,
   }
 
   // prefix_extractor and prefix_extractor_block are both non-empty
-  if (table_properties->prefix_extractor_name.compare(
-          prefix_extractor->Name()) != 0) {
+  if (table_properties->prefix_extractor_name != prefix_extractor->AsString()) {
     return true;
   } else {
     return false;
@@ -816,8 +817,19 @@ Status BlockBasedTable::ReadPropertiesBlock(
   }
 #ifndef ROCKSDB_LITE
   if (rep_->table_properties) {
-    ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
-                        &(rep_->table_prefix_extractor));
+    //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
+    // will need to use it
+    ConfigOptions config_options;
+    Status st = SliceTransform::CreateFromString(
+        config_options, rep_->table_properties->prefix_extractor_name,
+        &(rep_->table_prefix_extractor));
+    if (!st.ok()) {
+      //**TODO: Should this be error be returned or swallowed?
+      ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                      "Failed to create prefix extractor[%s]: %s",
+                      rep_->table_properties->prefix_extractor_name.c_str(),
+                      st.ToString().c_str());
+    }
   }
 #endif  // ROCKSDB_LITE
 
@@ -992,6 +1004,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of index
+  // WART: this might be redundant (unnecessary cache hit) if !pin_index,
+  // depending on prepopulate_block_cache option
   const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
@@ -1020,6 +1034,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of filter
+  // WART: this might be redundant (unnecessary cache hit) if !pin_filter,
+  // depending on prepopulate_block_cache option
   const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
@@ -1728,14 +1744,16 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   {
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
-    if (s.IsTimedOut()) {
+    if (s.ok()) {
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
+                          &direct_io_buf);
+    }
+    if (!s.ok()) {
+      // Discard all the results in this batch if there is any time out
+      // or overall MultiRead error
       for (FSReadRequest& req : read_reqs) {
         req.status = s;
       }
-    } else {
-      // How to handle this status code?
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
-          .PermitUncheckedError();
     }
   }
 
@@ -2217,8 +2235,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
         filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
                             no_io, const_ikey_ptr, get_context, lookup_context);
   } else if (!read_options.total_order_seek && prefix_extractor &&
-             rep_->table_properties->prefix_extractor_name.compare(
-                 prefix_extractor->Name()) == 0 &&
+             rep_->table_properties->prefix_extractor_name ==
+                 prefix_extractor->AsString() &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts),
@@ -2259,8 +2277,8 @@ void BlockBasedTable::FullFilterKeysMayMatch(
                                 rep_->level);
     }
   } else if (!read_options.total_order_seek && prefix_extractor &&
-             rep_->table_properties->prefix_extractor_name.compare(
-                 prefix_extractor->Name()) == 0) {
+             rep_->table_properties->prefix_extractor_name ==
+                 prefix_extractor->AsString()) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);

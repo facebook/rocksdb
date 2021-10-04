@@ -15,6 +15,7 @@
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "file/sequence_file_reader.h"
+#include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -133,4 +134,39 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   return retriever.status();
 }
 
+#ifndef ROCKSDB_LITE
+namespace {
+static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
+                                            const std::string& /*arg*/) {
+  library.Register<FileChecksumGenFactory>(
+      FileChecksumGenCrc32cFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FileChecksumGenFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FileChecksumGenCrc32cFactory());
+        return guard->get();
+      });
+  return 1;
+}
+}  // namespace
+#endif  // !ROCKSDB_LITE
+
+Status FileChecksumGenFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<FileChecksumGenFactory>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterFileChecksumGenFactories(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  if (value == FileChecksumGenCrc32cFactory::kClassName()) {
+    *result = GetFileChecksumGenCrc32cFactory();
+    return Status::OK();
+  } else {
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
+                                                        result);
+    return s;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
