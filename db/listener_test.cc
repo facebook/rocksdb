@@ -1000,6 +1000,7 @@ class TestFileOperationListener : public EventListener {
     file_syncs_success_.store(0);
     file_truncates_.store(0);
     file_truncates_success_.store(0);
+    file_seq_reads_.store(0);
     blob_file_reads_.store(0);
     blob_file_writes_.store(0);
     blob_file_flushes_.store(0);
@@ -1012,6 +1013,9 @@ class TestFileOperationListener : public EventListener {
     ++file_reads_;
     if (info.status.ok()) {
       ++file_reads_success_;
+    }
+    if (info.path.find("MANIFEST") != std::string::npos) {
+      ++file_seq_reads_;
     }
     if (EndsWith(info.path, ".blob")) {
       ++blob_file_reads_;
@@ -1088,6 +1092,7 @@ class TestFileOperationListener : public EventListener {
   std::atomic<size_t> file_syncs_success_;
   std::atomic<size_t> file_truncates_;
   std::atomic<size_t> file_truncates_success_;
+  std::atomic<size_t> file_seq_reads_;
   std::atomic<size_t> blob_file_reads_;
   std::atomic<size_t> blob_file_writes_;
   std::atomic<size_t> blob_file_flushes_;
@@ -1181,6 +1186,30 @@ TEST_F(EventListenerTest, OnBlobFileOperationTest) {
   if (true == options.use_direct_io_for_flush_and_compaction) {
     ASSERT_GT(listener->blob_file_truncates_.load(), 0U);
   }
+}
+
+TEST_F(EventListenerTest, ReadManifestAndWALOnRecovery) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+
+  TestFileOperationListener* listener = new TestFileOperationListener();
+  options.listeners.emplace_back(listener);
+
+  options.use_direct_io_for_flush_and_compaction = false;
+  Status s = TryReopen(options);
+  if (s.IsInvalidArgument()) {
+    options.use_direct_io_for_flush_and_compaction = false;
+  } else {
+    ASSERT_OK(s);
+  }
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "aaa"));
+  Close();
+
+  size_t seq_reads = listener->file_seq_reads_.load();
+  Reopen(options);
+  ASSERT_GT(listener->file_seq_reads_.load(), seq_reads);
 }
 
 class BlobDBJobLevelEventListenerTest : public EventListener {
