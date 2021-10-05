@@ -73,6 +73,11 @@ class TestWritableFile : public WritableFile {
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
+  virtual Status Append(
+      const Slice& data,
+      const DataVerificationInfo& /*verification_info*/) override {
+    return Append(data);
+  }
   virtual Status Truncate(uint64_t size) override {
     return target_->Truncate(size);
   }
@@ -83,6 +88,11 @@ class TestWritableFile : public WritableFile {
   virtual Status PositionedAppend(const Slice& data,
                                   uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
+  }
+  virtual Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /*verification_info*/) override {
+    return PositionedAppend(data, offset);
   }
   virtual bool use_direct_io() const override {
     return target_->use_direct_io();
@@ -169,7 +179,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
 #undef GetFreeSpace
   virtual Status GetFreeSpace(const std::string& path,
                               uint64_t* disk_free) override {
-    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+    if (!IsFilesystemActive() &&
+        error_.subcode() == IOStatus::SubCode::kNoSpace) {
       *disk_free = 0;
       return Status::OK();
     } else {

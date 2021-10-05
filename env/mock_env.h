@@ -16,26 +16,18 @@
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 class MockEnv : public CompositeEnvWrapper {
  public:
-  explicit MockEnv(Env* base_env);
-
-  // Results of these can be affected by FakeSleepForMicroseconds()
-  Status GetCurrentTime(int64_t* unix_time) override;
-  uint64_t NowMicros() override;
-  uint64_t NowNanos() override;
+  static MockEnv* Create(Env* base);
+  static MockEnv* Create(Env* base, const std::shared_ptr<SystemClock>& clock);
 
   Status CorruptBuffer(const std::string& fname);
-
-  // Doesn't really sleep, just affects output of GetCurrentTime(), NowMicros()
-  // and NowNanos()
-  void FakeSleepForMicroseconds(int64_t micros);
-
  private:
-  std::atomic<int64_t> fake_sleep_micros_;
+  MockEnv(Env* env, const std::shared_ptr<FileSystem>& fs,
+          const std::shared_ptr<SystemClock>& clock);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

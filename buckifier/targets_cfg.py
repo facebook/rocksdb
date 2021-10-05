@@ -17,7 +17,7 @@ load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
 
-ROCKSDB_COMPILER_FLAGS = [
+ROCKSDB_COMPILER_FLAGS_0 = [
     "-fno-builtin-memcmp",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
@@ -35,7 +35,7 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("zstd", None, "zstd"),
 ]
 
-ROCKSDB_OS_DEPS = [
+ROCKSDB_OS_DEPS_0 = [
     (
         "linux",
         ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
@@ -46,7 +46,7 @@ ROCKSDB_OS_DEPS = [
     ),
 ]
 
-ROCKSDB_OS_PREPROCESSOR_FLAGS = [
+ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
     (
         "linux",
         [
@@ -95,10 +95,12 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
+]
 
-    # Directories with files for #include
-    "-I" + REPO_PATH + "include/",
-    "-I" + REPO_PATH,
+# Directories with files for #include
+ROCKSDB_INCLUDE_PATHS = [
+    "",
+    "include",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {{
@@ -113,18 +115,18 @@ is_opt_mode = build_mode.startswith("opt")
 
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
-ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+ROCKSDB_COMPILER_FLAGS = ROCKSDB_COMPILER_FLAGS_0 + (["-DNDEBUG"] if is_opt_mode else [])
 
 sanitizer = read_config("fbcode", "sanitizer")
 
 # Do not enable jemalloc if sanitizer presents. RocksDB will further detect
 # whether the binary is linked with jemalloc at runtime.
-ROCKSDB_OS_PREPROCESSOR_FLAGS += ([(
+ROCKSDB_OS_PREPROCESSOR_FLAGS = ROCKSDB_OS_PREPROCESSOR_FLAGS_0 + ([(
     "linux",
     ["-DROCKSDB_JEMALLOC"],
 )] if sanitizer == "" else [])
 
-ROCKSDB_OS_DEPS += ([(
+ROCKSDB_OS_DEPS = ROCKSDB_OS_DEPS_0 + ([(
     "linux",
     ["third-party//jemalloc:headers"],
 )] if sanitizer == "" else [])
@@ -146,6 +148,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
     link_whole = {link_whole},
@@ -162,6 +165,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = ROCKSDB_LIB_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
@@ -174,6 +178,7 @@ cpp_binary(
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
@@ -204,6 +209,7 @@ ROCKS_TESTS = [
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        include_paths = ROCKSDB_INCLUDE_PATHS,
         deps = [":rocksdb_test_lib"] + extra_deps,
         external_deps = ROCKSDB_EXTERNAL_DEPS + [
             ("googletest", None, "gtest"),

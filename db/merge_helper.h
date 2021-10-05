@@ -9,12 +9,12 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "util/stop_watch.h"
 
@@ -26,6 +26,7 @@ class Logger;
 class MergeOperator;
 class Statistics;
 class SystemClock;
+class Version;
 
 class MergeHelper {
  public:
@@ -45,11 +46,13 @@ class MergeHelper {
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - Corruption: Merge operator reported unsuccessful merge.
-  static Status TimedFullMerge(
-      const MergeOperator* merge_operator, const Slice& key, const Slice* value,
-      const std::vector<Slice>& operands, std::string* result, Logger* logger,
-      Statistics* statistics, const std::shared_ptr<SystemClock>& clock,
-      Slice* result_operand = nullptr, bool update_num_ops_stats = false);
+  static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, const Slice* value,
+                               const std::vector<Slice>& operands,
+                               std::string* result, Logger* logger,
+                               Statistics* statistics, SystemClock* clock,
+                               Slice* result_operand = nullptr,
+                               bool update_num_ops_stats = false);
 
   // Merge entries until we hit
   //     - a corrupted key
@@ -82,7 +85,8 @@ class MergeHelper {
                     CompactionRangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
                     const bool at_bottom = false,
-                    const bool allow_data_in_errors = false);
+                    const bool allow_data_in_errors = false,
+                    Version* version = nullptr);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.
@@ -139,7 +143,7 @@ class MergeHelper {
 
  private:
   Env* env_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   const CompactionFilter* compaction_filter_;

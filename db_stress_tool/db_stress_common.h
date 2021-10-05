@@ -131,6 +131,7 @@ DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
+DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
@@ -140,18 +141,19 @@ DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
+DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
-DECLARE_bool(use_ribbon_filter);
+DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
-DECLARE_string(expected_values_path);
+DECLARE_string(expected_values_dir);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
@@ -206,6 +208,7 @@ DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
+DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
@@ -257,11 +260,15 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 
-const long KB = 1024;
-const int kRandomValueMaxFactor = 3;
-const int kValueMaxLen = 100;
+DECLARE_uint64(user_timestamp_size);
+DECLARE_string(secondary_cache_uri);
+
+constexpr long KB = 1024;
+constexpr int kRandomValueMaxFactor = 3;
+constexpr int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
@@ -559,6 +566,9 @@ extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+extern std::string GenerateTimestampForRead();
+extern std::string NowNanosStr();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

@@ -74,13 +74,14 @@ enum NewFileCustomTag : uint32_t {
   kNeedCompaction = 2,
   // Since Manifest is not entirely forward-compatible, we currently encode
   // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
+  // when manifest becomes forward-compatible.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
+  kTemperature = 9,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -188,6 +189,7 @@ struct FileMetaData {
 
   bool marked_for_compaction = false;  // True if client asked us nicely to
                                        // compact this file.
+  Temperature temperature = Temperature::kUnknown;
 
   // Used only in BlobDB. The file number of the oldest blob file this SST file
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
@@ -195,7 +197,7 @@ struct FileMetaData {
 
   // The file could be the compaction output from other SST files, which could
   // in turn be outputs for compact older SST files. We track the memtable
-  // flush timestamp for the oldest SST file that eventaully contribute data
+  // flush timestamp for the oldest SST file that eventually contribute data
   // to this file. 0 means the information is not available.
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
 

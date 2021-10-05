@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -22,10 +23,26 @@ class ExternalSSTFileBasicTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternalSSTFileBasicTest()
-      : DBTestBase("/external_sst_file_basic_test", /*env_do_fsync=*/true) {
-    sst_files_dir_ = dbname_ + "/sst_files/";
+      : DBTestBase("external_sst_file_basic_test", /*env_do_fsync=*/true) {
+    sst_files_dir_ = dbname_ + "_sst_files/";
     fault_injection_test_env_.reset(new FaultInjectionTestEnv(env_));
     DestroyAndRecreateExternalSSTFilesDir();
+
+    // Check if the Env supports RandomRWFile
+    std::string file_path = sst_files_dir_ + "test_random_rw_file";
+    std::unique_ptr<WritableFile> wfile;
+    assert(env_->NewWritableFile(file_path, &wfile, EnvOptions()).ok());
+    wfile.reset();
+    std::unique_ptr<RandomRWFile> rwfile;
+    Status s = env_->NewRandomRWFile(file_path, &rwfile, EnvOptions());
+    if (s.IsNotSupported()) {
+      random_rwfile_supported_ = false;
+    } else {
+      EXPECT_OK(s);
+      random_rwfile_supported_ = true;
+    }
+    rwfile.reset();
+    EXPECT_OK(env_->DeleteFile(file_path));
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
@@ -169,6 +186,7 @@ class ExternalSSTFileBasicTest
  protected:
   std::string sst_files_dir_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
+  bool random_rwfile_supported_;
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -1096,12 +1114,31 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
        "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
 
   for (size_t i = 0; i < test_cases.size(); i++) {
+    bool no_sync = false;
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].first, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(false);
     });
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].second, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(true);
     });
+    if (i == 0) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
+    if (i == 2) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::NewRandomRWFile", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
     SyncPoint::GetInstance()->EnableProcessing();
 
     DestroyAndReopen(options);
@@ -1127,13 +1164,53 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     if (i == 2) {
       ingest_opt.write_global_seqno = true;
     }
-    ASSERT_NOK(db_->IngestExternalFile({file_name}, ingest_opt));
+    Status s = db_->IngestExternalFile({file_name}, ingest_opt);
+    if (no_sync) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_NOK(s);
+    }
     db_->ReleaseSnapshot(snapshot);
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
     Destroy(options);
   }
+}
+
+TEST_F(ExternalSSTFileBasicTest, ReopenNotSupported) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* arg) {
+        Status* s = static_cast<Status*>(arg);
+        *s = Status::NotSupported();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  Options sst_file_writer_options;
+  sst_file_writer_options.env = env_;
+  std::unique_ptr<SstFileWriter> sst_file_writer(
+      new SstFileWriter(EnvOptions(), sst_file_writer_options));
+  std::string file_name =
+      sst_files_dir_ + "reopen_not_supported_test_" + ".sst";
+  ASSERT_OK(sst_file_writer->Open(file_name));
+  ASSERT_OK(sst_file_writer->Put("bar", "v2"));
+  ASSERT_OK(sst_file_writer->Finish());
+
+  IngestExternalFileOptions ingest_opt;
+  ingest_opt.move_files = true;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+  db_->ReleaseSnapshot(snapshot);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Destroy(options);
 }
 
 TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
@@ -1395,6 +1472,10 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+  if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
+    return;
+  }
   SyncPoint::GetInstance()->DisableProcessing();
   int file_id = 0;
   EnvOptions env_options;
@@ -1444,6 +1525,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   if (!verify_checksums_before_ingest) {
+    ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
+    return;
+  }
+  if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }
   uint64_t props_block_offset = 0;
@@ -1542,6 +1628,44 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
 }
 
+TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
+  // Repro https://github.com/facebook/rocksdb/issues/6245.
+  // Flush three files to L0. Ingest one more file to trigger L0->L1 compaction
+  // via trivial move. The bug happened when L1 files were incorrectly sorted
+  // resulting in an old value for "k" returned by `Get()`.
+  Options options = CurrentOptions();
+
+  ASSERT_OK(Put("k", "a"));
+  Flush();
+  ASSERT_OK(Put("k", "a"));
+  Flush();
+  ASSERT_OK(Put("k", "a"));
+  Flush();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // Current file size should be 0 after sst_file_writer init and before open a
+  // file.
+  ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+  std::string file1 = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  ASSERT_OK(sst_file_writer.Put("k", "b"));
+
+  ExternalSstFileInfo file1_info;
+  Status s = sst_file_writer.Finish(&file1_info);
+  ASSERT_OK(s) << s.ToString();
+
+  // Current file size should be non-zero after success write.
+  ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+  IngestExternalFileOptions ifo;
+  s = db_->IngestExternalFile({file1}, ifo);
+  ASSERT_OK(s);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_EQ(Get("k"), "b");
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
@@ -1552,8 +1676,17 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -109,31 +109,30 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   }
 
   // Get wal file in wal_dir
-  if (dbname.compare(options.wal_dir) != 0) {
-    if (!env->GetChildren(options.wal_dir, &files).ok()) {
-      Error(options.info_log,
-          "Error when reading %s dir\n",
-          options.wal_dir.c_str());
+  const auto& wal_dir = options.GetWalDir(dbname);
+  if (!options.IsWalDirSameAsDBPath(dbname)) {
+    if (!env->GetChildren(wal_dir, &files).ok()) {
+      Error(options.info_log, "Error when reading %s dir\n", wal_dir.c_str());
       return;
     }
     wal_info.clear();
     for (const std::string& file : files) {
       if (ParseFileName(file, &number, &type)) {
         if (type == kWalFile) {
-          if (env->GetFileSize(options.wal_dir + "/" + file, &file_size).ok()) {
+          if (env->GetFileSize(wal_dir + "/" + file, &file_size).ok()) {
             wal_info.append(file)
                 .append(" size: ")
                 .append(std::to_string(file_size))
                 .append(" ; ");
           } else {
             Error(options.info_log, "Error when reading LOG file %s/%s\n",
-                  options.wal_dir.c_str(), file.c_str());
+                  wal_dir.c_str(), file.c_str());
           }
         }
       }
     }
   }
-  Header(options.info_log, "Write Ahead Log file in %s: %s\n",
-         options.wal_dir.c_str(), wal_info.c_str());
+  Header(options.info_log, "Write Ahead Log file in %s: %s\n", wal_dir.c_str(),
+         wal_info.c_str());
 }
 }  // namespace ROCKSDB_NAMESPACE

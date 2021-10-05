@@ -5,17 +5,20 @@
 
 #pragma once
 #include <string>
-#include "db/dbformat.h"
-#include "db/merge_context.h"
+
 #include "db/read_callback.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
-#include "table/block_based/block.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BlobFetcher;
+class Comparator;
+class Logger;
 class MergeContext;
+class MergeOperator;
 class PinnedIteratorsManager;
+class Statistics;
 class SystemClock;
+struct ParsedInternalKey;
 
 // Data structure for accumulating statistics during a point lookup. At the
 // end of the point lookup, the corresponding ticker stats are updated. This
@@ -99,23 +102,21 @@ class GetContext {
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
              MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq,
-             const std::shared_ptr<SystemClock>& clock,
+             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
              std::string* timestamp, bool* value_found,
              MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq,
-             const std::shared_ptr<SystemClock>& clock,
+             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
 
   GetContext() = delete;
 
@@ -172,6 +173,9 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  void Merge(const Slice* value);
+  bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
+
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
   // the merge operations encountered;
@@ -185,7 +189,7 @@ class GetContext {
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
   // write to the key or kMaxSequenceNumber if unknown
   SequenceNumber* seq_;
@@ -202,6 +206,7 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
+  BlobFetcher* blob_fetcher_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

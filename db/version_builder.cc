@@ -312,21 +312,20 @@ class VersionBuilder::Rep {
             if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
               return Status::Corruption(
-                  "L0 file with seqno " +
-                  NumberToString(f1->fd.smallest_seqno) + " " +
-                  NumberToString(f1->fd.largest_seqno) +
+                  "L0 file with seqno " + ToString(f1->fd.smallest_seqno) +
+                  " " + ToString(f1->fd.largest_seqno) +
                   " vs. file with global_seqno" +
-                  NumberToString(external_file_seqno) + " with fileNumber " +
-                  NumberToString(f1->fd.GetNumber()));
+                  ToString(external_file_seqno) + " with fileNumber " +
+                  ToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
-            return Status::Corruption(
-                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
-                " " + NumberToString(f1->fd.largest_seqno) + " " +
-                NumberToString(f1->fd.GetNumber()) + " vs. " +
-                NumberToString(f2->fd.smallest_seqno) + " " +
-                NumberToString(f2->fd.largest_seqno) + " " +
-                NumberToString(f2->fd.GetNumber()));
+            return Status::Corruption("L0 files seqno " +
+                                      ToString(f1->fd.smallest_seqno) + " " +
+                                      ToString(f1->fd.largest_seqno) + " " +
+                                      ToString(f1->fd.GetNumber()) + " vs. " +
+                                      ToString(f2->fd.smallest_seqno) + " " +
+                                      ToString(f2->fd.largest_seqno) + " " +
+                                      ToString(f2->fd.GetNumber()));
           }
         } else {
 #ifndef NDEBUG
@@ -335,21 +334,20 @@ class VersionBuilder::Rep {
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
             return Status::Corruption(
-                "L" + NumberToString(level) +
+                "L" + ToString(level) +
                 " files are not sorted properly: files #" +
-                NumberToString(f1->fd.GetNumber()) + ", #" +
-                NumberToString(f2->fd.GetNumber()));
+                ToString(f1->fd.GetNumber()) + ", #" +
+                ToString(f2->fd.GetNumber()));
           }
 
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
             return Status::Corruption(
-                "L" + NumberToString(level) +
-                " have overlapping ranges: file #" +
-                NumberToString(f1->fd.GetNumber()) +
+                "L" + ToString(level) + " have overlapping ranges: file #" +
+                ToString(f1->fd.GetNumber()) +
                 " largest key: " + (f1->largest).DebugString(true) +
-                " vs. file #" + NumberToString(f2->fd.GetNumber()) +
+                " vs. file #" + ToString(f2->fd.GetNumber()) +
                 " smallest key: " + (f2->smallest).DebugString(true));
           }
         }
@@ -515,6 +513,28 @@ class VersionBuilder::Rep {
     assert(meta);
 
     return meta->oldest_blob_file_number;
+  }
+
+  uint64_t GetMinOldestBlobFileNumber() const {
+    uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
+    for (int level = 0; level < num_levels_; ++level) {
+      const auto& base_files = base_vstorage_->LevelFiles(level);
+      for (const auto* fmeta : base_files) {
+        assert(fmeta);
+        min_oldest_blob_file_num =
+            std::min(min_oldest_blob_file_num, fmeta->oldest_blob_file_number);
+      }
+      const auto& added_files = levels_[level].added_files;
+      for (const auto& elem : added_files) {
+        assert(elem.second);
+        min_oldest_blob_file_num = std::min(
+            min_oldest_blob_file_num, elem.second->oldest_blob_file_number);
+      }
+    }
+    if (min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max()) {
+      min_oldest_blob_file_num = kInvalidBlobFileNumber;
+    }
+    return min_oldest_blob_file_num;
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
@@ -834,18 +854,32 @@ class VersionBuilder::Rep {
     }
   }
 
-  // Save the current state in *v.
-  Status SaveTo(VersionStorageInfo* vstorage) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
-    }
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+    const uint64_t file_number = f->fd.GetNumber();
 
-    s = CheckConsistency(vstorage);
-    if (!s.ok()) {
-      return s;
-    }
+    const auto& level_state = levels_[level];
 
+    const auto& del_files = level_state.deleted_files;
+    const auto del_it = del_files.find(file_number);
+
+    if (del_it != del_files.end()) {
+      // f is to-be-deleted table file
+      vstorage->RemoveCurrentStats(f);
+    } else {
+      const auto& add_files = level_state.added_files;
+      const auto add_it = add_files.find(file_number);
+
+      // Note: if the file appears both in the base version and in the added
+      // list, the added FileMetaData supersedes the one in the base version.
+      if (add_it != add_files.end() && add_it->second != f) {
+        vstorage->RemoveCurrentStats(f);
+      } else {
+        vstorage->AddFile(level, f);
+      }
+    }
+  }
+
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage) {
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
@@ -887,6 +921,21 @@ class VersionBuilder::Rep {
         }
       }
     }
+  }
+
+  // Save the current state in *vstorage.
+  Status SaveTo(VersionStorageInfo* vstorage) {
+    Status s = CheckConsistency(base_vstorage_);
+    if (!s.ok()) {
+      return s;
+    }
+
+    s = CheckConsistency(vstorage);
+    if (!s.ok()) {
+      return s;
+    }
+
+    SaveSSTFilesTo(vstorage);
 
     SaveBlobFilesTo(vstorage);
 
@@ -995,31 +1044,6 @@ class VersionBuilder::Rep {
     }
     return ret;
   }
-
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
-    const uint64_t file_number = f->fd.GetNumber();
-
-    const auto& level_state = levels_[level];
-
-    const auto& del_files = level_state.deleted_files;
-    const auto del_it = del_files.find(file_number);
-
-    if (del_it != del_files.end()) {
-      // f is to-be-deleted table file
-      vstorage->RemoveCurrentStats(f);
-    } else {
-      const auto& add_files = level_state.added_files;
-      const auto add_it = add_files.find(file_number);
-
-      // Note: if the file appears both in the base version and in the added
-      // list, the added FileMetaData supersedes the one in the base version.
-      if (add_it != add_files.end() && add_it->second != f) {
-        vstorage->RemoveCurrentStats(f);
-      } else {
-        vstorage->AddFile(level, f);
-      }
-    }
-  }
 };
 
 VersionBuilder::VersionBuilder(const FileOptions& file_options,
@@ -1050,6 +1074,10 @@ Status VersionBuilder::LoadTableHandlers(
   return rep_->LoadTableHandlers(
       internal_stats, max_threads, prefetch_index_and_filter_in_cache,
       is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin);
+}
+
+uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {
+  return rep_->GetMinOldestBlobFileNumber();
 }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(

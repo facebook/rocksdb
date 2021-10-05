@@ -30,6 +30,17 @@ TEST(DeferTest, FunctionScope) {
   ASSERT_EQ(4, v);
 }
 
+TEST(SaveAndRestoreTest, BlockScope) {
+  int v = 1;
+  {
+    SaveAndRestore<int> sr(&v);
+    ASSERT_EQ(v, 1);
+    v = 2;
+    ASSERT_EQ(v, 2);
+  }
+  ASSERT_EQ(v, 1);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

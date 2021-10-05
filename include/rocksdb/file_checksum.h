@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -63,9 +64,13 @@ class FileChecksumGenerator {
 };
 
 // Create the FileChecksumGenerator object for each SST file.
-class FileChecksumGenFactory {
+class FileChecksumGenFactory : public Customizable {
  public:
   virtual ~FileChecksumGenFactory() {}
+  static const char* Type() { return "FileChecksumGenFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<FileChecksumGenFactory>* result);
 
   // Create a new FileChecksumGenerator.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
@@ -116,7 +121,7 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
-// Return a shared_ptr of the builtin Crc32c based file checksum generatory
+// Return a shared_ptr of the builtin Crc32c based file checksum generator
 // factory object, which can be shared to create the Crc32c based checksum
 // generator object.
 // Note: this implementation is compatible with many other crc32c checksum

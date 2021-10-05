@@ -112,17 +112,6 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
 #endif
 }
 
-bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
-  bool same = false;
-  assert(!db_options->db_paths.empty());
-  Status s = db_options->env->AreFilesSame(db_options->wal_dir,
-                                           db_options->db_paths[0].path, &same);
-  if (s.IsNotSupported()) {
-    same = db_options->wal_dir == db_options->db_paths[0].path;
-  }
-  return same;
-}
-
 // requested_checksum_func_name brings the function name of the checksum
 // generator in checksum_factory. Empty string is permitted, in which case the
 // name of the generator created by the factory is unchecked. When
@@ -195,7 +184,7 @@ IOStatus GenerateOneFileChecksum(
                               : default_max_read_ahead_size;
 
   FilePrefetchBuffer prefetch_buffer(
-      reader.get(), readahead_size /* readadhead_size */,
+      reader.get(), readahead_size /* readahead_size */,
       readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
 
   Slice slice;

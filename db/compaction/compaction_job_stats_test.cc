@@ -24,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
@@ -269,10 +268,10 @@ class CompactionJobStatsTest : public testing::Test,
     if (cf == 0) {
       // default cfd
       EXPECT_TRUE(db_->GetProperty(
-          "rocksdb.num-files-at-level" + NumberToString(level), &property));
+          "rocksdb.num-files-at-level" + ToString(level), &property));
     } else {
       EXPECT_TRUE(db_->GetProperty(
-          handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
+          handles_[cf], "rocksdb.num-files-at-level" + ToString(level),
           &property));
     }
     return atoi(property.c_str());

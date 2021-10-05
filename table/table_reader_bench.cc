@@ -51,8 +51,7 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(const std::shared_ptr<SystemClock>& clock,
-             bool measured_by_nanosecond) {
+uint64_t Now(SystemClock* clock, bool measured_by_nanosecond) {
   return measured_by_nanosecond ? clock->NowNanos() : clock->NowMicros();
 }
 }  // namespace
@@ -83,11 +82,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
-  const auto& clock = env->GetSystemClock();
+  auto* clock = env->GetSystemClock().get();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
-  const ImmutableCFOptions ioptions(opts);
+  const ImmutableOptions ioptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   std::unique_ptr<WritableFileWriter> file_writer;
@@ -96,17 +95,15 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                          FileOptions(env_options), &file_writer,
                                          nullptr));
 
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
-        int_tbl_prop_collector_factories;
+    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, 0 /* sample_for_compression */,
-            CompressionOptions(), false /* skip_filters */,
-            kDefaultColumnFamilyName, unknown_level),
-        0 /* column_family_id */, file_writer.get());
+            CompressionType::kNoCompression, CompressionOptions(),
+            0 /* column_family_id */, kDefaultColumnFamilyName, unknown_level),
+        file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -177,11 +174,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             PinnableSlice value;
             MergeContext merge_context;
             SequenceNumber max_covering_tombstone_seq = 0;
-            GetContext get_context(ioptions.user_comparator,
-                                   ioptions.merge_operator, ioptions.info_log,
-                                   ioptions.statistics, GetContext::kNotFound,
-                                   Slice(key), &value, nullptr, &merge_context,
-                                   true, &max_covering_tombstone_seq, clock);
+            GetContext get_context(
+                ioptions.user_comparator, ioptions.merge_operator.get(),
+                ioptions.logger, ioptions.stats, GetContext::kNotFound,
+                Slice(key), &value, nullptr, &merge_context, true,
+                &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);

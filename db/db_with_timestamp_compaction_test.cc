@@ -10,6 +10,7 @@
 #include "db/compaction/compaction.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,7 +32,7 @@ std::string Timestamp(uint64_t ts) {
 class TimestampCompatibleCompactionTest : public DBTestBase {
  public:
   TimestampCompatibleCompactionTest()
-      : DBTestBase("/ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
 
   std::string Get(const std::string& key, uint64_t ts) {
     ReadOptions read_opts;
@@ -56,7 +57,8 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   options.comparator = test::ComparatorWithU64Ts();
   options.level0_file_num_compaction_trigger = 3;
   constexpr size_t kNumKeysPerFile = 101;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

@@ -1408,7 +1408,7 @@ public class Options extends RocksObject
     final byte[] byteCompressionTypes =
         compressionPerLevel(nativeHandle_);
     final List<CompressionType> compressionLevels = new ArrayList<>();
-    for (final Byte byteCompressionType : byteCompressionTypes) {
+    for (final byte byteCompressionType : byteCompressionTypes) {
       compressionLevels.add(CompressionType.getCompressionType(
           byteCompressionType));
     }
@@ -1846,6 +1846,17 @@ public class Options extends RocksObject
   @Override
   public long ttl() {
     return ttl(nativeHandle_);
+  }
+
+  @Override
+  public Options setPeriodicCompactionSeconds(final long periodicCompactionSeconds) {
+    setPeriodicCompactionSeconds(nativeHandle_, periodicCompactionSeconds);
+    return this;
+  }
+
+  @Override
+  public long periodicCompactionSeconds() {
+    return periodicCompactionSeconds(nativeHandle_);
   }
 
   @Override
@@ -2383,6 +2394,9 @@ public class Options extends RocksObject
   private native boolean reportBgIoStats(final long handle);
   private native void setTtl(final long handle, final long ttl);
   private native long ttl(final long handle);
+  private native void setPeriodicCompactionSeconds(
+      final long handle, final long periodicCompactionSeconds);
+  private native long periodicCompactionSeconds(final long handle);
   private native void setCompactionOptionsUniversal(final long handle,
       final long compactionOptionsUniversalHandle);
   private native void setCompactionOptionsFIFO(final long handle,

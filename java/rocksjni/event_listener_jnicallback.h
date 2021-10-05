@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::EventListener.
+// ROCKSDB_NAMESPACE::EventListener.
 
 #ifndef JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_
 #define JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_
@@ -17,7 +17,7 @@
 #include "rocksdb/listener.h"
 #include "rocksjni/jnicallback.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 enum EnabledEventCallback {
   ON_FLUSH_COMPLETED = 0x0,
@@ -117,6 +117,6 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_error_recovery_completed_mid;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_

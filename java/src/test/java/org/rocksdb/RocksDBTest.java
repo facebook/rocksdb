@@ -1271,6 +1271,26 @@ public class RocksDBTest {
     }
   }
 
+  @Test
+  public void getApproximateMemTableStatsSingleKey() throws RocksDBException {
+    final byte key1[] = "key1".getBytes(UTF_8);
+    final byte key2[] = "key2".getBytes(UTF_8);
+    final byte key3[] = "key3".getBytes(UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put(key1, key1);
+
+        final RocksDB.CountAndSize stats =
+            db.getApproximateMemTableStats(new Range(new Slice(key1), new Slice(key3)));
+
+        assertThat(stats).isNotNull();
+        assertThat(stats.count).isEqualTo(1);
+        assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
   @Ignore("TODO(AR) re-enable when ready!")
   @Test
   public void compactFiles() throws RocksDBException {
@@ -1459,8 +1479,8 @@ public class RocksDBTest {
         assertThat(livefiles.manifestFileSize).isEqualTo(57);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
-        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000003");
-        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000006");
+        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000004");
+        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000007");
       }
     }
   }

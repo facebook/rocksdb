@@ -288,13 +288,13 @@ struct BlockBasedTableOptions {
   // incompatible with block-based filters.
   bool partition_filters = false;
 
-  // EXPERIMENTAL Option to generate Bloom filters that minimize memory
+  // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
   //
   // When false, malloc_usable_size is not available, or format_version < 5,
   // filters are generated without regard to internal fragmentation when
   // loaded into memory (historical behavior). When true (and
-  // malloc_usable_size is available and format_version >= 5), then Bloom
+  // malloc_usable_size is available and format_version >= 5), then
   // filters are generated to "round up" and "round down" their sizes to
   // minimize internal fragmentation when loaded into memory, assuming the
   // reading DB has the same memory allocation characteristics as the
@@ -313,7 +313,8 @@ struct BlockBasedTableOptions {
   // NOTE: Because some memory counted by block cache might be unmapped pages
   // within internal fragmentation, this option can increase observed RSS
   // memory usage. With cache_index_and_filter_blocks=true, this option makes
-  // the block cache better at using space it is allowed.
+  // the block cache better at using space it is allowed. (These issues
+  // should not arise with partitioned filters.)
   //
   // NOTE: Do not set to true if you do not trust
   // malloc_usable_size/malloc_size. With this option, RocksDB might access an
@@ -392,7 +393,7 @@ struct BlockBasedTableOptions {
   // 5 -- Can be read by RocksDB's versions since 6.6.0. Full and partitioned
   // filters use a generally faster and more accurate Bloom filter
   // implementation, with a different schema.
-  uint32_t format_version = 4;
+  uint32_t format_version = 5;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
@@ -436,6 +437,55 @@ struct BlockBasedTableOptions {
 
   IndexShorteningMode index_shortening =
       IndexShorteningMode::kShortenSeparators;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead
+  // starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size and max_auto_readahead_size can be configured.
+  //
+  // Special Value: 0 - If max_auto_readahead_size is set 0 then no implicit
+  // auto prefetching will be done. If max_auto_readahead_size provided is less
+  // than 8KB (which is initial readahead size used by rocksdb in case of
+  // auto-readahead), readahead size will remain same as
+  // max_auto_readahead_size.
+  //
+  // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
+  // the blocks.
+  //
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{max_auto_readahead_size=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 256 KB (256 * 1024).
+  size_t max_auto_readahead_size = 256 * 1024;
+
+  // If enabled, prepopulate warm/hot blocks (data, uncompressed dict, index and
+  // filter blocks) which are already in memory into block cache at the time of
+  // flush. On a flush, the block that is in memory (in memtables) get flushed
+  // to the device. If using Direct IO, additional IO is incurred to read this
+  // data back into memory again, which is avoided by enabling this option. This
+  // further helps if the workload exhibits high temporal locality, where most
+  // of the reads go to recently written data. This also helps in case of
+  // Distributed FileSystem.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
+  enum class PrepopulateBlockCache : char {
+    // Disable prepopulate block cache.
+    kDisable,
+    // Prepopulate blocks during flush only.
+    kFlushOnly,
+  };
+
+  PrepopulateBlockCache prepopulate_block_cache =
+      PrepopulateBlockCache::kDisable;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -529,7 +579,7 @@ struct PlainTableOptions {
 
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
-  //                       file, index will be mmaped instead of recomputation.
+  //                       file, index will be mapped instead of recomputation.
   bool store_index_in_file = false;
 };
 
@@ -685,7 +735,7 @@ class TableFactory : public Customizable {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const = 0;
+      WritableFileWriter* file) const = 0;
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

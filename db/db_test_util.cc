@@ -44,6 +44,7 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   manifest_sync_error_.store(false, std::memory_order_release);
   manifest_write_error_.store(false, std::memory_order_release);
   log_write_error_.store(false, std::memory_order_release);
+  no_file_overwrite_.store(false, std::memory_order_release);
   random_file_open_counter_.store(0, std::memory_order_relaxed);
   delete_count_.store(0, std::memory_order_relaxed);
   num_open_wal_file_.store(0);
@@ -58,26 +59,22 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-  const char* test_env_uri = getenv("TEST_ENV_URI");
-  if (test_env_uri) {
-    Env* test_env = nullptr;
-    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-    base_env = test_env;
-    EXPECT_OK(s);
-    EXPECT_NE(Env::Default(), base_env);
-  }
-#endif  // !ROCKSDB_LITE
+  ConfigOptions config_options;
+  EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
-    mem_env_ = new MockEnv(base_env);
+    mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
-    Status s = EncryptionProvider::CreateFromString(
-        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
-        &provider);
+    std::string provider_id = getenv("ENCRYPTED_ENV");
+    if (provider_id.find("=") == std::string::npos &&
+        !EndsWith(provider_id, "://test")) {
+      provider_id = provider_id + "://test";
+    }
+    EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
+                                                   &provider));
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
@@ -487,6 +484,7 @@ Options DBTestBase::GetOptions(
     }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
+      options.max_open_files = -1;
       break;
     }
     case kBlockBasedTableWithPrefixHashIndex: {
@@ -500,6 +498,7 @@ Options DBTestBase::GetOptions(
       break;
     }
     case kBlockBasedTableWithPartitionedIndex: {
+      table_options.format_version = 3;
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.prefix_extractor.reset(NewNoopTransform());
       break;
@@ -1071,12 +1070,12 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   std::string property;
   if (cf == 0) {
     // default cfd
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
   } else {
-    EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
-        &property));
+    EXPECT_TRUE(db_->GetProperty(handles_[cf],
+                                 "rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
   }
   return atoi(property.c_str());
 }
@@ -1086,12 +1085,10 @@ double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
   if (cf == 0) {
     // default cfd
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
-        &property));
+        "rocksdb.compression-ratio-at-level" + ToString(level), &property));
   } else {
     EXPECT_TRUE(db_->GetProperty(
-        handles_[cf],
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        handles_[cf], "rocksdb.compression-ratio-at-level" + ToString(level),
         &property));
   }
   return std::stod(property);
@@ -1126,7 +1123,33 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   result.resize(last_non_zero_offset);
   return result;
 }
+
 #endif  // !ROCKSDB_LITE
+
+std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  std::vector<uint64_t> result;
+  result.reserve(blob_files.size());
+
+  for (const auto& blob_file : blob_files) {
+    result.emplace_back(blob_file.first);
+  }
+
+  return result;
+}
 
 size_t DBTestBase::CountFiles() {
   size_t count = 0;
@@ -1436,26 +1459,26 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
-Status DBTestBase::GetAllSSTFiles(
-    std::unordered_map<std::string, uint64_t>* sst_files,
+Status DBTestBase::GetAllDataFiles(
+    const FileType file_type, std::unordered_map<std::string, uint64_t>* files,
     uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;
   }
-  std::vector<std::string> files;
-  Status s = env_->GetChildren(dbname_, &files);
+  std::vector<std::string> children;
+  Status s = env_->GetChildren(dbname_, &children);
   if (s.ok()) {
-    for (auto& file_name : files) {
+    for (auto& file_name : children) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      if (ParseFileName(file_name, &number, &type) && type == file_type) {
         std::string file_path = dbname_ + "/" + file_name;
         uint64_t file_size = 0;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
           break;
         }
-        (*sst_files)[file_path] = file_size;
+        (*files)[file_path] = file_size;
         if (total_size) {
           *total_size += file_size;
         }

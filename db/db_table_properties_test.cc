@@ -52,7 +52,7 @@ class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
  public:
   DBTablePropertiesTest()
-      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_table_properties_test", /*env_do_fsync=*/false) {}
   TablePropertiesCollection TestGetPropertiesOfTablesInRange(
       std::vector<Range> ranges, std::size_t* num_properties = nullptr,
       std::size_t* num_files = nullptr);
@@ -92,6 +92,37 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     Get(ToString(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+}
+
+TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  std::string id = CompactOnDeletionCollectorFactory::kClassName();
+  ASSERT_OK(
+      TablePropertiesCollectorFactory::CreateFromString(options, id, &factory));
+  auto del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(0U, del_factory->GetWindowSize());
+  ASSERT_EQ(0U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options, "window_size=100; deletion_trigger=90; id=" + id, &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options,
+      "window_size=100; deletion_trigger=90; deletion_ratio=0.5; id=" + id,
+      &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
 TablePropertiesCollection
@@ -281,7 +312,7 @@ class DBTableHostnamePropertyTest
       public ::testing::WithParamInterface<std::tuple<int, std::string>> {
  public:
   DBTableHostnamePropertyTest()
-      : DBTestBase("/db_table_hostname_property_test",
+      : DBTestBase("db_table_hostname_property_test",
                    /*env_do_fsync=*/false) {}
 };
 

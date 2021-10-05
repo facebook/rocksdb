@@ -9,19 +9,14 @@
 
 #pragma once
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 #include <utility>
-#include "db/lookup_key.h"
-#include "db/merge_context.h"
-#include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
+
 #include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
@@ -122,7 +117,7 @@ struct ParsedInternalKey {
 
   void SetTimestamp(const Slice& ts) {
     assert(ts.size() <= user_key.size());
-    const char* addr = user_key.data() - ts.size();
+    const char* addr = user_key.data() + user_key.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
 };
@@ -512,6 +507,7 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
+  // user_key does not have timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -615,7 +611,7 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
-// Convert from a SliceTranform of user keys, to a SliceTransform of
+// Convert from a SliceTransform of user keys, to a SliceTransform of
 // user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:

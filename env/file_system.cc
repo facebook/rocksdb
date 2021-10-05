@@ -3,9 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "env/composite_env_wrapper.h"
 #include "rocksdb/file_system.h"
+
+#include "env/composite_env_wrapper.h"
 #include "options/db_options.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -16,10 +18,18 @@ FileSystem::~FileSystem() {}
 
 Status FileSystem::Load(const std::string& value,
                         std::shared_ptr<FileSystem>* result) {
+  return CreateFromString(ConfigOptions(), value, result);
+}
+
+Status FileSystem::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& value,
+                                    std::shared_ptr<FileSystem>* result) {
   Status s;
 #ifndef ROCKSDB_LITE
+  (void)config_options;
   s = ObjectRegistry::NewInstance()->NewSharedObject<FileSystem>(value, result);
 #else
+  (void)config_options;
   (void)result;
   s = Status::NotSupported("Cannot load FileSystem in LITE mode", value);
 #endif
@@ -76,6 +86,14 @@ FileOptions FileSystem::OptimizeForCompactionTableWrite(
 }
 
 FileOptions FileSystem::OptimizeForCompactionTableRead(
+    const FileOptions& file_options,
+    const ImmutableDBOptions& db_options) const {
+  FileOptions optimized_file_options(file_options);
+  optimized_file_options.use_direct_reads = db_options.use_direct_reads;
+  return optimized_file_options;
+}
+
+FileOptions FileSystem::OptimizeForBlobFileRead(
     const FileOptions& file_options,
     const ImmutableDBOptions& db_options) const {
   FileOptions optimized_file_options(file_options);

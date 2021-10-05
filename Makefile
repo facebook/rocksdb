@@ -55,49 +55,24 @@ DEBUG_LEVEL?=1
 # Set the default LIB_MODE to static
 LIB_MODE?=static
 
-ifeq ($(MAKECMDGOALS),dbg)
+# OBJ_DIR is where the object files reside.  Default to the current directory
+OBJ_DIR?=.
+
+# Check the MAKECMDGOALS to set the DEBUG_LEVEL and LIB_MODE appropriately
+
+ifneq ($(filter clean release install, $(MAKECMDGOALS)),)
+	DEBUG_LEVEL=0
+endif
+ifneq ($(filter dbg, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=2
-endif
-
-ifeq ($(MAKECMDGOALS),clean)
+else ifneq ($(filter shared_lib install-shared, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),release)
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),shared_lib)
 	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),install-shared)
-	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),static_lib)
+else ifneq ($(filter static_lib install-static, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
 	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install-static)
-	DEBUG_LEVEL=0
-	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install)
-	DEBUG_LEVEL=0
-endif
-
-
-ifneq ($(findstring jtest, $(MAKECMDGOALS)),)
+else ifneq ($(filter jtest rocksdbjava%, $(MAKECMDGOALS)),)
 	OBJ_DIR=jl
-	LIB_MODE=shared
-endif
-
-ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
 	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
@@ -107,8 +82,6 @@ ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 			DEBUG_LEVEL=0
 		endif
-	else
-		OBJ_DIR=jl
 	endif
 endif
 
@@ -259,6 +232,8 @@ AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
 dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
+                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
+                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
                   export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
                   export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
                   export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
@@ -369,6 +344,12 @@ ifdef ROCKSDB_VALGRIND_RUN
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
 	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
 endif
+ifdef ROCKSDB_FULL_VALGRIND_RUN
+	# Some tests are slow when run under valgrind and are only run when
+	# explicitly requested via the ROCKSDB_FULL_VALGRIND_RUN compiler flag.
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN -DROCKSDB_FULL_VALGRIND_RUN
+endif
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
@@ -436,6 +417,10 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
 
+ifeq (,$(filter amd64, $(MACHINE)))
+	C_WARNING_FLAGS = -Wstrict-prototypes
+endif
+
 ifdef USE_CLANG
 	# Used by some teams in Facebook
 	WARNING_FLAGS += -Wshift-sign-overflow
@@ -480,12 +465,11 @@ ifeq ($(NO_THREEWAY_CRC32C), 1)
 	CXXFLAGS += -DNO_THREEWAY_CRC32C
 endif
 
-CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
+CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
-OBJ_DIR?=.
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
 ifeq ($(HAVE_POWER8),1)
@@ -497,6 +481,12 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
+# range_tree is not compatible with non GNU libc on ppc64
+# see https://jira.percona.com/browse/PS-7559
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(RANGE_TREE_SOURCES))
+endif
+
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = $(OBJ_DIR)/test_util/testutil.o
 TESTHARNESS = $(OBJ_DIR)/test_util/testharness.o $(TESTUTIL) $(GTEST)
@@ -504,15 +494,18 @@ VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
+# Not yet supported: --show-leak-kinds=definite,possible,reachable --errors-for-leak-kinds=definite,possible,reachable
 
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))
+CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES))
 TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
-ALL_SOURCES  = $(LIB_SOURCES) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
-ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
+# Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
+ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
+ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
@@ -523,239 +516,62 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
 endif
 
-PARALLEL_TEST = \
-	backupable_db_test \
-	db_bloom_filter_test \
-	db_compaction_filter_test \
-	db_compaction_test \
-	db_merge_operator_test \
-	db_sst_test \
-	db_test \
-	db_test2 \
-	db_universal_compaction_test \
-	db_wal_test \
-	column_family_test \
-	external_sst_file_test \
-	import_column_family_test \
-	fault_injection_test \
-	file_reader_writer_test \
-	inlineskiplist_test \
-	manual_compaction_test \
-	persistent_cache_test \
-	table_test \
-	transaction_test \
-	point_lock_manager_test \
-	range_locking_test \
-	write_prepared_transaction_test \
-	write_unprepared_transaction_test \
-
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-	PARALLEL_TEST += folly_synchronization_distributed_mutex_test
-	TESTS_PASSING_ASC = folly_synchronization_distributed_mutex_test
+# `make check-headers` to very that each header file includes its own
+# dependencies
+ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
+# TODO: add/support JNI headers
+	DEV_HEADER_DIRS := $(sort include/ hdfs/ $(dir $(ALL_SOURCES)))
+# Some headers like in port/ are platform-specific
+	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/|tools/rdb/db_wrapper.h|include/rocksdb/utilities/env_librados.h')
+else
+	DEV_HEADERS :=
 endif
+HEADER_OK_FILES = $(patsubst %.h, %.h.ok, $(DEV_HEADERS))
+
+AM_V_CCH = $(am__v_CCH_$(V))
+am__v_CCH_ = $(am__v_CCH_$(AM_DEFAULT_VERBOSITY))
+am__v_CCH_0 = @echo "  CC.h    " $<;
+am__v_CCH_1 =
+
+%.h.ok: %.h # .h.ok not actually created, so re-checked on each invocation
+# -DROCKSDB_NAMESPACE=42 ensures the namespace header is included
+	$(AM_V_CCH) echo '#include "$<"' | $(CXX) $(CXXFLAGS) -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+
+check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
         TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
 endif
 ifdef ASSERT_STATUS_CHECKED
-# This is a new check for which we will add support incrementally. This
-# list can be removed once support is fully added.
-	TESTS_PASSING_ASC = \
-		arena_test \
-		autovector_test \
-		cache_test \
-		lru_cache_test \
-		blob_file_addition_test \
-		blob_file_builder_test \
-		blob_file_cache_test \
-		blob_file_garbage_test \
-		blob_file_reader_test \
-		bloom_test \
-		cassandra_format_test \
-		cassandra_functional_test \
-		cassandra_row_merge_test \
-		cassandra_serialize_test \
-		cleanable_test \
-		checkpoint_test \
-		coding_test \
-		crc32c_test \
-		dbformat_test \
-		db_basic_test \
-		compact_files_test \
-		compaction_picker_test \
-		comparator_db_test \
-		db_encryption_test \
-		db_iter_test \
-		db_iter_stress_test \
-		db_log_iter_test \
-		db_bloom_filter_test \
-		db_blob_basic_test \
-		db_blob_index_test \
-		db_block_cache_test \
-		db_compaction_test \
-		db_compaction_filter_test \
-		db_dynamic_level_test \
-		db_flush_test \
-		db_inplace_update_test \
-		db_io_failure_test \
-		db_iterator_test \
-		db_kv_checksum_test \
-		db_logical_block_size_cache_test \
-		db_memtable_test \
-		db_merge_operand_test \
-		db_merge_operator_test \
-		db_wal_test \
-		db_with_timestamp_basic_test \
-		db_with_timestamp_compaction_test \
-		db_write_test \
-		db_options_test \
-		db_properties_test \
-		db_range_del_test \
-		db_secondary_test \
-		deletefile_test \
-		external_sst_file_test \
-		options_file_test \
-		db_sst_test \
-		db_statistics_test \
-		db_table_properties_test \
-		db_tailing_iter_test \
-		fault_injection_test \
-		listener_test \
-		log_test \
-		manual_compaction_test \
-		obsolete_files_test \
-		perf_context_test \
-		periodic_work_scheduler_test \
-		perf_context_test \
-		version_set_test \
-		wal_manager_test \
-		defer_test \
-		filename_test \
-		dynamic_bloom_test \
-		env_basic_test \
+	# TODO: finish fixing all tests to pass this check
+	TESTS_FAILING_ASC = \
+		c_test \
+		db_test \
 		env_test \
-		env_logger_test \
-		event_logger_test \
-		error_handler_fs_test \
-		external_sst_file_basic_test \
-		auto_roll_logger_test \
-		file_indexer_test \
-		delete_scheduler_test \
-		flush_job_test \
-		hash_table_test \
-		hash_test \
-		heap_test \
-		histogram_test \
-		inlineskiplist_test \
-		io_posix_test \
-		iostats_context_test \
-		ldb_cmd_test \
-		memkind_kmem_allocator_test \
-		merge_test \
-		merger_test \
-		mock_env_test \
-		object_registry_test \
-		optimistic_transaction_test \
-		prefix_test \
-		plain_table_db_test \
-		repair_test \
-		configurable_test \
-		customizable_test \
-		options_settable_test \
-		options_test \
-		point_lock_manager_test \
-		random_access_file_reader_test \
-		random_test \
-		range_del_aggregator_test \
-		sst_file_reader_test \
-		range_tombstone_fragmenter_test \
-		repeatable_thread_test \
-		ribbon_test \
-		skiplist_test \
-		slice_test \
-		slice_transform_test \
-		sst_dump_test \
-		statistics_test \
-		stats_history_test \
-		stringappend_test \
-		thread_local_test \
-		trace_analyzer_test \
-		transaction_test \
-		env_timed_test \
-		filelock_test \
-		timer_queue_test \
-		timer_test \
-		options_util_test \
-		persistent_cache_test \
-		util_merge_operators_test \
-		block_cache_trace_analyzer_test \
-		block_cache_tracer_test \
-		cache_simulator_test \
-		sim_cache_test \
-		version_builder_test \
-		version_edit_test \
-		work_queue_test \
-		write_buffer_manager_test \
-		write_controller_test \
-		write_prepared_transaction_test \
-		write_unprepared_transaction_test \
-		compaction_iterator_test \
-		compaction_job_test \
-		compaction_job_stats_test \
-		io_tracer_test \
-		io_tracer_parser_test \
-		prefetch_test \
-		merge_helper_test \
-		memtable_list_test \
-		flush_job_test \
-		block_based_filter_block_test \
-		block_fetcher_test \
-		block_test \
-		data_block_hash_index_test \
-		full_filter_block_test \
-		partitioned_filter_block_test \
-		column_family_test \
-		file_reader_writer_test \
-		rate_limiter_test \
-		corruption_test \
-		reduce_levels_test \
-		thread_list_test \
-		compact_on_deletion_collector_test \
-		db_universal_compaction_test \
-		import_column_family_test \
-		option_change_migration_test \
-		cuckoo_table_builder_test \
-		cuckoo_table_db_test \
-		cuckoo_table_reader_test \
-		memory_test \
-		table_test \
-		backupable_db_test \
-		blob_db_test \
-		ttl_test \
-		write_batch_test \
-		write_batch_with_index_test \
+		range_locking_test \
+		testutil_test \
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
+	# Since we have very few ASC exclusions left, excluding them from
+	# the build is the most convenient way to exclude them from testing
+	TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
 endif
 
-	# Enable building all unit tests, but use check_some to run only tests
-	# known to pass ASC (ASSERT_STATUS_CHECKED)
-	ROCKSDBTESTS_SUBSET ?= $(TESTS_PASSING_ASC)
-	# Alternate: only build unit tests known to pass ASC, and run them
-	# with make check
-	#TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
-	#PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
-else
-	ROCKSDBTESTS_SUBSET ?= $(TESTS)
-endif
+ROCKSDBTESTS_SUBSET ?= $(TESTS)
+
+# env_test - suspicious use of test::TmpDir
+# deletefile_test - serial because it generates giant temporary files in
+#   its various tests. Parallel can fill up your /dev/shm
+NON_PARALLEL_TEST = \
+	env_test \
+	deletefile_test \
+
+PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
+
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
-	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
 	external_sst_file_basic_test \
@@ -808,6 +624,8 @@ TEST_LIBS = \
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
 BENCHMARKS = $(patsubst %.cc, %, $(notdir $(BENCH_MAIN_SOURCES)))
 
+MICROBENCHS = $(patsubst %.cc, %, $(notdir $(MICROBENCH_SOURCES)))
+
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
   LIBNAME=librocksdb
@@ -839,8 +657,8 @@ else
 LIBRARY=$(STATIC_LIBRARY)
 TEST_LIBRARY=$(STATIC_TEST_LIBRARY)
 TOOLS_LIBRARY=$(STATIC_TOOLS_LIBRARY)
-STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 endif
+STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -921,10 +739,11 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib \
+	analyze tools tools_lib check-headers \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery
+	blackbox_crash_test_with_best_efforts_recovery \
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -944,6 +763,9 @@ tools_lib: $(TOOLS_LIBRARY)
 test_libs: $(TEST_LIBS)
 
 benchmarks: $(BENCHMARKS)
+
+microbench: $(MICROBENCHS)
+	for t in $(MICROBENCHS); do echo "===== Running benchmark $$t (`date`)"; ./$$t || exit 1; done;
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
@@ -1040,7 +862,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^.*SnapshotConcurrentAccessTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -1144,6 +966,7 @@ endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
+	$(MAKE) check-sources
 endif
 
 # TODO add ldb_tests
@@ -1162,6 +985,8 @@ crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
+crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1174,6 +999,9 @@ blackbox_crash_test_with_txn: db_stress
 
 blackbox_crash_test_with_best_efforts_recovery: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1191,6 +1019,10 @@ whitebox_crash_test_with_atomic_flush: db_stress
 
 whitebox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check: clean
@@ -1248,6 +1080,12 @@ ubsan_crash_test_with_txn: clean
 ubsan_crash_test_with_best_efforts_recovery: clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
+
+full_valgrind_test:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+
+full_valgrind_test_some:
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
 
 valgrind_test:
 	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
@@ -1338,8 +1176,9 @@ analyze_incremental:
 		$(MAKE) dbg
 
 CLEAN_FILES += unity.cc
-unity.cc: Makefile
+unity.cc: Makefile util/build_version.cc.in
 	rm -f $@ $@-t
+	$(AM_V_at)$(gen_build_version) > util/build_version.cc
 	for source_file in $(LIB_SOURCES); do \
 		echo "#include \"$$source_file\"" >> $@-t; \
 	done
@@ -1366,7 +1205,7 @@ clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-r
 clean-rocks:
 	echo shared=$(ALL_SHARED_LIBS)
 	echo static=$(ALL_STATIC_LIBS)
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS)
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
@@ -1405,6 +1244,9 @@ check-format:
 check-buck-targets:
 	buckifier/check_buck_targets.sh
 
+check-sources:
+	build_tools/check-sources.sh
+
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
 
@@ -1423,7 +1265,7 @@ $(STATIC_TOOLS_LIBRARY): $(TOOL_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_TOOLS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
+$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL)
 	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
@@ -1435,7 +1277,7 @@ $(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TOOLS_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
 
@@ -1457,7 +1299,7 @@ folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly
 	$(AM_LINK)
 endif
 
-cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(LIBRARY)
+cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
@@ -1566,6 +1408,9 @@ db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1739,6 +1584,9 @@ compaction_job_test: $(OBJ_DIR)/db/compaction/compaction_job_test.o $(TEST_LIBRA
 	$(AM_LINK)
 
 compaction_job_stats_test: $(OBJ_DIR)/db/compaction/compaction_job_stats_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+compaction_service_test: $(OBJ_DIR)/db/compaction/compaction_service_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 compact_on_deletion_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2011,7 +1859,7 @@ range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o
 sst_file_reader_test: $(OBJ_DIR)/table/sst_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-db_secondary_test: $(OBJ_DIR)/db/db_impl/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
+db_secondary_test: $(OBJ_DIR)/db/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 block_cache_tracer_test: $(OBJ_DIR)/trace_replay/block_cache_tracer_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2021,6 +1869,9 @@ block_cache_trace_analyzer_test: $(OBJ_DIR)/tools/block_cache_analyzer/block_cac
 	$(AM_LINK)
 
 defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_counting_iterator_test: $(OBJ_DIR)/db/blob/blob_counting_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2036,6 +1887,9 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 	$(AM_LINK)
 
 blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2059,6 +1913,20 @@ io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools
 io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_write_buffer_manager_test: $(OBJ_DIR)/db/db_write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
+	$(AM_LINK)
+
+cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -2166,15 +2034,15 @@ ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
-BZIP2_DOWNLOAD_BASE ?= https://sourceware.org/pub/bzip2
+BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
 SNAPPY_VER ?= 1.1.8
 SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.3
 LZ4_SHA256 ?= 030644df4611007ff7dc962d981f390361e6c97a34e5cbc393ddfbe019ffe2c1
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.7
-ZSTD_SHA256 ?= 085500c8d0b9c83afbc1dc0d8b4889336ad019eba930c5d6a9c6c86c20c769c8
+ZSTD_VER ?= 1.4.9
+ZSTD_SHA256 ?= acf714d98e3db7b876e5b540cbf6dee298f60eb3c0723104f6d3f065cd60d6a8
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
@@ -2474,11 +2342,13 @@ endif
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
-
+# If skip dependencies is ON, skip including the dep files
+ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
+endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
@@ -2519,28 +2389,9 @@ endif
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
 
-# if the make goal is either "clean" or "format", we shouldn't
-# try to import the *.d files.
-# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
-# working solution.
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),format)
-ifneq ($(MAKECMDGOALS),check-format)
-ifneq ($(MAKECMDGOALS),check-buck-targets)
-ifneq ($(MAKECMDGOALS),jclean)
-ifneq ($(MAKECMDGOALS),jtest)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
-ifneq ($(MAKECMDGOALS),package)
-ifneq ($(MAKECMDGOALS),analyze)
+# Remove the rules for which dependencies should not be generated and see if any are left.
+#If so, include the dependencies; if not, do not include the dependency files
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
 endif

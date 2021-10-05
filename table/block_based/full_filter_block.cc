@@ -22,14 +22,28 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
       whole_key_filtering_(whole_key_filtering),
       last_whole_key_recorded_(false),
       last_prefix_recorded_(false),
-      num_added_(0) {
+      last_key_in_domain_(false),
+      any_added_(false) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
+}
+
+size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
+  return filter_bits_builder_->EstimateEntriesAdded();
 }
 
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
   const bool add_prefix =
       prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
+
+  if (!last_prefix_recorded_ && last_key_in_domain_) {
+    // We can reach here when a new filter partition starts in partitioned
+    // filter. The last prefix in the previous partition should be added if
+    // necessary regardless of key_without_ts, to support prefix SeekForPrev.
+    AddKey(last_prefix_str_);
+    last_prefix_recorded_ = true;
+  }
+
   if (whole_key_filtering_) {
     if (!add_prefix) {
       AddKey(key_without_ts);
@@ -49,18 +63,22 @@ void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
     }
   }
   if (add_prefix) {
+    last_key_in_domain_ = true;
     AddPrefix(key_without_ts);
+  } else {
+    last_key_in_domain_ = false;
   }
 }
 
 // Add key to filter if needed
 inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
   filter_bits_builder_->AddKey(key);
-  num_added_++;
+  any_added_ = true;
 }
 
 // Add prefix to filter if needed
 void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
+  assert(prefix_extractor_ && prefix_extractor_->InDomain(key));
   Slice prefix = prefix_extractor_->Transform(key);
   if (whole_key_filtering_) {
     // if both whole_key and prefix are added to bloom then we will have whole
@@ -88,8 +106,8 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
-  if (num_added_ != 0) {
-    num_added_ = 0;
+  if (any_added_) {
+    any_added_ = false;
     return filter_bits_builder_->Finish(&filter_data_);
   }
   return Slice();

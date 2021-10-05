@@ -2428,14 +2428,13 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateMemTableStats(
       static_cast<jlong>(count),
       static_cast<jlong>(sizes)};
 
-  const jsize jcount = static_cast<jsize>(count);
-  jlongArray jsizes = env->NewLongArray(jcount);
+  jlongArray jsizes = env->NewLongArray(2);
   if (jsizes == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
 
-  env->SetLongArrayRegion(jsizes, 0, jcount, results);
+  env->SetLongArrayRegion(jsizes, 0, 2, results);
   if (env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     env->DeleteLocalRef(jsizes);
@@ -2693,7 +2692,7 @@ jobjectArray Java_org_rocksdb_RocksDB_compactFiles(
 void Java_org_rocksdb_RocksDB_cancelAllBackgroundWork(
         JNIEnv*, jobject, jlong jdb_handle, jboolean jwait) {
     auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-    rocksdb::CancelAllBackgroundWork(db, jwait);
+    ROCKSDB_NAMESPACE::CancelAllBackgroundWork(db, jwait);
 }
 
 /*

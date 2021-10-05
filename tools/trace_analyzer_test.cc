@@ -12,7 +12,7 @@
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
-  return 1;
+  return 0;
 }
 #else
 
@@ -23,7 +23,7 @@ int main() {
 #include <thread>
 
 #include "db/db_test_util.h"
-#include "file/read_write_util.h"
+#include "file/line_file_reader.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
@@ -57,7 +57,11 @@ class TraceAnalyzerTest : public testing::Test {
     Options options;
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreatePutOperator();
+    Slice upper_bound("a");
+    Slice lower_bound("abce");
     ReadOptions ro;
+    ro.iterate_upper_bound = &upper_bound;
+    ro.iterate_lower_bound = &lower_bound;
     WriteOptions wo;
     TraceOptions trace_opt;
     DB* db_ = nullptr;
@@ -77,11 +81,31 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(batch.SingleDelete("d"));
     ASSERT_OK(batch.DeleteRange("e", "f"));
     ASSERT_OK(db_->Write(wo, &batch));
-
+    std::vector<Slice> keys;
+    keys.push_back("a");
+    keys.push_back("b");
+    keys.push_back("df");
+    keys.push_back("gege");
+    keys.push_back("hjhjhj");
+    std::vector<std::string> values;
+    std::vector<Status> ss = db_->MultiGet(ro, keys, &values);
+    ASSERT_GE(ss.size(), 0);
+    ASSERT_OK(ss[0]);
+    ASSERT_NOK(ss[2]);
+    std::vector<ColumnFamilyHandle*> cfs(2, db_->DefaultColumnFamily());
+    std::vector<PinnableSlice> values2(keys.size());
+    db_->MultiGet(ro, 2, cfs.data(), keys.data(), values2.data(), ss.data(),
+                  false);
+    ASSERT_OK(ss[0]);
+    db_->MultiGet(ro, db_->DefaultColumnFamily(), 2, keys.data() + 3,
+                  values2.data(), ss.data(), false);
     ASSERT_OK(db_->Get(ro, "a", &value));
+
     single_iter = db_->NewIterator(ro);
     single_iter->Seek("a");
+    ASSERT_OK(single_iter->status());
     single_iter->SeekForPrev("b");
+    ASSERT_OK(single_iter->status());
     delete single_iter;
     std::this_thread::sleep_for (std::chrono::seconds(1));
 
@@ -127,20 +151,16 @@ class TraceAnalyzerTest : public testing::Test {
     std::unique_ptr<FSSequentialFile> file;
     ASSERT_OK(fs->NewSequentialFile(file_path, fopts, &file, nullptr));
 
-    std::string get_line;
-    std::istringstream iss;
-    bool has_data = true;
-    std::vector<std::string> result;
-    uint32_t count;
-    Status s;
-    SequentialFileReader sf_reader(std::move(file), file_path,
-                                   4096 /* filereadahead_size */);
+    LineFileReader lf_reader(std::move(file), file_path,
+                             4096 /* filereadahead_size */);
 
-    for (count = 0; ReadOneLine(&iss, &sf_reader, &get_line, &has_data, &s);
-         ++count) {
-      ASSERT_OK(s);
-      result.push_back(get_line);
+    std::vector<std::string> result;
+    std::string line;
+    while (lf_reader.ReadLine(&line)) {
+      result.push_back(line);
     }
+
+    ASSERT_OK(lf_reader.GetStatus());
 
     ASSERT_EQ(cnt.size(), result.size());
     for (int i = 0; i < static_cast<int>(result.size()); i++) {
@@ -192,7 +212,8 @@ TEST_F(TraceAnalyzerTest, Get) {
   std::vector<std::string> paras = {
       "-analyze_get=true",           "-analyze_put=false",
       "-analyze_delete=false",       "-analyze_single_delete=false",
-      "-analyze_range_delete=false", "-analyze_iterator=false"};
+      "-analyze_range_delete=false", "-analyze_iterator=false",
+      "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
@@ -209,8 +230,9 @@ TEST_F(TraceAnalyzerTest, Get) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -237,7 +259,7 @@ TEST_F(TraceAnalyzerTest, Get) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 0 0 0 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"1 0 0 0 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -261,7 +283,8 @@ TEST_F(TraceAnalyzerTest, Put) {
   std::vector<std::string> paras = {
       "-analyze_get=false",          "-analyze_put=true",
       "-analyze_delete=false",       "-analyze_single_delete=false",
-      "-analyze_range_delete=false", "-analyze_iterator=false"};
+      "-analyze_range_delete=false", "-analyze_iterator=false",
+      "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
@@ -278,8 +301,9 @@ TEST_F(TraceAnalyzerTest, Put) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -305,7 +329,7 @@ TEST_F(TraceAnalyzerTest, Put) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 1 0 0 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"0 1 0 0 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -335,14 +359,15 @@ TEST_F(TraceAnalyzerTest, Delete) {
   std::vector<std::string> paras = {
       "-analyze_get=false",          "-analyze_put=false",
       "-analyze_delete=true",        "-analyze_single_delete=false",
-      "-analyze_range_delete=false", "-analyze_iterator=false"};
+      "-analyze_range_delete=false", "-analyze_iterator=false",
+      "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -353,8 +378,9 @@ TEST_F(TraceAnalyzerTest, Delete) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -380,7 +406,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 0 1 0 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"0 0 1 0 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -405,7 +431,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
       "-analyze_get=false",           "-analyze_put=false",
       "-analyze_delete=false",        "-analyze_merge=true",
       "-analyze_single_delete=false", "-analyze_range_delete=false",
-      "-analyze_iterator=false"};
+      "-analyze_iterator=false",      "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
@@ -422,8 +448,9 @@ TEST_F(TraceAnalyzerTest, Merge) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -449,7 +476,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 0 0 0 0 1 0 0 1"};
+  std::vector<std::string> all_qps = {"0 0 0 0 0 1 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -481,14 +508,14 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
       "-analyze_get=false",          "-analyze_put=false",
       "-analyze_delete=false",       "-analyze_merge=false",
       "-analyze_single_delete=true", "-analyze_range_delete=false",
-      "-analyze_iterator=false"};
+      "-analyze_iterator=false",     "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-single_delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -499,8 +526,9 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -526,7 +554,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 0 0 1 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"0 0 0 1 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -552,14 +580,14 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
       "-analyze_get=false",           "-analyze_put=false",
       "-analyze_delete=false",        "-analyze_merge=false",
       "-analyze_single_delete=false", "-analyze_range_delete=true",
-      "-analyze_iterator=false"};
+      "-analyze_iterator=false",      "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000", "0 0 1 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000", "0 10 1 1 1.000000"};
   file_path = output_path + "/test-range_delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -570,8 +598,9 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -598,7 +627,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 0 0 0 2 0 0 0 2"};
+  std::vector<std::string> all_qps = {"0 0 0 0 2 0 0 0 0 2"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -625,7 +654,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
       "-analyze_get=false",           "-analyze_put=false",
       "-analyze_delete=false",        "-analyze_merge=false",
       "-analyze_single_delete=false", "-analyze_range_delete=false",
-      "-analyze_iterator=true"};
+      "-analyze_iterator=true",       "-analyze_multiget=false"};
   paras.push_back("-output_dir=" + output_path);
   paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
@@ -633,7 +662,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
 
   // Check the output of Seek
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-iterator_Seek-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -644,8 +673,9 @@ TEST_F(TraceAnalyzerTest, Iterator) {
   CheckFileContent(k_dist, file_path, true);
 
   // Check the trace sequence
-  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4",
-                                         "0", "6", "7", "0"};
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
   file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
@@ -671,7 +701,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 0 0 0 0 0 1 1 2"};
+  std::vector<std::string> all_qps = {"0 0 0 0 0 0 1 1 0 2"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -689,7 +719,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
 
   // Check the output of SeekForPrev
   // check the key_stats file
-  k_stats = {"0 0 0 1 1.000000"};
+  k_stats = {"0 10 0 1 1.000000"};
   file_path =
       output_path + "/test-iterator_SeekForPrev-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
@@ -732,6 +762,89 @@ TEST_F(TraceAnalyzerTest, Iterator) {
   top_qps = {"At time: 0 with QPS: 1", "The prefix: 0x62 Access count: 1"};
   file_path = output_path +
               "/test-iterator_SeekForPrev-0-accessed_top_k_qps_prefix_cut.txt";
+  CheckFileContent(top_qps, file_path, true);
+}
+
+// Test analyzing of multiget
+TEST_F(TraceAnalyzerTest, MultiGet) {
+  std::string trace_path = test_path_ + "/trace";
+  std::string output_path = test_path_ + "/multiget";
+  std::string file_path;
+  std::vector<std::string> paras = {
+      "-analyze_get=false",           "-analyze_put=false",
+      "-analyze_delete=false",        "-analyze_merge=false",
+      "-analyze_single_delete=false", "-analyze_range_delete=true",
+      "-analyze_iterator=false",      "-analyze_multiget=true"};
+  paras.push_back("-output_dir=" + output_path);
+  paras.push_back("-trace_path=" + trace_path);
+  paras.push_back("-key_space_dir=" + test_path_);
+  AnalyzeTrace(paras, output_path, trace_path);
+
+  // check the key_stats file
+  std::vector<std::string> k_stats = {"0 10 0 2 1.000000", "0 10 1 2 1.000000",
+                                      "0 10 2 1 1.000000", "0 10 3 2 1.000000",
+                                      "0 10 4 2 1.000000"};
+  file_path = output_path + "/test-multiget-0-accessed_key_stats.txt";
+  CheckFileContent(k_stats, file_path, true);
+
+  // Check the access count distribution
+  std::vector<std::string> k_dist = {"access_count: 1 num: 1",
+                                     "access_count: 2 num: 4"};
+  file_path =
+      output_path + "/test-multiget-0-accessed_key_count_distribution.txt";
+  CheckFileContent(k_dist, file_path, true);
+
+  // Check the trace sequence
+  std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "8",
+                                         "8", "8", "8", "8", "8", "8",
+                                         "8", "8", "0", "6", "7", "0"};
+  file_path = output_path + "/test-human_readable_trace.txt";
+  CheckFileContent(k_sequence, file_path, false);
+
+  // Check the prefix
+  std::vector<std::string> k_prefix = {
+      "0 0 0 0.000000 0.000000 0x30", "1 2 1 2.000000 1.000000 0x61",
+      "2 2 1 2.000000 1.000000 0x62", "3 1 1 1.000000 1.000000 0x64",
+      "4 2 1 2.000000 1.000000 0x67"};
+  file_path = output_path + "/test-multiget-0-accessed_key_prefix_cut.txt";
+  CheckFileContent(k_prefix, file_path, true);
+
+  // Check the time series
+  std::vector<std::string> k_series = {"8 0 0", "8 0 1", "8 0 2",
+                                       "8 0 3", "8 0 4", "8 0 0",
+                                       "8 0 1", "8 0 3", "8 0 4"};
+  file_path = output_path + "/test-multiget-0-time_series.txt";
+  CheckFileContent(k_series, file_path, false);
+
+  // Check the accessed key in whole key space
+  std::vector<std::string> k_whole_access = {"0 2", "1 2"};
+  file_path = output_path + "/test-multiget-0-whole_key_stats.txt";
+  CheckFileContent(k_whole_access, file_path, true);
+
+  // Check the whole key prefix cut
+  std::vector<std::string> k_whole_prefix = {"0 0x61", "1 0x62", "2 0x63",
+                                             "3 0x64", "4 0x65", "5 0x66"};
+  file_path = output_path + "/test-multiget-0-whole_key_prefix_cut.txt";
+  CheckFileContent(k_whole_prefix, file_path, true);
+
+  // Check the overall qps. We have 3 MultiGet queries and it requested 9 keys
+  // in total
+  std::vector<std::string> all_qps = {"0 0 0 0 2 0 0 0 9 11"};
+  file_path = output_path + "/test-qps_stats.txt";
+  CheckFileContent(all_qps, file_path, true);
+
+  // Check the qps of DeleteRange
+  std::vector<std::string> get_qps = {"9"};
+  file_path = output_path + "/test-multiget-0-qps_stats.txt";
+  CheckFileContent(get_qps, file_path, true);
+
+  // Check the top k qps prefix cut
+  std::vector<std::string> top_qps = {
+      "At time: 0 with QPS: 9",           "The prefix: 0x61 Access count: 2",
+      "The prefix: 0x62 Access count: 2", "The prefix: 0x64 Access count: 1",
+      "The prefix: 0x67 Access count: 2", "The prefix: 0x68 Access count: 2"};
+  file_path =
+      output_path + "/test-multiget-0-accessed_top_k_qps_prefix_cut.txt";
   CheckFileContent(top_qps, file_path, true);
 }
 

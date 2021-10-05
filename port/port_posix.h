@@ -116,6 +116,9 @@ class Mutex {
 
   void Lock();
   void Unlock();
+
+  bool TryLock();
+
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();
@@ -167,7 +170,7 @@ static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)
   asm volatile("pause");
 #elif defined(__aarch64__)
-  asm volatile("wfe");
+  asm volatile("yield");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
 #endif
@@ -177,7 +180,7 @@ static inline void AsmVolatilePause() {
 // Returns -1 if not available on this platform
 extern int PhysicalCoreID();
 
-typedef pthread_once_t OnceType;
+using OnceType = pthread_once_t;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
@@ -218,6 +221,12 @@ extern const size_t kPageSize;
 using ThreadId = pid_t;
 
 extern void SetCpuPriority(ThreadId id, CpuPriority priority);
+
+int64_t GetProcessID();
+
+// Uses platform APIs to generate a 36-character RFC-4122 UUID. Returns
+// true on success or false on failure.
+bool GenerateRfcUuid(std::string* output);
 
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE

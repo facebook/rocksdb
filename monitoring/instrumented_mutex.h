@@ -22,12 +22,10 @@ class InstrumentedMutex {
   explicit InstrumentedMutex(bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
 
-  explicit InstrumentedMutex(const std::shared_ptr<SystemClock>& clock,
-                             bool adaptive = false)
+  explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
 
-  InstrumentedMutex(Statistics* stats,
-                    const std::shared_ptr<SystemClock>& clock, int stats_code,
+  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
                     bool adaptive = false)
       : mutex_(adaptive),
         stats_(stats),
@@ -49,12 +47,11 @@ class InstrumentedMutex {
   friend class InstrumentedCondVar;
   port::Mutex mutex_;
   Statistics* stats_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   int stats_code_;
 };
 
-// A wrapper class for port::Mutex that provides additional layer
-// for collecting stats and instrumentation.
+// RAII wrapper for InstrumentedMutex
 class InstrumentedMutexLock {
  public:
   explicit InstrumentedMutexLock(InstrumentedMutex* mutex) : mutex_(mutex) {
@@ -69,6 +66,22 @@ class InstrumentedMutexLock {
   InstrumentedMutex* const mutex_;
   InstrumentedMutexLock(const InstrumentedMutexLock&) = delete;
   void operator=(const InstrumentedMutexLock&) = delete;
+};
+
+// RAII wrapper for temporary releasing InstrumentedMutex inside
+// InstrumentedMutexLock
+class InstrumentedMutexUnlock {
+ public:
+  explicit InstrumentedMutexUnlock(InstrumentedMutex* mutex) : mutex_(mutex) {
+    mutex_->Unlock();
+  }
+
+  ~InstrumentedMutexUnlock() { mutex_->Lock(); }
+
+ private:
+  InstrumentedMutex* const mutex_;
+  InstrumentedMutexUnlock(const InstrumentedMutexUnlock&) = delete;
+  void operator=(const InstrumentedMutexUnlock&) = delete;
 };
 
 class InstrumentedCondVar {
@@ -96,7 +109,7 @@ class InstrumentedCondVar {
   bool TimedWaitInternal(uint64_t abs_time_us);
   port::CondVar cond_;
   Statistics* stats_;
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   int stats_code_;
 };
 

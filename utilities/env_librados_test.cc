@@ -20,9 +20,10 @@
 #include "rocksdb/utilities/transaction_db.h"
 
 class Timer {
-  typedef std::chrono::high_resolution_clock high_resolution_clock;
-  typedef std::chrono::milliseconds milliseconds;
-public:
+  using high_resolution_clock = std::chrono::high_resolution_clock;
+  using milliseconds = std::chrono::milliseconds;
+
+ public:
   explicit Timer(bool run = false)
   {
     if (run)

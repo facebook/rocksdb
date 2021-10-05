@@ -22,7 +22,7 @@ using ROCKSDB_NAMESPACE::ManagedSnapshot;
 class BlobDBIterator : public Iterator {
  public:
   BlobDBIterator(ManagedSnapshot* snapshot, ArenaWrappedDBIter* iter,
-                 BlobDBImpl* blob_db, const std::shared_ptr<SystemClock>& clock,
+                 BlobDBImpl* blob_db, SystemClock* clock,
                  Statistics* statistics)
       : snapshot_(snapshot),
         iter_(iter),
@@ -140,7 +140,7 @@ class BlobDBIterator : public Iterator {
   std::unique_ptr<ManagedSnapshot> snapshot_;
   std::unique_ptr<ArenaWrappedDBIter> iter_;
   BlobDBImpl* blob_db_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Statistics* statistics_;
   Status status_;
   PinnableSlice value_;

@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <cinttypes>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "db/wal_manager.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -42,15 +44,15 @@ Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
   return Status::NotSupported("");
 }
 
-void CheckpointImpl::CleanStagingDirectory(
-    const std::string& full_private_path, Logger* info_log) {
-    std::vector<std::string> subchildren;
+void CheckpointImpl::CleanStagingDirectory(const std::string& full_private_path,
+                                           Logger* info_log) {
+  std::vector<std::string> subchildren;
   Status s = db_->GetEnv()->FileExists(full_private_path);
   if (s.IsNotFound()) {
     return;
   }
-  ROCKS_LOG_INFO(info_log, "File exists %s -- %s",
-                 full_private_path.c_str(), s.ToString().c_str());
+  ROCKS_LOG_INFO(info_log, "File exists %s -- %s", full_private_path.c_str(),
+                 s.ToString().c_str());
   s = db_->GetEnv()->GetChildren(full_private_path, &subchildren);
   if (s.ok()) {
     for (auto& subchild : subchildren) {
@@ -62,8 +64,8 @@ void CheckpointImpl::CleanStagingDirectory(
   }
   // finally delete the private dir
   s = db_->GetEnv()->DeleteDir(full_private_path);
-  ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s",
-                 full_private_path.c_str(), s.ToString().c_str());
+  ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s", full_private_path.c_str(),
+                 s.ToString().c_str());
 }
 
 Status Checkpoint::ExportColumnFamily(
@@ -102,10 +104,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
   std::string full_private_path =
       checkpoint_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
-  ROCKS_LOG_INFO(
-      db_options.info_log,
-      "Snapshot process -- using temporary directory %s",
-      full_private_path.c_str());
+  ROCKS_LOG_INFO(db_options.info_log,
+                 "Snapshot process -- using temporary directory %s",
+                 full_private_path.c_str());
   CleanStagingDirectory(full_private_path, db_options.info_log.get());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
@@ -269,10 +270,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   size_t wal_size = live_wal_files.size();
 
-  // process live files, non-table files first
+  // process live files, non-table, non-blob files first
   std::string manifest_fname, current_fname;
-  // record table files for processing next
-  std::vector<std::pair<std::string, uint64_t>> live_table_files;
+  // record table and blob files for processing next
+  std::vector<std::tuple<std::string, uint64_t, FileType>>
+      live_table_and_blob_files;
   for (auto& live_file : live_files) {
     if (!s.ok()) {
       break;
@@ -284,8 +286,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       s = Status::Corruption("Can't parse file name. This is very bad");
       break;
     }
-    // we should only get sst, options, manifest and current files here
-    assert(type == kTableFile || type == kDescriptorFile ||
+    // we should only get sst, blob, options, manifest and current files here
+    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
            type == kCurrentFile || type == kOptionsFile);
     assert(live_file.size() > 0 && live_file[0] == '/');
     if (type == kCurrentFile) {
@@ -297,20 +299,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     } else if (type == kDescriptorFile) {
       manifest_fname = live_file;
     }
-    if (type != kTableFile) {
-      // copy non-table files here
+
+    if (type != kTableFile && type != kBlobFile) {
+      // copy non-table, non-blob files here
       // * if it's kDescriptorFile, limit the size to manifest_file_size
       s = copy_file_cb(db_->GetName(), live_file,
                        (type == kDescriptorFile) ? manifest_file_size : 0, type,
                        kUnknownFileChecksumFuncName, kUnknownFileChecksum);
     } else {
-      // process table files below
-      live_table_files.push_back(make_pair(live_file, number));
+      // process table and blob files below
+      live_table_and_blob_files.emplace_back(live_file, number, type);
     }
   }
 
-  // get checksum info for table files
-  // get table file checksums if get_live_table_checksum is true
+  // get checksum info for table and blob files.
+  // get table and blob file checksums if get_live_table_checksum is true
   std::unique_ptr<FileChecksumList> checksum_list;
 
   if (s.ok() && get_live_table_checksum) {
@@ -322,19 +325,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
                                      manifest_file_size, checksum_list.get());
   }
 
-  // copy/hard link live table files
-  for (auto& ltf : live_table_files) {
+  // copy/hard link live table and blob files
+  for (const auto& file : live_table_and_blob_files) {
     if (!s.ok()) {
       break;
     }
-    std::string& src_fname = ltf.first;
-    uint64_t number = ltf.second;
+
+    const std::string& src_fname = std::get<0>(file);
+    const uint64_t number = std::get<1>(file);
+    const FileType type = std::get<2>(file);
 
     // rules:
-    // * for kTableFile, attempt hard link instead of copy.
+    // * for kTableFile/kBlobFile, attempt hard link instead of copy.
     // * but can't hard link across filesystems.
     if (same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, kTableFile);
+      s = link_file_cb(db_->GetName(), src_fname, type);
       if (s.IsNotSupported()) {
         same_fs = false;
         s = Status::OK();
@@ -345,7 +350,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       std::string checksum_value = kUnknownFileChecksum;
 
       // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum lsit for old table files that have no file
+      // obtain the checksum list for old table files that have no file
       // checksums
       if (get_live_table_checksum) {
         // find checksum info for table files
@@ -359,7 +364,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
           assert(checksum_value == kUnknownFileChecksum);
         }
       }
-      s = copy_file_cb(db_->GetName(), src_fname, 0, kTableFile, checksum_name,
+      s = copy_file_cb(db_->GetName(), src_fname, 0, type, checksum_name,
                        checksum_value);
     }
   }
@@ -372,29 +377,28 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
+  ImmutableDBOptions ioptions(db_options);
+  auto wal_dir = ioptions.GetWalDir();
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (!flush_memtable ||
-         live_wal_files[i]->LogNumber() >= min_log_num)) {
+        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
-        s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
+        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(),
                          live_wal_files[i]->SizeFileBytes(), kWalFile,
                          kUnknownFileChecksumFuncName, kUnknownFileChecksum);
         break;
       }
       if (same_fs) {
         // we only care about live log files
-        s = link_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         kWalFile);
+        s = link_file_cb(wal_dir, live_wal_files[i]->PathName(), kWalFile);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
         }
       }
       if (!same_fs) {
-        s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(), 0,
-                         kWalFile, kUnknownFileChecksumFuncName,
-                         kUnknownFileChecksum);
+        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(), 0, kWalFile,
+                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
       }
     }
   }

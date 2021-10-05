@@ -15,7 +15,6 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
-
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +31,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
@@ -73,6 +73,8 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
+extern "C" bool RocksDbIOUringEnable() __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -81,9 +83,7 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
 
-static uint64_t gettid() {
-  return Env::Default()->GetThreadID();
-}
+static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -109,8 +109,18 @@ static int LockOrUnlock(int fd, bool lock) {
 
 class PosixFileLock : public FileLock {
  public:
-  int fd_;
+  int fd_ = /*invalid*/ -1;
   std::string filename;
+
+  void Clear() {
+    fd_ = -1;
+    filename.clear();
+  }
+
+  virtual ~PosixFileLock() override {
+    // Check for destruction without UnlockFile
+    assert(fd_ == -1);
+  }
 };
 
 int cloexec_flags(int flags, const EnvOptions* options) {
@@ -259,7 +269,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
 #endif
               ));
     }
@@ -267,8 +277,7 @@ class PosixFileSystem : public FileSystem {
   }
 
   virtual IOStatus OpenWritableFile(const std::string& fname,
-                                    const FileOptions& options,
-                                    bool reopen,
+                                    const FileOptions& options, bool reopen,
                                     std::unique_ptr<FSWritableFile>* result,
                                     IODebugContext* /*dbg*/) {
     result->reset();
@@ -551,26 +560,37 @@ class PosixFileSystem : public FileSystem {
   }
 
   IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
-                   std::shared_ptr<Logger>* result,
-                   IODebugContext* /*dbg*/) override {
-    FILE* f;
+                     std::shared_ptr<Logger>* result,
+                     IODebugContext* /*dbg*/) override {
+    FILE* f = nullptr;
+    int fd;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(),
-                "w"
+      fd = open(fname.c_str(),
+                cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
+                GetDBFileMode(allow_non_owner_access_));
+      if (fd != -1) {
+        f = fdopen(fd,
+                   "w"
 #ifdef __GLIBC_PREREQ
 #if __GLIBC_PREREQ(2, 7)
-                "e"  // glibc extension to enable O_CLOEXEC
+                   "e"  // glibc extension to enable O_CLOEXEC
 #endif
 #endif
-      );
+        );
+      }
     }
-    if (f == nullptr) {
+    if (fd == -1) {
       result->reset();
       return status_to_io_status(
-              IOError("when fopen a file for new logger", fname, errno));
+          IOError("when open a file for new logger", fname, errno));
+    }
+    if (f == nullptr) {
+      close(fd);
+      result->reset();
+      return status_to_io_status(
+          IOError("when fdopen a file for new logger", fname, errno));
     } else {
-      int fd = fileno(f);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
       fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
 #endif
@@ -620,9 +640,10 @@ class PosixFileSystem : public FileSystem {
       }
     }
 
-    const auto pre_read_errno = errno;  // errno may be modified by readdir
+    // reset errno before calling readdir()
+    errno = 0;
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+    while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
@@ -631,19 +652,20 @@ class PosixFileSystem : public FileSystem {
       if (!ignore) {
         result->push_back(entry->d_name);
       }
+      errno = 0;  // reset errno if readdir() success
     }
 
     // always attempt to close the dir
     const auto pre_close_errno = errno;  // errno may be modified by closedir
     const int close_result = closedir(d);
 
-    if (pre_close_errno != pre_read_errno) {
-      // error occured during readdir
+    if (pre_close_errno != 0) {
+      // error occurred during readdir
       return IOError("While readdir", dir, pre_close_errno);
     }
 
     if (close_result != 0) {
-      // error occured during closedir
+      // error occurred during closedir
       return IOError("While closedir", dir, errno);
     }
 
@@ -774,7 +796,9 @@ class PosixFileSystem : public FileSystem {
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
+    SystemClock::Default()
+        ->GetCurrentTime(&current_time)
+        .PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
@@ -813,9 +837,6 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       result = IOError("while open a file for lock", fname, errno);
     } else if (LockOrUnlock(fd, true) == -1) {
-      // if there is an error in locking, then remove the pathname from
-      // lockedfiles
-      locked_files.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -824,6 +845,12 @@ class PosixFileSystem : public FileSystem {
       my_lock->fd_ = fd;
       my_lock->filename = fname;
       *lock = my_lock;
+    }
+    if (!result.ok()) {
+      // If there is an error in locking, then remove the pathname from
+      // locked_files. (If we got this far, it did not exist in locked_files
+      // before this call.)
+      locked_files.erase(fname);
     }
 
     mutex_locked_files.Unlock();
@@ -844,6 +871,7 @@ class PosixFileSystem : public FileSystem {
       result = IOError("unlock", my_lock->filename, errno);
     }
     close(my_lock->fd_);
+    my_lock->Clear();
     delete my_lock;
     mutex_locked_files.Unlock();
     return result;
@@ -860,7 +888,7 @@ class PosixFileSystem : public FileSystem {
     char the_path[256];
     char* ret = getcwd(the_path, 256);
     if (ret == nullptr) {
-      return IOStatus::IOError(strerror(errno));
+      return IOStatus::IOError(errnoStr(errno).c_str());
     }
 
     *output_path = ret;
@@ -894,7 +922,17 @@ class PosixFileSystem : public FileSystem {
       return IOError("While doing statvfs", fname, errno);
     }
 
-    *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
+    // sbuf.bfree is total free space available to root
+    // sbuf.bavail is total free space available to unprivileged user
+    //  sbuf.bavail <= sbuf.bfree ... pick correct based upon effective user id
+    if (geteuid()) {
+      // non-zero user is unprivileged, or -1 if error.  take more conservative
+      // size
+      *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bavail);
+    } else {
+      // root user can access all disk space
+      *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
+    }
     return IOStatus::OK();
   }
 
@@ -923,7 +961,7 @@ class PosixFileSystem : public FileSystem {
   }
 
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
-                                 const DBOptions& db_options) const override {
+                                  const DBOptions& db_options) const override {
     FileOptions optimized = file_options;
     optimized.use_mmap_writes = false;
     optimized.use_direct_writes = false;
@@ -988,6 +1026,16 @@ class PosixFileSystem : public FileSystem {
     return false;
 #endif
   }
+
+#ifdef ROCKSDB_IOURING_PRESENT
+  bool IsIOUringEnabled() {
+    if (RocksDbIOUringEnable && RocksDbIOUringEnable()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+#endif  // ROCKSDB_IOURING_PRESENT
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance

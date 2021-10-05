@@ -373,9 +373,9 @@ class StackableDB : public DB {
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
   using DB::StartIOTrace;
-  Status StartIOTrace(Env* env, const TraceOptions& options,
+  Status StartIOTrace(const TraceOptions& options,
                       std::unique_ptr<TraceWriter>&& trace_writer) override {
-    return db_->StartIOTrace(env, options, std::move(trace_writer));
+    return db_->StartIOTrace(options, std::move(trace_writer));
   }
 
   using DB::EndIOTrace;
@@ -389,6 +389,13 @@ class StackableDB : public DB {
 
   using DB::EndTrace;
   Status EndTrace() override { return db_->EndTrace(); }
+
+  using DB::NewDefaultReplayer;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override {
+    return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
+  }
 
 #endif  // ROCKSDB_LITE
 

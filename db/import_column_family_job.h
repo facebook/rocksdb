@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/snapshot_impl.h"
 #include "options/db_options.h"
@@ -21,14 +20,13 @@ class SystemClock;
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
  public:
-  ImportColumnFamilyJob(const std::shared_ptr<SystemClock>& clock,
-                        VersionSet* versions, ColumnFamilyData* cfd,
+  ImportColumnFamilyJob(VersionSet* versions, ColumnFamilyData* cfd,
                         const ImmutableDBOptions& db_options,
                         const EnvOptions& env_options,
                         const ImportColumnFamilyOptions& import_options,
                         const std::vector<LiveFileMetaData>& metadata,
                         const std::shared_ptr<IOTracer>& io_tracer)
-      : clock_(clock),
+      : clock_(db_options.clock),
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
@@ -61,7 +59,7 @@ class ImportColumnFamilyJob {
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;

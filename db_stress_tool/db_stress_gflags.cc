@@ -284,6 +284,11 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_int32(cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** cache_numshardbits. Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
@@ -320,6 +325,10 @@ DEFINE_uint64(compaction_ttl, 1000,
 
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
+
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum estimated useful payload that triggers a "
+              "mempurge process to collect memtable garbage bytes.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
@@ -410,8 +419,11 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
-DEFINE_bool(use_ribbon_filter, false,
-            "Use Ribbon filter instead of Bloom filter");
+DEFINE_int32(
+    ribbon_starting_level, 999,
+    "Use Bloom filter on levels below specified and Ribbon beginning on level "
+    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
+    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -436,12 +448,12 @@ DEFINE_string(secondaries_base, "",
 DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
-    expected_values_path, "",
-    "File where the array of expected uint32_t values will be stored. If "
+    expected_values_dir, "",
+    "Dir where file with array of expected uint32_t values will be stored. If "
     "provided and non-empty, the DB state will be verified against these "
     "values after recovery. --max_key and --column_family must be kept the "
     "same across invocations of this program that use the same "
-    "--expected_values_path.");
+    "--expected_values_dir.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -473,7 +485,6 @@ DEFINE_int32(kill_random_test, 0,
              "probability 1/this");
 static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
-extern int rocksdb_kill_odds;
 
 DEFINE_string(kill_exclude_prefixes, "",
               "If non-empty, kill points with prefix in the list given will be"
@@ -661,6 +672,10 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
+              "Buffering limit for SST file data to sample for dictionary "
+              "compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -788,6 +803,10 @@ DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
 
+DEFINE_bool(fail_if_options_file_error, false,
+            "Fail operations that fail to detect or properly persist options "
+            "file.");
+
 DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "
@@ -799,5 +818,28 @@ DEFINE_string(file_checksum_impl, "none",
 
 DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write");
+
+DEFINE_uint64(user_timestamp_size, 0,
+              "Number of bytes for a user-defined timestamp. Currently, only "
+              "8-byte is supported");
+
+DEFINE_int32(open_metadata_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file metadata write "
+             "during DB reopen.");
+
+#ifndef ROCKSDB_LITE
+DEFINE_string(secondary_cache_uri, "",
+              "Full URI for creating a customized secondary cache object");
+#endif  // ROCKSDB_LITE
+DEFINE_int32(open_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file writes "
+             "during DB reopen.");
+DEFINE_int32(open_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file reads "
+             "during DB reopen.");
+DEFINE_int32(injest_error_severity, 1,
+             "The severity of the injested IO Error. 1 is soft error (e.g. "
+             "retryable error), 2 is fatal error, and the default is "
+             "retryable error.");
 
 #endif  // GFLAGS

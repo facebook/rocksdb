@@ -49,7 +49,8 @@ class MockTableFactory : public TableFactory {
   };
 
   MockTableFactory();
-  const char* Name() const override { return "MockTable"; }
+  static const char* kClassName() { return "MockTable"; }
+  const char* Name() const override { return kClassName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& ro, const TableReaderOptions& table_reader_options,
@@ -58,7 +59,7 @@ class MockTableFactory : public TableFactory {
       bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_familly_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // This function will directly create mock table instead of going through
   // MockTableBuilder. file_contents has to have a format of <internal_key,

@@ -6,14 +6,20 @@
 #include <algorithm>
 #include <vector>
 
+#include "db/db_test_util.h"
+#include "env/mock_env.h"
+#include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/crc32c.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -226,6 +232,179 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     ASSERT_EQ(target.size(), actual.size());
     ASSERT_EQ(target, actual);
   }
+}
+
+class DBWritableFileWriterTest : public DBTestBase {
+ public:
+  DBWritableFileWriterTest()
+      : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
+    fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+    fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
+  }
+
+  std::shared_ptr<FaultInjectionTestFS> fault_fs_;
+  std::unique_ptr<Env> fault_env_;
+};
+
+TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = this->dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  Random rnd(301);
+  std::string data = rnd.RandomString(1000);
+  uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Flush());
+  Random size_r(47);
+  for (int i = 0; i < 2000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  Destroy(options);
+}
+
+TEST_F(DBWritableFileWriterTest, AppendVerifyNoChecksum) {
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = this->dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, false));
+
+  Random rnd(301);
+  std::string data = rnd.RandomString(1000);
+  uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Flush());
+  Random size_r(47);
+  for (int i = 0; i < 1000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  Destroy(options);
+}
+
+TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
+  FileOptions file_options = FileOptions();
+  file_options.rate_limiter = nullptr;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = this->dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  Random rnd(301);
+  std::string data;
+  uint32_t data_crc32c;
+  uint64_t start = fault_env_->NowMicros();
+  Random size_r(47);
+  uint64_t bytes_written = 0;
+  for (int i = 0; i < 100; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+    bytes_written += static_cast<uint64_t>(data.size());
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+    bytes_written += static_cast<uint64_t>(data.size());
+  }
+  uint64_t elapsed = fault_env_->NowMicros() - start;
+  double raw_rate = bytes_written * 1000000.0 / elapsed;
+  ASSERT_OK(file_writer->Close());
+
+  // Set the rate-limiter
+  FileOptions file_options1 = FileOptions();
+  file_options1.rate_limiter =
+      NewGenericRateLimiter(static_cast<int64_t>(0.5 * raw_rate));
+  fname = this->dbname_ + "/test_file_1";
+  std::unique_ptr<FSWritableFile> writable_file_ptr1;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options1,
+                                       &writable_file_ptr1,
+                                       /*dbg*/ nullptr));
+  file.reset(new TestFSWritableFile(
+      fname, file_options1, std::move(writable_file_ptr1), fault_fs_.get()));
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options1, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  for (int i = 0; i < 1000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  if (file_options1.rate_limiter != nullptr) {
+    delete file_options1.rate_limiter;
+  }
+
+  Destroy(options);
 }
 
 #ifndef ROCKSDB_LITE
@@ -496,6 +675,103 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     ReadExceedsReadaheadSize, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+
+namespace {
+std::string GenerateLine(int n) {
+  std::string rv;
+  // Multiples of 17 characters per line, for likely bad buffer alignment
+  for (int i = 0; i < n; ++i) {
+    rv.push_back(static_cast<char>('0' + (i % 10)));
+    rv.append("xxxxxxxxxxxxxxxx");
+  }
+  return rv;
+}
+}  // namespace
+
+TEST(LineFileReaderTest, LineFileReaderTest) {
+  const int nlines = 1000;
+
+  std::unique_ptr<Env> mem_env(MockEnv::Create(Env::Default()));
+  std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
+  // Create an input file
+  {
+    std::unique_ptr<FSWritableFile> file;
+    ASSERT_OK(
+        fs->NewWritableFile("testfile", FileOptions(), &file, /*dbg*/ nullptr));
+
+    for (int i = 0; i < nlines; ++i) {
+      std::string line = GenerateLine(i);
+      line.push_back('\n');
+      ASSERT_OK(file->Append(line, IOOptions(), /*dbg*/ nullptr));
+    }
+  }
+
+  // Verify with no I/O errors
+  {
+    std::unique_ptr<LineFileReader> reader;
+    ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
+                                     nullptr));
+    std::string line;
+    int count = 0;
+    while (reader->ReadLine(&line)) {
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_OK(reader->GetStatus());
+    ASSERT_EQ(count, nlines);
+    ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    // And still
+    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_OK(reader->GetStatus());
+    ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+  }
+
+  // Verify with injected I/O error
+  {
+    std::unique_ptr<LineFileReader> reader;
+    ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
+                                     nullptr));
+    std::string line;
+    int count = 0;
+    // Read part way through the file
+    while (count < nlines / 4) {
+      ASSERT_TRUE(reader->ReadLine(&line));
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_OK(reader->GetStatus());
+
+    // Inject error
+    int callback_count = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "MemFile::Read:IOStatus", [&](void* arg) {
+          IOStatus* status = static_cast<IOStatus*>(arg);
+          *status = IOStatus::Corruption("test");
+          ++callback_count;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    while (reader->ReadLine(&line)) {
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_TRUE(reader->GetStatus().IsCorruption());
+    ASSERT_LT(count, nlines / 2);
+    ASSERT_EQ(callback_count, 1);
+
+    // Still get error & no retry
+    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_TRUE(reader->GetStatus().IsCorruption());
+    ASSERT_EQ(callback_count, 1);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

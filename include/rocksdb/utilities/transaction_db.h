@@ -194,7 +194,7 @@ struct TransactionDBOptions {
 
   // If true, the TransactionDB implementation might skip concurrency control
   // unless it is overridden by TransactionOptions or
-  // TransactionDBWriteOptimizations. This can be used in conjuction with
+  // TransactionDBWriteOptimizations. This can be used in conjunction with
   // DBOptions::unordered_write when the TransactionDB is used solely for write
   // ordering rather than concurrency control.
   bool skip_concurrency_control = false;

@@ -9,8 +9,11 @@
 
 #pragma once
 
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
+#include <stdint.h>
+
+#include <string>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,7 +36,7 @@ class ConcurrentTaskLimiter {
   virtual int32_t GetOutstandingTask() const = 0;
 };
 
-// Create a ConcurrentTaskLimiter that can be shared with mulitple CFs
+// Create a ConcurrentTaskLimiter that can be shared with multiple CFs
 // across RocksDB instances to control concurrent tasks.
 //
 // @param name: Name of the limiter.
