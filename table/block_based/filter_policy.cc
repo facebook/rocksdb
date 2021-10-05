@@ -13,6 +13,7 @@
 #include <deque>
 #include <limits>
 
+#include "logging/logging.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/filter_policy_internal.h"

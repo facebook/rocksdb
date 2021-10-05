@@ -153,7 +153,7 @@ DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
-DECLARE_string(expected_values_path);
+DECLARE_string(expected_values_dir);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);

@@ -12,7 +12,6 @@
 #include <string>
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
-#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -34,7 +33,7 @@ class Version;
 // the same as the inner DBIter.
 class ArenaWrappedDBIter : public Iterator {
  public:
-  virtual ~ArenaWrappedDBIter() {
+  ~ArenaWrappedDBIter() override {
     if (db_iter_ != nullptr) {
       db_iter_->~DBIter();
     } else {

@@ -9,7 +9,10 @@
 #include "db/dbformat.h"
 
 #include <stdio.h>
+
 #include <cinttypes>
+
+#include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/coding.h"

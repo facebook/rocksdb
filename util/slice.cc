@@ -7,32 +7,47 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <algorithm>
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/slice.h"
-#include "util/string_util.h"
+
 #include <stdio.h>
+
+#include <algorithm>
+
+#include "rocksdb/convenience.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    slice_transform_length_info = {
+#ifndef ROCKSDB_LITE
+        {"length",
+         {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
+#endif  // ROCKSDB_LITE
+};
 
 class FixedPrefixTransform : public SliceTransform {
  private:
   size_t prefix_len_;
-  std::string name_;
 
  public:
-  explicit FixedPrefixTransform(size_t prefix_len)
-      : prefix_len_(prefix_len),
-        // Note that if any part of the name format changes, it will require
-        // changes on options_helper in order to make RocksDBOptionsParser work
-        // for the new change.
-        // TODO(yhchiang): move serialization / deserializaion code inside
-        // the class implementation itself.
-        name_("rocksdb.FixedPrefix." + ToString(prefix_len_)) {}
+  explicit FixedPrefixTransform(size_t prefix_len) : prefix_len_(prefix_len) {
+    RegisterOptions(Name(), &prefix_len_, &slice_transform_length_info);
+  }
 
-  const char* Name() const override { return name_.c_str(); }
+  static const char* kClassName() { return "rocksdb.FixedPrefix"; }
+  static const char* kNickName() { return "fixed"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+
+  std::string GetId() const override {
+    return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(prefix_len_);
+  }
 
   Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
@@ -60,19 +75,19 @@ class FixedPrefixTransform : public SliceTransform {
 class CappedPrefixTransform : public SliceTransform {
  private:
   size_t cap_len_;
-  std::string name_;
 
  public:
-  explicit CappedPrefixTransform(size_t cap_len)
-      : cap_len_(cap_len),
-        // Note that if any part of the name format changes, it will require
-        // changes on options_helper in order to make RocksDBOptionsParser work
-        // for the new change.
-        // TODO(yhchiang): move serialization / deserializaion code inside
-        // the class implementation itself.
-        name_("rocksdb.CappedPrefix." + ToString(cap_len_)) {}
+  explicit CappedPrefixTransform(size_t cap_len) : cap_len_(cap_len) {
+    RegisterOptions(Name(), &cap_len_, &slice_transform_length_info);
+  }
 
-  const char* Name() const override { return name_.c_str(); }
+  static const char* kClassName() { return "rocksdb.CappedPrefix"; }
+  static const char* kNickName() { return "capped"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+  std::string GetId() const override {
+    return std::string(Name()) + "." + ROCKSDB_NAMESPACE::ToString(cap_len_);
+  }
 
   Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
@@ -99,7 +114,8 @@ class NoopTransform : public SliceTransform {
  public:
   explicit NoopTransform() { }
 
-  const char* Name() const override { return "rocksdb.Noop"; }
+  static const char* kClassName() { return "rocksdb.Noop"; }
+  const char* Name() const override { return kClassName(); }
 
   Slice Transform(const Slice& src) const override { return src; }
 
@@ -112,6 +128,151 @@ class NoopTransform : public SliceTransform {
   }
 };
 
+}  // end namespace
+
+const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {
+  return new FixedPrefixTransform(prefix_len);
+}
+
+const SliceTransform* NewCappedPrefixTransform(size_t cap_len) {
+  return new CappedPrefixTransform(cap_len);
+}
+
+const SliceTransform* NewNoopTransform() { return new NoopTransform; }
+
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
+                                         const std::string& /*arg*/) {
+  library.Register<const SliceTransform>(
+      NoopTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(NewNoopTransform());
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(FixedPrefixTransform::kNickName()) + ":[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        auto len = ParseSizeT(uri.substr(colon + 1));
+        guard->reset(NewFixedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      FixedPrefixTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(NewFixedPrefixTransform(0));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(FixedPrefixTransform::kClassName()) + "\\.[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto len = ParseSizeT(
+            uri.substr(strlen(FixedPrefixTransform::kClassName()) + 1));
+        guard->reset(NewFixedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(CappedPrefixTransform::kNickName()) + ":[0-9]+",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        auto len = ParseSizeT(uri.substr(colon + 1));
+        guard->reset(NewCappedPrefixTransform(len));
+        return guard->get();
+      });
+  library.Register<const SliceTransform>(
+      std::string(CappedPrefixTransform::kClassName()) + "(\\.[0-9]+)?",
+      [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
+         std::string* /*errmsg*/) {
+        if (uri == CappedPrefixTransform::kClassName()) {
+          guard->reset(NewCappedPrefixTransform(0));
+        } else {  // Length + "."
+          auto len = ParseSizeT(
+              uri.substr(strlen(CappedPrefixTransform::kClassName()) + 1));
+          guard->reset(NewCappedPrefixTransform(len));
+        }
+        return guard->get();
+      });
+  return 5;
+}
+#endif  // ROCKSDB_LITE
+
+Status SliceTransform::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<const SliceTransform>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinSliceTransform(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  }
+#ifndef ROCKSDB_LITE
+  status = config_options.registry->NewSharedObject(id, result);
+#else
+  auto Matches = [](const std::string& input, size_t size, const char* pattern,
+                    char sep) {
+    auto plen = strlen(pattern);
+    return (size > plen + 2 && input[plen] == sep &&
+            StartsWith(input, pattern));
+  };
+
+  auto size = id.size();
+  if (id == NoopTransform::kClassName()) {
+    result->reset(NewNoopTransform());
+  } else if (Matches(id, size, FixedPrefixTransform::kNickName(), ':')) {
+    auto fixed = strlen(FixedPrefixTransform::kNickName());
+    auto len = ParseSizeT(id.substr(fixed + 1));
+    result->reset(NewFixedPrefixTransform(len));
+  } else if (Matches(id, size, CappedPrefixTransform::kNickName(), ':')) {
+    auto capped = strlen(CappedPrefixTransform::kNickName());
+    auto len = ParseSizeT(id.substr(capped + 1));
+    result->reset(NewCappedPrefixTransform(len));
+  } else if (Matches(id, size, CappedPrefixTransform::kClassName(), '.')) {
+    auto capped = strlen(CappedPrefixTransform::kClassName());
+    auto len = ParseSizeT(id.substr(capped + 1));
+    result->reset(NewCappedPrefixTransform(len));
+  } else if (Matches(id, size, FixedPrefixTransform::kClassName(), '.')) {
+    auto fixed = strlen(FixedPrefixTransform::kClassName());
+    auto len = ParseSizeT(id.substr(fixed + 1));
+    result->reset(NewFixedPrefixTransform(len));
+  } else {
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+  }
+#endif  // ROCKSDB_LITE
+  if (!status.ok()) {
+    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+      return Status::OK();
+    } else {
+      return status;
+    }
+  } else if (result->get() != nullptr) {
+    SliceTransform* transform = const_cast<SliceTransform*>(result->get());
+    status = transform->ConfigureFromMap(config_options, opt_map);
+  }
+  return status;
+}  // namespace ROCKSDB_NAMESPACE
+
+std::string SliceTransform::AsString() const {
+#ifndef ROCKSDB_LITE
+  ConfigOptions config_options;
+  config_options.delimiter = ";";
+  return ToString(config_options);
+#else
+  return GetId();
+#endif  // ROCKSDB_LITE
 }
 
 // 2 small internal utility functions, for efficient hex conversions
@@ -195,18 +356,6 @@ bool Slice::DecodeHex(std::string* result) const {
     result->push_back(static_cast<char>((h1 << 4) | h2));
   }
   return true;
-}
-
-const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {
-  return new FixedPrefixTransform(prefix_len);
-}
-
-const SliceTransform* NewCappedPrefixTransform(size_t cap_len) {
-  return new CappedPrefixTransform(cap_len);
-}
-
-const SliceTransform* NewNoopTransform() {
-  return new NoopTransform;
 }
 
 PinnableSlice::PinnableSlice(PinnableSlice&& other) {

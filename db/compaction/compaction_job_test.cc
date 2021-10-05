@@ -1293,13 +1293,16 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
   auto file1 =
       mock::MakeMockFile({{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
                           {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
-                          {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"}});
+                          {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"},
+                          {KeyStr("d", 7, ValueType::kTypeValue, 97), "d7"}});
+
   AddMockFile(file1);
 
   auto file2 = mock::MakeMockFile(
-      {{KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
-       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+      {{KeyStr("b", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 4, ValueType::kTypeValue, 94), "c5"},
+       {KeyStr("d", 3, ValueType::kTypeSingleDeletion, 93), ""}});
   AddMockFile(file2);
 
   SetLastSequence(10);
@@ -1308,9 +1311,11 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
       {{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
        {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
        {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"},
-       {KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
-       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+       {KeyStr("b", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 4, ValueType::kTypeValue, 94), "c5"},
+       {KeyStr("d", 7, ValueType::kTypeValue, 97), "d7"},
+       {KeyStr("d", 3, ValueType::kTypeSingleDeletion, 93), ""}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
 }
@@ -1348,19 +1353,21 @@ TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
 
   auto file1 = mock::MakeMockFile(
       {{KeyStr("a", 5, ValueType::kTypeDeletionWithTimestamp, 100), ""},
-       {KeyStr("b", 6, ValueType::kTypeValue, 99), "b6"}});
+       {KeyStr("b", 6, ValueType::kTypeSingleDeletion, 99), ""},
+       {KeyStr("c", 7, ValueType::kTypeValue, 98), "c7"}});
   AddMockFile(file1);
 
   auto file2 = mock::MakeMockFile(
-      {{KeyStr("a", 4, ValueType::kTypeValue, 98), "a4"},
-       {KeyStr("b", 3, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("b", 2, ValueType::kTypeValue, 96), "b2"}});
+      {{KeyStr("a", 4, ValueType::kTypeValue, 97), "a4"},
+       {KeyStr("b", 3, ValueType::kTypeValue, 96), "b3"},
+       {KeyStr("c", 2, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 1, ValueType::kTypeValue, 94), "c1"}});
   AddMockFile(file2);
 
-  SetLastSequence(6);
+  SetLastSequence(7);
 
   auto expected_results =
-      mock::MakeMockFile({{KeyStr("b", 0, ValueType::kTypeValue, 0), "b6"}});
+      mock::MakeMockFile({{KeyStr("c", 0, ValueType::kTypeValue, 0), "c7"}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
   full_history_ts_low_ = encode_u64_ts_(std::numeric_limits<uint64_t>::max());

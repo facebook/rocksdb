@@ -1021,6 +1021,9 @@ DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
 DEFINE_int32(trace_replay_threads, 1,
              "The number of threads to replay, must >=1.");
 
+DEFINE_bool(io_uring_enabled, true,
+            "If true, enable the use of IO uring if the platform supports it");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
@@ -4733,10 +4736,10 @@ class Benchmark {
     }
 
     Duration duration(test_duration, max_ops, ops_per_stage);
+    const uint64_t num_per_key_gen = num_ + max_num_range_tombstones_;
     for (size_t i = 0; i < num_key_gens; i++) {
       key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
-                                         num_ + max_num_range_tombstones_,
-                                         ops_per_stage));
+                                         num_per_key_gen, ops_per_stage));
     }
 
     if (num_ != FLAGS_num) {
@@ -4846,7 +4849,7 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
-    while (!duration.Done(entries_per_batch_)) {
+    while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
         if (db_.db != nullptr) {
@@ -5407,7 +5410,7 @@ class Benchmark {
         }
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
-            fprintf(stdout, "Level[%d]: %s(size: %" ROCKSDB_PRIszt " bytes)\n",
+            fprintf(stdout, "Level[%d]: %s(size: %" PRIi64 " bytes)\n",
                     levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
           }
         } else {

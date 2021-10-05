@@ -932,7 +932,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 }
 
 #ifndef ROCKSDB_LITE
-void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
+CompactionServiceJobStatus
+CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
@@ -969,7 +970,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   Status s = compaction_input.Write(&compaction_input_binary);
   if (!s.ok()) {
     sub_compact->status = s;
-    return;
+    return CompactionServiceJobStatus::kFailure;
   }
 
   std::ostringstream input_files_oss;
@@ -988,36 +989,73 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                                 GetCompactionId(sub_compact), thread_pri_);
   CompactionServiceJobStatus compaction_status =
       db_options_.compaction_service->StartV2(info, compaction_input_binary);
-  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
-    sub_compact->status =
-        Status::Incomplete("CompactionService failed to start compaction job.");
-    return;
+  switch (compaction_status) {
+    case CompactionServiceJobStatus::kSuccess:
+      break;
+    case CompactionServiceJobStatus::kFailure:
+      sub_compact->status = Status::Incomplete(
+          "CompactionService failed to start compaction job.");
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] Remote compaction failed to start.",
+                     compaction_input.column_family.name.c_str(), job_id_);
+      return compaction_status;
+    case CompactionServiceJobStatus::kUseLocal:
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "[%s] [JOB %d] Remote compaction fallback to local by API Start.",
+          compaction_input.column_family.name.c_str(), job_id_);
+      return compaction_status;
+    default:
+      assert(false);  // unknown status
+      break;
   }
 
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Waiting for remote compaction...",
+                 compaction_input.column_family.name.c_str(), job_id_);
   std::string compaction_result_binary;
   compaction_status = db_options_.compaction_service->WaitForCompleteV2(
       info, &compaction_result_binary);
 
+  if (compaction_status == CompactionServiceJobStatus::kUseLocal) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction fallback to local by API "
+                   "WaitForComplete.",
+                   compaction_input.column_family.name.c_str(), job_id_);
+    return compaction_status;
+  }
+
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
                                     &compaction_result);
-  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
-    sub_compact->status =
-        s.ok() ? compaction_result.status
-               : Status::Incomplete(
-                     "CompactionService failed to run compaction job.");
-    compaction_result.status.PermitUncheckedError();
+
+  if (compaction_status == CompactionServiceJobStatus::kFailure) {
+    if (s.ok()) {
+      if (compaction_result.status.ok()) {
+        sub_compact->status = Status::Incomplete(
+            "CompactionService failed to run the compaction job (even though "
+            "the internal status is okay).");
+      } else {
+        // set the current sub compaction status with the status returned from
+        // remote
+        sub_compact->status = compaction_result.status;
+      }
+    } else {
+      sub_compact->status = Status::Incomplete(
+          "CompactionService failed to run the compaction job (and no valid "
+          "result is returned).");
+      compaction_result.status.PermitUncheckedError();
+    }
     ROCKS_LOG_WARN(db_options_.info_log,
-                   "[%s] [JOB %d] Remote compaction failed, status: %s",
-                   compaction_input.column_family.name.c_str(), job_id_,
-                   s.ToString().c_str());
-    return;
+                   "[%s] [JOB %d] Remote compaction failed.",
+                   compaction_input.column_family.name.c_str(), job_id_);
+    return compaction_status;
   }
 
   if (!s.ok()) {
     sub_compact->status = s;
     compaction_result.status.PermitUncheckedError();
-    return;
+    return CompactionServiceJobStatus::kFailure;
   }
   sub_compact->status = compaction_result.status;
 
@@ -1037,7 +1075,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   if (!s.ok()) {
     sub_compact->status = s;
-    return;
+    return CompactionServiceJobStatus::kFailure;
   }
 
   for (const auto& file : compaction_result.output_files) {
@@ -1048,7 +1086,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
-      return;
+      return CompactionServiceJobStatus::kFailure;
     }
 
     FileMetaData meta;
@@ -1056,7 +1094,7 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
-      return;
+      return CompactionServiceJobStatus::kFailure;
     }
     meta.fd = FileDescriptor(file_num, compaction->output_path_id(), file_size,
                              file.smallest_seqno, file.largest_seqno);
@@ -1075,8 +1113,10 @@ void CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   sub_compact->num_output_records = compaction_result.num_output_records;
   sub_compact->approx_size = compaction_input.approx_size;  // is this used?
   sub_compact->total_bytes = compaction_result.total_bytes;
-  IOSTATS_ADD(bytes_written, compaction_result.bytes_written);
-  IOSTATS_ADD(bytes_read, compaction_result.bytes_read);
+  RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
+  RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
+             compaction_result.bytes_written);
+  return CompactionServiceJobStatus::kSuccess;
 }
 #endif  // !ROCKSDB_LITE
 
@@ -1086,7 +1126,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
 #ifndef ROCKSDB_LITE
   if (db_options_.compaction_service) {
-    return ProcessKeyValueCompactionWithCompactionService(sub_compact);
+    CompactionServiceJobStatus comp_status =
+        ProcessKeyValueCompactionWithCompactionService(sub_compact);
+    if (comp_status == CompactionServiceJobStatus::kSuccess ||
+        comp_status == CompactionServiceJobStatus::kFailure) {
+      return;
+    }
+    // fallback to local compaction
+    assert(comp_status == CompactionServiceJobStatus::kUseLocal);
   }
 #endif  // !ROCKSDB_LITE
 
@@ -2202,6 +2249,12 @@ std::string CompactionServiceCompactionJob::GetTableFileName(
   return MakeTableFileName(output_path_, file_number);
 }
 
+void CompactionServiceCompactionJob::RecordCompactionIOStats() {
+  compaction_result_->bytes_read += IOSTATS(bytes_read);
+  compaction_result_->bytes_written += IOSTATS(bytes_written);
+  CompactionJob::RecordCompactionIOStats();
+}
+
 CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
@@ -2292,9 +2345,6 @@ Status CompactionServiceCompactionJob::Run() {
   // Finish up all book-keeping to unify the subcompaction results
   AggregateStatistics();
   UpdateCompactionStats();
-
-  compaction_result_->bytes_written = IOSTATS(bytes_written);
-  compaction_result_->bytes_read = IOSTATS(bytes_read);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);

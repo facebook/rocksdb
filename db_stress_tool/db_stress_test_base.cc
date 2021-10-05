@@ -14,6 +14,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
@@ -2779,12 +2780,6 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
     fprintf(stderr,
             "Only -user_timestamp_size=%d is supported in stress test.\n",
             static_cast<int>(cmp->timestamp_size()));
-    exit(1);
-  }
-  if (FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "-nooverwritepercent must be 0 because SingleDelete must be "
-            "disabled.\n");
     exit(1);
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
