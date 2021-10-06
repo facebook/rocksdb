@@ -2819,8 +2819,10 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
 
   if (mutable_cf_options.enable_blob_garbage_collection &&
+      mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
       mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
     ComputeFilesMarkedForForcedBlobGC(
+        mutable_cf_options.blob_garbage_collection_age_cutoff,
         mutable_cf_options.blob_garbage_collection_force_threshold);
   }
 
@@ -2934,6 +2936,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 }
 
 void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
+    double blob_garbage_collection_age_cutoff,
     double blob_garbage_collection_force_threshold) {
   files_marked_for_forced_blob_gc_.clear();
 
@@ -2941,9 +2944,21 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
+  // Number of blob files eligible for GC based on age
+  const size_t cutoff_count =
+      blob_garbage_collection_age_cutoff * blob_files_.size();
+  if (cutoff_count <= 1) {
+    return;
+  }
+
   // Compute the sum of total and garbage bytes over the oldest batch of blob
   // files. The oldest batch is defined as the set of blob files which are
   // referenced by the same linked SSTs as the very oldest one.
+  //
+  // The overall ratio of garbage computed for the batch has to exceed
+  // blob_garbage_collection_force_threshold and the entire batch has to be
+  // eligible for GC according to blob_garbage_collection_age_cutoff in order
+  // for us to schedule any compactions.
   auto oldest_it = blob_files_.begin();
 
   const auto& oldest_meta = oldest_it->second;
@@ -2952,6 +2967,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   const auto& linked_ssts = oldest_meta->GetLinkedSsts();
   assert(!linked_ssts.empty());
 
+  size_t count = 1;
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
@@ -2962,6 +2978,10 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
     if (!meta->GetLinkedSsts().empty()) {
       break;
+    }
+
+    if (++count >= cutoff_count) {
+      return;
     }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();

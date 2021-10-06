@@ -189,6 +189,7 @@ class VersionStorageInfo {
   //
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
+      double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold);
 
   // Generate level_files_brief_ from files_
