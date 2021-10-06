@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef ROCKSDB_LITE
+
 #include "utilities/cache_dump_load_impl.h"
 
 #include "cache/cache_entry_roles.h"
@@ -21,17 +23,21 @@ namespace ROCKSDB_NAMESPACE {
 // Therefore, a filter is need to decide if the key of the block satisfy the
 // requirement.
 Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
+  Status s = Status::OK();
   for (size_t i = 0; i < db_list.size(); i++) {
     assert(i < db_list.size());
     TablePropertiesCollection ptc;
     assert(db_list[i] != nullptr);
-    db_list[i]->GetPropertiesOfAllTables(&ptc);
+    s = db_list[i]->GetPropertiesOfAllTables(&ptc);
+    if (!s.ok()) {
+      return s;
+    }
     for (auto id = ptc.begin(); id != ptc.end(); id++) {
       assert(id->second->db_session_id.size() == 20);
       prefix_filter_.insert(id->second->db_session_id);
     }
   }
-  return Status::OK();
+  return s;
 }
 
 // This is the main function to dump out the cache block entries to the writer.
@@ -67,7 +73,10 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
   // Finally, write the footer
   io_s = WriteFooter();
-  writer_->Close();
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  io_s = writer_->Close();
   return io_s;
 }
 
@@ -96,7 +105,7 @@ CacheDumperImpl::DumpOneBlockCallBack() {
     // Step 1: get the type of the block from role_map_
     auto e = role_map_.find(deleter);
     CacheEntryRole role;
-    CacheDumpUnitType type;
+    CacheDumpUnitType type = CacheDumpUnitType::kBlockTypeMax;
     if (e == role_map_.end()) {
       role = CacheEntryRole::kMisc;
     } else {
@@ -158,9 +167,11 @@ CacheDumperImpl::DumpOneBlockCallBack() {
     // Step 4: if the block should not be filter out, write the block to the
     // CacheDumpWriter
     if (!filter_out && block_start != nullptr) {
-      char buffer[block_len];
+      char* buffer = new char[block_len];
       memcpy(buffer, block_start, block_len);
-      WriteCacheBlock(type, key, (void*)buffer, block_len);
+      WriteCacheBlock(type, key, (void*)buffer, block_len)
+          .PermitUncheckedError();
+      delete[] buffer;
     }
   };
 }
@@ -295,7 +306,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         Slice((char*)dump_unit.value, dump_unit.value_len));
     Cache::CacheItemHelper* helper = nullptr;
     Statistics* statistics = nullptr;
-    void* block = nullptr;
+    Status s = Status::OK();
     // according to the block type, get the helper callback function and create
     // the corresponding block
     switch (dump_unit.type) {
@@ -306,7 +317,13 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         block_holder.reset(BlocklikeTraits<BlockContents>::Create(
             std::move(raw_block_contents), 0, statistics, false,
             toptions_.filter_policy.get()));
-        block = (void*)block_holder.release();
+        // Insert the block to secondary cache.
+        // Note that, if we cannot get the correct helper callback, the block
+        // will not be inserted.
+        if (helper != nullptr) {
+          s = secondary_cache_->Insert(dump_unit.key,
+                                       (void*)(block_holder.get()), helper);
+        }
         break;
       }
       case CacheDumpUnitType::kFilter: {
@@ -316,7 +333,10 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
             std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
-        block = (void*)block_holder.release();
+        if (helper != nullptr) {
+          s = secondary_cache_->Insert(dump_unit.key,
+                                       (void*)(block_holder.get()), helper);
+        }
         break;
       }
       case CacheDumpUnitType::kData: {
@@ -325,7 +345,10 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
-        block = (void*)block_holder.release();
+        if (helper != nullptr) {
+          s = secondary_cache_->Insert(dump_unit.key,
+                                       (void*)(block_holder.get()), helper);
+        }
         break;
       }
       case CacheDumpUnitType::kIndex: {
@@ -334,7 +357,10 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(raw_block_contents), 0, statistics, false,
             toptions_.filter_policy.get()));
-        block = (void*)block_holder.release();
+        if (helper != nullptr) {
+          s = secondary_cache_->Insert(dump_unit.key,
+                                       (void*)(block_holder.get()), helper);
+        }
         break;
       }
       case CacheDumpUnitType::kFilterMetaBlock: {
@@ -343,7 +369,10 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
-        block = (void*)block_holder.release();
+        if (helper != nullptr) {
+          s = secondary_cache_->Insert(dump_unit.key,
+                                       (void*)(block_holder.get()), helper);
+        }
         break;
       }
       case CacheDumpUnitType::kFooter:
@@ -351,11 +380,8 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
       default:
         continue;
     }
-    // Insert the block to secondary cache.
-    // Note that, if we cannot get the correct helper callback, the block will
-    // not be inserted.
-    if (helper != nullptr) {
-      secondary_cache_->Insert(dump_unit.key, block, helper);
+    if (!s.ok()) {
+      io_s = status_to_io_status(std::move(s));
     }
   }
   if (dump_unit.type == CacheDumpUnitType::kFooter) {
@@ -403,6 +429,7 @@ IOStatus CacheDumpedLoaderImpl::ReadDumpUnit(size_t len, std::string* data,
 IOStatus CacheDumpedLoaderImpl::ReadHeader(std::string* data,
                                            DumpUnit* dump_unit) {
   DumpUnitMeta header_meta;
+  header_meta.reset();
   std::string meta_string;
   IOStatus io_s = ReadDumpUnitMeta(&meta_string, &header_meta);
   if (!io_s.ok()) {
@@ -425,6 +452,7 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
                                                DumpUnit* dump_unit) {
   // According to the write process, we read the dump_unit_metadata first
   DumpUnitMeta unit_meta;
+  unit_meta.reset();
   std::string unit_string;
   IOStatus io_s = ReadDumpUnitMeta(&unit_string, &unit_meta);
   if (!io_s.ok()) {
@@ -446,3 +474,4 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+#endif  // ROCKSDB_LITE

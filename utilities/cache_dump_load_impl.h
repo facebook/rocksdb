@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#ifndef ROCKSDB_LITE
 
 #include <unordered_map>
 
@@ -50,6 +51,12 @@ struct DumpUnitMeta {
   uint32_t dump_unit_checksum;
   // The dump unit size after the dump unit is serilized to a string.
   uint64_t dump_unit_size;
+
+  void reset() {
+    sequence_num = 0;
+    dump_unit_checksum = 0;
+    dump_unit_size = 0;
+  }
 };
 
 // The data structure to hold a block and its information.
@@ -209,12 +216,18 @@ class FromFileCacheDumpReader : public CacheDumpReader {
   virtual IOStatus ReadMetadata(std::string* metadata) override {
     uint32_t metadata_len = 0;
     IOStatus io_s = ReadSizePrefix(&metadata_len);
+    if (!io_s.ok()) {
+      return io_s;
+    }
     return Read(metadata_len, metadata);
   }
 
   virtual IOStatus ReadPacket(std::string* data) override {
     uint32_t data_len = 0;
     IOStatus io_s = ReadSizePrefix(&data_len);
+    if (!io_s.ok()) {
+      return io_s;
+    }
     return Read(data_len, data);
   }
 
@@ -347,3 +360,4 @@ class CacheDumperHelper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
+#endif  // ROCKSDB_LITE

@@ -1187,16 +1187,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
 class LRUCacheWithStat : public LRUCache {
  public:
   LRUCacheWithStat(
-      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      double high_pri_pool_ratio,
-      std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-      bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-      CacheMetadataChargePolicy metadata_charge_policy =
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
           kDontChargeCacheMetadata,
-      const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr)
-      : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                 high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                 metadata_charge_policy, secondary_cache) {
+      const std::shared_ptr<SecondaryCache>& _secondary_cache = nullptr)
+      : LRUCache(_capacity, _num_shard_bits, _strict_capacity_limit,
+                 _high_pri_pool_ratio, _memory_allocator, _use_adaptive_mutex,
+                 _metadata_charge_policy, _secondary_cache) {
     insert_count_ = 0;
     lookup_count_ = 0;
   }
@@ -1235,6 +1235,8 @@ class LRUCacheWithStat : public LRUCache {
   uint32_t insert_count_;
   uint32_t lookup_count_;
 };
+
+#ifndef ROCKSDB_LITE
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
@@ -1388,9 +1390,11 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.env = fault_env_.get();
   std::string dbname1 = test::PerThreadDBPath("db_1");
+  ASSERT_OK(DestroyDB(dbname1, options));
   DB* db1 = nullptr;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
   std::string dbname2 = test::PerThreadDBPath("db_2");
+  ASSERT_OK(DestroyDB(dbname2, options));
   DB* db2 = nullptr;
   ASSERT_OK(DB::Open(options, dbname2, &db2));
   fault_fs_->SetFailGetUniqueId(true);
@@ -1503,7 +1507,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_EQ(0, static_cast<int>(load_lookup));
   ASSERT_OK(s);
 
-  db1->Close();
+  ASSERT_OK(db1->Close());
+  delete db1;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
 
   // After load, we do the Get again. To validate the cache, we do not allow any
@@ -1533,7 +1538,12 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
   delete db1;
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname1, options));
+  ASSERT_OK(DestroyDB(dbname2, options));
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

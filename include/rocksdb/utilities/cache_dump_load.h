@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#ifndef ROCKSDB_LITE
 
 #include <set>
 
@@ -138,3 +139,4 @@ Status NewDefaultCacheDumpedLoader(
     std::unique_ptr<CacheDumpedLoader>* cache_dump_loader);
 
 }  // namespace ROCKSDB_NAMESPACE
+#endif  // ROCKSDB_LITE
