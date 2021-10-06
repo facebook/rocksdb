@@ -6817,8 +6817,6 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   Destroy(options);
 }
 
-#endif  // !defined(ROCKSDB_LITE)
-
 TEST_F(DBCompactionTest,
        DisableManualCompactionDoesNotWaitForDrainingAutomaticCompaction) {
   // When `CompactRangeOptions::exclusive_manual_compaction == true`, we wait
@@ -6862,6 +6860,8 @@ TEST_F(DBCompactionTest,
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(callback_completed);
 }
+
+#endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
 
