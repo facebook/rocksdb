@@ -206,7 +206,7 @@ class StressTest {
   virtual Status TestCustomOperations(
       ThreadState* /*thread*/,
       const std::vector<int>& /*rand_column_families*/) {
-    return Status::NotSupported("TestCustomOperations() must be overriden");
+    return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;

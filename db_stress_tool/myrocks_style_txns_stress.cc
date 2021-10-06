@@ -1178,7 +1178,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
       s = db_->Get(ropts, pk, &value);
       if (!s.ok()) {
         std::ostringstream oss;
-        oss << "Error searching pk " << Slice(pk).ToString(/*hex=*/true) << ". "
+        oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
             << s.ToString();
         VerificationAbort(thread->shared, oss.str(), s);
         return;
@@ -1188,7 +1188,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
       if (!s.ok()) {
         std::ostringstream oss;
         oss << "Error decoding primary index value "
-            << Slice(value).ToString(/*hex=*/true) << ". " << s.ToString();
+            << Slice(value).ToString(true) << ". " << s.ToString();
         VerificationAbort(thread->shared, oss.str(), s);
       }
       uint32_t c_in_primary = std::get<2>(result);
