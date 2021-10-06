@@ -11,7 +11,6 @@
 #include <random>
 
 #include "port/port.h"
-#include "port/port_posix.h"
 #include "rocksdb/env.h"
 #include "rocksdb/version.h"
 #include "util/hash.h"

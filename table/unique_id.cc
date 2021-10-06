@@ -69,8 +69,8 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   if (db_session_id.empty()) {
     return Status::NotSupported("Missing db_session_id");
   }
-  uint64_t session_upper;
-  uint64_t session_lower;
+  uint64_t session_upper = 0;  // Assignment to appease clang-analyze
+  uint64_t session_lower = 0;  // Assignment to appease clang-analyze
   {
     Status s = DecodeSessionId(db_session_id, &session_upper, &session_lower);
     if (!s.ok()) {
@@ -80,7 +80,9 @@ Status GetSstInternalUniqueId(const std::string &db_id,
 
   // Exactly preserve session lower to ensure that session ids generated
   // during the same process lifetime are guaranteed unique.
-  (*out)[1] = session_lower;
+  // We put this first in anticipation of matching a small-ish set of cache
+  // key prefixes to cover entries relevant to any DB.
+  (*out)[0] = session_lower;
 
   // Hash the session upper (~39 bits entropy) and DB id (120+ bits entropy)
   // for very high global uniqueness entropy.
@@ -93,7 +95,7 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   // Xor in file number for guaranteed uniqueness by file number for a given
   // session and DB id. (Xor slightly better than + here. See
   // https://github.com/pdillinger/unique_id )
-  (*out)[0] = db_a ^ file_number;
+  (*out)[1] = db_a ^ file_number;
 
   // Extra (optional) global uniqueness
   (*out)[2] = db_b;
