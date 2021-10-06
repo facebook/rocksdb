@@ -2941,8 +2941,9 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  // Compute the overall ratio of garbage for the oldest batch of blob files
-  // which are referenced by the same linked SSTs
+  // Compute the sum of total and garbage bytes over the oldest batch of blob
+  // files. The oldest batch is defined as the set of blob files which are
+  // referenced by the same linked SSTs as the very oldest one.
   auto oldest_it = blob_files_.begin();
 
   const auto& oldest_meta = oldest_it->second;
@@ -2967,10 +2968,8 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
   }
 
-  const double garbage_ratio =
-      1.0 * sum_garbage_blob_bytes / sum_total_blob_bytes;
-
-  if (garbage_ratio < blob_garbage_collection_force_threshold) {
+  if (sum_garbage_blob_bytes <
+      blob_garbage_collection_force_threshold * sum_total_blob_bytes) {
     return;
   }
 
