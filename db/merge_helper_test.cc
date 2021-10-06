@@ -3,30 +3,33 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/merge_helper.h"
+
 #include <algorithm>
 #include <string>
 #include <vector>
 
-#include "db/merge_helper.h"
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/vector_iterator.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class MergeHelperTest : public testing::Test {
  public:
-  MergeHelperTest() { env_ = Env::Default(); }
+  MergeHelperTest() : icmp_(BytewiseComparator()) { env_ = Env::Default(); }
 
   ~MergeHelperTest() override = default;
 
   Status Run(SequenceNumber stop_before, bool at_bottom,
              SequenceNumber latest_snapshot = 0) {
-    iter_.reset(new test::VectorIterator(ks_, vs_));
+    iter_.reset(new VectorIterator(ks_, vs_, &icmp_));
     iter_->SeekToFirst();
-    merge_helper_.reset(new MergeHelper(env_, BytewiseComparator(),
+    merge_helper_.reset(new MergeHelper(env_, icmp_.user_comparator(),
                                         merge_op_.get(), filter_.get(), nullptr,
                                         false, latest_snapshot));
     return merge_helper_->MergeUntil(iter_.get(), nullptr /* range_del_agg */,
@@ -45,7 +48,8 @@ class MergeHelperTest : public testing::Test {
   }
 
   Env* env_;
-  std::unique_ptr<test::VectorIterator> iter_;
+  InternalKeyComparator icmp_;
+  std::unique_ptr<VectorIterator> iter_;
   std::shared_ptr<MergeOperator> merge_op_;
   std::unique_ptr<MergeHelper> merge_helper_;
   std::vector<std::string> ks_;

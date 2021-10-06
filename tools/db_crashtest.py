@@ -297,8 +297,6 @@ ts_params = {
     "user_timestamp_size": 8,
     "use_merge": 0,
     "use_full_merge_v1": 0,
-    # In order to disable SingleDelete
-    "nooverwritepercent": 0,
     "use_txn": 0,
     "read_only": 0,
     "secondary_catch_up_one_in": 0,

@@ -4746,9 +4746,9 @@ Status VersionSet::Recover(
     if (!s.ok()) {
       return s;
     }
-    manifest_file_reader.reset(
-        new SequentialFileReader(std::move(manifest_file), manifest_path,
-                                 db_options_->log_readahead_size, io_tracer_));
+    manifest_file_reader.reset(new SequentialFileReader(
+        std::move(manifest_file), manifest_path,
+        db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
   }
   uint64_t current_manifest_file_size = 0;
   uint64_t log_number = 0;
@@ -4918,9 +4918,9 @@ Status VersionSet::TryRecoverFromOneManifest(
     if (!s.ok()) {
       return s;
     }
-    manifest_file_reader.reset(
-        new SequentialFileReader(std::move(manifest_file), manifest_path,
-                                 db_options_->log_readahead_size, io_tracer_));
+    manifest_file_reader.reset(new SequentialFileReader(
+        std::move(manifest_file), manifest_path,
+        db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
   }
 
   assert(s.ok());
@@ -5950,9 +5950,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
                              &manifest_file, nullptr);
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
   if (s.ok()) {
-    manifest_file_reader.reset(
-        new SequentialFileReader(std::move(manifest_file), manifest_path,
-                                 db_options_->log_readahead_size, io_tracer_));
+    manifest_file_reader.reset(new SequentialFileReader(
+        std::move(manifest_file), manifest_path,
+        db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
     manifest_reader->reset(new log::FragmentBufferedReader(
         nullptr, std::move(manifest_file_reader), reporter, true /* checksum */,
         0 /* log_number */));
