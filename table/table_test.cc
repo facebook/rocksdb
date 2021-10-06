@@ -1604,15 +1604,15 @@ TEST_F(TablePropertyTest, UniqueIdsShortened) {
 
   // Test uint64_t API
   TestShortened(
-      tp, std::array<uint64_t, 3>{0xdae515cc2a209653U, 0xb5daa2e5ab687d5fU,
-                                  0xc5a1f451433dd55cU});
+      tp, std::array<uint64_t, 3>{
+              {0xdae515cc2a209653U, 0xb5daa2e5ab687d5fU, 0xc5a1f451433dd55cU}});
 
   // Test char API (little endian of above)
-  TestShortened(
-      tp, std::array<char, 24>{'\x53', '\x96', '\x20', '\x2a', '\xcc', '\x15',
-                               '\xe5', '\xda', '\x5f', '\x7d', '\x68', '\xab',
-                               '\xe5', '\xa2', '\xda', '\xb5', '\x5c', '\xd5',
-                               '\x3d', '\x43', '\x51', '\xf4', '\xa1', '\xc5'});
+  TestShortened(tp, std::array<char, 24>{
+                        {'\x53', '\x96', '\x20', '\x2a', '\xcc', '\x15',
+                         '\xe5', '\xda', '\x5f', '\x7d', '\x68', '\xab',
+                         '\xe5', '\xa2', '\xda', '\xb5', '\x5c', '\xd5',
+                         '\x3d', '\x43', '\x51', '\xf4', '\xa1', '\xc5'}});
 }
 
 TEST_F(TablePropertyTest, UniqueIdsFailure) {
