@@ -6836,8 +6836,7 @@ TEST_F(DBCompactionTest,
   // compactions to finish.
   bool callback_completed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0",
-      [&](void* /*arg*/) {
+      "BackgroundCallCompaction:0", [&](void* /*arg*/) {
         db_->DisableManualCompaction();
         callback_completed = true;
       });
