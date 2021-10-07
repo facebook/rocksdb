@@ -2596,7 +2596,10 @@ TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
   DestroyAndReopen(options);
   std::vector<std::thread> workers;
   for (int i = 0; i < 10; i++) {
-    workers.push_back(std::thread([&]() { db_->Close(); }));
+    workers.push_back(std::thread([&]() {
+      auto s = db_->Close();
+      ASSERT_OK(s);
+    }));
   }
   for (auto& w : workers) {
     w.join();
