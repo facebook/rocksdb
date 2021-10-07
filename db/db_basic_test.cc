@@ -2591,6 +2591,18 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 10; i++) {
+    workers.push_back(std::thread([&]() { db_->Close(); }));
+  }
+  for (auto& w : workers) {
+    w.join();
+  }
+}
+
 #ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
