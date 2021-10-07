@@ -20,7 +20,7 @@ policy. Here we explain why and how.
 ## Problem & background
 Bloom filters play a critical role in optimizing point queries and
 some range queries in LSM-tree storage systems like RocksDB. Very
-large DBs often use 10%-30% of their RAM memory for (Bloom) filters,
+large DBs can use 10% or more of their RAM memory for (Bloom) filters,
 so that (average case) read performance can be very good despite high
 (worst case) read amplification, [which is useful for lowering write
 and/or space
@@ -75,9 +75,9 @@ were managable for use in RocksDB:
   quick calculation shows that if you are saving 3 bits per key on the
   generated filter, you only need about 50 generated filters in memory
   to offset this temporary memory usage. (Thousands of filters in
-  memory is typical.) Currently under development is a change to track
-  this temporary memory usage (Bloom and Ribbon both) under the block
-  cache limit.
+  memory is typical.) Starting in RocksDB version 6.27, this temporary
+  memory can be accounted for under block cache using
+  `BlockBasedTableOptions::reserve_table_builder_memory`.
 * Ribbon filter queries use relatively more CPU for lower FP rates
   (but still O(1) relative to number of keys added to filter). This
   should be OK because lower FP rates are only appropriate when then
@@ -94,7 +94,7 @@ Different applications and hardware configurations have different
 constraints, but we can use hardware costs to examine and better
 understand the trade-off between Bloom and Ribbon.
 
-### Same FP rate, RAM vs. CPU hardware cost 
+### Same FP rate, RAM vs. CPU hardware cost
 Under ideal conditions where we can adjust our hardware to suit the
 application, in terms of dollars, how much does it cost to construct,
 query, and keep in memory a Bloom filter vs. a Ribbon filter?  The
@@ -113,7 +113,7 @@ longer than this should be Ribbon. (Python code)
 # Upfront cost of a CPU per hardware thread
 upfront_dollars_per_cpu_thread = 30.0
 
-# CPU average power usage per hardware thread 
+# CPU average power usage per hardware thread
 watts_per_cpu_thread = 3.5
 
 # Upfront cost of a GB of RAM
@@ -210,7 +210,40 @@ days or weeks. So even if Ribbon filters weren't the best choice on
 average for a workload, they almost certainly make sense for the
 larger, longer-lived levels of the LSM. As of RocksDB 6.24, you can
 specify a minimum LSM level for Ribbon filters with
-`NewRibbonFilterPolicy`, and higher levels will use Bloom filters.
+`NewRibbonFilterPolicy`, and earlier levels will use Bloom filters.
+
+### Resident filter memory
+The above analysis assumes that nearly all filters for all live SST
+files are resident in memory. This is true if using
+`cache_index_and_filter_blocks=0` and `max_open_files=-1` (defaults),
+but `cache_index_and_filter_blocks=1` is popular. In that case,
+if you use `optimize_filters_for_hits=1` and non-partitioned filters
+(a popular MyRocks configuration), it is also likely that nearly all
+live filters are in memory. However, if you don't use
+`optimize_filters_for_hits` and use partitioned filters, then
+cold data (by age or by key range) can lead to only a portion of
+filters being resident in memory. In that case, benefit from Ribbon
+filter is not as clear, though because Ribbon filters are smaller,
+they are more efficient to read into memory.
+
+RocksDB version 6.21 and later include a rough feature to determine
+block cache usage for data blocks, filter blocks, index blocks, etc.
+Data like this is periodically dumped to LOG file
+(`stats_dump_period_sec`):
+
+```
+Block cache entry stats(count,size,portion): DataBlock(441761,6.82 GB,75.765%) FilterBlock(3002,1.27 GB,14.1387%) IndexBlock(17777,887.75 MB,9.63267%) Misc(1,0.00 KB,0%)
+Block cache LRUCache@0x7fdd08104290#7004432 capacity: 9.00 GB collections: 2573 last_copies: 10 last_secs: 0.143248 secs_since: 0
+```
+
+This indicates that at this moment in time, the block cache object
+identified by `LRUCache@0x7fdd08104290#7004432` (potentially used
+by multiple DBs) uses roughly 14% of its 9GB, about 1.27 GB, on filter
+blocks. This same data is available through `DB::GetMapProperty` with
+`DB::Properties::kBlockCacheEntryStats`, and (with some effort) can
+be compared to total size of all filters (not necessarily in memory)
+using `rocksdb.filter.size` from
+`DB::Properties::kAggregatedTableProperties`.
 
 ### Sanity checking lifetime
 Can we be sure that using filters even makes sense for such long-lived
@@ -238,7 +271,7 @@ but there is less evidence for this commonly improving existing
 ## Generic recommendation
 If using `NewBloomFilterPolicy(bpk)` for a large persistent DB using
 compression, try using `NewRibbonFilterPolicy(bpk)` instead, which
-will generate Ribbon filters with during compaction and Bloom filters
+will generate Ribbon filters during compaction and Bloom filters
 for flush, both with the same FP rate as the old setting. Once new SST
 files are generated under the new policy, this should free up some
 memory for more caching without much effect on burst or sustained
