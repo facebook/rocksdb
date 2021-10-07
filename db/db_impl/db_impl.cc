@@ -4008,16 +4008,17 @@ DB::~DB() {}
 
 Status DBImpl::Close() {
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
-  if (!closed_) {
-    {
-      InstrumentedMutexLock l(&mutex_);
-      // If there is unreleased snapshot, fail the close call
-      if (!snapshots_.empty()) {
-        return Status::Aborted("Cannot close DB with unreleased snapshot.");
-      }
-    }
-    closed_ = true;
+  if (closed_) {
+    return Status::OK();
   }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If there is unreleased snapshot, fail the close call
+    if (!snapshots_.empty()) {
+      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    }
+  }
+  closed_ = true;
   return CloseImpl();
 }
 
