@@ -17,6 +17,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
@@ -6522,6 +6523,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
+
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
@@ -6530,11 +6534,31 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_GT(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
@@ -6583,6 +6607,8 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kHot);
   ASSERT_EQ(size, 0);
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
 
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
@@ -6600,6 +6626,17 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_EQ(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
