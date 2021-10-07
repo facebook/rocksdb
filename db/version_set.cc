@@ -2953,7 +2953,9 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
   // Compute the sum of total and garbage bytes over the oldest batch of blob
   // files. The oldest batch is defined as the set of blob files which are
-  // referenced by the same linked SSTs as the very oldest one.
+  // referenced by the same SSTs as the very oldest one. (Note that this
+  // translates to all blob files in the batch other than the oldest one
+  // having an empty linked SST set.)
   //
   // The overall ratio of garbage computed for the batch has to exceed
   // blob_garbage_collection_force_threshold and the entire batch has to be
