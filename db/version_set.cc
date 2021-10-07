@@ -2961,7 +2961,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   // blob_garbage_collection_force_threshold and the entire batch has to be
   // eligible for GC according to blob_garbage_collection_age_cutoff in order
   // for us to schedule any compactions.
-  auto oldest_it = blob_files_.begin();
+  const auto oldest_it = blob_files_.begin();
 
   const auto& oldest_meta = oldest_it->second;
   assert(oldest_meta);
