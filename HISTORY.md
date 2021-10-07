@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix `DisableManualCompaction()` to cancel compactions even when they are waiting on automatic compactions to drain due to `CompactRangeOptions::exclusive_manual_compactions == true`.
+
 ## 6.25.1 (2021-09-28)
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
