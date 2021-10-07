@@ -2947,7 +2947,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   // Number of blob files eligible for GC based on age
   const size_t cutoff_count =
       blob_garbage_collection_age_cutoff * blob_files_.size();
-  if (cutoff_count <= 1) {
+  if (!cutoff_count) {
     return;
   }
 
@@ -2980,7 +2980,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
       break;
     }
 
-    if (++count >= cutoff_count) {
+    if (++count > cutoff_count) {
       return;
     }
 
