@@ -718,6 +718,7 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
     CloseHelper().PermitUncheckedError();
@@ -4006,11 +4007,10 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() {}
 
 Status DBImpl::Close() {
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (closed_) {
-      return Status::OK();
-    } else {
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
+  if (!closed_) {
+    {
+      InstrumentedMutexLock l(&mutex_);
       // If there is unreleased snapshot, fail the close call
       if (!snapshots_.empty()) {
         return Status::Aborted("Cannot close DB with unreleased snapshot.");

@@ -2285,6 +2285,8 @@ class DBImpl : public DB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
+  InstrumentedMutex closing_mutex_;
+
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
   // column families, and different threads can flush different column
