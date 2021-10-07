@@ -349,12 +349,18 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.level_compaction_dynamic_level_bytes) {
-    if (result.compaction_style != kCompactionStyleLevel ||
-        result.cf_paths.size() > 1U) {
-      // 1. level_compaction_dynamic_level_bytes only makes sense for
-      //    level-based compaction.
-      // 2. we don't yet know how to make both of this feature and multiple
-      //    DB path work.
+    if (result.compaction_style != kCompactionStyleLevel) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "level_compaction_dynamic_level_bytes only makes sense"
+                     "for level-based compaction");
+      result.level_compaction_dynamic_level_bytes = false;
+    } else if (result.cf_paths.size() > 1U) {
+      // we don't yet know how to make both of this feature and multiple
+      // DB path work.
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "multiple cf_paths/db_paths and"
+                     "level_compaction_dynamic_level_bytes"
+                     "can't be used together");
       result.level_compaction_dynamic_level_bytes = false;
     }
   }
