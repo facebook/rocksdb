@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# REQUIRE: benchmark.sh exists in the current directory
+#
+# BlobDB benchmark script
+#
+# REQUIRES: benchmark.sh is in the tools subdirectory
+#
 # After the execution of this script, log files are available in $output_dir.
 # report.txt provides high level statistics.
-
+#
 # Should be run from the parent of the tools directory. The command line is:
 #   [$env_vars] tools/run_blob_bench.sh
 #
-# This runs the following sequence of tests:
+# This runs the following sequence of BlobDB performance tests:
 #   phase 1) write-only - bulkload+compact, overwrite+waitforcompaction
 #   phase 2) read-write - readwhilewriting, fwdrangewhilewriting
 #   phase 3) read-only - readrandom, fwdrange
@@ -21,6 +25,45 @@ K=1024
 M=$((1024 * K))
 G=$((1024 * M))
 T=$((1024 * G))
+
+function display_usage() {
+  echo "usage: run_blob_bench.sh [--help]"
+  echo ""
+  echo "Runs the following sequence of BlobDB benchmark tests using tools/benchmark.sh:"
+  echo -e "\tPhase 1: write-only tests: bulkload+compact, overwrite+waitforcompaction"
+  echo -e "\tPhase 2: read-write tests: readwhilewriting, fwdrangewhilewriting"
+  echo -e "\tPhase 3: read-only tests: readrandom, fwdrange"
+  echo ""
+  echo "Environment Variables:"
+  echo -e "\tDB_DIR\t\t\t\tPath for the RocksDB data directory (mandatory)"
+  echo -e "\tWAL_DIR\t\t\t\tPath for the RocksDB WAL directory (mandatory)"
+  echo -e "\tOUTPUT_DIR\t\t\tPath for the benchmark results (default: /tmp/blob_bench_output)"
+  echo -e "\tNUM_THREADS\t\t\tNumber of threads (default: 16)"
+  echo -e "\tCOMPRESSION_TYPE\t\tCompression type for the SST files (default: lz4)"
+  echo -e "\tDB_SIZE\t\t\t\tRaw (uncompressed) database size (default: 1 TB)"
+  echo -e "\tVALUE_SIZE\t\t\tValue size (default: 1 KB)"
+  echo -e "\tNUM_KEYS\t\t\tNumber of keys (default: raw database size divided by value size)"
+  echo -e "\tDURATION\t\t\tIndividual duration for phase 2/3 tests in seconds (default: 1800)"
+  echo -e "\tENABLE_BLOB_FILES\t\tEnable blob files (default: 1)"
+  echo -e "\tMIN_BLOB_SIZE\t\t\tSize threshold for storing values in blob files (default: 0)"
+  echo -e "\tBLOB_FILE_SIZE\t\t\tBlob file size (default: 1 GB)"
+  echo -e "\tBLOB_COMPRESSION_TYPE\t\tCompression type for the blob files (default: lz4)"
+  echo -e "\tENABLE_BLOB_GC\t\t\tEnable blob garbage collection (default: 1)"
+  echo -e "\tBLOB_GC_AGE_CUTOFF\t\tBlob garbage collection age cutoff (default: 0.25)"
+  echo -e "\tWRITE_BUFFER_SIZE\t\tWrite buffer (memtable) size (default: 1 GB)"
+  echo -e "\tTARGET_FILE_SIZE_BASE\t\tTarget SST file size for compactions (default: TODO)"
+  echo -e "\tMAX_BYTES_FOR_LEVEL_BASE\tMaximum size for the base level (default: 8 * target SST file size)"
+}
+
+if [ $# -ge 1 ]; then
+  display_usage
+
+  if [[ "$1" == "--help" ]]; then
+    exit
+  else
+    exit $EXIT_INVALID_ARGS
+  fi
+fi
 
 if [ -z $DB_DIR ]; then
   echo "DB_DIR is not defined"
