@@ -2732,8 +2732,8 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
   ASSERT_TRUE(new_opt.hash_index_allow_collision);
   ASSERT_TRUE(new_opt.no_block_cache);
-  // ASSERT_TRUE(new_opt.block_cache != nullptr);
-  // ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_NE(new_opt.block_cache, nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL);
   ASSERT_EQ(new_opt.block_size, 1024UL);

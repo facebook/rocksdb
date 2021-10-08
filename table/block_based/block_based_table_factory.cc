@@ -767,6 +767,7 @@ Status GetBlockBasedTableOptionsFromString(
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
 
   return GetBlockBasedTableOptionsFromString(config_options, table_options,
                                              opts_str, new_table_options);
@@ -798,7 +799,7 @@ Status GetBlockBasedTableOptionsFromMap(
   ConfigOptions config_options;
   config_options.input_strings_escaped = input_strings_escaped;
   config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.invoke_prepare_options = true;
+  config_options.invoke_prepare_options = false;
 
   return GetBlockBasedTableOptionsFromMap(config_options, table_options,
                                           opts_map, new_table_options);

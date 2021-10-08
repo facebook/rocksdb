@@ -672,19 +672,6 @@ LRUCache::LRUCache(const LRUCacheOptions& options)
   RegisterOptions(&options_, &lru_cache_options_type_info);
 }
 
-LRUCache::LRUCache(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit, double high_pri_pool_ratio,
-                   const std::shared_ptr<MemoryAllocator>& memory_allocator,
-                   bool use_adaptive_mutex,
-                   CacheMetadataChargePolicy metadata_charge_policy,
-                   const std::shared_ptr<SecondaryCache>& secondary_cache)
-    : ShardedCache(&options_),
-      options_(capacity, num_shard_bits, strict_capacity_limit,
-               high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-               metadata_charge_policy) {
-  options_.secondary_cache = secondary_cache;
-  RegisterOptions(&options_, &lru_cache_options_type_info);
-}
 
 LRUCache::LRUCache() : ShardedCache(&options_) {
   RegisterOptions(&options_, &lru_cache_options_type_info);
