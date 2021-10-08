@@ -461,6 +461,9 @@ class LRUCache
   virtual ~LRUCache();
   static const char* kClassName() { return "LRUCache"; }
   virtual const char* Name() const override { return kClassName(); }
+  Status PrepareOptions(const ConfigOptions& config_options) override;
+  bool IsMutable() const override;
+
   virtual CacheShard* GetShard(uint32_t shard) override;
   virtual const CacheShard* GetShard(uint32_t shard) const override;
   virtual void* Value(Handle* handle) override;
@@ -474,9 +477,6 @@ class LRUCache
   size_t TEST_GetLRUSize();
   //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
-
-  bool IsPrepared() const override;
-  Status PrepareOptions(const ConfigOptions& options) override;
 
  private:
   LRUCacheShard* shards_ = nullptr;

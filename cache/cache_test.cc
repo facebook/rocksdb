@@ -851,7 +851,6 @@ TEST_F(CreateCacheTest, LRUFromSize) {
   ASSERT_NE(cache, nullptr);
   ASSERT_STREQ(cache->Name(), LRUCache::kClassName());
   ASSERT_EQ(cache->GetCapacity(), 1024U * 1024U);
-  ASSERT_TRUE(cache->IsPrepared());
   ASSERT_OK(cache->ValidateOptions(options, options));
 }
 
@@ -868,8 +867,7 @@ TEST_F(CreateCacheTest, LRUFromOptions) {
   ASSERT_NE(cache, nullptr);
   ASSERT_STREQ(cache->Name(), LRUCache::kClassName());
   ASSERT_EQ(cache->GetCapacity(), 1024U * 1024U);
-  ASSERT_FALSE(cache->IsPrepared());
-  ASSERT_NOK(cache->ValidateOptions(options, options));
+  ASSERT_OK(cache->ValidateOptions(options, options));
   config_options_.invoke_prepare_options = true;
   ASSERT_OK(Cache::CreateFromString(config_options_,
                                     cache->ToString(config_options_), &copy));
@@ -877,7 +875,6 @@ TEST_F(CreateCacheTest, LRUFromOptions) {
   ASSERT_STREQ(copy->Name(), LRUCache::kClassName());
   std::string mismatch;
   ASSERT_TRUE(cache->AreEquivalent(config_options_, copy.get(), &mismatch));
-  ASSERT_TRUE(copy->IsPrepared());
   ASSERT_OK(copy->ValidateOptions(options, options));
 #else
   ASSERT_NOK(s);
@@ -893,10 +890,8 @@ TEST_F(CreateCacheTest, ClockCache) {
     ASSERT_OK(s);
     ASSERT_NE(cache, nullptr);
     ASSERT_STREQ(cache->Name(), ClockCache::kClassName());
-    ASSERT_FALSE(cache->IsPrepared());
     ASSERT_NOK(cache->ValidateOptions(options, options));
     ASSERT_OK(cache->PrepareOptions(config_options_));
-    ASSERT_TRUE(cache->IsPrepared());
     ASSERT_OK(cache->ValidateOptions(options, options));
     cache->SetCapacity(1024U * 1024U);
     ASSERT_EQ(cache->GetCapacity(), 1024U * 1024U);
@@ -910,7 +905,6 @@ TEST_F(CreateCacheTest, ClockCache) {
     ASSERT_STREQ(copy->Name(), ClockCache::kClassName());
     std::string mismatch;
     ASSERT_TRUE(cache->AreEquivalent(config_options_, copy.get(), &mismatch));
-    ASSERT_TRUE(copy->IsPrepared());
     ASSERT_OK(copy->ValidateOptions(options, options));
 #endif  // ROCKSDB_LITE
   } else {
@@ -921,18 +915,42 @@ TEST_F(CreateCacheTest, ClockCache) {
 #ifndef ROCKSDB_LITE
 TEST_F(CreateCacheTest, LRUFromBadOptions) {
   std::shared_ptr<Cache> cache;
+
   ASSERT_NOK(Cache::CreateFromString(
       config_options_, "capacityXX=1M; metadata_charge_policy=kDontCharge",
       &cache));
   ASSERT_NOK(Cache::CreateFromString(config_options_,
                                      "metadata_charge_policy=kXX", &cache));
-
-  ASSERT_OK(
-      Cache::CreateFromString(config_options_, "num_shard_bits=21", &cache));
-  ASSERT_NOK(cache->PrepareOptions(config_options_));
-  config_options_.invoke_prepare_options = true;
   ASSERT_NOK(
       Cache::CreateFromString(config_options_, "num_shard_bits=21", &cache));
+}
+
+TEST_F(CreateCacheTest, ManagedCache) {
+  std::shared_ptr<Cache> cache1 = NewLRUCache(1024 * 1024);
+  std::shared_ptr<Cache> cache2 = NewLRUCache(1024 * 1024);
+  std::shared_ptr<Cache> cache3;
+  ASSERT_NE(cache1, nullptr);
+  ASSERT_NE(cache2, nullptr);
+  ASSERT_NE(cache1, cache2);
+
+  auto cache_id = cache1->GetId();
+  ASSERT_OK(Cache::CreateFromString(config_options_, cache_id, &cache3));
+  ASSERT_EQ(cache1, cache3);
+  cache1.reset();
+  cache2.reset();
+  cache3.reset();
+  ASSERT_NOK(Cache::CreateFromString(config_options_, cache_id, &cache3));
+
+  cache1 = NewClockCache(1024 * 1024);
+  if (cache1) {
+    cache_id = cache1->GetId();
+    ASSERT_OK(
+        Cache::CreateFromString(config_options_, cache1->GetId(), &cache3));
+    ASSERT_EQ(cache1, cache3);
+    cache1.reset();
+    cache3.reset();
+    ASSERT_NOK(Cache::CreateFromString(config_options_, cache_id, &cache3));
+  }
 }
 
 #ifdef SUPPORT_CLOCK_CACHE

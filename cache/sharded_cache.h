@@ -75,6 +75,7 @@ class ShardedCache : public Cache {
   virtual ~ShardedCache() = default;
   static const char* kClassName() { return "ShardedCache"; }
 
+  virtual bool IsMutable() const { return true; }
   virtual CacheShard* GetShard(uint32_t shard) = 0;
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
 
@@ -134,11 +135,11 @@ class ShardedCache : public Cache {
 
  protected:
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
+  mutable port::Mutex capacity_mutex_;
 
  private:
   CacheOptions* cache_options_;
   uint32_t shard_mask_;
-  mutable port::Mutex capacity_mutex_;
   std::atomic<uint64_t> last_id_;
 };
 

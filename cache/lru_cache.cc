@@ -13,10 +13,11 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "rocksdb/convenience.h"
-#include "rocksdb/utilities/options_type.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -667,7 +668,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 LRUCache::LRUCache(const LRUCacheOptions& options)
-    : ShardedCache(&options_), options_(options) {
+    : ShardedCache(&options_), shards_(nullptr), options_(options) {
   RegisterOptions(&options_, &lru_cache_options_type_info);
 }
 
@@ -689,38 +690,38 @@ LRUCache::LRUCache() : ShardedCache(&options_) {
   RegisterOptions(&options_, &lru_cache_options_type_info);
 }
 
-bool LRUCache::IsPrepared() const {
-  return shards_ != nullptr || ShardedCache::IsPrepared();
+bool LRUCache::IsMutable() const {
+  MutexLock l(&capacity_mutex_);
+  return (shards_ == nullptr);
 }
 
 Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
-  Status s;
-  if (shards_ == nullptr) {  // Not already prepared
-    if (options_.high_pri_pool_ratio < 0.0 ||
-        options_.high_pri_pool_ratio > 1.0) {
-      // invalid high_pri_pool_ratio
-      return Status::InvalidArgument(
-          "LRUCache: High priority pool ratio out of bounds");
-    } else {
-      s = ShardedCache::PrepareOptions(config_options);
-      if (s.ok()) {
-        num_shards_ = 1 << options_.num_shard_bits;
-        shards_ = reinterpret_cast<LRUCacheShard*>(
-            port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
-        size_t per_shard =
-            (options_.capacity + (num_shards_ - 1)) / num_shards_;
-        for (int i = 0; i < num_shards_; i++) {
-          new (&shards_[i]) LRUCacheShard(
-              per_shard, options_.strict_capacity_limit,
-              options_.high_pri_pool_ratio, options_.use_adaptive_mutex,
-              options_.metadata_charge_policy,
-              /* max_upper_hash_bits */ 32 - options_.num_shard_bits,
-              options_.secondary_cache);
-        }
+  MutexLock l(&capacity_mutex_);
+  if (shards_ != nullptr) {  // Already prepared
+    return Status::OK();
+  } else if (options_.high_pri_pool_ratio < 0.0 ||
+             options_.high_pri_pool_ratio > 1.0) {
+    // invalid high_pri_pool_ratio
+    return Status::InvalidArgument(
+        "LRUCache: High priority pool ratio out of bounds");
+  } else {
+    Status s = ShardedCache::PrepareOptions(config_options);
+    if (s.ok()) {
+      num_shards_ = 1 << options_.num_shard_bits;
+      shards_ = reinterpret_cast<LRUCacheShard*>(
+          port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
+      size_t per_shard = (options_.capacity + (num_shards_ - 1)) / num_shards_;
+      for (int i = 0; i < num_shards_; i++) {
+        new (&shards_[i]) LRUCacheShard(
+            per_shard, options_.strict_capacity_limit,
+            options_.high_pri_pool_ratio, options_.use_adaptive_mutex,
+            options_.metadata_charge_policy,
+            /* max_upper_hash_bits */ 32 - options_.num_shard_bits,
+            options_.secondary_cache);
       }
     }
+    return s;
   }
-  return s;
 }
 
 LRUCache::~LRUCache() {
@@ -819,6 +820,12 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
   auto cache = std::make_shared<LRUCache>(cache_opts);
   Status s = cache->PrepareOptions(ConfigOptions());
+#ifndef ROCKSDB_LITE
+  if (s.ok()) {
+    // If the cache was successfully created, add it to the managed objects
+    s = ObjectRegistry::Default()->SetManagedObject<Cache>(cache);
+  }
+#endif  // ROCKSDB_LITE
   if (s.ok()) {
     return cache;
   } else {

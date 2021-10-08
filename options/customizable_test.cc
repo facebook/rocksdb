@@ -1239,7 +1239,6 @@ class TestCache : public ShardedCache {
   const CacheShard* GetShard(uint32_t /*shard*/) const override {
     return nullptr;
   }
-
  private:
   CacheOptions options_;
 };

@@ -75,7 +75,11 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
       // it is an old-style LRUCache created by capacity only
       cache = NewLRUCache(ParseSizeT(id));
     } else {
-      status = NewSharedObject<Cache>(config_options, id, opt_map, &cache);
+      status = NewManagedObject<Cache>(config_options, id, opt_map, &cache);
+      if (status.ok() && !config_options.invoke_prepare_options) {
+        // Always invoke PrepareOptions for a cache...
+        status = cache->PrepareOptions(config_options);
+      }
     }
   }
   if (status.ok()) {

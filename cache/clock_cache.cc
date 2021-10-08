@@ -24,6 +24,7 @@
 #include "cache/sharded_cache.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 #include "util/mutexlock.h"
 
@@ -785,23 +786,35 @@ ClockCache::~ClockCache() {
 #endif  // SUPPORT_CLOCK_CACHE
 }
 
+bool ClockCache::IsMutable() const {
+#ifdef SUPPORT_CLOCK_CACHE
+  MutexLock l(&capacity_mutex_);
+  return (shards_ == nullptr);
+#else
+  return false;
+#endif  // SUPPORT_CLOCK_CACHE
+}
+
 Status ClockCache::PrepareOptions(const ConfigOptions& config_options) {
   Status s;
-
   if (!IsClockCacheSupported()) {
     (void)config_options;
     s = Status::NotSupported("ClockCache not supported");
 #ifdef SUPPORT_CLOCK_CACHE
-  } else if (shards_ == nullptr) {  // Not already prepared
-    s = ShardedCache::PrepareOptions(config_options);
-    if (s.ok()) {
-      int num_shards = 1 << options_.num_shard_bits;
-      shards_ = new ClockCacheShard[num_shards];
-      for (int i = 0; i < num_shards; i++) {
-        shards_[i].set_metadata_charge_policy(options_.metadata_charge_policy);
+  } else {
+    MutexLock l(&capacity_mutex_);
+    if (shards_ == nullptr) {  // Not already prepared
+      s = ShardedCache::PrepareOptions(config_options);
+      if (s.ok()) {
+        int num_shards = 1 << options_.num_shard_bits;
+        shards_ = new ClockCacheShard[num_shards];
+        for (int i = 0; i < num_shards; i++) {
+          shards_[i].set_metadata_charge_policy(
+              options_.metadata_charge_policy);
+        }
+        SetCapacity(options_.capacity);
+        SetStrictCapacityLimit(options_.strict_capacity_limit);
       }
-      SetCapacity(options_.capacity);
-      SetStrictCapacityLimit(options_.strict_capacity_limit);
     }
 #endif  // SUPPORT_CLOCK_CACHE
   }
@@ -879,10 +892,16 @@ std::shared_ptr<Cache> NewClockCache(
     s = cache->PrepareOptions(ConfigOptions());
   }
   if (s.ok()) {
-    return std::shared_ptr<Cache>(cache.release());
-  } else {
-    return nullptr;
+    auto result = std::shared_ptr<Cache>(cache.release());
+#ifndef ROCKSDB_LITE
+    // If the cache was successfully created, add it to the managed objects
+    s = ObjectRegistry::Default()->SetManagedObject<Cache>(result);
+#endif  // ROCKSDB_LITE
+    if (s.ok()) {
+      return result;
+    }
   }
+  return nullptr;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

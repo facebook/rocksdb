@@ -251,8 +251,7 @@ class Cache : public Customizable {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
-  // The type of the Cache
-  virtual const char* Name() const = 0;
+  std::string GetId() const override { return GenerateIndividualId(); }
 
   // Insert a mapping from key->value into the volatile cache only
   // and assign it // the specified charge against the total cache capacity.
@@ -395,8 +394,6 @@ class Cache : public Customizable {
   // Remove all entries.
   // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
-
-  virtual std::string GetPrintableOptions() const { return ""; }
 
   virtual MemoryAllocator* memory_allocator() const { return nullptr; }
 

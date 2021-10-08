@@ -58,7 +58,7 @@ inline uint32_t HashSlice(const Slice& s) {
 }  // namespace
 
 ShardedCache::ShardedCache(CacheOptions* cache_options)
-    : Cache(), cache_options_(cache_options), last_id_(1) {
+    : Cache(), cache_options_(cache_options), shard_mask_(0), last_id_(1) {
   RegisterOptions(cache_options_, &cache_options_type_info);
 }
 
@@ -76,7 +76,7 @@ Status ShardedCache::PrepareOptions(const ConfigOptions& config_options) {
 
 Status ShardedCache::ValidateOptions(const DBOptions& db_opts,
                                      const ColumnFamilyOptions& cf_opts) const {
-  if (!IsPrepared()) {
+  if (IsMutable()) {
     return Status::InvalidArgument("Cache is not initialized");
   } else {
     return Cache::ValidateOptions(db_opts, cf_opts);

@@ -33,8 +33,8 @@ class ClockCache final : public ShardedCache {
 
   static const char* kClassName() { return "ClockCache"; }
   const char* Name() const override { return kClassName(); }
-
-  Status PrepareOptions(const ConfigOptions& config_options) override;
+  Status PrepareOptions(const ConfigOptions& options) override;
+  bool IsMutable() const override;
 
   CacheShard* GetShard(uint32_t shard) override;
   const CacheShard* GetShard(uint32_t shard) const override;
