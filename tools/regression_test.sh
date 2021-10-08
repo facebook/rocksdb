@@ -195,6 +195,7 @@ function init_arguments {
   SEED=${SEED:-$( date +%s )}
   MULTIREAD_BATCH_SIZE=${MULTIREAD_BATCH_SIZE:-128}
   MULTIREAD_STRIDE=${MULTIREAD_STRIDE:-12}
+  PERF_LEVEL=${PERF_LEVEL:-1}
 }
 
 # $1 --- benchmark name
@@ -222,9 +223,8 @@ function run_db_bench {
   db_bench_cmd="("'\$(which time)'" -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
-      --perf_level=3 \
+      --perf_level=$PERF_LEVEL \
       --disable_auto_compactions \
-      --perf_level=3 \
       --threads=$threads \
       --num=$NUM_KEYS \
       --reads=$ops \
