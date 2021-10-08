@@ -483,13 +483,30 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       return in_s;
     }
   }
-  IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+
+  bool exists;
+  IOStatus io_s, exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+  if (exists_s.IsNotFound()) {
+    exists = false;
+  } else if (exists_s.ok()) {
+    exists = true;
+  } else {
+    io_s = exists_s;
+    exists = false;
+  }
+
   if (io_s.ok()) {
+    io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  }
+
+  // Only track files we created. Files created outside of this
+  // `FaultInjectionTestFS` are not eligible for tracking/data dropping
+  // (for example, they may contain data a previous db_stress run expects to
+  // be recovered). This could be extended to track/drop data appended once
+  // the file is under `FaultInjectionTestFS`'s control.
+  if (io_s.ok() && !exists) {
     result->reset(
         new TestFSWritableFile(fname, file_opts, std::move(*result), this));
-    // WritableFileWriter* file is opened
-    // again then it will be truncated - so forget our saved state.
-    UntrackFile(fname);
     {
       MutexLock l(&mutex_);
       open_files_.insert(fname);
