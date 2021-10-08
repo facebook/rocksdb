@@ -46,7 +46,7 @@ inline void PutBaseChars(char** buf, size_t n, uint64_t v, bool uppercase) {
   const char* digitChars = uppercase ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                      : "0123456789abcdefghijklmnopqrstuvwxyz";
   for (size_t i = n; i > 0; --i) {
-    (*buf)[i - 1] = digitChars[v % kBase];
+    (*buf)[i - 1] = digitChars[static_cast<size_t>(v % kBase)];
     v /= kBase;
   }
   *buf += n;

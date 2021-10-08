@@ -22,7 +22,7 @@ std::string EncodeSessionId(uint64_t upper, uint64_t lower) {
   uint64_t b = lower & (UINT64_MAX >> 2);
   PutBaseChars<36>(&buf, 8, a, /*uppercase*/ true);
   PutBaseChars<36>(&buf, 12, b, /*uppercase*/ true);
-  assert(buf == &*db_session_id.end());
+  assert(buf == &db_session_id.back() + 1);
   return db_session_id;
 }
 
