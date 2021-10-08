@@ -485,7 +485,8 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   }
 
   bool exists;
-  IOStatus io_s, exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+  IOStatus io_s,
+      exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
   if (exists_s.IsNotFound()) {
     exists = false;
   } else if (exists_s.ok()) {
