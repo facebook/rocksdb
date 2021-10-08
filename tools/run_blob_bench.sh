@@ -43,7 +43,7 @@ function display_usage() {
   echo -e "\tDB_SIZE\t\t\t\tRaw (uncompressed) database size (default: 1 TB)"
   echo -e "\tVALUE_SIZE\t\t\tValue size (default: 1 KB)"
   echo -e "\tNUM_KEYS\t\t\tNumber of keys (default: raw database size divided by value size)"
-  echo -e "\tDURATION\t\t\tIndividual duration for phase 2/3 tests in seconds (default: 1800)"
+  echo -e "\tDURATION\t\t\tIndividual duration for read-write/read-only tests in seconds (default: 1800)"
   echo -e "\tWRITE_BUFFER_SIZE\t\tWrite buffer (memtable) size (default: 1 GB)"
   echo -e "\tENABLE_BLOB_FILES\t\tEnable blob files (default: 1)"
   echo -e "\tMIN_BLOB_SIZE\t\t\tSize threshold for storing values in blob files (default: 0)"
@@ -106,7 +106,26 @@ fi
 
 max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * $target_file_size_base))}
 
-echo "======================== Value size: $value_size, blob files: $enable_blob_files, GC cutoff: $blob_garbage_collection_age_cutoff ========================"
+echo "======================== Benchmark setup ========================"
+echo -e "Data directory:\t\t\t\t$db_dir"
+echo -e "WAL directory:\t\t\t\t$wal_dir"
+echo -e "Output directory:\t\t\t$output_dir"
+echo -e "Number of threads:\t\t\t$num_threads"
+echo -e "Compression type for SST files:\t\t$compression_type"
+echo -e "Raw database size:\t\t\t$db_size"
+echo -e "Value size:\t\t\t\t$value_size"
+echo -e "Number of keys:\t\t\t\t$num_keys"
+echo -e "Duration of read-write/read-only tests:\t$duration"
+echo -e "Write buffer size:\t\t\t$write_buffer_size"
+echo -e "Blob files enabled:\t\t\t$enable_blob_files"
+echo -e "Blob size threshold:\t\t\t$min_blob_size"
+echo -e "Blob file size:\t\t\t\t$blob_file_size"
+echo -e "Compression type for blob files:\t$blob_compression_type"
+echo -e "Blob GC enabled:\t\t\t$enable_blob_garbage_collection"
+echo -e "Blob GC cutoff:\t\t\t\t$blob_garbage_collection_age_cutoff"
+echo -e "Target SST file size:\t\t\t$target_file_size_base"
+echo -e "Maximum size of base level:\t\t$max_bytes_for_level_base"
+echo "================================================================="
 
 rm -rf $db_dir
 rm -rf $wal_dir
