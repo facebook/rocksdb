@@ -302,12 +302,29 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  Status s = target()->ReopenWritableFile(fname, result, soptions);
+
+  bool exists;
+  Status s, exists_s = target()->FileExists(fname);
+  if (exists_s.IsNotFound()) {
+    exists = false;
+  } else if (exists_s.ok()) {
+    exists = true;
+  } else {
+    s = exists_s;
+    exists = false;
+  }
+
   if (s.ok()) {
+    s = target()->ReopenWritableFile(fname, result, soptions);
+  }
+
+  // Only track files we created. Files created outside of this
+  // `FaultInjectionTestEnv` are not eligible for tracking/data dropping
+  // (for example, they may contain data a previous db_stress run expects to
+  // be recovered). This could be extended to track/drop data appended once
+  // the file is under `FaultInjectionTestEnv`'s control.
+  if (s.ok() && !exists) {
     result->reset(new TestWritableFile(fname, std::move(*result), this));
-    // WritableFileWriter* file is opened
-    // again then it will be truncated - so forget our saved state.
-    UntrackFile(fname);
     MutexLock l(&mutex_);
     open_files_.insert(fname);
     auto dir_and_name = GetDirAndName(fname);
