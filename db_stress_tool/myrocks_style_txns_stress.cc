@@ -17,11 +17,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// This file defines and implements MyRocksStyleTxnsStress so that we can
-// emulate some of the transactions used by MyRocks.
+// This file defines and implements MultiOpsTxnsStress so that we can stress
+// test RocksDB transactions on a simple, emulated relational table.
 //
-// Since MyRocks used by MySQL is a relational database, we need a simplified
-// data model.
 // The record format is similar to the example found at
 // https://github.com/facebook/mysql-5.6/wiki/MyRocks-record-format.
 //
@@ -52,17 +50,17 @@ namespace ROCKSDB_NAMESPACE {
 // | crc32 |
 // Similarly to M(a), M(c) is the big-endian format of c.
 //
-// The in-memory representation of a record is defined in class MyRocksRecord
-// that includes a number of helper methods to encode/decode primary index
-// keys, primary index values, secondary index keys, secondary index values,
-// etc.
+// The in-memory representation of a record is defined in class
+// MultiOpsTxnsStress:Record that includes a number of helper methods to
+// encode/decode primary index keys, primary index values, secondary index keys,
+// secondary index values, etc.
 //
 // Sometimes primary index and secondary index reside on different column
 // families, but sometimes they colocate in the same column family. Current
 // implementation puts them in the same (default) column family, and this is
 // subject to future change if we find it interesting to test the other case.
 //
-// Class MyRocksStyleTxnsStressTest has the following transactions for testing.
+// Class MultiOpsTxnsStressTest has the following transactions for testing.
 //
 // 1. Primary key update
 // UPDATE t1 SET a = 3 WHERE a = 2;
@@ -119,95 +117,92 @@ static constexpr uint32_t kInitNumC = 1000;
 static constexpr uint32_t kInitialCARatio = 3;
 static constexpr bool kDoPreload = true;
 
-class MyRocksRecord {
+class MultiOpsTxnsStressTest : public StressTest {
  public:
-  static constexpr uint32_t kPrimaryIndexId = 1;
-  static constexpr uint32_t kSecondaryIndexId = 2;
+  class Record {
+   public:
+    static constexpr uint32_t kPrimaryIndexId = 1;
+    static constexpr uint32_t kSecondaryIndexId = 2;
 
-  static constexpr size_t kPrimaryIndexEntrySize = 8 + 8;
-  static constexpr size_t kSecondaryIndexEntrySize = 12 + 4;
+    static constexpr size_t kPrimaryIndexEntrySize = 8 + 8;
+    static constexpr size_t kSecondaryIndexEntrySize = 12 + 4;
 
-  static_assert(kPrimaryIndexId < kSecondaryIndexId,
-                "kPrimaryIndexId must be smaller than kSecondaryIndexId");
+    static_assert(kPrimaryIndexId < kSecondaryIndexId,
+                  "kPrimaryIndexId must be smaller than kSecondaryIndexId");
 
-  static_assert(sizeof(kPrimaryIndexId) == sizeof(uint32_t),
-                "kPrimaryIndexId must be 4 bytes");
-  static_assert(sizeof(kSecondaryIndexId) == sizeof(uint32_t),
-                "kSecondaryIndexId must be 4 bytes");
+    static_assert(sizeof(kPrimaryIndexId) == sizeof(uint32_t),
+                  "kPrimaryIndexId must be 4 bytes");
+    static_assert(sizeof(kSecondaryIndexId) == sizeof(uint32_t),
+                  "kSecondaryIndexId must be 4 bytes");
 
-  // Used for generating search key to probe primary index.
-  static std::string EncodePrimaryKey(uint32_t a);
-  // Used for generating search prefix to probe secondary index.
-  static std::string EncodeSecondaryKey(uint32_t c);
-  // Used for generating search key to probe secondary index.
-  static std::string EncodeSecondaryKey(uint32_t c, uint32_t a);
+    // Used for generating search key to probe primary index.
+    static std::string EncodePrimaryKey(uint32_t a);
+    // Used for generating search prefix to probe secondary index.
+    static std::string EncodeSecondaryKey(uint32_t c);
+    // Used for generating search key to probe secondary index.
+    static std::string EncodeSecondaryKey(uint32_t c, uint32_t a);
 
-  static std::tuple<Status, uint32_t, uint32_t> DecodePrimaryIndexValue(
-      Slice primary_index_value);
+    static std::tuple<Status, uint32_t, uint32_t> DecodePrimaryIndexValue(
+        Slice primary_index_value);
 
-  static std::pair<Status, uint32_t> DecodeSecondaryIndexValue(
-      Slice secondary_index_value);
+    static std::pair<Status, uint32_t> DecodeSecondaryIndexValue(
+        Slice secondary_index_value);
 
-  MyRocksRecord() = default;
-  MyRocksRecord(uint32_t _a, uint32_t _b, uint32_t _c)
-      : a_(_a), b_(_b), c_(_c) {}
+    Record() = default;
+    Record(uint32_t _a, uint32_t _b, uint32_t _c) : a_(_a), b_(_b), c_(_c) {}
 
-  bool operator==(const MyRocksRecord& other) const {
-    return a_ == other.a_ && b_ == other.b_ && c_ == other.c_;
-  }
+    bool operator==(const Record& other) const {
+      return a_ == other.a_ && b_ == other.b_ && c_ == other.c_;
+    }
 
-  bool operator!=(const MyRocksRecord& other) const {
-    return !(*this == other);
-  }
+    bool operator!=(const Record& other) const { return !(*this == other); }
 
-  std::pair<std::string, std::string> EncodePrimaryIndexEntry() const;
+    std::pair<std::string, std::string> EncodePrimaryIndexEntry() const;
 
-  std::string EncodePrimaryKey() const;
+    std::string EncodePrimaryKey() const;
 
-  std::string EncodePrimaryIndexValue() const;
+    std::string EncodePrimaryIndexValue() const;
 
-  std::pair<std::string, std::string> EncodeSecondaryIndexEntry() const;
+    std::pair<std::string, std::string> EncodeSecondaryIndexEntry() const;
 
-  std::string EncodeSecondaryKey() const;
+    std::string EncodeSecondaryKey() const;
 
-  Status DecodePrimaryIndexEntry(Slice primary_index_key,
-                                 Slice primary_index_value);
+    Status DecodePrimaryIndexEntry(Slice primary_index_key,
+                                   Slice primary_index_value);
 
-  Status DecodeSecondaryIndexEntry(Slice secondary_index_key,
-                                   Slice secondary_index_value);
+    Status DecodeSecondaryIndexEntry(Slice secondary_index_key,
+                                     Slice secondary_index_value);
 
-  uint32_t a_value() const { return a_; }
-  uint32_t b_value() const { return b_; }
-  uint32_t c_value() const { return c_; }
+    uint32_t a_value() const { return a_; }
+    uint32_t b_value() const { return b_; }
+    uint32_t c_value() const { return c_; }
 
-  void SetA(uint32_t _a) { a_ = _a; }
-  void SetB(uint32_t _b) { b_ = _b; }
-  void SetC(uint32_t _c) { c_ = _c; }
+    void SetA(uint32_t _a) { a_ = _a; }
+    void SetB(uint32_t _b) { b_ = _b; }
+    void SetC(uint32_t _c) { c_ = _c; }
 
-  std::string ToString() const {
-    std::string ret("(");
-    ret.append(std::to_string(a_));
-    ret.append(",");
-    ret.append(std::to_string(b_));
-    ret.append(",");
-    ret.append(std::to_string(c_));
-    ret.append(")");
-    return ret;
-  }
+    std::string ToString() const {
+      std::string ret("(");
+      ret.append(std::to_string(a_));
+      ret.append(",");
+      ret.append(std::to_string(b_));
+      ret.append(",");
+      ret.append(std::to_string(c_));
+      ret.append(")");
+      return ret;
+    }
 
- private:
-  friend class InvariantChecker;
+   private:
+    friend class InvariantChecker;
 
-  uint32_t a_{0};
-  uint32_t b_{0};
-  uint32_t c_{0};
-};
+    uint32_t a_{0};
+    uint32_t b_{0};
+    uint32_t c_{0};
+  };
 
-class MyRocksStyleTxnsStressTest : public StressTest {
- public:
-  MyRocksStyleTxnsStressTest() {}
+  MultiOpsTxnsStressTest() {}
 
-  ~MyRocksStyleTxnsStressTest() override {}
+  ~MultiOpsTxnsStressTest() override {}
 
   void FinishInitDb(SharedState*) override;
 
@@ -303,17 +298,15 @@ class MyRocksStyleTxnsStressTest : public StressTest {
 
 class InvariantChecker {
  public:
-  static_assert(sizeof(MyRocksRecord().a_) == sizeof(uint32_t),
-                "MyRocksRecord::a_ must be 4 bytes");
-  static_assert(sizeof(MyRocksRecord().b_) == sizeof(uint32_t),
-                "MyRocksRecord::b_ must be 4 bytes");
-  static_assert(sizeof(MyRocksRecord().c_) == sizeof(uint32_t),
-                "MyRocksRecord::c_ must be 4 bytes");
+  static_assert(sizeof(MultiOpsTxnsStressTest::Record().a_) == sizeof(uint32_t),
+                "MultiOpsTxnsStressTest::Record::a_ must be 4 bytes");
+  static_assert(sizeof(MultiOpsTxnsStressTest::Record().b_) == sizeof(uint32_t),
+                "MultiOpsTxnsStressTest::Record::b_ must be 4 bytes");
+  static_assert(sizeof(MultiOpsTxnsStressTest::Record().c_) == sizeof(uint32_t),
+                "MultiOpsTxnsStressTest::Record::c_ must be 4 bytes");
 };
 
-// MyRocksRecord methods
-//
-std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
+std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
   std::reverse(buf, buf + 4);
@@ -322,7 +315,7 @@ std::string MyRocksRecord::EncodePrimaryKey(uint32_t a) {
   return std::string(buf, sizeof(buf));
 }
 
-std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
+std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c) {
   char buf[8];
   EncodeFixed32(buf, kSecondaryIndexId);
   std::reverse(buf, buf + 4);
@@ -331,7 +324,8 @@ std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c) {
   return std::string(buf, sizeof(buf));
 }
 
-std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
+std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c,
+                                                               uint32_t a) {
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
   std::reverse(buf, buf + 4);
@@ -342,7 +336,8 @@ std::string MyRocksRecord::EncodeSecondaryKey(uint32_t c, uint32_t a) {
   return std::string(buf, sizeof(buf));
 }
 
-std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
+std::tuple<Status, uint32_t, uint32_t>
+MultiOpsTxnsStressTest::Record::DecodePrimaryIndexValue(
     Slice primary_index_value) {
   if (primary_index_value.size() != 8) {
     return std::tuple<Status, uint32_t, uint32_t>{Status::Corruption(""), 0, 0};
@@ -357,7 +352,8 @@ std::tuple<Status, uint32_t, uint32_t> MyRocksRecord::DecodePrimaryIndexValue(
   return std::tuple<Status, uint32_t, uint32_t>{Status::OK(), b, c};
 }
 
-std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
+std::pair<Status, uint32_t>
+MultiOpsTxnsStressTest::Record::DecodeSecondaryIndexValue(
     Slice secondary_index_value) {
   if (secondary_index_value.size() != 4) {
     return std::make_pair(Status::Corruption(""), 0);
@@ -369,26 +365,26 @@ std::pair<Status, uint32_t> MyRocksRecord::DecodeSecondaryIndexValue(
   return std::make_pair(Status::OK(), crc);
 }
 
-std::pair<std::string, std::string> MyRocksRecord::EncodePrimaryIndexEntry()
-    const {
+std::pair<std::string, std::string>
+MultiOpsTxnsStressTest::Record::EncodePrimaryIndexEntry() const {
   std::string primary_index_key = EncodePrimaryKey();
   std::string primary_index_value = EncodePrimaryIndexValue();
   return std::make_pair(primary_index_key, primary_index_value);
 }
 
-std::string MyRocksRecord::EncodePrimaryKey() const {
+std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey() const {
   return EncodePrimaryKey(a_);
 }
 
-std::string MyRocksRecord::EncodePrimaryIndexValue() const {
+std::string MultiOpsTxnsStressTest::Record::EncodePrimaryIndexValue() const {
   char buf[8];
   EncodeFixed32(buf, b_);
   EncodeFixed32(buf + 4, c_);
   return std::string(buf, sizeof(buf));
 }
 
-std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
-    const {
+std::pair<std::string, std::string>
+MultiOpsTxnsStressTest::Record::EncodeSecondaryIndexEntry() const {
   std::string secondary_index_key;
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
@@ -406,7 +402,7 @@ std::pair<std::string, std::string> MyRocksRecord::EncodeSecondaryIndexEntry()
   return std::make_pair(secondary_index_key, secondary_index_value);
 }
 
-std::string MyRocksRecord::EncodeSecondaryKey() const {
+std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey() const {
   char buf[12];
   EncodeFixed32(buf, kSecondaryIndexId);
   std::reverse(buf, buf + 4);
@@ -417,8 +413,8 @@ std::string MyRocksRecord::EncodeSecondaryKey() const {
   return std::string(buf, sizeof(buf));
 }
 
-Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
-                                              Slice primary_index_value) {
+Status MultiOpsTxnsStressTest::Record::DecodePrimaryIndexEntry(
+    Slice primary_index_key, Slice primary_index_value) {
   if (primary_index_key.size() != 8) {
     assert(false);
     return Status::Corruption("Primary index key length is not 8");
@@ -454,8 +450,8 @@ Status MyRocksRecord::DecodePrimaryIndexEntry(Slice primary_index_key,
   return Status::OK();
 }
 
-Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
-                                                Slice secondary_index_value) {
+Status MultiOpsTxnsStressTest::Record::DecodeSecondaryIndexEntry(
+    Slice secondary_index_key, Slice secondary_index_value) {
   if (secondary_index_key.size() != 12) {
     return Status::Corruption("Secondary index key length is not 12");
   }
@@ -504,9 +500,7 @@ Status MyRocksRecord::DecodeSecondaryIndexEntry(Slice secondary_index_key,
   return Status::OK();
 }
 
-// MyRocksStyleTxnsStressTest methods
-//
-void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
+void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
@@ -515,7 +509,7 @@ void MyRocksStyleTxnsStressTest::FinishInitDb(SharedState* shared) {
   }
 }
 
-void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
+void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
   (void)shared;
 #ifndef ROCKSDB_LITE
   std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -564,7 +558,7 @@ void MyRocksStyleTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
 }
 
 // Used for point-lookup transaction
-Status MyRocksStyleTxnsStressTest::TestGet(
+Status MultiOpsTxnsStressTest::TestGet(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
@@ -573,14 +567,14 @@ Status MyRocksStyleTxnsStressTest::TestGet(
 }
 
 // Not used.
-std::vector<Status> MyRocksStyleTxnsStressTest::TestMultiGet(
+std::vector<Status> MultiOpsTxnsStressTest::TestMultiGet(
     ThreadState* /*thread*/, const ReadOptions& /*read_opts*/,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
   return std::vector<Status>{Status::NotSupported()};
 }
 
-Status MyRocksStyleTxnsStressTest::TestPrefixScan(
+Status MultiOpsTxnsStressTest::TestPrefixScan(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
@@ -593,7 +587,7 @@ Status MyRocksStyleTxnsStressTest::TestPrefixScan(
 
 // Given a key K, this creates an iterator which scans to K and then
 // does a random sequence of Next/Prev operations.
-Status MyRocksStyleTxnsStressTest::TestIterate(
+Status MultiOpsTxnsStressTest::TestIterate(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
@@ -602,17 +596,19 @@ Status MyRocksStyleTxnsStressTest::TestIterate(
 }
 
 // Not intended for use.
-Status MyRocksStyleTxnsStressTest::TestPut(
-    ThreadState* /*thread*/, WriteOptions& /*write_opts*/,
-    const ReadOptions& /*read_opts*/, const std::vector<int>& /*cf_ids*/,
-    const std::vector<int64_t>& /*keys*/, char (&value)[100],
-    std::unique_ptr<MutexLock>& /*lock*/) {
+Status MultiOpsTxnsStressTest::TestPut(ThreadState* /*thread*/,
+                                       WriteOptions& /*write_opts*/,
+                                       const ReadOptions& /*read_opts*/,
+                                       const std::vector<int>& /*cf_ids*/,
+                                       const std::vector<int64_t>& /*keys*/,
+                                       char (&value)[100],
+                                       std::unique_ptr<MutexLock>& /*lock*/) {
   (void)value;
   return Status::NotSupported();
 }
 
 // Not intended for use.
-Status MyRocksStyleTxnsStressTest::TestDelete(
+Status MultiOpsTxnsStressTest::TestDelete(
     ThreadState* /*thread*/, WriteOptions& /*write_opts*/,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/,
@@ -621,7 +617,7 @@ Status MyRocksStyleTxnsStressTest::TestDelete(
 }
 
 // Not intended for use.
-Status MyRocksStyleTxnsStressTest::TestDeleteRange(
+Status MultiOpsTxnsStressTest::TestDeleteRange(
     ThreadState* /*thread*/, WriteOptions& /*write_opts*/,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/,
@@ -629,7 +625,7 @@ Status MyRocksStyleTxnsStressTest::TestDeleteRange(
   return Status::NotSupported();
 }
 
-void MyRocksStyleTxnsStressTest::TestIngestExternalFile(
+void MultiOpsTxnsStressTest::TestIngestExternalFile(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& /*rand_keys*/,
     std::unique_ptr<MutexLock>& /*lock*/) {
@@ -638,7 +634,7 @@ void MyRocksStyleTxnsStressTest::TestIngestExternalFile(
   (void)rand_column_families;
 }
 
-void MyRocksStyleTxnsStressTest::TestCompactRange(
+void MultiOpsTxnsStressTest::TestCompactRange(
     ThreadState* thread, int64_t /*rand_key*/, const Slice& /*start_key*/,
     ColumnFamilyHandle* column_family) {
   // TODO (yanqin).
@@ -648,7 +644,7 @@ void MyRocksStyleTxnsStressTest::TestCompactRange(
   (void)column_family;
 }
 
-Status MyRocksStyleTxnsStressTest::TestBackupRestore(
+Status MultiOpsTxnsStressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& /*rand_keys*/) {
   // TODO (yanqin)
@@ -657,7 +653,7 @@ Status MyRocksStyleTxnsStressTest::TestBackupRestore(
   return Status::OK();
 }
 
-Status MyRocksStyleTxnsStressTest::TestCheckpoint(
+Status MultiOpsTxnsStressTest::TestCheckpoint(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& /*rand_keys*/) {
   // TODO (yanqin)
@@ -667,7 +663,7 @@ Status MyRocksStyleTxnsStressTest::TestCheckpoint(
 }
 
 #ifndef ROCKSDB_LITE
-Status MyRocksStyleTxnsStressTest::TestApproximateSize(
+Status MultiOpsTxnsStressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& /*rand_keys*/) {
@@ -679,7 +675,7 @@ Status MyRocksStyleTxnsStressTest::TestApproximateSize(
 }
 #endif  // !ROCKSDB_LITE
 
-Status MyRocksStyleTxnsStressTest::TestCustomOperations(
+Status MultiOpsTxnsStressTest::TestCustomOperations(
     ThreadState* thread, const std::vector<int>& rand_column_families) {
   (void)rand_column_families;
   // Randomly choose from 0, 1, and 2.
@@ -717,17 +713,17 @@ Status MyRocksStyleTxnsStressTest::TestCustomOperations(
   return s;
 }
 
-Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
-                                                       uint32_t old_a,
-                                                       uint32_t new_a) {
+Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
+                                                   uint32_t old_a,
+                                                   uint32_t new_a) {
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)old_a;
   (void)new_a;
   return Status::NotSupported();
 #else
-  std::string old_pk = MyRocksRecord::EncodePrimaryKey(old_a);
-  std::string new_pk = MyRocksRecord::EncodePrimaryKey(new_a);
+  std::string old_pk = Record::EncodePrimaryKey(old_a);
+  std::string new_pk = Record::EncodePrimaryKey(new_a);
   Transaction* txn = nullptr;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
@@ -746,8 +742,8 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
       thread->stats.AddGets(/*ngets=*/2, /*nfounds=*/1);
       thread->stats.AddDeletes(1);
       thread->stats.AddBytesForWrites(
-          /*nwrites=*/2, MyRocksRecord::kPrimaryIndexEntrySize +
-                             MyRocksRecord::kSecondaryIndexEntrySize);
+          /*nwrites=*/2,
+          Record::kPrimaryIndexEntrySize + Record::kSecondaryIndexEntrySize);
       thread->stats.AddSingleDeletes(1);
       return;
     }
@@ -775,7 +771,7 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
-  auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+  auto result = Record::DecodePrimaryIndexValue(value);
   s = std::get<0>(result);
   if (!s.ok()) {
     return s;
@@ -796,13 +792,13 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   auto* wb = txn->GetWriteBatch();
   assert(wb);
 
-  std::string old_sk = MyRocksRecord::EncodeSecondaryKey(c, old_a);
+  std::string old_sk = Record::EncodeSecondaryKey(c, old_a);
   s = wb->SingleDelete(old_sk);
   if (!s.ok()) {
     return s;
   }
 
-  MyRocksRecord record(new_a, b, c);
+  Record record(new_a, b, c);
   std::string new_sk;
   std::string new_crc;
   std::tie(new_sk, new_crc) = record.EncodeSecondaryIndexEntry();
@@ -816,9 +812,9 @@ Status MyRocksStyleTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 #endif  // !ROCKSDB_LITE
 }
 
-Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
-                                                         uint32_t old_c,
-                                                         uint32_t new_c) {
+Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
+                                                     uint32_t old_c,
+                                                     uint32_t new_c) {
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)old_c;
@@ -845,8 +841,8 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       thread->stats.AddSingleDeletes(1);
       thread->stats.AddBytesForWrites(
-          /*nwrites=*/2, MyRocksRecord::kPrimaryIndexEntrySize +
-                             MyRocksRecord::kSecondaryIndexEntrySize);
+          /*nwrites=*/2,
+          Record::kPrimaryIndexEntrySize + Record::kSecondaryIndexEntrySize);
       return;
     } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
                s.IsMergeInProgress()) {
@@ -872,8 +868,8 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   // ww conflict checking to ensure GetForUpdate() (using the snapshot) sees
   // the same data as this iterator.
   txn->SetSnapshot();
-  std::string old_sk_prefix = MyRocksRecord::EncodeSecondaryKey(old_c);
-  std::string iter_ub_str = MyRocksRecord::EncodeSecondaryKey(old_c + 1);
+  std::string old_sk_prefix = Record::EncodeSecondaryKey(old_c);
+  std::string iter_ub_str = Record::EncodeSecondaryKey(old_c + 1);
   Slice iter_ub = iter_ub_str;
   ReadOptions ropts;
   if (thread->rand.OneIn(2)) {
@@ -894,7 +890,7 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
   do {
     ++iterations;
-    MyRocksRecord record;
+    Record record;
     s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
       VerificationAbort(thread->shared, "Cannot decode secondary key", s);
@@ -902,7 +898,7 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     }
     // At this point, record.b is not known yet, thus we need to access
     // primary index.
-    std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
+    std::string pk = Record::EncodePrimaryKey(record.a_value());
     std::string value;
     ReadOptions read_opts;
     read_opts.snapshot = txn->GetSnapshot();
@@ -917,7 +913,7 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       VerificationAbort(thread->shared, "pk should exist, but does not", s);
       break;
     }
-    auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+    auto result = Record::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
       VerificationAbort(thread->shared, "Cannot decode primary index value", s);
@@ -933,7 +929,7 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       VerificationAbort(thread->shared, oss.str(), s);
       break;
     }
-    MyRocksRecord new_rec(record.a_value(), b, new_c);
+    Record new_rec(record.a_value(), b, new_c);
     std::string new_primary_index_value = new_rec.EncodePrimaryIndexValue();
     ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
     s = txn->Put(cf, pk, new_primary_index_value, /*assume_tracked=*/true);
@@ -966,15 +962,16 @@ Status MyRocksStyleTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 #endif  // !ROCKSDB_LITE
 }
 
-Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
-    ThreadState* thread, uint32_t a, uint32_t b_delta) {
+Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
+                                                          uint32_t a,
+                                                          uint32_t b_delta) {
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)a;
   (void)b_delta;
   return Status::NotSupported();
 #else
-  std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
+  std::string pk_str = Record::EncodePrimaryKey(a);
   Transaction* txn = nullptr;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
@@ -990,7 +987,7 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
     if (s.ok()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       thread->stats.AddBytesForWrites(
-          /*nwrites=*/1, /*nbytes=*/MyRocksRecord::kPrimaryIndexEntrySize);
+          /*nwrites=*/1, /*nbytes=*/Record::kPrimaryIndexEntrySize);
       return;
     }
     if (s.IsNotFound()) {
@@ -1011,13 +1008,13 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
   if (!s.ok()) {
     return s;
   }
-  auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+  auto result = Record::DecodePrimaryIndexValue(value);
   if (!std::get<0>(result).ok()) {
     return s;
   }
   uint32_t b = std::get<1>(result) + b_delta;
   uint32_t c = std::get<2>(result);
-  MyRocksRecord record(a, b, c);
+  Record record(a, b, c);
   std::string primary_index_value = record.EncodePrimaryIndexValue();
   ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
   s = txn->Put(cf, pk_str, primary_index_value, /*assume_tracked=*/true);
@@ -1029,16 +1026,15 @@ Status MyRocksStyleTxnsStressTest::UpdatePrimaryIndexValueTxn(
 #endif  // !ROCKSDB_LITE
 }
 
-Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
-                                                  ReadOptions ropts,
-                                                  uint32_t a) {
+Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
+                                              ReadOptions ropts, uint32_t a) {
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)ropts;
   (void)a;
   return Status::NotSupported();
 #else
-  std::string pk_str = MyRocksRecord::EncodePrimaryKey(a);
+  std::string pk_str = Record::EncodePrimaryKey(a);
   // pk may or may not exist
   PinnableSlice value;
 
@@ -1073,15 +1069,15 @@ Status MyRocksStyleTxnsStressTest::PointLookupTxn(ThreadState* thread,
 #endif  // !ROCKSDB_LITE
 }
 
-Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
-                                                ReadOptions ropts, uint32_t c) {
+Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
+                                            ReadOptions ropts, uint32_t c) {
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)ropts;
   (void)c;
   return Status::NotSupported();
 #else
-  std::string sk = MyRocksRecord::EncodeSecondaryKey(c);
+  std::string sk = Record::EncodeSecondaryKey(c);
 
   Transaction* txn = nullptr;
   WriteOptions wopts;
@@ -1114,7 +1110,7 @@ Status MyRocksStyleTxnsStressTest::RangeScanTxn(ThreadState* thread,
 #endif  // !ROCKSDB_LITE
 }
 
-void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
+void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   if (thread->shared->HasVerificationFailedYet()) {
     return;
   }
@@ -1131,7 +1127,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   size_t primary_index_entries_count = 0;
   {
     char buf[4];
-    EncodeFixed32(buf, MyRocksRecord::kPrimaryIndexId + 1);
+    EncodeFixed32(buf, Record::kPrimaryIndexId + 1);
     std::reverse(buf, buf + sizeof(buf));
     std::string iter_ub_str(buf, sizeof(buf));
     Slice iter_ub = iter_ub_str;
@@ -1151,7 +1147,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   size_t secondary_index_entries_count = 0;
   {
     char buf[4];
-    EncodeFixed32(buf, MyRocksRecord::kSecondaryIndexId);
+    EncodeFixed32(buf, Record::kSecondaryIndexId);
     std::reverse(buf, buf + sizeof(buf));
     const std::string start_key(buf, sizeof(buf));
 
@@ -1162,7 +1158,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
     for (it->Seek(start_key); it->Valid(); it->Next()) {
       ++secondary_index_entries_count;
-      MyRocksRecord record;
+      Record record;
       Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
         VerificationAbort(thread->shared, "Cannot decode secondary index entry",
@@ -1173,7 +1169,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
       // in decoding phase.
       //
       // Form a primary key and search in the primary index.
-      std::string pk = MyRocksRecord::EncodePrimaryKey(record.a_value());
+      std::string pk = Record::EncodePrimaryKey(record.a_value());
       std::string value;
       s = db_->Get(ropts, pk, &value);
       if (!s.ok()) {
@@ -1183,7 +1179,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
         VerificationAbort(thread->shared, oss.str(), s);
         return;
       }
-      auto result = MyRocksRecord::DecodePrimaryIndexValue(value);
+      auto result = Record::DecodePrimaryIndexValue(value);
       s = std::get<0>(result);
       if (!s.ok()) {
         std::ostringstream oss;
@@ -1210,7 +1206,7 @@ void MyRocksStyleTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
-uint32_t MyRocksStyleTxnsStressTest::ChooseA(ThreadState* thread) {
+uint32_t MultiOpsTxnsStressTest::ChooseA(ThreadState* thread) {
   uint32_t rnd = thread->rand.Uniform(5);
   uint32_t next_a_low = next_a_.load(std::memory_order_relaxed);
   assert(next_a_low != 0);
@@ -1228,11 +1224,11 @@ uint32_t MyRocksStyleTxnsStressTest::ChooseA(ThreadState* thread) {
   return next_a_low + (next_a_high - next_a_low) / 2;
 }
 
-uint32_t MyRocksStyleTxnsStressTest::GenerateNextA() {
+uint32_t MultiOpsTxnsStressTest::GenerateNextA() {
   return next_a_.fetch_add(1, std::memory_order_relaxed);
 }
 
-void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
+void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
 #ifdef ROCKSDB_LITE
   (void)shared;
   (void)num_c;
@@ -1246,7 +1242,7 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
   for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
     for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
          ++a) {
-      MyRocksRecord record(a, /*_b=*/rnd.Next(), c);
+      Record record(a, /*_b=*/rnd.Next(), c);
       WriteBatch wb;
       const auto primary_index_entry = record.EncodePrimaryIndexEntry();
       Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
@@ -1259,7 +1255,7 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
 
       // TODO (yanqin): make the following check optional, especially when data
       // size is large.
-      MyRocksRecord tmp_rec;
+      Record tmp_rec;
       tmp_rec.SetB(record.b_value());
       s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
                                             secondary_index_entry.second);
@@ -1275,25 +1271,25 @@ void MyRocksStyleTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
 #endif  // !ROCKSDB_LITE
 }
 
-StressTest* CreateMyRocksStyleTxnsStressTest() {
-  return new MyRocksStyleTxnsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest() {
+  return new MultiOpsTxnsStressTest();
 }
 
-void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
+void CheckAndSetOptionsForMultiOpsTxnStressTest() {
 #ifndef ROCKSDB_LITE
   if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
     fprintf(stderr,
-            "-test_myrocks_txns is not compatible with "
+            "-test_multi_ops_txns is not compatible with "
             "-test_bathces_snapshots and -test_cf_consistency\n");
     exit(1);
   }
   if (!FLAGS_use_txn) {
-    fprintf(stderr, "-use_txn must be true if -test_myrocks_txns\n");
+    fprintf(stderr, "-use_txn must be true if -test_multi_ops_txns\n");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0) {
     fprintf(stderr,
-            "-test_myrocks_txns is not compatible with clearing column "
+            "-test_multi_ops_txns is not compatible with clearing column "
             "families\n");
     exit(1);
   }
@@ -1301,19 +1297,19 @@ void CheckAndSetOptionsForMyRocksStyleTxnStressTest() {
     // TODO (yanqin) support separating primary index and secondary index in
     // different column families.
     fprintf(stderr,
-            "-test_myrocks_txns currently does not use more than one column "
+            "-test_multi_ops_txns currently does not use more than one column "
             "family\n");
     exit(1);
   }
   if (FLAGS_writepercent > 0 || FLAGS_delpercent > 0 ||
       FLAGS_delrangepercent > 0) {
     fprintf(stderr,
-            "-test_myrocks_txns requires that -writepercent, -delpercent and "
+            "-test_multi_ops_txns requires that -writepercent, -delpercent and "
             "-delrangepercent be 0\n");
     exit(1);
   }
 #else
-  fprintf(stderr, "-test_myrocks_txns not supported in ROCKSDB_LITE mode\n");
+  fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");
   exit(1);
 #endif  // !ROCKSDB_LITE
 }

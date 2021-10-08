@@ -291,8 +291,8 @@ int db_stress_tool(int argc, char** argv) {
             "batch_protection_bytes_per_key > 0\n");
     exit(1);
   }
-  if (FLAGS_test_myrocks_txns) {
-    CheckAndSetOptionsForMyRocksStyleTxnStressTest();
+  if (FLAGS_test_multi_ops_txns) {
+    CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
 
 #ifndef NDEBUG
@@ -338,8 +338,8 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(CreateBatchedOpsStressTest());
-  } else if (FLAGS_test_myrocks_txns) {
-    stress.reset(CreateMyRocksStyleTxnsStressTest());
+  } else if (FLAGS_test_multi_ops_txns) {
+    stress.reset(CreateMultiOpsTxnsStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }
