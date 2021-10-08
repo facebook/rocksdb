@@ -44,21 +44,21 @@ function display_usage() {
   echo -e "\tVALUE_SIZE\t\t\tValue size (default: 1 KB)"
   echo -e "\tNUM_KEYS\t\t\tNumber of keys (default: raw database size divided by value size)"
   echo -e "\tDURATION\t\t\tIndividual duration for phase 2/3 tests in seconds (default: 1800)"
+  echo -e "\tWRITE_BUFFER_SIZE\t\tWrite buffer (memtable) size (default: 1 GB)"
   echo -e "\tENABLE_BLOB_FILES\t\tEnable blob files (default: 1)"
   echo -e "\tMIN_BLOB_SIZE\t\t\tSize threshold for storing values in blob files (default: 0)"
-  echo -e "\tBLOB_FILE_SIZE\t\t\tBlob file size (default: 1 GB)"
+  echo -e "\tBLOB_FILE_SIZE\t\t\tBlob file size (default: same as write buffer size)"
   echo -e "\tBLOB_COMPRESSION_TYPE\t\tCompression type for the blob files (default: lz4)"
   echo -e "\tENABLE_BLOB_GC\t\t\tEnable blob garbage collection (default: 1)"
   echo -e "\tBLOB_GC_AGE_CUTOFF\t\tBlob garbage collection age cutoff (default: 0.25)"
-  echo -e "\tWRITE_BUFFER_SIZE\t\tWrite buffer (memtable) size (default: 1 GB)"
-  echo -e "\tTARGET_FILE_SIZE_BASE\t\tTarget SST file size for compactions (default: TODO)"
+  echo -e "\tTARGET_FILE_SIZE_BASE\t\tTarget SST file size for compactions (default: write buffer size, scaled down if blob files are enabled)"
   echo -e "\tMAX_BYTES_FOR_LEVEL_BASE\tMaximum size for the base level (default: 8 * target SST file size)"
 }
 
 if [ $# -ge 1 ]; then
   display_usage
 
-  if [[ "$1" == "--help" ]]; then
+  if [ "$1" == "--help" ]; then
     exit
   else
     exit $EXIT_INVALID_ARGS
@@ -89,18 +89,19 @@ num_keys=${NUM_KEYS:-$(($db_size / $value_size))}
 
 duration=${DURATION:-1800}
 
+write_buffer_size=${WRITE_BUFFER_SIZE:-$((1 * G))}
+
 enable_blob_files=${ENABLE_BLOB_FILES:-1}
 min_blob_size=${MIN_BLOB_SIZE:-0}
-blob_file_size=${BLOB_FILE_SIZE:-$((1 * G))}
+blob_file_size=${BLOB_FILE_SIZE:-$write_buffer_size}
 blob_compression_type=${BLOB_COMPRESSION_TYPE:-lz4}
 enable_blob_garbage_collection=${ENABLE_BLOB_GC:-1}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 
-write_buffer_size=${WRITE_BUFFER_SIZE:-$((1 * G))}
-
-target_file_size_base=${TARGET_FILE_SIZE_BASE:-$((1 * G))}
 if [ "$enable_blob_files" == "1" ]; then
-  target_file_size_base=$(($blob_file_size / $value_size * 32))
+  target_file_size_base=${TARGET_FILE_SIZE_BASE:-$(($write_buffer_size / $value_size * 32))}
+else
+  target_file_size_base=${TARGET_FILE_SIZE_BASE:-$write_buffer_size}
 fi
 
 max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * $target_file_size_base))}
