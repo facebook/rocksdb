@@ -10,22 +10,24 @@
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/vector_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // A vector iterator which does its own bounds checking. This is for testing the
 // optimizations in the clipping iterator where we bypass the bounds checking if
 // the input iterator has already performed it.
-class BoundsCheckingVectorIterator : public test::VectorIterator {
+class BoundsCheckingVectorIterator : public VectorIterator {
  public:
   BoundsCheckingVectorIterator(const std::vector<std::string>& keys,
                                const std::vector<std::string>& values,
                                const Slice* start, const Slice* end,
                                const Comparator* cmp)
-      : VectorIterator(keys, values), start_(start), end_(end), cmp_(cmp) {
+      : VectorIterator(keys, values, cmp), start_(start), end_(end), cmp_(cmp) {
     assert(cmp_);
   }
 
@@ -105,7 +107,7 @@ TEST_P(ClippingIteratorTest, Clip) {
       use_bounds_checking_vec_it
           ? new BoundsCheckingVectorIterator(input_keys, input_values, &start,
                                              &end, BytewiseComparator())
-          : new test::VectorIterator(input_keys, input_values));
+          : new VectorIterator(input_keys, input_values, BytewiseComparator()));
 
   ClippingIterator clip(input.get(), &start, &end, BytewiseComparator());
 

@@ -200,10 +200,10 @@ class WritableFileWriter {
     }
   }
 
-  static Status Create(const std::shared_ptr<FileSystem>& fs,
-                       const std::string& fname, const FileOptions& file_opts,
-                       std::unique_ptr<WritableFileWriter>* writer,
-                       IODebugContext* dbg);
+  static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& fname, const FileOptions& file_opts,
+                         std::unique_ptr<WritableFileWriter>* writer,
+                         IODebugContext* dbg);
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;

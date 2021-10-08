@@ -104,7 +104,7 @@ class UniversalCompactionBuilder {
   // because some files are being compacted.
   Compaction* PickPeriodicCompaction();
 
-  // Used in universal compaction when the enabled_trivial_move
+  // Used in universal compaction when the allow_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
   // overlapping.
