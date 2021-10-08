@@ -101,7 +101,6 @@ struct LRUCacheOptions : public CacheOptions {
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.5;
 
-
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
   // mutexes need to be supported by the platform in order for this to have any
   // effect. The default value is true if RocksDB is compiled with
