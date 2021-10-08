@@ -1204,7 +1204,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
             {
                 'name':'Run RocksDB whitebox crash tests',
                 'timeout': 86400,
-                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_whitebox_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
+                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_fbcode_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
