@@ -54,7 +54,7 @@ struct CacheOptions {
   CacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
       CacheMetadataChargePolicy _metadata_charge_policy =
-      kDefaultCacheMetadataChargePolicy,
+          kDefaultCacheMetadataChargePolicy,
       const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),

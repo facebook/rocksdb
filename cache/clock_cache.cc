@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "cache/clock_cache.h"
+
 #include "rocksdb/convenience.h"
 #ifdef SUPPORT_CLOCK_CACHE
 #include <assert.h>

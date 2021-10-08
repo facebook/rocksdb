@@ -672,7 +672,6 @@ LRUCache::LRUCache(const LRUCacheOptions& options)
   RegisterOptions(&options_, &lru_cache_options_type_info);
 }
 
-
 LRUCache::LRUCache() : ShardedCache(&options_) {
   RegisterOptions(&options_, &lru_cache_options_type_info);
 }
