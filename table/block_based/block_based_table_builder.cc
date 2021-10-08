@@ -25,6 +25,7 @@
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
+#include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -507,7 +508,8 @@ struct BlockBasedTableBuilder::Rep {
       assert(factory);
 
       table_properties_collectors.emplace_back(
-          factory->CreateIntTblPropCollector(tbo.column_family_id));
+          factory->CreateIntTblPropCollector(tbo.column_family_id,
+                                             tbo.level_at_creation));
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(

@@ -8,6 +8,7 @@
 
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"

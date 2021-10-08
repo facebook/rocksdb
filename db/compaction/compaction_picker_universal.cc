@@ -15,9 +15,11 @@
 #include <queue>
 #include <string>
 #include <utility>
+
 #include "db/column_family.h"
 #include "file/filename.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
@@ -102,7 +104,7 @@ class UniversalCompactionBuilder {
   // because some files are being compacted.
   Compaction* PickPeriodicCompaction();
 
-  // Used in universal compaction when the enabled_trivial_move
+  // Used in universal compaction when the allow_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
   // overlapping.

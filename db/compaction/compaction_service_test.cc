@@ -310,6 +310,9 @@ TEST_P(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
   ReopenWithCompactionService(&options);
 
+  Statistics* primary_statistics = GetPrimaryStatistics();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
@@ -337,14 +340,24 @@ TEST_P(CompactionServiceTest, BasicCompactions) {
     }
   }
   auto my_cs = GetCompactionService();
-  Statistics* compactor_statistics = GetCompactorStatistics();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 
   // make sure the compaction statistics is only recorded on the remote side
-  ASSERT_GE(
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY), 1);
-  Statistics* primary_statistics = GetPrimaryStatistics();
-  ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+  ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 1);
+  ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_READ_BYTES), 1);
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+  // even with remote compaction, primary host still needs to read SST files to
+  // `verify_table()`.
+  ASSERT_GE(primary_statistics->getTickerCount(COMPACT_READ_BYTES), 1);
+  // all the compaction write happens on the remote side
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
+            compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES));
+  ASSERT_GE(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 1);
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACT_READ_BYTES),
+            primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES));
+  // compactor is already the remote side, which doesn't have remote
+  ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 0);
+  ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
             0);
 
   // Test failed compaction
@@ -682,10 +695,10 @@ TEST_P(CompactionServiceTest, FallbackLocalAuto) {
   auto my_cs = GetCompactionService();
   Statistics* compactor_statistics = GetCompactorStatistics();
   Statistics* primary_statistics = GetPrimaryStatistics();
-  uint64_t compactor_new_key =
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  uint64_t primary_new_key =
-      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  uint64_t compactor_write_bytes =
+      compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  uint64_t primary_write_bytes =
+      primary_statistics->getTickerCount(COMPACT_WRITE_BYTES);
 
   my_cs->OverrideStartStatus(CompactionServiceJobStatus::kUseLocal);
 
@@ -719,11 +732,12 @@ TEST_P(CompactionServiceTest, FallbackLocalAuto) {
   ASSERT_EQ(my_cs->GetCompactionNum(), 0);
 
   // make sure the compaction statistics is only recorded on the local side
-  ASSERT_EQ(
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-      compactor_new_key);
-  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-            primary_new_key);
+  ASSERT_EQ(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            compactor_write_bytes);
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            primary_write_bytes);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 0);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES), 0);
 }
 
 TEST_P(CompactionServiceTest, FallbackLocalManual) {
@@ -737,10 +751,10 @@ TEST_P(CompactionServiceTest, FallbackLocalManual) {
   auto my_cs = GetCompactionService();
   Statistics* compactor_statistics = GetCompactorStatistics();
   Statistics* primary_statistics = GetPrimaryStatistics();
-  uint64_t compactor_new_key =
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  uint64_t primary_new_key =
-      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  uint64_t compactor_write_bytes =
+      compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  uint64_t primary_write_bytes =
+      primary_statistics->getTickerCount(COMPACT_WRITE_BYTES);
 
   // re-enable remote compaction
   my_cs->ResetOverride();
@@ -753,31 +767,32 @@ TEST_P(CompactionServiceTest, FallbackLocalManual) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   // make sure the compaction statistics is only recorded on the remote side
-  ASSERT_GT(
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-      compactor_new_key);
-  ASSERT_EQ(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-            primary_new_key);
+  ASSERT_GT(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            compactor_write_bytes);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
+            compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES));
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            primary_write_bytes);
 
   // return run local again with API WaitForComplete
   my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kUseLocal);
   start_str = Key(120);
   start = start_str;
   comp_num = my_cs->GetCompactionNum();
-  compactor_new_key =
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
-  primary_new_key =
-      primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY);
+  compactor_write_bytes =
+      compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  primary_write_bytes = primary_statistics->getTickerCount(COMPACT_WRITE_BYTES);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, nullptr));
   ASSERT_EQ(my_cs->GetCompactionNum(),
             comp_num);  // no remote compaction is run
   // make sure the compaction statistics is only recorded on the local side
-  ASSERT_EQ(
-      compactor_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-      compactor_new_key);
-  ASSERT_GT(primary_statistics->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-            primary_new_key);
+  ASSERT_EQ(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            compactor_write_bytes);
+  ASSERT_GT(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES),
+            primary_write_bytes);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
+            compactor_write_bytes);
 
   // verify result after 2 manual compactions
   VerifyTestData();

@@ -22,12 +22,17 @@ class BlobFileCompletionCallback {
       ErrorHandler* error_handler, EventLogger* event_logger,
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       const std::string& dbname)
-      : sst_file_manager_(sst_file_manager),
-        mutex_(mutex),
-        error_handler_(error_handler),
-        event_logger_(event_logger),
-        listeners_(listeners),
-        dbname_(dbname) {}
+      : event_logger_(event_logger), listeners_(listeners), dbname_(dbname) {
+#ifndef ROCKSDB_LITE
+    sst_file_manager_ = sst_file_manager;
+    mutex_ = mutex;
+    error_handler_ = error_handler;
+#else
+    (void)sst_file_manager;
+    (void)mutex;
+    (void)error_handler;
+#endif  // ROCKSDB_LITE
+  }
 
   void OnBlobFileCreationStarted(const std::string& file_name,
                                  const std::string& column_family_name,
@@ -84,9 +89,11 @@ class BlobFileCompletionCallback {
   }
 
  private:
+#ifndef ROCKSDB_LITE
   SstFileManager* sst_file_manager_;
   InstrumentedMutex* mutex_;
   ErrorHandler* error_handler_;
+#endif  // ROCKSDB_LITE
   EventLogger* event_logger_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::string dbname_;
