@@ -218,14 +218,14 @@ public abstract class AbstractMutableOptions {
      * Parse a string into a long value, accepting values expressed as a double (such as 9.00) which
      * are meant to be a long, not a double
      *
-     * @param value
-     * @return
+     * @param value the string containing a value which represents a long
+     * @return the long value of the parsed string
      */
-    private long parseAsLong(String value) {
+    private long parseAsLong(final String value) {
       try {
         return Long.parseLong(value);
       } catch (NumberFormatException nfe) {
-        double doubleValue = Double.parseDouble(value);
+        final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
           throw new IllegalArgumentException("Unable to parse or round " + value + " to int");
         return Math.round(doubleValue);
@@ -236,14 +236,14 @@ public abstract class AbstractMutableOptions {
      * Parse a string into an int value, accepting values expressed as a double (such as 9.00) which
      * are meant to be an int, not a double
      *
-     * @param value
-     * @return
+     * @param value the string containing a value which represents an int
+     * @return the int value of the parsed string
      */
-    private int parseAsInt(String value) {
+    private int parseAsInt(final String value) {
       try {
         return Integer.parseInt(value);
       } catch (NumberFormatException nfe) {
-        double doubleValue = Double.parseDouble(value);
+        final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
           throw new IllegalArgumentException("Unable to parse or round " + value + " to long");
         return (int) Math.round(doubleValue);
@@ -262,7 +262,7 @@ public abstract class AbstractMutableOptions {
      *
      * @throws IllegalArgumentException if an option value is of the wrong type, or a key is empty
      */
-    protected U fromParsed(final List<OptionString.Entry> options, boolean ignoreUnknown) {
+    protected U fromParsed(final List<OptionString.Entry> options, final boolean ignoreUnknown) {
       Objects.requireNonNull(options);
 
       for (final OptionString.Entry option : options) {
@@ -317,8 +317,8 @@ public abstract class AbstractMutableOptions {
         }
       }
 
-      List<String> valueStrs = option.value.list;
-      String valueStr = valueStrs.get(0);
+      final List<String> valueStrs = option.value.list;
+      final String valueStr = valueStrs.get(0);
 
       switch (key.getValueType()) {
         case DOUBLE:
@@ -341,7 +341,8 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          Optional<CompressionType> compressionType = CompressionType.getFromInternal(valueStr);
+          final Optional<CompressionType> compressionType =
+              CompressionType.getFromInternal(valueStr);
           if (compressionType.isPresent()) {
             return setEnum(key, compressionType.get());
           }

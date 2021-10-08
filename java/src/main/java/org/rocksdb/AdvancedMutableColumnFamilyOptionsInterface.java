@@ -534,6 +534,17 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   T setEnableBlobFiles(final boolean enableBlobFiles);
 
   /**
+   * When set, large values (blobs) are written to separate blob files, and only
+   * pointers to them are stored in SST files. This can reduce write amplification
+   * for large-value use cases at the cost of introducing a level of indirection
+   * for reads. See also the options min_blob_size, blob_file_size,
+   * blob_compression_type, enable_blob_garbage_collection, and
+   * blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return true iff blob files are enabled
    */
@@ -557,6 +568,16 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   T setMinBlobSize(final long minBlobSize);
 
   /**
+   * Get the size of the smallest value to be stored separately in a blob file. Values
+   * which have an uncompressed size smaller than this threshold are stored
+   * alongside the keys in SST files in the usual fashion. A value of zero for
+   * this option means that all values are stored in blob files. Note that
+   * enable_blob_files has to be set in order for this option to have any effect.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return the current minimum size of value which is stored separately in a blob
    */
@@ -604,6 +625,8 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
 
   /**
    * Get the compression algorithm in use for large values stored in blob files.
+   * Note that enable_blob_files has to be set in order for this option to have any
+   * effect.
    *
    * @return the current compression algorithm
    */
@@ -625,7 +648,13 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   T setEnableBlobGarbageCollection(final boolean enableBlobGarbageCollection);
 
   /**
-   * Query whether garbage collection of blobs is enabled.
+   * Query whether garbage collection of blobs is enabled.Blob GC is performed as part of
+   * compaction. Valid blobs residing in blob files older than a cutoff get
+   * relocated to new files as they are encountered during compaction, which makes
+   * it possible to clean up blob files once they contain nothing but
+   * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
    *
    * @return true iff blob garbage collection is currently enabled.
    */
@@ -646,6 +675,13 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    */
   T setBlobGarbageCollectionAgeCutoff(double blobGarbageCollectionAgeCutoff);
   /**
+   * Get cutoff in terms of blob file age for garbage collection. Blobs in the
+   * oldest N blob files will be relocated when encountered during compaction,
+   * where N = garbage_collection_cutoff * number_of_blob_files. Note that
+   * enable_blob_garbage_collection has to be set in order for this option to have
+   * any effect.
+   *
+   * Default: 0.25
    *
    * @return the current age cutoff for garbage collection
    */

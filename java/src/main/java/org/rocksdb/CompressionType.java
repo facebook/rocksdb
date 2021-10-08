@@ -81,7 +81,7 @@ public enum CompressionType {
    *
    * @return CompressionType instance (optional)
    */
-  public static Optional<CompressionType> getFromInternal(String internalName) {
+  public static Optional<CompressionType> getFromInternal(final String internalName) {
     for (final CompressionType compressionType : CompressionType.values()) {
       if (compressionType.internalName_.equals(internalName)) {
         return Optional.of(compressionType);

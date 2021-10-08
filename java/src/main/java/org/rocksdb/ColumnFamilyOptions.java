@@ -960,6 +960,17 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * When set, large values (blobs) are written to separate blob files, and only
+   * pointers to them are stored in SST files. This can reduce write amplification
+   * for large-value use cases at the cost of introducing a level of indirection
+   * for reads. See also the options min_blob_size, blob_file_size,
+   * blob_compression_type, enable_blob_garbage_collection, and
+   * blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return true iff blob files are currently enabled
    */
@@ -989,6 +1000,16 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * Get the size of the smallest value to be stored separately in a blob file. Values
+   * which have an uncompressed size smaller than this threshold are stored
+   * alongside the keys in SST files in the usual fashion. A value of zero for
+   * this option means that all values are stored in blob files. Note that
+   * enable_blob_files has to be set in order for this option to have any effect.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return the current minimum blob size
    */
@@ -1018,6 +1039,14 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * Get the size limit for blob files. When writing blob files, a new file is opened
+   * once this limit is reached. Note that enable_blob_files has to be set in
+   * order for this option to have any effect.
+   *
+   * Default: 256 MB
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return the size limit for blob files
    */
@@ -1041,12 +1070,20 @@ public class ColumnFamilyOptions extends RocksObject
    * @return the reference to the current options.
    */
   @Override
-  public ColumnFamilyOptions setBlobCompressionType(CompressionType compressionType) {
+  public ColumnFamilyOptions setBlobCompressionType(final CompressionType compressionType) {
     setBlobCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
 
   /**
+   * Get the compression algorithm to use for large values stored in blob files. Note
+   * that enable_blob_files has to be set in order for this option to have any
+   * effect.
+   *
+   * Default: no compression
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
    * @return the compression algorithm currently in use for blobs
    */
@@ -1076,6 +1113,13 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * Get enabled/disables state for garbage collection of blobs. Blob GC is performed as part of
+   * compaction. Valid blobs residing in blob files older than a cutoff get
+   * relocated to new files as they are encountered during compaction, which makes
+   * it possible to clean up blob files once they contain nothing but
+   * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
    *
    * @return true iff blob garbage collection is currently enabled
    */
@@ -1099,12 +1143,19 @@ public class ColumnFamilyOptions extends RocksObject
    */
   @Override
   public ColumnFamilyOptions setBlobGarbageCollectionAgeCutoff(
-      double blobGarbageCollectionAgeCutoff) {
+      final double blobGarbageCollectionAgeCutoff) {
     setBlobGarbageCollectionAgeCutoff(nativeHandle_, blobGarbageCollectionAgeCutoff);
     return this;
   }
 
   /**
+   * Get the cutoff in terms of blob file age for garbage collection. Blobs in the
+   * oldest N blob files will be relocated when encountered during compaction,
+   * where N = garbage_collection_cutoff * number_of_blob_files. Note that
+   * enable_blob_garbage_collection has to be set in order for this option to have
+   * any effect.
+   *
+   * Default: 0.25
    *
    * @return the current blob garbage collection age cutoff
    */
@@ -1305,7 +1356,7 @@ public class ColumnFamilyOptions extends RocksObject
       final long nativeHandle_, final boolean enableBlobGarbageCollection);
   private native boolean enableBlobGarbageCollection(final long nativeHandle_);
   private native void setBlobGarbageCollectionAgeCutoff(
-      final long nativeHandle_, double blobGarbageCollectionAgeCutoff);
+      final long nativeHandle_, final double blobGarbageCollectionAgeCutoff);
   private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
 
   // instance variables

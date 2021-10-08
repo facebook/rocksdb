@@ -51,7 +51,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
   public static MutableDBOptionsBuilder parse(final String str, boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
-    List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
+    final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
     return new MutableDBOptions.MutableDBOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
   }
 

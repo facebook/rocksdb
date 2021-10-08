@@ -22,7 +22,7 @@ public class OptionString {
     final List<String> list;
     final List<Entry> complex;
 
-    public Value(List<String> list, List<Entry> complex) {
+    public Value(final List<String> list, final List<Entry> complex) {
       this.list = list;
       this.complex = complex;
     }
@@ -31,18 +31,18 @@ public class OptionString {
       return (this.list != null && this.complex == null);
     }
 
-    public static Value fromList(List<String> list) {
+    public static Value fromList(final List<String> list) {
       return new Value(list, null);
     }
 
-    public static Value fromComplex(List<Entry> complex) {
+    public static Value fromComplex(final List<Entry> complex) {
       return new Value(null, complex);
     }
 
     public String toString() {
-      StringBuilder sb = new StringBuilder();
+      final StringBuilder sb = new StringBuilder();
       if (isList()) {
-        for (String item : list) {
+        for (final String item : list) {
           sb.append(item).append(arrayValueSeparator);
         }
         // remove the final separator
@@ -50,7 +50,7 @@ public class OptionString {
           sb.delete(sb.length() - 1, sb.length());
       } else {
         sb.append('[');
-        for (Entry entry : complex) {
+        for (final Entry entry : complex) {
           sb.append(entry.toString()).append(';');
         }
         sb.append(']');
@@ -75,7 +75,7 @@ public class OptionString {
 
   static class Parser {
     static class Exception extends RuntimeException {
-      public Exception(String s) {
+      public Exception(final String s) {
         super(s);
       }
     }
@@ -83,16 +83,16 @@ public class OptionString {
     final String str;
     final StringBuilder sb;
 
-    private Parser(String str) {
+    private Parser(final String str) {
       this.str = str;
       this.sb = new StringBuilder(str);
     }
 
-    private void exception(String message) {
-      int pos = str.length() - sb.length();
-      int before = Math.min(pos, 64);
-      int after = Math.min(64, str.length() - pos);
-      String here =
+    private void exception(final String message) {
+      final int pos = str.length() - sb.length();
+      final int before = Math.min(pos, 64);
+      final int after = Math.min(64, str.length() - pos);
+      final String here =
           str.substring(pos - before, pos) + "__*HERE*__" + str.substring(pos, pos + after);
 
       throw new Parser.Exception(message + " at [" + here + "]");
@@ -113,7 +113,7 @@ public class OptionString {
     private char next() {
       if (sb.length() == 0)
         exception("Unexpected end of input");
-      char c = sb.charAt(0);
+      final char c = sb.charAt(0);
       sb.delete(0, 1);
       return c;
     }
@@ -122,28 +122,30 @@ public class OptionString {
       return (sb.length() > 0);
     }
 
-    private boolean is(char c) {
+    private boolean is(final char c) {
       return (sb.length() > 0 && sb.charAt(0) == c);
     }
 
     private boolean isKeyChar() {
       if (!hasNext())
         return false;
-      char c = first();
+      final char c = first();
       return (Character.isAlphabetic(c) || Character.isDigit(c) || "_".indexOf(c) != -1);
     }
 
     private boolean isValueChar() {
       if (!hasNext())
         return false;
-      char c = first();
+      final char c = first();
       return (Character.isAlphabetic(c) || Character.isDigit(c) || "_-+.[]".indexOf(c) != -1);
     }
 
     private String parseKey() {
-      StringBuilder sbKey = new StringBuilder();
+      final StringBuilder sbKey = new StringBuilder();
       sbKey.append(next());
-      while (isKeyChar()) sbKey.append(next());
+      while (isKeyChar()) {
+        sbKey.append(next());
+      }
 
       return sbKey.toString();
     }
@@ -151,7 +153,7 @@ public class OptionString {
     private String parseSimpleValue() {
       if (is(wrappedValueBegin)) {
         next();
-        String result = parseSimpleValue();
+        final String result = parseSimpleValue();
         if (!is(wrappedValueEnd)) {
           exception("Expected to end a wrapped value with " + wrappedValueEnd);
         }
@@ -159,7 +161,7 @@ public class OptionString {
 
         return result;
       } else {
-        StringBuilder sbValue = new StringBuilder();
+        final StringBuilder sbValue = new StringBuilder();
         while (isValueChar()) sbValue.append(next());
 
         return sbValue.toString();
@@ -167,7 +169,7 @@ public class OptionString {
     }
 
     private List<String> parseList() {
-      List<String> list = new ArrayList<>(1);
+      final List<String> list = new ArrayList<>(1);
       while (true) {
         list.add(parseSimpleValue());
         if (!is(arrayValueSeparator))
@@ -184,7 +186,7 @@ public class OptionString {
       if (!isKeyChar()) {
         exception("No valid key character(s) for key in key=value ");
       }
-      String key = parseKey();
+      final String key = parseKey();
       skipWhite();
       if (is(kvSeparator)) {
         next();
@@ -192,18 +194,16 @@ public class OptionString {
         exception("Expected = separating key and value");
       }
       skipWhite();
-      Value value = parseValue();
+      final Value value = parseValue();
       return new Entry(key, value);
     }
 
     private Value parseValue() {
-      Value value = null;
-
       skipWhite();
       if (is(complexValueBegin)) {
         next();
         skipWhite();
-        value = Value.fromComplex(parseComplex());
+        final Value value = Value.fromComplex(parseComplex());
         skipWhite();
         if (is(complexValueEnd)) {
           next();
@@ -211,17 +211,17 @@ public class OptionString {
         } else {
           exception("Expected } ending complex value");
         }
+        return value;
       } else if (isValueChar()) {
         return Value.fromList(parseList());
-      } else {
-        exception("No valid value character(s) for value in key=value");
       }
 
-      return value;
+      exception("No valid value character(s) for value in key=value");
+      return null;
     }
 
     private List<Entry> parseComplex() {
-      List<Entry> entries = new ArrayList<>();
+      final List<Entry> entries = new ArrayList<>();
 
       skipWhite();
       if (hasNext()) {

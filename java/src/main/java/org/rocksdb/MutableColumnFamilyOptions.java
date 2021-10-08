@@ -47,10 +47,11 @@ public class MutableColumnFamilyOptions
    *
    * @return A builder for the mutable column family options
    */
-  public static MutableColumnFamilyOptionsBuilder parse(final String str, boolean ignoreUnknown) {
+  public static MutableColumnFamilyOptionsBuilder parse(
+      final String str, final boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
-    List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
+    final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
     return new MutableColumnFamilyOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
   }
 
@@ -483,7 +484,7 @@ public class MutableColumnFamilyOptions
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setEnableBlobFiles(boolean enableBlobFiles) {
+    public MutableColumnFamilyOptionsBuilder setEnableBlobFiles(final boolean enableBlobFiles) {
       return setBoolean(BlobOption.enable_blob_files, enableBlobFiles);
     }
 
@@ -493,7 +494,7 @@ public class MutableColumnFamilyOptions
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setMinBlobSize(long minBlobSize) {
+    public MutableColumnFamilyOptionsBuilder setMinBlobSize(final long minBlobSize) {
       return setLong(BlobOption.min_blob_size, minBlobSize);
     }
 
@@ -503,7 +504,7 @@ public class MutableColumnFamilyOptions
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setBlobFileSize(long blobFileSize) {
+    public MutableColumnFamilyOptionsBuilder setBlobFileSize(final long blobFileSize) {
       return setLong(BlobOption.blob_file_size, blobFileSize);
     }
 
@@ -536,7 +537,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public MutableColumnFamilyOptionsBuilder setBlobGarbageCollectionAgeCutoff(
-        double blobGarbageCollectionAgeCutoff) {
+        final double blobGarbageCollectionAgeCutoff) {
       return setDouble(
           BlobOption.blob_garbage_collection_age_cutoff, blobGarbageCollectionAgeCutoff);
     }
