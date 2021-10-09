@@ -690,8 +690,7 @@ jobs:
       - post-steps
 
   benchmark-linux:
-    machine:
-      image: ubuntu-1604:202104-01
+    machine: true
     resource_class: facebook/rocksdb-benchmark-sys1
     steps:
       - run: hostname
