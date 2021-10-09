@@ -1,0 +1,25 @@
+name: Mirror repo to S3
+on:
+  schedule:
+    # Runs everyday at 17:20 pm
+    - cron: '20 17 * * * '
+  workflow_dispatch:
+jobs:
+  s3Backup:
+    runs-on: docker-builds
+    steps:
+      - uses: actions/checkout@v1
+      - name: Create backup
+        run: |
+          github-backup 0chain -P -t ${{ secrets.ACCESS_TOKEN }} --output-directory=/github-backup/rocksdb --all -O -R rocksdb
+      - name: Create zip
+        run: zip -r rocksdb.zip /github-backup/rocksdb
+      - name: Set AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Backup to s3
+        run: |
+          aws s3 cp rocksdb.zip s3://${{ secrets.MIRROR_TARGET }}/rocksdb.zip
