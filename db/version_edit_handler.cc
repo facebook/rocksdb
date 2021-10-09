@@ -638,6 +638,8 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
       }
     }
+  } else {
+    versions_.clear();
   }
 }
 
