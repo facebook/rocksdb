@@ -505,15 +505,28 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   // (for example, they may contain data a previous db_stress run expects to
   // be recovered). This could be extended to track/drop data appended once
   // the file is under `FaultInjectionTestFS`'s control.
-  if (io_s.ok() && !exists) {
-    result->reset(
-        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
+  if (io_s.ok()) {
+    bool should_track;
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
-      auto dir_and_name = TestFSGetDirAndName(fname);
-      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list[dir_and_name.second] = kNewFileNoOverwrite;
+      if (db_file_state_.find(fname) != db_file_state_.end()) {
+        // It was written by this `FileSystem` earlier.
+        assert(exists);
+        should_track = true;
+      } else if (!exists) {
+        // It was created by this `FileSystem` just now.
+        should_track = true;
+        open_files_.insert(fname);
+        auto dir_and_name = TestFSGetDirAndName(fname);
+        auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+        list[dir_and_name.second] = kNewFileNoOverwrite;
+      } else {
+        should_track = false;
+      }
+    }
+    if (should_track) {
+      result->reset(
+          new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -668,6 +681,59 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       auto sdn = TestFSGetDirAndName(s);
       auto tdn = TestFSGetDirAndName(t);
       if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
+        auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+        assert(tlist.find(tdn.second) == tlist.end());
+        tlist[tdn.second] = previous_contents;
+      }
+    }
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
+                                        const std::string& t,
+                                        const IOOptions& options,
+                                        IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  // We preserve contents of overwritten files up to a size threshold.
+  // We could keep previous file in another name, but we need to worry about
+  // garbage collect the those files. We do it if it is needed later.
+  // We ignore I/O errors here for simplicity.
+  std::string previous_contents = kNewFileNoOverwrite;
+  if (target()->FileExists(t, IOOptions(), nullptr).ok()) {
+    uint64_t file_size;
+    if (target()->GetFileSize(t, IOOptions(), &file_size, nullptr).ok() &&
+        file_size < 1024) {
+      ReadFileToString(target(), t, &previous_contents).PermitUncheckedError();
+    }
+  }
+  IOStatus io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
+
+  if (io_s.ok()) {
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(s) != db_file_state_.end()) {
+        db_file_state_[t] = db_file_state_[s];
+      }
+
+      auto sdn = TestFSGetDirAndName(s);
+      auto tdn = TestFSGetDirAndName(t);
+      if (dir_to_new_files_since_last_sync_[sdn.first].find(sdn.second) !=
+          dir_to_new_files_since_last_sync_[sdn.first].end()) {
         auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
         assert(tlist.find(tdn.second) == tlist.end());
         tlist[tdn.second] = previous_contents;
