@@ -175,6 +175,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+  virtual Status LinkFile(const std::string& s, const std::string& t) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   virtual Status GetFreeSpace(const std::string& path,

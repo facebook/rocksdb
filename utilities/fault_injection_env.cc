@@ -323,13 +323,28 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   // (for example, they may contain data a previous db_stress run expects to
   // be recovered). This could be extended to track/drop data appended once
   // the file is under `FaultInjectionTestEnv`'s control.
-  if (s.ok() && !exists) {
-    result->reset(new TestWritableFile(fname, std::move(*result), this));
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = GetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+  if (s.ok()) {
+    bool should_track;
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(fname) != db_file_state_.end()) {
+        // It was written by this `Env` earlier.
+        assert(exists);
+        should_track = true;
+      } else if (!exists) {
+        // It was created by this `Env` just now.
+        should_track = true;
+        open_files_.insert(fname);
+        auto dir_and_name = GetDirAndName(fname);
+        auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+        list.insert(dir_and_name.second);
+      } else {
+        should_track = false;
+      }
+    }
+    if (should_track) {
+      result->reset(new TestWritableFile(fname, std::move(*result), this));
+    }
   }
   return s;
 }
@@ -402,6 +417,32 @@ Status FaultInjectionTestEnv::RenameFile(const std::string& s,
     auto sdn = GetDirAndName(s);
     auto tdn = GetDirAndName(t);
     if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
+      auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+      assert(tlist.find(tdn.second) == tlist.end());
+      tlist.insert(tdn.second);
+    }
+  }
+
+  return ret;
+}
+
+Status FaultInjectionTestEnv::LinkFile(const std::string& s,
+                                       const std::string& t) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  Status ret = EnvWrapper::LinkFile(s, t);
+
+  if (ret.ok()) {
+    MutexLock l(&mutex_);
+    if (db_file_state_.find(s) != db_file_state_.end()) {
+      db_file_state_[t] = db_file_state_[s];
+    }
+
+    auto sdn = GetDirAndName(s);
+    auto tdn = GetDirAndName(t);
+    if (dir_to_new_files_since_last_sync_[sdn.first].find(sdn.second) !=
+        dir_to_new_files_since_last_sync_[sdn.first].end()) {
       auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
       assert(tlist.find(tdn.second) == tlist.end());
       tlist.insert(tdn.second);

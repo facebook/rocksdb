@@ -236,6 +236,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               const IOOptions& options,
                               IODebugContext* dbg) override;
 
+  virtual IOStatus LinkFile(const std::string& src,
+                            const std::string& target,
+                            const IOOptions& options,
+                            IODebugContext* dbg) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   virtual IOStatus GetFreeSpace(const std::string& path,
