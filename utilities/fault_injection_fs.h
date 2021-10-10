@@ -236,8 +236,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               const IOOptions& options,
                               IODebugContext* dbg) override;
 
-  virtual IOStatus LinkFile(const std::string& src,
-                            const std::string& target,
+  virtual IOStatus LinkFile(const std::string& src, const std::string& target,
                             const IOOptions& options,
                             IODebugContext* dbg) override;
 
