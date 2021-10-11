@@ -10,10 +10,11 @@
 #include "monitoring/histogram.h"
 
 #include <stdio.h>
+
+#include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
-#include <algorithm>
 
 #include "port/port.h"
 #include "util/cast_util.h"
