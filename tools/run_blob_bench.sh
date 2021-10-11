@@ -183,4 +183,5 @@ env $ENV_VARS_D ./tools/benchmark.sh readrandom $PARAMS_GC
 # fwdrange
 env $ENV_VARS_D ./tools/benchmark.sh fwdrange $PARAMS_GC
 
+# save logs to output directory
 cp $db_dir/LOG* $output_dir/
