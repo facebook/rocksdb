@@ -37,7 +37,7 @@ function display_usage() {
   echo "Environment Variables:"
   echo -e "\tDB_DIR\t\t\t\tPath for the RocksDB data directory (mandatory)"
   echo -e "\tWAL_DIR\t\t\t\tPath for the RocksDB WAL directory (mandatory)"
-  echo -e "\tOUTPUT_DIR\t\t\tPath for the benchmark results (default: /tmp/blob_bench_output)"
+  echo -e "\tOUTPUT_DIR\t\t\tPath for the benchmark results (mandatory)"
   echo -e "\tNUM_THREADS\t\t\tNumber of threads (default: 16)"
   echo -e "\tCOMPRESSION_TYPE\t\tCompression type for the SST files (default: lz4)"
   echo -e "\tDB_SIZE\t\t\t\tRaw (uncompressed) database size (default: 1 TB)"
@@ -75,9 +75,14 @@ if [ -z $WAL_DIR ]; then
   exit $EXIT_INVALID_ARGS
 fi
 
+if [ -z $OUTPUT_DIR ]; then
+  echo "OUTPUT_DIR is not defined"
+  exit $EXIT_INVALID_ARGS
+fi
+
 db_dir=$DB_DIR
 wal_dir=$WAL_DIR
-output_dir=${OUTPUT_DIR:-"/tmp/blob_bench_output"}
+output_dir=$OUTPUT_DIR
 
 num_threads=${NUM_THREADS:-16}
 
