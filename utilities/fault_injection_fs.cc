@@ -709,18 +709,10 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
     }
   }
 
-  // We preserve contents of overwritten files up to a size threshold.
-  // We could keep previous file in another name, but we need to worry about
-  // garbage collect the those files. We do it if it is needed later.
-  // We ignore I/O errors here for simplicity.
+  // Using the value in `dir_to_new_files_since_last_sync_` for the source file
+  // may be a more reasonable choice.
   std::string previous_contents = kNewFileNoOverwrite;
-  if (target()->FileExists(t, IOOptions(), nullptr).ok()) {
-    uint64_t file_size;
-    if (target()->GetFileSize(t, IOOptions(), &file_size, nullptr).ok() &&
-        file_size < 1024) {
-      ReadFileToString(target(), t, &previous_contents).PermitUncheckedError();
-    }
-  }
+
   IOStatus io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
 
   if (io_s.ok()) {
