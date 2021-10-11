@@ -2953,11 +2953,31 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
   // Compute the sum of total and garbage bytes over the oldest batch of blob
   // files. The oldest batch is defined as the set of blob files which are
-  // kept alive by the same SSTs as the very oldest one. (Note that this
-  // translates to all blob files in the batch other than the oldest one
-  // having an empty linked SST set.)
+  // kept alive by the same SSTs as the very oldest one. Here is a toy example.
+  // Let's assume we have three SSTs 1, 2, and 3, and four blob files 10, 11,
+  // 12, and 13. Also, let's say SSTs 1 and 2 both rely on blob file 10 and
+  // potentially some higher-numbered ones, while SST 3 relies on blob file 12
+  // and potentially some higher-numbered ones. Then, the SST to oldest blob
+  // file mapping is as follows:
   //
-  // The overall ratio of garbage computed for the batch has to exceed
+  // SST file number               Oldest blob file number
+  // 1                             10
+  // 2                             10
+  // 3                             12
+  //
+  // This is what the same thing looks like from the blob files' POV. (Note that
+  // the linked SSTs simply denote the inverse mapping of the above.)
+  //
+  // Blob file number              Linked SST set
+  // 10                            {1, 2}
+  // 11                            {}
+  // 12                            {3}
+  // 13                            {}
+  //
+  // Then, the oldest batch of blob files consists of blob files 10 and 11,
+  // and we can get rid of them by forcing the compaction of SSTs 1 and 2.
+  //
+  // Note that the overall ratio of garbage computed for the batch has to exceed
   // blob_garbage_collection_force_threshold and the entire batch has to be
   // eligible for GC according to blob_garbage_collection_age_cutoff in order
   // for us to schedule any compactions.
