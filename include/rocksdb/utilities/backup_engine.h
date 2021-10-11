@@ -470,6 +470,9 @@ class BackupEngineAppendOnlyBase {
   // Captures the state of the database by creating a new (latest) backup.
   // On success (OK status), the BackupID of the new backup is saved to
   // *new_backup_id when not nullptr.
+  // NOTE: db_paths and cf_paths are not supported for creating backups,
+  // and NotSupported will be returned when the DB (without WALs) uses more
+  // than one directory.
   virtual IOStatus CreateNewBackup(const CreateBackupOptions& options, DB* db,
                                    BackupID* new_backup_id = nullptr) {
     return CreateNewBackupWithMetadata(options, db, "", new_backup_id);

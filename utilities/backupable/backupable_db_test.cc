@@ -155,6 +155,7 @@ class DummyDB : public StackableDB {
   Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
+
  private:
   Options options_;
   std::string dbname_;
