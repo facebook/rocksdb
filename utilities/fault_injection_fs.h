@@ -325,7 +325,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return error_; }
 
@@ -510,7 +510,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
-  std::set<std::string> open_files_;
+  std::set<std::string> open_managed_files_;
   // directory -> (file name -> file contents to recover)
   // When data is recovered from unsyned parent directory, the files with
   // empty file contents to recover is deleted. Those with non-empty ones

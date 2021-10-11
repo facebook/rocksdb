@@ -288,7 +288,7 @@ Status FaultInjectionTestEnv::NewWritableFile(
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
     MutexLock l(&mutex_);
-    open_files_.insert(fname);
+    open_managed_files_.insert(fname);
     auto dir_and_name = GetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
@@ -334,7 +334,7 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
       } else if (!exists) {
         // It was created by this `Env` just now.
         should_track = true;
-        open_files_.insert(fname);
+        open_managed_files_.insert(fname);
         auto dir_and_name = GetDirAndName(fname);
         auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
         list.insert(dir_and_name.second);
@@ -362,7 +362,7 @@ Status FaultInjectionTestEnv::NewRandomRWFile(
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
     MutexLock l(&mutex_);
-    open_files_.insert(fname);
+    open_managed_files_.insert(fname);
     auto dir_and_name = GetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
@@ -454,15 +454,15 @@ Status FaultInjectionTestEnv::LinkFile(const std::string& s,
 
 void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     db_file_state_[state.filename_] = state;
-    open_files_.erase(state.filename_);
+    open_managed_files_.erase(state.filename_);
   }
 }
 
 void FaultInjectionTestEnv::WritableFileSynced(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -473,7 +473,7 @@ void FaultInjectionTestEnv::WritableFileSynced(const FileState& state) {
 
 void FaultInjectionTestEnv::WritableFileAppended(const FileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -543,6 +543,6 @@ void FaultInjectionTestEnv::UntrackFile(const std::string& f) {
   dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
       dir_and_name.second);
   db_file_state_.erase(f);
-  open_files_.erase(f);
+  open_managed_files_.erase(f);
 }
 }  // namespace ROCKSDB_NAMESPACE

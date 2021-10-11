@@ -450,7 +450,7 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // The new file could overwrite an old one. Here we simplify
@@ -516,7 +516,7 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       } else if (!exists) {
         // It was created by this `FileSystem` just now.
         should_track = true;
-        open_files_.insert(fname);
+        open_managed_files_.insert(fname);
         auto dir_and_name = TestFSGetDirAndName(fname);
         auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
         list[dir_and_name.second] = kNewFileNoOverwrite;
@@ -561,7 +561,7 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // It could be overwriting an old file, but we simplify the
@@ -742,15 +742,15 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
 
 void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     db_file_state_[state.filename_] = state;
-    open_files_.erase(state.filename_);
+    open_managed_files_.erase(state.filename_);
   }
 }
 
 void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -761,7 +761,7 @@ void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
 
 void FaultInjectionTestFS::WritableFileAppended(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -840,7 +840,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
       dir_and_name.second);
   db_file_state_.erase(f);
-  open_files_.erase(f);
+  open_managed_files_.erase(f);
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
