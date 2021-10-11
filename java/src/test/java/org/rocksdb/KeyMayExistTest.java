@@ -253,16 +253,16 @@ public class KeyMayExistTest {
     // Standard key
     db.put("keyBB".getBytes(UTF_8), "valueBB".getBytes(UTF_8));
 
-    byte[] key = "keyBB".getBytes(UTF_8);
-    byte[] value = "valueBB".getBytes(UTF_8);
+    final byte[] key = "keyBB".getBytes(UTF_8);
+    final byte[] value = "valueBB".getBytes(UTF_8);
 
-    ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
+    final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
     assertThat(db.keyMayExist(keyBuffer)).isEqualTo(true);
 
-    ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
+    final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
     valueBuffer.position(12);
     KeyMayExist keyMayExist = db.keyMayExist(keyBuffer, valueBuffer);
     assertThat(keyMayExist.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
@@ -294,17 +294,17 @@ public class KeyMayExistTest {
     // Standard key
     db.put("keyBB".getBytes(UTF_8), "valueBB".getBytes(UTF_8));
 
-    byte[] key = "keyBB".getBytes(UTF_8);
-    byte[] value = "valueBB".getBytes(UTF_8);
+    final byte[] key = "keyBB".getBytes(UTF_8);
+    final byte[] value = "valueBB".getBytes(UTF_8);
 
-    ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
+    final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
-    try (ReadOptions readOptions = new ReadOptions()) {
+    try (final ReadOptions readOptions = new ReadOptions()) {
       assertThat(db.keyMayExist(readOptions, keyBuffer)).isEqualTo(true);
 
-      ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
+      final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
       valueBuffer.position(12);
       KeyMayExist keyMayExist = db.keyMayExist(readOptions, keyBuffer, valueBuffer);
       assertThat(keyMayExist.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
@@ -337,16 +337,16 @@ public class KeyMayExistTest {
     // Standard key
     db.put("keyBB".getBytes(UTF_8), "valueBB".getBytes(UTF_8));
 
-    byte[] key = "keyBB".getBytes(UTF_8);
+    final byte[] key = "keyBB".getBytes(UTF_8);
 
-    ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
+    final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
     exceptionRule.expect(AssertionError.class);
     exceptionRule.expectMessage(
         "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method");
-    KeyMayExist keyMayExist = db.keyMayExist(keyBuffer, null);
+    final KeyMayExist keyMayExist = db.keyMayExist(keyBuffer, null);
   }
 
   @Test
@@ -378,7 +378,7 @@ public class KeyMayExistTest {
     exceptionRule.expect(AssertionError.class);
     exceptionRule.expectMessage(
         "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method");
-    KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(0), keyBuffer, null);
+    final KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(0), keyBuffer, null);
   }
 
   @Test
@@ -393,7 +393,7 @@ public class KeyMayExistTest {
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
-    try (ReadOptions readOptions = new ReadOptions()) {
+    try (final ReadOptions readOptions = new ReadOptions()) {
       assertThat(db.keyMayExist(keyBuffer)).isEqualTo(true);
       assertThat(db.keyMayExist(columnFamilyHandleList.get(1), readOptions, keyBuffer))
           .isEqualTo(false);
@@ -415,7 +415,7 @@ public class KeyMayExistTest {
       exceptionRule.expect(AssertionError.class);
       exceptionRule.expectMessage(
           "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method");
-      KeyMayExist keyMayExist =
+      final KeyMayExist keyMayExist =
           db.keyMayExist(columnFamilyHandleList.get(0), readOptions, keyBuffer, null);
     }
   }
@@ -424,16 +424,16 @@ public class KeyMayExistTest {
   public void keyMayExistBBCFOffset() throws RocksDBException {
     db.put(columnFamilyHandleList.get(1), "keyBBCF1".getBytes(UTF_8), "valueBBCF1".getBytes(UTF_8));
 
-    byte[] key = "keyBBCF1".getBytes(UTF_8);
-    byte[] value = "valueBBCF1".getBytes(UTF_8);
+    final byte[] key = "keyBBCF1".getBytes(UTF_8);
+    final byte[] value = "valueBBCF1".getBytes(UTF_8);
 
-    ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
+    final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
     assertThat(db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer)).isEqualTo(true);
 
-    ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
+    final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
     valueBuffer.position(12);
     KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer, valueBuffer);
     assertThat(keyMayExist.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
@@ -464,18 +464,18 @@ public class KeyMayExistTest {
   public void keyMayExistBBCFOffsetReadOptions() throws RocksDBException {
     db.put(columnFamilyHandleList.get(1), "keyBBCF1".getBytes(UTF_8), "valueBBCF1".getBytes(UTF_8));
 
-    byte[] key = "keyBBCF1".getBytes(UTF_8);
-    byte[] value = "valueBBCF1".getBytes(UTF_8);
+    final byte[] key = "keyBBCF1".getBytes(UTF_8);
+    final byte[] value = "valueBBCF1".getBytes(UTF_8);
 
-    ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
+    final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(key.length);
     keyBuffer.put(key, 0, key.length);
     keyBuffer.flip();
 
-    try (ReadOptions readOptions = new ReadOptions()) {
+    try (final ReadOptions readOptions = new ReadOptions()) {
       assertThat(db.keyMayExist(columnFamilyHandleList.get(1), readOptions, keyBuffer))
           .isEqualTo(true);
 
-      ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
+      final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
       valueBuffer.position(12);
       KeyMayExist keyMayExist =
           db.keyMayExist(columnFamilyHandleList.get(1), readOptions, keyBuffer, valueBuffer);

@@ -2218,8 +2218,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2278,8 +2278,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2317,8 +2317,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2378,8 +2378,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2415,8 +2415,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2461,8 +2461,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2488,8 +2488,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2534,8 +2534,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2958,11 +2958,11 @@ public class RocksDB extends RocksObject {
         : "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method";
     assert value.isDirect() : "value parameter must be a direct ByteBuffer";
 
-    int[] result = keyMayExistDirectFoundValue(nativeHandle_,
+    final int[] result = keyMayExistDirectFoundValue(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.remaining(),
         value, value.position(), value.remaining());
-    int valueLength = result[1];
+    final int valueLength = result[1];
     value.limit(value.position() + Math.min(valueLength, value.remaining()));
     return new KeyMayExist(KeyMayExist.KeyMayExistEnum.values()[result[0]], valueLength);
   }
@@ -4826,11 +4826,11 @@ public class RocksDB extends RocksObject {
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
-  private native boolean keyMayExistDirect(long handle, long cfHhandle, long readOptHandle,
-      ByteBuffer key, int keyOffset, int keyLength);
-  private native int[] keyMayExistDirectFoundValue(long handle, long cfHhandle, long readOptHandle,
-      ByteBuffer key, int keyOffset, int keyLength, ByteBuffer value, int valueOffset,
-      int valueLength);
+  private native boolean keyMayExistDirect(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
+  private native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength,
+      final ByteBuffer value, final int valueOffset, final int valueLength);
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;
   private native long getLongProperty(final long nativeHandle,
