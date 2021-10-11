@@ -359,7 +359,7 @@ class StackableDB : public DB {
 
   virtual Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
-      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) override {
+      std::vector<LiveFileStorageInfo>* files) override {
     return db_->GetLiveFilesStorageInfo(opts, files);
   }
 

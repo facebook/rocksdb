@@ -155,12 +155,16 @@ void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
   }
 }
 
-std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
+std::string DescriptorFileName(uint64_t number) {
   assert(number > 0);
   char buf[100];
-  snprintf(buf, sizeof(buf), "/MANIFEST-%06llu",
+  snprintf(buf, sizeof(buf), "MANIFEST-%06llu",
            static_cast<unsigned long long>(number));
-  return dbname + buf;
+  return buf;
+}
+
+std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
+  return dbname + "/" + DescriptorFileName(number);
 }
 
 std::string CurrentFileName(const std::string& dbname) {
@@ -213,11 +217,14 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
   return log_dir + "/" + info_log_prefix.buf + ".old." + buf;
 }
 
-std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
+std::string OptionsFileName(uint64_t file_num) {
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "%s%06" PRIu64,
            kOptionsFileNamePrefix.c_str(), file_num);
-  return dbname + "/" + buffer;
+  return buffer;
+}
+std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
+  return dbname + "/" + OptionsFileName(file_num);
 }
 
 std::string TempOptionsFileName(const std::string& dbname, uint64_t file_num) {

@@ -19,6 +19,8 @@ namespace ROCKSDB_NAMESPACE {
 // Basic identifiers and metadata for a file in a DB. This only includes
 // information considered relevant for taking backups, checkpoints, or other
 // services relating to DB file storage.
+// This is only appropriate for immutable files, such as SST files or all
+// files in a backup. See also LiveFileStorageInfo.
 struct FileStorageInfo {
   // The name of the file within its directory (e.g. "123456.sst")
   std::string relative_filename;
@@ -34,13 +36,6 @@ struct FileStorageInfo {
 
   // File size in bytes. See also `trim_to_size`.
   uint64_t size = 0;
-  // If true, the file on disk is allowed to be larger than `size` but only
-  // the first `size` bytes should be used for the current context. If false,
-  // the file is corrupt if size on disk does not equal `size`.
-  //
-  // If a CURRENT file needs to be regenerated to have a functioning DB, its
-  // size=0 and trim_to_size=true.
-  bool trim_to_size = false;
 
   // This feature is experimental and subject to change.
   Temperature temperature = Temperature::kUnknown;
@@ -58,59 +53,25 @@ struct FileStorageInfo {
   std::string file_checksum_func_name;
 };
 
-namespace detail {
-struct SstFileMetaDataCompat : public FileStorageInfo {
-  // DEPRECATED: The name of the file within its directory with a
-  // leading slash (e.g. "/123456.sst"). Use relative_filename instead.
-  std::string name;
+// Adds to FileStorageInfo the ability to capture the state of files that
+// might change in a running DB.
+struct LiveFileStorageInfo : public FileStorageInfo {
+  // If non-empty, this string represents the "saved" contents of the file
+  // for the current context. (This field is used for checkpointing CURRENT
+  // file.) In that case, size == replacement_contents.size() and file on disk
+  // should be ignored. If empty string, the file on disk should still have
+  // "saved" contents. (See trim_to_size.)
+  std::string replacement_contents;
 
-  // DEPRECATED: replaced by `directory`
-  std::string& db_path = directory;
-
-  SstFileMetaDataCompat() {}
-
-  SstFileMetaDataCompat(const std::string& _file_name,
-                        const std::string& _directory) {
-    if (!_file_name.empty()) {
-      if (_file_name[0] == '/') {
-        name = _file_name;
-        relative_filename = _file_name.substr(1);
-      } else {
-        relative_filename = _file_name;
-        name = std::string("/") + _file_name;
-      }
-      assert(relative_filename.size() + 1 == name.size());
-      assert(relative_filename[0] != '/');
-      assert(name[0] == '/');
-    }
-    directory = _directory;
-  }
-
-  // Copy
-  SstFileMetaDataCompat& operator=(const SstFileMetaDataCompat& to_copy) {
-    static_cast<FileStorageInfo&>(*this) = to_copy;
-    name = to_copy.name;
-    return *this;
-  }
-  SstFileMetaDataCompat(const SstFileMetaDataCompat& to_copy) {
-    *this = to_copy;
-  }
-
-  // Move
-  SstFileMetaDataCompat& operator=(SstFileMetaDataCompat&& other) {
-    static_cast<FileStorageInfo&>(*this) = std::move(other);
-    name = std::move(other.name);
-    return *this;
-  }
-  SstFileMetaDataCompat(SstFileMetaDataCompat&& other) {
-    *this = std::move(other);
-  }
+  // If true, the file on disk is allowed to be larger than `size` but only
+  // the first `size` bytes should be used for the current context. If false,
+  // the file is corrupt if size on disk does not equal `size`.
+  bool trim_to_size = false;
 };
-}  // namespace detail
 
-// The metadata that describes a SST file.
-// FileStorageInfo is the intended base class.
-struct SstFileMetaData : public detail::SstFileMetaDataCompat {
+// The metadata that describes an SST file. (Does not need to extend
+// LiveFileStorageInfo because SST files are always immutable.)
+struct SstFileMetaData : public FileStorageInfo {
   SstFileMetaData() {}
 
   SstFileMetaData(const std::string& _file_name, uint64_t _file_number,
@@ -123,8 +84,7 @@ struct SstFileMetaData : public detail::SstFileMetaDataCompat {
                   uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                   std::string& _file_checksum,
                   std::string& _file_checksum_func_name)
-      : detail::SstFileMetaDataCompat(_file_name, _directory),
-        smallest_seqno(_smallest_seqno),
+      : smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno),
         smallestkey(_smallestkey),
         largestkey(_largestkey),
@@ -135,10 +95,23 @@ struct SstFileMetaData : public detail::SstFileMetaDataCompat {
         oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time) {
+    if (!_file_name.empty()) {
+      if (_file_name[0] == '/') {
+        relative_filename = _file_name.substr(1);
+        name = _file_name;  // Deprecated field
+      } else {
+        relative_filename = _file_name;
+        name = std::string("/") + _file_name;  // Deprecated field
+      }
+      assert(relative_filename.size() + 1 == name.size());
+      assert(relative_filename[0] != '/');
+      assert(name[0] == '/');
+    }
+    directory = _directory;
+    db_path = _directory;  // Deprecated field
     file_number = _file_number;
     file_type = kTableFile;
     size = _size;
-    trim_to_size = false;
     temperature = _temperature;
     file_checksum = _file_checksum;
     file_checksum_func_name = _file_checksum_func_name;
@@ -168,6 +141,14 @@ struct SstFileMetaData : public detail::SstFileMetaDataCompat {
   // Timestamp when the SST file is created, provided by
   // SystemClock::GetCurrentTime(). 0 if the information is not available.
   uint64_t file_creation_time = 0;
+
+  // DEPRECATED: The name of the file within its directory with a
+  // leading slash (e.g. "/123456.sst"). Use relative_filename from base struct
+  // instead.
+  std::string name;
+
+  // DEPRECATED: replaced by `directory` in base struct
+  std::string db_path;
 };
 
 // The full set of metadata associated with each SST file.

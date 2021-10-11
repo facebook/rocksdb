@@ -407,7 +407,7 @@ class DBImpl : public DB {
 
   virtual Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
-      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) override;
+      std::vector<LiveFileStorageInfo>* files) override;
 
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
@@ -1233,6 +1233,8 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+
+  Status FlushForGetLiveFiles();
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;

@@ -29,6 +29,44 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Status DBImpl::FlushForGetLiveFiles() {
+  mutex_.AssertHeld();
+
+  // flush all dirty data to disk.
+  Status status;
+  if (immutable_db_options_.atomic_flush) {
+    autovector<ColumnFamilyData*> cfds;
+    SelectColumnFamiliesForAtomicFlush(&cfds);
+    mutex_.Unlock();
+    status =
+        AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kGetLiveFiles);
+    if (status.IsColumnFamilyDropped()) {
+      status = Status::OK();
+    }
+    mutex_.Lock();
+  } else {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      cfd->Ref();
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
+      TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
+      TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
+      mutex_.Lock();
+      cfd->UnrefAndTryDelete();
+      if (!status.ok() && !status.IsColumnFamilyDropped()) {
+        break;
+      } else if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
+    }
+  }
+  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+  return status;
+}
+
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
                             uint64_t* manifest_file_size,
                             bool flush_memtable) {
@@ -37,39 +75,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   mutex_.Lock();
 
   if (flush_memtable) {
-    // flush all dirty data to disk.
-    Status status;
-    if (immutable_db_options_.atomic_flush) {
-      autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds);
-      mutex_.Unlock();
-      status = AtomicFlushMemTables(cfds, FlushOptions(),
-                                    FlushReason::kGetLiveFiles);
-      if (status.IsColumnFamilyDropped()) {
-        status = Status::OK();
-      }
-      mutex_.Lock();
-    } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        cfd->Ref();
-        mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
-        TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
-        TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
-        mutex_.Lock();
-        cfd->UnrefAndTryDelete();
-        if (!status.ok() && !status.IsColumnFamilyDropped()) {
-          break;
-        } else if (status.IsColumnFamilyDropped()) {
-          status = Status::OK();
-        }
-      }
-    }
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-
+    Status status = FlushForGetLiveFiles();
     if (!status.ok()) {
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
@@ -161,35 +167,18 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
 
-namespace {
-
-// TODO: create a space efficient OnDemandSequence<FileStorageInfo>
-struct FilesStorageInfoImpl : public OnDemandSequence<FileStorageInfo> {
-  std::vector<FileStorageInfo> infos;
-
-  size_t size() override { return infos.size(); }
-
-  FileStorageInfo operator[](size_t n) override { return infos[n]; }
-};
-
-}  // namespace
-
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
-    std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) {
+    std::vector<LiveFileStorageInfo>* files) {
+  // To avoid returning partial results, only move to ouput on success
+  assert(files);
+  files->clear();
+  std::vector<LiveFileStorageInfo> results;
+
+  // NOTE: This implementation was largely migrated from Checkpoint.
+
   Status s;
-  std::vector<std::string> live_files;
-  uint64_t manifest_file_size = 0;
-  uint64_t min_log_num = port::kMaxUint64;
   VectorLogPtr live_wal_files;
-
-  // Set to nullptr on all error paths
-  files->reset();
-
-  // This implementation was migrated from Checkpoint.
-  // TODO: refactor to take advantage of being inside DBImpl to get
-  // consistent view on things
-
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
     if (opts.wal_size_for_flush == port::kMaxUint64) {
@@ -216,24 +205,150 @@ Status DBImpl::GetLiveFilesStorageInfo(
     }
   }
 
-  // this will return live_files prefixed with "/"
-  s = GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-
-  if (!GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
-    return Status::InvalidArgument("cannot get the min log number to keep.");
+  // This is a modified version of GetLiveFiles, to get access to more
+  // metadata.
+  mutex_.Lock();
+  if (flush_memtable) {
+    Status status = FlushForGetLiveFiles();
+    if (!status.ok()) {
+      mutex_.Unlock();
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
+                      status.ToString().c_str());
+      return status;
+    }
   }
-  // Between GetLiveFiles and getting min_log_num, flush might happen
-  // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
-  // not get the new MANIFEST size, the deleted WALs might not be reflected in
-  // the checkpoint's MANIFEST.
-  //
-  // If we get min_log_num before the above GetLiveFiles, then there might
-  // be too many unnecessary WALs to be included in the checkpoint.
-  //
-  // Ideally, min_log_num should be got together with manifest_file_size in
-  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
-  // which is a public API.
-  s = GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+
+  // Make a set of all of the live table and blob files
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    VersionStorageInfo& vsi = *cfd->current()->storage_info();
+    auto& cf_paths = cfd->ioptions()->cf_paths;
+
+    auto GetDir = [&](size_t path_id) {
+      // See TableFileName()
+      if (path_id >= cf_paths.size()) {
+        assert(false);
+        return cf_paths.back().path;
+      } else {
+        return cf_paths[path_id].path;
+      }
+    };
+
+    for (int level = 0; level < vsi.num_levels(); ++level) {
+      const auto& level_files = vsi.LevelFiles(level);
+      for (const auto& meta : level_files) {
+        assert(meta);
+
+        results.emplace_back();
+        LiveFileStorageInfo& info = results.back();
+
+        info.relative_filename = MakeTableFileName(meta->fd.GetNumber());
+        info.directory = GetDir(meta->fd.GetPathId());
+        info.file_number = meta->fd.GetNumber();
+        info.file_type = kTableFile;
+        info.size = meta->fd.GetFileSize();
+        if (opts.include_checksum_info) {
+          info.file_checksum_func_name = meta->file_checksum_func_name;
+          info.file_checksum = meta->file_checksum;
+          if (info.file_checksum_func_name.empty()) {
+            info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+            info.file_checksum = kUnknownFileChecksum;
+          }
+        }
+        info.temperature = meta->temperature;
+      }
+    }
+    const auto& blob_files = vsi.GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      const auto& meta = pair.second;
+      assert(meta);
+
+      results.emplace_back();
+      LiveFileStorageInfo& info = results.back();
+
+      info.relative_filename = BlobFileName(meta->GetBlobFileNumber());
+      info.directory = GetName();  // TODO?: support db_paths/cf_paths
+      info.file_number = meta->GetBlobFileNumber();
+      info.file_type = kBlobFile;
+      info.size = meta->GetBlobFileSize();
+      if (opts.include_checksum_info) {
+        info.file_checksum_func_name = meta->GetChecksumMethod();
+        info.file_checksum = meta->GetChecksumValue();
+        if (info.file_checksum_func_name.empty()) {
+          info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+          info.file_checksum = kUnknownFileChecksum;
+        }
+      }
+      // TODO?: info.temperature
+    }
+  }
+
+  // Capture some final info before releasing mutex
+  const uint64_t manifest_number = versions_->manifest_file_number();
+  const uint64_t manifest_size = versions_->manifest_file_size();
+  const uint64_t options_number = versions_->options_file_number();
+  const uint64_t options_size = versions_->options_file_size_;
+  const uint64_t min_log_num = MinLogNumberToKeep();
+
+  mutex_.Unlock();
+
+  std::string manifest_fname = DescriptorFileName(manifest_number);
+  {  // MANIFEST
+    results.emplace_back();
+    LiveFileStorageInfo& info = results.back();
+
+    info.relative_filename = manifest_fname;
+    info.directory = GetName();
+    info.file_number = manifest_number;
+    info.file_type = kDescriptorFile;
+    info.size = manifest_size;
+    info.trim_to_size = true;
+    if (opts.include_checksum_info) {
+      info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+      info.file_checksum = kUnknownFileChecksum;
+    }
+  }
+
+  {  // CURRENT
+    results.emplace_back();
+    LiveFileStorageInfo& info = results.back();
+
+    info.relative_filename = "CURRENT";
+    info.directory = GetName();
+    info.file_type = kCurrentFile;
+    // CURRENT could be replaced so we have to record the contents we want
+    // for it
+    info.replacement_contents = manifest_fname + "\n";
+    info.size = manifest_fname.size() + 1;
+    if (opts.include_checksum_info) {
+      info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+      info.file_checksum = kUnknownFileChecksum;
+    }
+  }
+
+  // The OPTIONS file number is zero in read-write mode when OPTIONS file
+  // writing failed and the DB was configured with
+  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
+  // number is zero when no OPTIONS file exist at all. In those cases we do not
+  // record any OPTIONS file in the live file list.
+  if (options_number != 0) {
+    results.emplace_back();
+    LiveFileStorageInfo& info = results.back();
+
+    info.relative_filename = OptionsFileName(options_number);
+    info.directory = GetName();
+    info.file_number = options_number;
+    info.file_type = kOptionsFile;
+    info.size = options_size;
+    if (opts.include_checksum_info) {
+      info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+      info.file_checksum = kUnknownFileChecksum;
+    }
+  }
+
+  // Some legacy testing stuff  TODO: carefully clean up obsolete parts
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
@@ -254,83 +369,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     return s;
   }
 
-  std::unique_ptr<FilesStorageInfoImpl> result{new FilesStorageInfoImpl};
-
   size_t wal_size = live_wal_files.size();
-
-  // process live files, non-table, non-blob files first
-  std::string manifest_fname;
-  for (auto& live_file : live_files) {
-    if (!s.ok()) {
-      break;
-    }
-    uint64_t number;
-    FileType type;
-    bool ok = ParseFileName(live_file, &number, &type);
-    if (!ok) {
-      s = Status::Corruption("Can't parse file name. This is very bad");
-      break;
-    }
-    // we should only get sst, blob, options, manifest and current files here
-    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
-           type == kCurrentFile || type == kOptionsFile);
-    assert(live_file.size() > 0 && live_file[0] == '/');
-
-    result->infos.emplace_back();
-    FileStorageInfo& info = result->infos.back();
-    info.relative_filename = live_file.substr(1);
-    info.directory = GetName();  // FIXME: support db_paths/cf_paths
-    info.file_number = number;
-    info.file_type = type;
-    if (type == kDescriptorFile) {
-      info.size = manifest_file_size;
-      info.trim_to_size = true;
-      assert(manifest_fname.empty());
-      manifest_fname = live_file;
-    } else if (type == kCurrentFile) {
-      info.size = 0;
-      info.trim_to_size = true;
-    } else {
-      // FIXME: temporary hack causing extra IO. We can at least avoid this
-      // for table and blob files using version metadata.
-      s = env_->GetFileSize(info.directory + "/" + info.relative_filename,
-                            &info.size);
-    }
-    // TODO: info.temperature
-  }
-
-  // get checksum info for table and blob files.
-  // get table and blob file checksums if get_live_table_checksum is true
-  std::unique_ptr<FileChecksumList> checksum_list;
-
-  if (s.ok() && opts.include_checksum_info) {
-    checksum_list.reset(NewFileChecksumList());
-    // should succeed even without checksum info present, else manifest
-    // is corrupt
-    s = GetFileChecksumsFromManifest(GetEnv(), GetName() + manifest_fname,
-                                     manifest_file_size, checksum_list.get());
-  }
-
-  // get checksum info
-  if (s.ok() && opts.include_checksum_info) {
-    for (FileStorageInfo& info : result->infos) {
-      info.file_checksum_func_name = kUnknownFileChecksumFuncName;
-      info.file_checksum = kUnknownFileChecksum;
-
-      // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum list for old table files that have no file
-      // checksums
-      Status search = checksum_list->SearchOneFileChecksum(
-          info.file_number, &info.file_checksum, &info.file_checksum_func_name);
-
-      // could be a legacy file lacking checksum info. overall OK if
-      // not found
-      if (!search.ok()) {
-        assert(info.file_checksum_func_name == kUnknownFileChecksumFuncName);
-        assert(info.file_checksum == kUnknownFileChecksum);
-      }
-    }
-  }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Number of log files %" ROCKSDB_PRIszt, live_wal_files.size());
@@ -341,8 +380,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
         (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
-      result->infos.emplace_back();
-      FileStorageInfo& info = result->infos.back();
+      results.emplace_back();
+      LiveFileStorageInfo& info = results.back();
       auto f = live_wal_files[i]->PathName();
       assert(!f.empty() && f[0] == '/');
       info.relative_filename = f.substr(1);
@@ -360,7 +399,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   if (s.ok()) {
-    *files = std::move(result);
+    // Only move output on success
+    *files = std::move(results);
   }
   return s;
 }

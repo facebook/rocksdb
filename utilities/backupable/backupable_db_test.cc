@@ -50,14 +50,6 @@ const auto kUseDbSessionId = BackupableDBOptions::kUseDbSessionId;
 const auto kFlagIncludeFileSize = BackupableDBOptions::kFlagIncludeFileSize;
 const auto kNamingDefault = kUseDbSessionId | kFlagIncludeFileSize;
 
-struct FilesStorageInfoImpl : public OnDemandSequence<FileStorageInfo> {
-  std::vector<FileStorageInfo> infos;
-
-  size_t size() override { return infos.size(); }
-
-  FileStorageInfo operator[](size_t n) override { return infos[n]; }
-};
-
 class DummyDB : public StackableDB {
  public:
   /* implicit */
@@ -127,17 +119,17 @@ class DummyDB : public StackableDB {
 
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
-      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* files) override {
-    std::unique_ptr<FilesStorageInfoImpl> result{new FilesStorageInfoImpl};
+      std::vector<LiveFileStorageInfo>* files) override {
     uint64_t number;
     FileType type;
+    files->clear();
     for (auto& f : live_files_) {
       bool success = ParseFileName(f, &number, &type);
       if (!success) {
         return Status::InvalidArgument("Bad file name: " + f);
       }
-      result->infos.emplace_back();
-      FileStorageInfo& info = result->infos.back();
+      files->emplace_back();
+      LiveFileStorageInfo& info = files->back();
       info.relative_filename = f;
       info.directory = dbname_;
       info.file_number = number;
@@ -156,7 +148,6 @@ class DummyDB : public StackableDB {
         info.file_checksum_func_name = kUnknownFileChecksumFuncName;
       }
     }
-    *files = std::move(result);
     return Status::OK();
   }
 
@@ -742,6 +733,7 @@ class BackupEngineTest : public testing::Test {
 
   void OpenBackupEngine(bool destroy_old_data = false) {
     backupable_options_->destroy_old_data = destroy_old_data;
+    // backupable_options_->info_log = new StderrLogger(); // NOCOMMIT
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -1139,7 +1131,8 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   // delete old data
   DestroyDB(dbname_, options_);
 
-  // TODO: Add db_paths support
+  // TODO: Implement & test db_paths support in backup (not supported in
+  // restore)
   // options_.db_paths.emplace_back(dbname_, 500 * 1024);
   // options_.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
 
@@ -1427,8 +1420,10 @@ TEST_F(BackupEngineTest, CorruptFileMaintainSize) {
   // under normal circumstance, there should be at least one nonempty file
   while (file_size == 0) {
     // get a random file in /private/1
-    ASSERT_OK(file_manager_->GetRandomFileInDir(backupdir_ + "/private/1",
-                                                &file_to_corrupt, &file_size));
+    assert(file_manager_
+               ->GetRandomFileInDir(backupdir_ + "/private/1", &file_to_corrupt,
+                                    &file_size)
+               .ok());
     // corrupt the file by replacing its content by file_size random bytes
     ASSERT_OK(file_manager_->CorruptFile(file_to_corrupt, file_size));
   }

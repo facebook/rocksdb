@@ -89,6 +89,8 @@ extern void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
 extern std::string DescriptorFileName(const std::string& dbname,
                                       uint64_t number);
 
+extern std::string DescriptorFileName(uint64_t number);
+
 // Return the name of the current file.  This file contains the name
 // of the current manifest file.  The result will be prefixed with
 // "dbname".
@@ -129,6 +131,7 @@ static const std::string kTempFileNameSuffix = "dbtmp";
 // Format:  OPTIONS-[number].dbtmp
 extern std::string OptionsFileName(const std::string& dbname,
                                    uint64_t file_num);
+extern std::string OptionsFileName(uint64_t file_num);
 
 // Return a temp options file name given the "dbname" and file number.
 // Format:  OPTIONS-[number]

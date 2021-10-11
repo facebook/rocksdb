@@ -2404,9 +2404,8 @@ TEST_F(DBTest, SnapshotFiles) {
     ASSERT_EQ(manifest_number, new_manifest_number);
     ASSERT_GT(new_manifest_size, manifest_size);
 
-    // Also test GetLiveFilesStorageInfo, including after DB closed to ensure
-    // the OnDemandSequence doesn't reference DB state.
-    std::unique_ptr<OnDemandSequence<FileStorageInfo>> new_infos;
+    // Also test GetLiveFilesStorageInfo
+    std::vector<LiveFileStorageInfo> new_infos;
     ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
                                                 &new_infos));
 
@@ -2414,12 +2413,14 @@ TEST_F(DBTest, SnapshotFiles) {
     Close();
 
     // Validate
-    for (FileStorageInfo info : *new_infos) {
+    for (auto& info : new_infos) {
       std::string path = info.directory + "/" + info.relative_filename;
       uint64_t size;
       ASSERT_OK(env_->GetFileSize(path, &size));
       if (info.trim_to_size) {
         ASSERT_LE(info.size, size);
+      } else if (!info.replacement_contents.empty()) {
+        ASSERT_EQ(info.size, info.replacement_contents.size());
       } else {
         ASSERT_EQ(info.size, size);
       }
@@ -3143,7 +3144,7 @@ class ModelDB : public DB {
 
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& /*opts*/,
-      std::unique_ptr<OnDemandSequence<FileStorageInfo>>* /*files*/) override {
+      std::vector<LiveFileStorageInfo>* /*files*/) override {
     return Status::OK();
   }
 

@@ -15,6 +15,7 @@
 #include <cinttypes>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <vector>
 
 #include "db/wal_manager.h"
@@ -203,7 +204,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   opts.include_checksum_info = get_live_table_checksum;
   opts.wal_size_for_flush = log_size_for_flush;
 
-  std::unique_ptr<OnDemandSequence<FileStorageInfo>> infos;
+  std::vector<LiveFileStorageInfo> infos;
   {
     Status s = db_->GetLiveFilesStorageInfo(opts, &infos);
     if (!s.ok()) {
@@ -211,58 +212,66 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     }
   }
 
-  bool same_fs = true;
-  FileStorageInfo manifest_info, current_info;
+  // Verify that everything except WAL files are in same directory
+  // (db_paths / cf_paths not supported)
+  std::unordered_set<std::string> dirs;
+  for (auto& info : infos) {
+    if (info.file_type != kWalFile) {
+      dirs.insert(info.directory);
+    }
+  }
+  if (dirs.size() > 1) {
+    return Status::NotSupported(
+        "db_paths / cf_paths not supported for Checkpoint nor BackupEngine");
+  }
 
-  for (FileStorageInfo info : *infos) {
-    if (info.file_type == kCurrentFile) {
-      // We will craft the current file manually to ensure it's consistent with
-      // the manifest number. This is necessary because current's file contents
-      // can change during checkpoint creation.
-      assert(info.size == 0);
-      assert(info.trim_to_size);
-      current_info = std::move(info);
-      continue;
-    }
+  bool same_fs = true;
+
+  for (auto& info : infos) {
     Status s;
-    if (same_fs && !info.trim_to_size) {
-      s = link_file_cb(info.directory, info.relative_filename, info.file_type);
-      if (s.IsNotSupported()) {
-        same_fs = false;
-        s = Status::OK();
-      }
-      s.MustCheck();
-    }
-    if (!same_fs || info.trim_to_size) {
-      assert(info.file_checksum_func_name.empty() ==
-             !opts.include_checksum_info);
-      // no assertion on file_checksum because empty is used for both "not set"
-      // and "unknown"
-      if (opts.include_checksum_info) {
-        s = copy_file_cb(info.directory, info.relative_filename, info.size,
-                         info.file_type, info.file_checksum_func_name,
-                         info.file_checksum);
+    if (!info.replacement_contents.empty()) {
+      // Currently should only be used for CURRENT file.
+      assert(info.file_type == kCurrentFile);
+
+      if (info.size != info.replacement_contents.size()) {
+        s = Status::Corruption("Inconsistent size metadata for " +
+                               info.relative_filename);
       } else {
-        s = copy_file_cb(info.directory, info.relative_filename, info.size,
-                         info.file_type, kUnknownFileChecksumFuncName,
-                         kUnknownFileChecksum);
+        s = create_file_cb(info.relative_filename, info.replacement_contents,
+                           info.file_type);
+      }
+    } else {
+      if (same_fs && !info.trim_to_size) {
+        s = link_file_cb(info.directory, info.relative_filename,
+                         info.file_type);
+        if (s.IsNotSupported()) {
+          same_fs = false;
+          s = Status::OK();
+        }
+        s.MustCheck();
+      }
+      if (!same_fs || info.trim_to_size) {
+        assert(info.file_checksum_func_name.empty() ==
+               !opts.include_checksum_info);
+        // no assertion on file_checksum because empty is used for both "not
+        // set" and "unknown"
+        if (opts.include_checksum_info) {
+          s = copy_file_cb(info.directory, info.relative_filename, info.size,
+                           info.file_type, info.file_checksum_func_name,
+                           info.file_checksum);
+        } else {
+          s = copy_file_cb(info.directory, info.relative_filename, info.size,
+                           info.file_type, kUnknownFileChecksumFuncName,
+                           kUnknownFileChecksum);
+        }
       }
     }
     if (!s.ok()) {
       return s;
     }
-    if (info.file_type == kDescriptorFile) {
-      manifest_info = std::move(info);
-    }
   }
 
-  Status s = Status::OK();
-  if (!manifest_info.relative_filename.empty() &&
-      !current_info.relative_filename.empty()) {
-    s = create_file_cb(current_info.relative_filename,
-                       manifest_info.relative_filename + "\n", kCurrentFile);
-  }
-  return s;
+  return Status::OK();
 }
 
 // Exports all live SST files of a specified Column Family onto export_dir,
