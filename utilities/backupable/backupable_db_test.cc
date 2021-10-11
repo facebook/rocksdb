@@ -734,7 +734,6 @@ class BackupEngineTest : public testing::Test {
 
   void OpenBackupEngine(bool destroy_old_data = false) {
     backupable_options_->destroy_old_data = destroy_old_data;
-    // backupable_options_->info_log = new StderrLogger(); // NOCOMMIT
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
