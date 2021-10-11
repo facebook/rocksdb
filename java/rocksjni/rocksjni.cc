@@ -2072,7 +2072,7 @@ jintArray Java_org_rocksdb_RocksDB_keyMayExistDirectFoundValue(
   // exists/value_found/neither
   // cvalue_len
   jintArray jresult = env->NewIntArray(2);
-  const int jexists =
+  const jint jexists =
       exists ? (value_found ? kExistsWithValue : kExistsWithoutValue)
              : kNotExist;
 
