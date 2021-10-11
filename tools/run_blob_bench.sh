@@ -139,7 +139,6 @@ echo "================================================================="
 rm -rf $db_dir
 rm -rf $wal_dir
 rm -rf $output_dir
-mkdir -p $output_dir
 
 ENV_VARS="\
   JOB_ID=$job_id \
