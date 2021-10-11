@@ -35,6 +35,7 @@ function display_usage() {
   echo -e "\tPhase 3: read-only tests: readrandom, fwdrange"
   echo ""
   echo "Environment Variables:"
+  echo -e "\tJOB_ID\t\t\t\tIdentifier for the benchmark job, will appear in the results (default: empty)"
   echo -e "\tDB_DIR\t\t\t\tPath for the RocksDB data directory (mandatory)"
   echo -e "\tWAL_DIR\t\t\t\tPath for the RocksDB WAL directory (mandatory)"
   echo -e "\tOUTPUT_DIR\t\t\tPath for the benchmark results (mandatory)"
@@ -80,6 +81,8 @@ if [ -z $OUTPUT_DIR ]; then
   exit $EXIT_INVALID_ARGS
 fi
 
+job_id=$JOB_ID
+
 db_dir=$DB_DIR
 wal_dir=$WAL_DIR
 output_dir=$OUTPUT_DIR
@@ -112,6 +115,7 @@ fi
 max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * $target_file_size_base))}
 
 echo "======================== Benchmark setup ========================"
+echo -e "Job ID:\t\t\t\t\t$job_id"
 echo -e "Data directory:\t\t\t\t$db_dir"
 echo -e "WAL directory:\t\t\t\t$wal_dir"
 echo -e "Output directory:\t\t\t$output_dir"
@@ -138,6 +142,7 @@ rm -rf $output_dir
 mkdir -p $output_dir
 
 ENV_VARS="\
+  JOB_ID=$job_id \
   DB_DIR=$db_dir \
   WAL_DIR=$wal_dir \
   OUTPUT_DIR=$output_dir \
