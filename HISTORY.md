@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.25.2 (2021-10-11)
 ### Bug Fixes
 * Fix `DisableManualCompaction()` to cancel compactions even when they are waiting on automatic compactions to drain due to `CompactRangeOptions::exclusive_manual_compactions == true`.
 * Fix contract of `Env::ReopenWritableFile()` and `FileSystem::ReopenWritableFile()` to specify any existing file must not be deleted or truncated.
