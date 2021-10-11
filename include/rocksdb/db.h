@@ -121,12 +121,15 @@ struct RangePtr {
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
 // be the same in three vectors and guaranteed by the caller.
+// Note that, we assume the temperatures of this batch of files to be
+// ingested are the same.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  Temperature file_temperature = Temperature::kUnknown;
 };
 
 struct GetMergeOperandsOptions {
