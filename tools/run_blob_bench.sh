@@ -157,10 +157,10 @@ PARAMS_GC="$PARAMS \
   --blob_garbage_collection_age_cutoff=$blob_garbage_collection_age_cutoff"
 
 # bulk load (using fillrandom) + compact
-env $ENV_VARS ./tools/benchmark.sh bulkload $PARAMS
+env -u DURATION $ENV_VARS ./tools/benchmark.sh bulkload $PARAMS
 
 # overwrite + waitforcompaction
-env $ENV_VARS ./tools/benchmark.sh overwrite $PARAMS_GC
+env -u DURATION $ENV_VARS ./tools/benchmark.sh overwrite $PARAMS_GC
 
 # readwhilewriting
 env $ENV_VARS_D ./tools/benchmark.sh readwhilewriting $PARAMS_GC
