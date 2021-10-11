@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
+#include <algorithm>
 
 #include "port/port.h"
 #include "util/cast_util.h"
