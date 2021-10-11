@@ -19,7 +19,10 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
-DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+DEFINE_uint64(seed, 2341234,
+              "Seed for PRNG. When --nooverwritepercent is "
+              "nonzero and --expected_values_dir is nonempty, this value "
+              "must be fixed across invocations.");
 static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
@@ -453,7 +456,8 @@ DEFINE_string(
     "provided and non-empty, the DB state will be verified against these "
     "values after recovery. --max_key and --column_family must be kept the "
     "same across invocations of this program that use the same "
-    "--expected_values_dir.");
+    "--expected_values_dir. See --seed and --nooverwritepercent for further "
+    "requirements.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -644,7 +648,8 @@ static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(nooverwritepercent, 60,
              "Ratio of keys without overwrite to total workload (expressed as "
-             " a percentage)");
+             "a percentage). When --expected_values_dir is nonempty, must "
+             "keep this value constant across invocations.");
 static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
 
