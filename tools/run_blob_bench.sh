@@ -6,7 +6,7 @@
 # REQUIRES: benchmark.sh is in the tools subdirectory
 #
 # After the execution of this script, log files are available in $output_dir.
-# report.txt provides high level statistics.
+# report.tsv provides high level statistics.
 #
 # Should be run from the parent of the tools directory. The command line is:
 #   [$env_vars] tools/run_blob_bench.sh
@@ -156,63 +156,22 @@ PARAMS_GC="$PARAMS \
   --enable_blob_garbage_collection=$enable_blob_garbage_collection \
   --blob_garbage_collection_age_cutoff=$blob_garbage_collection_age_cutoff"
 
-echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest" \
-  > $output_dir/report.txt
-
 # bulk load (using fillrandom) + compact
 env $ENV_VARS ./tools/benchmark.sh bulkload $PARAMS
-echo -n "Disk usage after bulkload: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 # overwrite + waitforcompaction
 env $ENV_VARS ./tools/benchmark.sh overwrite $PARAMS_GC
-echo -n "Disk usage after overwrite: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 # readwhilewriting
 env $ENV_VARS_D ./tools/benchmark.sh readwhilewriting $PARAMS_GC
-echo -n "Disk usage after readwhilewriting: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 # fwdrangewhilewriting
 env $ENV_VARS_D ./tools/benchmark.sh fwdrangewhilewriting $PARAMS_GC
-echo -n "Disk usage after fwdrangewhilewriting: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 # readrandom
 env $ENV_VARS_D ./tools/benchmark.sh readrandom $PARAMS_GC
-echo -n "Disk usage after readrandom: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 # fwdrange
 env $ENV_VARS_D ./tools/benchmark.sh fwdrange $PARAMS_GC
-echo -n "Disk usage after fwdrange: " >> $output_dir/report.txt
-du $db_dir >> $output_dir/report.txt
 
 cp $db_dir/LOG* $output_dir/
-
-echo bulkload > $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep bulkload $output_dir/report.txt >> $output_dir/report2.txt
-
-echo overwrite sync=0 >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep overwrite $output_dir/report.txt | grep \.s0  >> $output_dir/report2.txt
-
-echo readwhilewriting >> $output_dir/report2.txt >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep readwhilewriting $output_dir/report.txt >> $output_dir/report2.txt
-
-echo fwdrangewhilewriting >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep fwdrangewhilewriting $output_dir/report.txt >> $output_dir/report2.txt
-
-echo readrandom >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep readrandom $output_dir/report.txt  >> $output_dir/report2.txt
-
-echo fwdrange >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep fwdrange\.t $output_dir/report.txt >> $output_dir/report2.txt
-
-cat $output_dir/report2.txt
