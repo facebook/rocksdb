@@ -118,7 +118,8 @@ class SyncPoint {
   // are executed.
   // And/or call registered callback function, with argument `cb_arg`
   void Process(const char* point, void* cb_arg = nullptr);
-  // WARNING: std::string as parameter caused heap thrashing when const char * given
+  // WARNING: std::string as parameter caused heap thrashing when const char *
+  //          given
   void Process(const std::string& point, void* cb_arg = nullptr) {
     Process(point.c_str(), cb_arg);
   }
