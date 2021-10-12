@@ -67,21 +67,25 @@ if [ $# -ge 1 ]; then
   fi
 fi
 
-if [ -z $DB_DIR ]; then
+# shellcheck disable=SC2153
+if [ -z "$DB_DIR" ]; then
   echo "DB_DIR is not defined"
   exit $EXIT_INVALID_ARGS
 fi
 
-if [ -z $WAL_DIR ]; then
+# shellcheck disable=SC2153
+if [ -z "$WAL_DIR" ]; then
   echo "WAL_DIR is not defined"
   exit $EXIT_INVALID_ARGS
 fi
 
-if [ -z $OUTPUT_DIR ]; then
+# shellcheck disable=SC2153
+if [ -z "$OUTPUT_DIR" ]; then
   echo "OUTPUT_DIR is not defined"
   exit $EXIT_INVALID_ARGS
 fi
 
+# shellcheck disable=SC2153
 job_id=$JOB_ID
 
 db_dir=$DB_DIR
@@ -139,9 +143,9 @@ echo -e "Target SST file size:\t\t\t$target_file_size_base"
 echo -e "Maximum size of base level:\t\t$max_bytes_for_level_base"
 echo "================================================================="
 
-rm -rf $db_dir
-rm -rf $wal_dir
-rm -rf $output_dir
+rm -rf "$db_dir"
+rm -rf "$wal_dir"
+rm -rf "$output_dir"
 
 ENV_VARS="\
   JOB_ID=$job_id \
@@ -170,22 +174,22 @@ PARAMS_GC="$PARAMS \
   --blob_garbage_collection_force_threshold=$blob_garbage_collection_force_threshold"
 
 # bulk load (using fillrandom) + compact
-env -u DURATION $ENV_VARS ./tools/benchmark.sh bulkload $PARAMS
+env -u DURATION -S "$ENV_VARS" ./tools/benchmark.sh bulkload "$PARAMS"
 
 # overwrite + waitforcompaction
-env -u DURATION $ENV_VARS ./tools/benchmark.sh overwrite $PARAMS_GC
+env -u DURATION -S "$ENV_VARS" ./tools/benchmark.sh overwrite "$PARAMS_GC"
 
 # readwhilewriting
-env $ENV_VARS_D ./tools/benchmark.sh readwhilewriting $PARAMS_GC
+env -S "$ENV_VARS_D" ./tools/benchmark.sh readwhilewriting "$PARAMS_GC"
 
 # fwdrangewhilewriting
-env $ENV_VARS_D ./tools/benchmark.sh fwdrangewhilewriting $PARAMS_GC
+env -S "$ENV_VARS_D" ./tools/benchmark.sh fwdrangewhilewriting "$PARAMS_GC"
 
 # readrandom
-env $ENV_VARS_D ./tools/benchmark.sh readrandom $PARAMS_GC
+env -S "$ENV_VARS_D" ./tools/benchmark.sh readrandom "$PARAMS_GC"
 
 # fwdrange
-env $ENV_VARS_D ./tools/benchmark.sh fwdrange $PARAMS_GC
+env -S "$ENV_VARS_D" ./tools/benchmark.sh fwdrange "$PARAMS_GC"
 
 # save logs to output directory
-cp $db_dir/LOG* $output_dir/
+cp "$db_dir"/LOG* "$output_dir/"
