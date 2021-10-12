@@ -2817,6 +2817,15 @@ void VersionStorageInfo::ComputeCompactionScore(
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_options, mutable_cf_options.periodic_compaction_seconds);
   }
+
+  if (mutable_cf_options.enable_blob_garbage_collection &&
+      mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
+      mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
+    ComputeFilesMarkedForForcedBlobGC(
+        mutable_cf_options.blob_garbage_collection_age_cutoff,
+        mutable_cf_options.blob_garbage_collection_force_threshold);
+  }
+
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -2923,6 +2932,106 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         }
       }
     }
+  }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
+    double blob_garbage_collection_age_cutoff,
+    double blob_garbage_collection_force_threshold) {
+  files_marked_for_forced_blob_gc_.clear();
+
+  if (blob_files_.empty()) {
+    return;
+  }
+
+  // Number of blob files eligible for GC based on age
+  const size_t cutoff_count = static_cast<size_t>(
+      blob_garbage_collection_age_cutoff * blob_files_.size());
+  if (!cutoff_count) {
+    return;
+  }
+
+  // Compute the sum of total and garbage bytes over the oldest batch of blob
+  // files. The oldest batch is defined as the set of blob files which are
+  // kept alive by the same SSTs as the very oldest one. Here is a toy example.
+  // Let's assume we have three SSTs 1, 2, and 3, and four blob files 10, 11,
+  // 12, and 13. Also, let's say SSTs 1 and 2 both rely on blob file 10 and
+  // potentially some higher-numbered ones, while SST 3 relies on blob file 12
+  // and potentially some higher-numbered ones. Then, the SST to oldest blob
+  // file mapping is as follows:
+  //
+  // SST file number               Oldest blob file number
+  // 1                             10
+  // 2                             10
+  // 3                             12
+  //
+  // This is what the same thing looks like from the blob files' POV. (Note that
+  // the linked SSTs simply denote the inverse mapping of the above.)
+  //
+  // Blob file number              Linked SST set
+  // 10                            {1, 2}
+  // 11                            {}
+  // 12                            {3}
+  // 13                            {}
+  //
+  // Then, the oldest batch of blob files consists of blob files 10 and 11,
+  // and we can get rid of them by forcing the compaction of SSTs 1 and 2.
+  //
+  // Note that the overall ratio of garbage computed for the batch has to exceed
+  // blob_garbage_collection_force_threshold and the entire batch has to be
+  // eligible for GC according to blob_garbage_collection_age_cutoff in order
+  // for us to schedule any compactions.
+  const auto oldest_it = blob_files_.begin();
+
+  const auto& oldest_meta = oldest_it->second;
+  assert(oldest_meta);
+
+  const auto& linked_ssts = oldest_meta->GetLinkedSsts();
+  assert(!linked_ssts.empty());
+
+  size_t count = 1;
+  uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
+  uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
+
+  auto it = oldest_it;
+  for (++it; it != blob_files_.end(); ++it) {
+    const auto& meta = it->second;
+    assert(meta);
+
+    if (!meta->GetLinkedSsts().empty()) {
+      break;
+    }
+
+    if (++count > cutoff_count) {
+      return;
+    }
+
+    sum_total_blob_bytes += meta->GetTotalBlobBytes();
+    sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+  }
+
+  if (sum_garbage_blob_bytes <
+      blob_garbage_collection_force_threshold * sum_total_blob_bytes) {
+    return;
+  }
+
+  for (uint64_t sst_file_number : linked_ssts) {
+    const FileLocation location = GetFileLocation(sst_file_number);
+    assert(location.IsValid());
+
+    const int level = location.GetLevel();
+    assert(level >= 0);
+
+    const size_t pos = location.GetPosition();
+
+    FileMetaData* const sst_meta = files_[level][pos];
+    assert(sst_meta);
+
+    if (sst_meta->being_compacted) {
+      continue;
+    }
+
+    files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
   }
 }
 

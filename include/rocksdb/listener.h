@@ -144,6 +144,8 @@ enum class CompactionReason : int {
   kPeriodicCompaction,
   // Compaction in order to move files to temperature
   kChangeTemperature,
+  // Compaction scheduled to force garbage collection of blob files
+  kForcedBlobGC,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
