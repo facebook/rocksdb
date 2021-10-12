@@ -307,7 +307,7 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
     return memlist_.size() + memlist_history_.size() >
            static_cast<size_t>(max_write_buffer_number_to_maintain_);
   } else {
-    return false;
+    return true;
   }
 }
 
