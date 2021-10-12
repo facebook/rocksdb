@@ -483,9 +483,12 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
 }
 
 TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
-  // Add three L0 SSTs and four blob files. The first two SSTs keep alive the
-  // first two blob files, while the third SST keeps alive the third and fourth
-  // blob files.
+  // Add three L0 SSTs (1, 2, and 3) and four blob files (10, 11, 12, and 13).
+  // The first two SSTs have the same oldest blob file, namely, the very oldest
+  // one (10), while the third SST's oldest blob file reference points to the
+  // third blob file (12). Thus, the oldest batch of blob files contains the
+  // first two blob files 10 and 11, and assuming they are eligible for GC based
+  // on the age cutoff, compacting away the SSTs 1 and 2 will eliminate them.
 
   constexpr int level = 0;
 
