@@ -106,7 +106,7 @@ void SyncPoint::Data::Process(const char* point, void* cb_arg) {
     return;
   }
 
-  rocksdb::Slice point_slice(point);
+  Slice point_slice(point);
   // Use a filter to prevent mutex lock if possible.
   if (!point_filter_.MayContain(point_slice)) {
     return;
