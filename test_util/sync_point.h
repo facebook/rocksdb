@@ -117,7 +117,11 @@ class SyncPoint {
   // triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
   // And/or call registered callback function, with argument `cb_arg`
-  void Process(const std::string& point, void* cb_arg = nullptr);
+  void Process(const char* point, void* cb_arg = nullptr);
+  // WARNING: std::string as parameter caused heap thrashing when const char * given
+  void Process(const std::string& point, void* cb_arg = nullptr) {
+    Process(point.c_str(), cb_arg);
+  }
 
   // TODO: it might be useful to provide a function that blocks until all
   // sync points are cleared.

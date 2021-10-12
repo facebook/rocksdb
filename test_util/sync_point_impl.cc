@@ -101,7 +101,7 @@ void SyncPoint::Data::ClearAllCallBacks() {
   callbacks_.clear();
 }
 
-void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
+void SyncPoint::Data::Process(const char* point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
