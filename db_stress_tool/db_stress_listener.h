@@ -22,6 +22,7 @@ DECLARE_int32(compact_files_one_in);
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifndef ROCKSDB_LITE
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
@@ -57,7 +58,6 @@ class DbStressListener : public EventListener {
         num_pending_file_creations_(0),
         unique_ids_(db_name) {}
 
-#ifndef ROCKSDB_LITE
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
 
@@ -256,7 +256,6 @@ class DbStressListener : public EventListener {
     std::this_thread::sleep_for(
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   std::string db_name_;
@@ -265,5 +264,6 @@ class DbStressListener : public EventListener {
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
 };
+#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

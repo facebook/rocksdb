@@ -12,6 +12,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifndef ROCKSDB_LITE
+
 // TODO: consider using expected_values_dir instead, but this is more
 // convenient for now.
 UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
@@ -94,6 +96,11 @@ void UniqueIdVerifier::VerifyNoWrite(const FullID& id) {
 
 void UniqueIdVerifier::Verify(const FullID& id) {
   std::lock_guard<std::mutex> lock(mutex_);
+  // If we accumulate more than ~4 million IDs, there would be > 1 in 1M
+  // natural chance of collision. Thus, simply stop checking at that point.
+  if (id_set_.size() >= 4294967) {
+    return;
+  }
   IOStatus s = data_file_writer_->Append(Slice(id.data(), id.size()),
                                          IOOptions(), /*dbg*/ nullptr);
   if (!s.ok()) {
@@ -117,5 +124,7 @@ void DbStressListener::VerifyTableFileUniqueId(
   GetUniqueIdFromTableProperties(new_file_properties, &id);
   unique_ids_.Verify(id);
 }
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
