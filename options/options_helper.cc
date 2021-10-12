@@ -250,6 +250,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.enable_blob_garbage_collection;
   cf_opts->blob_garbage_collection_age_cutoff =
       moptions.blob_garbage_collection_age_cutoff;
+  cf_opts->blob_garbage_collection_force_threshold =
+      moptions.blob_garbage_collection_force_threshold;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =

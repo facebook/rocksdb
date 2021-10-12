@@ -979,6 +979,12 @@ DEFINE_double(blob_garbage_collection_age_cutoff,
               "[Integrated BlobDB] The cutoff in terms of blob file age for "
               "garbage collection.");
 
+DEFINE_double(blob_garbage_collection_force_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_force_threshold,
+              "[Integrated BlobDB] The threshold for the ratio of garbage in "
+              "the oldest blob files for forcing garbage collection.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -4331,6 +4337,8 @@ class Benchmark {
         FLAGS_enable_blob_garbage_collection;
     options.blob_garbage_collection_age_cutoff =
         FLAGS_blob_garbage_collection_age_cutoff;
+    options.blob_garbage_collection_force_threshold =
+        FLAGS_blob_garbage_collection_force_threshold;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

@@ -2751,6 +2751,15 @@ double rocksdb_options_get_blob_gc_age_cutoff(rocksdb_options_t* opt) {
   return opt->rep.blob_garbage_collection_age_cutoff;
 }
 
+void rocksdb_options_set_blob_gc_force_threshold(rocksdb_options_t* opt,
+                                                 double val) {
+  opt->rep.blob_garbage_collection_force_threshold = val;
+}
+
+double rocksdb_options_get_blob_gc_force_threshold(rocksdb_options_t* opt) {
+  return opt->rep.blob_garbage_collection_force_threshold;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }

@@ -1180,7 +1180,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     }
 
     Options sst_file_writer_options;
-    sst_file_writer_options.env = env_;
+    sst_file_writer_options.env = fault_injection_test_env_.get();
     std::unique_ptr<SstFileWriter> sst_file_writer(
         new SstFileWriter(EnvOptions(), sst_file_writer_options));
     std::string file_name =
