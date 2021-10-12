@@ -94,7 +94,7 @@ compression_type=${COMPRESSION_TYPE:-lz4}
 
 db_size=${DB_SIZE:-$((1 * T))}
 value_size=${VALUE_SIZE:-$((1 * K))}
-num_keys=${NUM_KEYS:-$(($db_size / $value_size))}
+num_keys=${NUM_KEYS:-$((db_size / value_size))}
 
 duration=${DURATION:-1800}
 
@@ -109,12 +109,12 @@ blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 blob_garbage_collection_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1.0}
 
 if [ "$enable_blob_files" == "1" ]; then
-  target_file_size_base=${TARGET_FILE_SIZE_BASE:-$(($write_buffer_size / $value_size * 32))}
+  target_file_size_base=${TARGET_FILE_SIZE_BASE:-$((32 * write_buffer_size / value_size))}
 else
   target_file_size_base=${TARGET_FILE_SIZE_BASE:-$write_buffer_size}
 fi
 
-max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * $target_file_size_base))}
+max_bytes_for_level_base=${MAX_BYTES_FOR_LEVEL_BASE:-$((8 * target_file_size_base))}
 
 echo "======================== Benchmark setup ========================"
 echo -e "Job ID:\t\t\t\t\t$job_id"
