@@ -4009,7 +4009,7 @@ DB::~DB() {}
 Status DBImpl::Close() {
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
-    return Status::OK();
+    return closing_status_;
   }
   {
     InstrumentedMutexLock l(&mutex_);
@@ -4018,8 +4018,9 @@ Status DBImpl::Close() {
       return Status::Aborted("Cannot close DB with unreleased snapshot.");
     }
   }
+  closing_status_ = CloseImpl();
   closed_ = true;
-  return CloseImpl();
+  return closing_status_;
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
