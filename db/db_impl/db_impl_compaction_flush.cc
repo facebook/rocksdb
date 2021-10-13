@@ -560,6 +560,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (s.ok()) {
     const auto wait_to_install_func = [&]() {
+      if (!versions_->io_status().ok()) {
+        // Something went wrong elsewhere, we cannot count on waiting for our
+        // turn to write/sync to MANIFEST or CURRENT. Just return.
+        return true;
+      }
       bool ready = true;
       for (size_t i = 0; i != cfds.size(); ++i) {
         const auto& mems = jobs[i]->GetMemTables();
@@ -583,7 +588,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           break;
         }
       }
-      fprintf(stdout, "y7jin ready=%d\n", (int)ready);
       return ready;
     };
 

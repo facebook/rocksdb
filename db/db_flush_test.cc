@@ -2456,7 +2456,6 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   options.max_write_buffer_number = 8;
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  fprintf(stdout, "opened\n");
   assert(2 == handles_.size());
 
   WriteOptions write_opts;
@@ -2502,13 +2501,11 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
         if (std::this_thread::get_id() != bg_flush_thr1) {
           return;
         }
-        fprintf(stdout, "y7jin write more\n");
         ASSERT_OK(db_->Put(write_opts, "b", "v_1_b"));
 
         FlushOptions flush_opts;
         flush_opts.wait = false;
         ASSERT_OK(dbfull()->Flush(flush_opts, {db_->DefaultColumnFamily()}));
-        fprintf(stdout, "y7jin flush issued\n");
       });
 
   SyncPoint::GetInstance()->SetCallBack(
@@ -2521,7 +2518,6 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
 
   ASSERT_TRUE(dbfull()->Flush(FlushOptions(), handles_).IsIOError());
 
-  fprintf(stdout, "closing\n");
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
