@@ -5,6 +5,7 @@
 * Fix the incorrect disabling of SST rate limited deletion when the WAL and DB are in different directories. Only WAL rate limited deletion should be disabled if its in a different directory.
 * Fix `DisableManualCompaction()` to cancel compactions even when they are waiting on automatic compactions to drain due to `CompactRangeOptions::exclusive_manual_compactions == true`.
 * Fix contract of `Env::ReopenWritableFile()` and `FileSystem::ReopenWritableFile()` to specify any existing file must not be deleted or truncated.
+* Fixed bug in calls to `IngestExternalFiles()` with files for multiple column families. The bug could have introduced a delay in ingested file keys becoming visible after `IngestExternalFiles()` returned. Furthermore, mutations to ingested file keys while they were invisible could have been dropped (not necessarily immediately).
 
 ### New Features
 * Print information about blob files when using "ldb list_live_files_metadata"

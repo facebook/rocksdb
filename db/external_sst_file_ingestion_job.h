@@ -141,7 +141,7 @@ class ExternalSstFileIngestionJob {
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
 
-  // Assign `file_to_ingest` the appropriate sequence number and  the lowest
+  // Assign `file_to_ingest` the appropriate sequence number and the lowest
   // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held
   Status AssignLevelAndSeqnoForIngestedFile(SuperVersion* sv,
