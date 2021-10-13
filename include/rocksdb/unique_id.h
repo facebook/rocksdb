@@ -22,7 +22,9 @@ namespace ROCKSDB_NAMESPACE {
 // (binary). No human-readable format is provided.
 //
 // More detail: the first 128 bits are *guaranteed* unique for SST files
-// generated in the same process (even different DBs, RocksDB >= 6.26).
+// generated in the same process (even different DBs, RocksDB >= 6.26),
+// and first 128 bits are guaranteed not "all zeros" (RocksDB >= 6.26)
+// so that the "all zeros" value can be used reliably for a null ID.
 // Assuming one generates many SST files in the lifetime of each process,
 // the probability of collision between processes is "better than
 // random": if processes generate n SST files on average, we expect to

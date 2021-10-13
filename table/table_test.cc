@@ -1479,49 +1479,49 @@ TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id1, 1),
       T({{{0x61d7dcf415d9cf19U, 0x160d77aae90757fdU, 0x907f41dfd90724ffU}},
-         {{0xc6941b7073bcd6ddU, 0xff32e0ad5e9155c6U, 0x56463dfdab5551a2U}}}));
+         {{0xf0bd230365df7464U, 0xca089303f3648eb4U, 0x4b44f7e7324b2817U}}}));
   // Only change internal_id[1] with file number
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id1, 2),
       T({{{0x61d7dcf415d9cf19U, 0x160d77aae90757feU, 0x907f41dfd90724ffU}},
-         {{0x249f6e9003075cc2U, 0x90dc6a277762e042U, 0x45fb1a9753716203U}}}));
+         {{0xf13fdf7adcfebb6dU, 0x97cd2226cc033ea2U, 0x198c438182091f0eU}}}));
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id1, 123456789),
       T({{{0x61d7dcf415d9cf19U, 0x160d77aaee5c9ae9U, 0x907f41dfd90724ffU}},
-         {{0x8eb1025a8e5216eeU, 0x52ea3a7060367d25U, 0x721a7eaac78fb912U}}}));
+         {{0x81fbcebe1ac6c4f0U, 0x6b14a64cfdc0f1c4U, 0x7d8fb6eaf18edbb3U}}}));
   // Change internal_id[1] and internal_id[2] with db_id
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id2, ses_id1, 1),
       T({{{0x61d7dcf415d9cf19U, 0xf89c471f572f0d25U, 0x1f0f2a5eb0e6257eU}},
-         {{0x7b69e2778251964dU, 0x909f54774ec05fa0U, 0x2b18614d81f81b6bU}}}));
+         {{0x7f1d01d453616991U, 0x32ddf2afec804ab2U, 0xd10a1ee2f0c7d9c1U}}}));
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id3, ses_id1, 1),
       T({{{0x61d7dcf415d9cf19U, 0xfed297a8154a57d0U, 0x8b931b9cdebd9e8U}},
-         {{0xfba0027834e39e0fU, 0xe4aff99f5dc5e099U, 0xe9092dd160955890U}}}));
+         {{0x62b2f43183f6894bU, 0x897ff2b460eefad1U, 0xf4ec189fb2d15e04U}}}));
   // Keeping same last 13 digits of ses_id keeps same internal_id[0]
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id2, 1),
       T({{{0x61d7dcf415d9cf19U, 0x5f6cc4fa2d528c8U, 0x7b70845d5bfb5446U}},
-         {{0x98f61d969549e119U, 0x824bc4e7939ab8eaU, 0x96b266db84dfee49U}}}));
+         {{0x96d1c83ffcc94266U, 0x82663eac0ec6e14aU, 0x94a88b49678b77f6U}}}));
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id3, 1),
       T({{{0x61d7dcf415d9cf19U, 0xfc7232879db37ea2U, 0xc0378d74ea4c89cdU}},
-         {{0x3933fb2146b8d2d9U, 0x150ad624e7b8812U, 0xfabc35f87f80e4b8U}}}));
+         {{0xdf2ef57e98776905U, 0xda5b31c987da833bU, 0x79c1b4bd0a9e760dU}}}));
   // Changing last 12 digits of ses_id only changes internal_id[0]
   // (vs. db_id1, ses_id1, 1)
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id4, 1),
       T({{{0x4f07cc0d003a83a8U, 0x160d77aae90757fdU, 0x907f41dfd90724ffU}},
-         {{0xc9f7777ba9be21e1U, 0x2c373180cf7de62aU, 0x86adeadc52432d0aU}}}));
+         {{0xbcf85336a9f71f04U, 0x4f2949e2f3adb60dU, 0x9ca0def976abfa10U}}}));
   // ses_id can change everything.
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id5, 1),
       T({{{0x94b8768e43f87ce6U, 0xc2559653ac4e7c93U, 0xde6dff6bbb1223U}},
-         {{0x2f529385959ce3f4U, 0x7859060b0b6f1c6fU, 0xa88a07900cc71286U}}}));
+         {{0x5a9537af681817fbU, 0x1afcd1fecaead5eaU, 0x767077ad9ebe0008U}}}));
   EXPECT_EQ(
       GetUniqueId(&tp, &seen, db_id1, ses_id6, 1),
       T({{{0x43cfb0ffa3b710edU, 0x263c580426406a1bU, 0xfacc91379a80d29dU}},
-         {{0xe58a2c76ca09be13U, 0xaacdf54e0ad7b25eU, 0x8b24b2fc6f62430eU}}}));
+         {{0xfa90547d84cb1cdbU, 0x2afe99c641992d4aU, 0x205b7f7b60e51cc2U}}}));
 
   // Now verify more thoroughly that any small change in inputs completely
   // changes external unique id.
@@ -1551,6 +1551,18 @@ TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
   // change file_num
   for (int i = 1; i < 64; ++i) {
     GetUniqueId(&tp, &seen, db_id, ses_id, file_num << i);
+  }
+
+  // Verify that "all zeros" in first 128 bits is equivalent for internal and
+  // external IDs. This way, as long as we avoid "all zeros" in internal IDs,
+  // we avoid it in external IDs.
+  {
+    std::array<uint64_t, 3> id1{0, 0, Random::GetTLSInstance()->Next64()};
+    std::array<uint64_t, 3> id2 = id1;
+    InternalUniqueIdToExternal(&id1);
+    EXPECT_EQ(id1, id2);
+    ExternalUniqueIdToInternal(&id2);
+    EXPECT_EQ(id1, id2);
   }
 }
 
@@ -1605,14 +1617,29 @@ TEST_F(TablePropertyTest, UniqueIdsShortened) {
   // Test uint64_t API
   TestShortened(
       tp, std::array<uint64_t, 3>{
-              {0xc6941b7073bcd6ddU, 0xff32e0ad5e9155c6U, 0x56463dfdab5551a2U}});
+              {0xf0bd230365df7464U, 0xca089303f3648eb4U, 0x4b44f7e7324b2817U}});
 
   // Test char API (little endian of above)
   TestShortened(tp, std::array<char, 24>{
-                        {'\xdd', '\xd6', '\xbc', '\x73', '\x70', '\x1b',
-                         '\x94', '\xc6', '\xc6', '\x55', '\x91', '\x5e',
-                         '\xad', '\xe0', '\x32', '\xff', '\xa2', '\x51',
-                         '\x55', '\xab', '\xfd', '\x3d', '\x46', '\x56'}});
+                        {'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
+                         '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
+                         '\x03', '\x93', '\x08', '\xca', '\x17', '\x28',
+                         '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}});
+
+  // Also test human string
+  {
+    std::array<char, 24> tmp;
+    EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+    EXPECT_EQ(UniqueIdToHumanString(tmp),
+              "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
+
+    // including zero padding
+    tmp = {};
+    tmp[15] = '\x12';
+    tmp[23] = '\xAB';
+    EXPECT_EQ(UniqueIdToHumanString(tmp),
+              "0000000000000000-0000000000000012-00000000000000AB");
+  }
 }
 
 TEST_F(TablePropertyTest, UniqueIdsFailure) {

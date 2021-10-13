@@ -8,9 +8,11 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/unique_id.h"
 #include "table/block_based/block.h"
 #include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -181,6 +183,13 @@ std::string TableProperties::ToString(
                  kv_delim);
   AppendProperty(result, "DB host id", db_host_id, prop_delim, kv_delim);
   AppendProperty(result, "original file number", orig_file_number, prop_delim,
+                 kv_delim);
+
+  // Unique ID, when available
+  std::array<char, 24> id{};
+  Status s = GetUniqueIdFromTableProperties(*this, &id);
+  AppendProperty(result, "unique ID",
+                 s.ok() ? UniqueIdToHumanString(id) : "N/A", prop_delim,
                  kv_delim);
 
   return result;

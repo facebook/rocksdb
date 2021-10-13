@@ -49,4 +49,8 @@ std::string EncodeSessionId(uint64_t upper, uint64_t lower);
 Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
                        uint64_t *lower);
 
+// Converts to hexadecimal, with each 64 bits separated by '-'.
+// TODO: Consider making this public
+std::string UniqueIdToHumanString(const std::array<char, 24> &id);
+
 }  // namespace ROCKSDB_NAMESPACE

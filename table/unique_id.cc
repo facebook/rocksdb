@@ -80,6 +80,9 @@ Status GetSstInternalUniqueId(const std::string &db_id,
 
   // Exactly preserve session lower to ensure that session ids generated
   // during the same process lifetime are guaranteed unique.
+  // DBImpl also guarantees (in recent versions) that this is not zero,
+  // so that we can guarantee unique ID is never all zeros. (Can't assert
+  // that here because of testing and old versions.)
   // We put this first in anticipation of matching a small-ish set of cache
   // key prefixes to cover entries relevant to any DB.
   (*out)[0] = session_lower;
@@ -105,7 +108,11 @@ Status GetSstInternalUniqueId(const std::string &db_id,
 
 void InternalUniqueIdToExternal(std::array<uint64_t, 3> *in_out) {
   uint64_t hi, lo;
-  BijectiveHash2x64((*in_out)[1], (*in_out)[0], &hi, &lo);
+  // The offsets are used to ensure no external ID is all zeros, because only
+  // internal ID of all zeros maps to it, and that is excluded by
+  // session_lower != 0.
+  BijectiveHash2x64((*in_out)[1] + 17391078804906429400U,
+                    (*in_out)[0] + 6417269962128484497U, &hi, &lo);
   (*in_out)[0] = lo;
   (*in_out)[1] = hi;
   (*in_out)[2] += lo + hi;
@@ -115,7 +122,9 @@ void ExternalUniqueIdToInternal(std::array<uint64_t, 3> *in_out) {
   uint64_t lo = (*in_out)[0];
   uint64_t hi = (*in_out)[1];
   (*in_out)[2] -= lo + hi;
-  BijectiveUnhash2x64(hi, lo, &(*in_out)[1], &(*in_out)[0]);
+  BijectiveUnhash2x64(hi, lo, &hi, &lo);
+  (*in_out)[0] = lo - 6417269962128484497U;
+  (*in_out)[1] = hi - 17391078804906429400U;
 }
 
 template <>
@@ -162,6 +171,14 @@ Status GetUniqueIdFromTableProperties(const TableProperties &props,
     }
   }
   return s;
+}
+
+std::string UniqueIdToHumanString(const std::array<char, 24> &id) {
+  std::string str = Slice(id.data(), id.size()).ToString(/*hex*/ true);
+  assert(str.length() == 48);
+  str.insert(16, "-");
+  str.insert(33, "-");
+  return str;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
