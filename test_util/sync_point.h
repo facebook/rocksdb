@@ -117,9 +117,11 @@ class SyncPoint {
   // triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
   // And/or call registered callback function, with argument `cb_arg`
+  /// The const char* signature is necessary to prevent heap thrashing and
+  ///  auto promotion within debug builds. Also improves debug build
+  ///  performance substantially when sync points are not enabled.
   void Process(const char* point, void* cb_arg = nullptr);
-  // WARNING: std::string as parameter caused heap thrashing when const char *
-  //          given
+
   void Process(const std::string& point, void* cb_arg = nullptr) {
     Process(point.c_str(), cb_arg);
   }
