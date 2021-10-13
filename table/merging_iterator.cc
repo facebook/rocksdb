@@ -288,10 +288,7 @@ class MergingIterator : public InternalIterator {
 
   bool is_arena_mode_;
   bool prefix_seek_mode_;
-  enum Direction : uint8_t {
-    kForward,
-    kReverse
-  };
+  enum Direction : uint8_t { kForward, kReverse };
   Direction direction_;
   const InternalKeyComparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
