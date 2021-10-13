@@ -116,7 +116,7 @@ void SyncPoint::Data::Process(const char* point, void* cb_arg) {
 
   // Must convert to std::string for remaining work.  Take
   //  heap hit.
-  std::string point_string(std::move(point_slice.ToString()));
+  std::string point_string(point_slice.ToString());
   std::unique_lock<std::mutex> lock(mutex_);
   auto thread_id = std::this_thread::get_id();
 
