@@ -2481,9 +2481,22 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
         }
       });
 
+  int called = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void*) {
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void* arg) {
         if (std::this_thread::get_id() == bg_flush_thr2) {
+          const auto* ptr = reinterpret_cast<std::pair<Status, bool>*>(arg);
+          assert(ptr);
+          if (0 == called) {
+            // When bg flush thread 2 first reaches here.
+            ASSERT_OK(ptr->first);
+            ASSERT_TRUE(ptr->second);
+          } else if (1 == called) {
+            // When bg flush thread 2 reaches here for the second time.
+            ASSERT_TRUE(ptr->first.IsIOError());
+            ASSERT_FALSE(ptr->second);
+          }
+          ++called;
           TEST_SYNC_POINT("BgFlushThr2:WaitToCommit");
         }
       });
