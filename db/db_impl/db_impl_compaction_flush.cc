@@ -559,7 +559,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
-    auto wait_to_install_func = [&]() {
+    const auto wait_to_install_func = [&]() {
       bool ready = true;
       for (size_t i = 0; i != cfds.size(); ++i) {
         const auto& mems = jobs[i]->GetMemTables();
@@ -583,6 +583,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           break;
         }
       }
+      fprintf(stdout, "y7jin ready=%d\n", (int)ready);
       return ready;
     };
 
@@ -590,6 +591,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     while ((!error_handler_.IsDBStopped() ||
             error_handler_.GetRecoveryError().ok()) &&
            !wait_to_install_func()) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", nullptr);
       atomic_flush_install_cv_.Wait();
     }
 
@@ -2653,7 +2656,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
 
-  TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:start");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallFlush:start", nullptr);
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());

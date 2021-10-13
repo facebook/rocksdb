@@ -2440,6 +2440,93 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  options.env = fault_injection_env.get();
+  // Set a larger value than default so that RocksDB can schedule concurrent
+  // background flush threads.
+  options.max_background_jobs = 8;
+  options.max_write_buffer_number = 8;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  fprintf(stdout, "opened\n");
+  assert(2 == handles_.size());
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+
+  ASSERT_OK(Put(0, "a", "v_0_a", write_opts));
+  ASSERT_OK(Put(1, "a", "v_1_a", write_opts));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"BgFlushThr2:WaitToCommit", "BgFlushThr1:BeforeWriteManifest"},
+  });
+
+  std::thread::id bg_flush_thr1, bg_flush_thr2;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void*) {
+        if (bg_flush_thr1 == std::thread::id()) {
+          bg_flush_thr1 = std::this_thread::get_id();
+        } else if (bg_flush_thr2 == std::thread::id()) {
+          bg_flush_thr2 = std::this_thread::get_id();
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void*) {
+        if (std::this_thread::get_id() == bg_flush_thr2) {
+          TEST_SYNC_POINT("BgFlushThr2:WaitToCommit");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+      [&](void*) {
+        if (std::this_thread::get_id() == bg_flush_thr1) {
+          TEST_SYNC_POINT("BgFlushThr1:BeforeWriteManifest");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (std::this_thread::get_id() != bg_flush_thr1) {
+          return;
+        }
+        fprintf(stdout, "y7jin write more\n");
+        ASSERT_OK(db_->Put(write_opts, "b", "v_1_b"));
+
+        FlushOptions flush_opts;
+        flush_opts.wait = false;
+        ASSERT_OK(dbfull()->Flush(flush_opts, {db_->DefaultColumnFamily()}));
+        fprintf(stdout, "y7jin flush issued\n");
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        auto* ptr = reinterpret_cast<IOStatus*>(arg);
+        assert(ptr);
+        *ptr = IOStatus::IOError("Injected failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(dbfull()->Flush(FlushOptions(), handles_).IsIOError());
+
+  fprintf(stdout, "closing\n");
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
