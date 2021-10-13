@@ -112,6 +112,13 @@ struct FileOptions : EnvOptions {
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
 
+  // An option map that's opaque to RocksDB. It can be used to implement a
+  // custom contract between a FileSystem user and the provider. This is only
+  // useful in cases where a RocksDB user directly uses the FileSystem object
+  // for their own purposes, and wants to pass extra options to APIs such as
+  // NewRandomAccessFile and NewWritableFile.
+  std::unordered_map<std::string, void*> property_bag;
+
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
