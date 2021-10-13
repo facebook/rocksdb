@@ -266,11 +266,12 @@ class Env {
                                  std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
+  // Create an object that writes to a file with the specified name.
+  // `WritableFile::Append()`s will append after any existing content.  If the
+  // file does not already exist, creates it.
+  //
+  // On success, stores a pointer to the file in *result and returns OK.  On
+  // failure stores nullptr in *result and returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status ReopenWritableFile(const std::string& /*fname*/,
@@ -1800,6 +1801,8 @@ Env* NewTimedEnv(Env* base_env);
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
 
+// Creates a new Env based on Env::Default() but modified to use the specified
+// FileSystem.
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs);
 
 }  // namespace ROCKSDB_NAMESPACE

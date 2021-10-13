@@ -196,6 +196,8 @@ struct IODebugContext {
 // of the APIs is of type IOStatus, which can indicate an error code/sub-code,
 // as well as metadata about the error such as its scope and whether its
 // retryable.
+// NewCompositeEnv can be used to create an Env with a custom FileSystem for
+// DBOptions::env.
 class FileSystem {
  public:
   FileSystem();
@@ -228,11 +230,8 @@ class FileSystem {
                                  const std::string& value,
                                  std::shared_ptr<FileSystem>* result);
 
-  // Return a default fie_system suitable for the current operating
-  // system.  Sophisticated users may wish to provide their own Env
-  // implementation instead of relying on this default file_system
-  //
-  // The result of Default() belongs to rocksdb and must never be deleted.
+  // Return a default FileSystem suitable for the current operating
+  // system.
   static std::shared_ptr<FileSystem> Default();
 
   // Handles the event when a new DB or a new ColumnFamily starts using the
@@ -309,11 +308,12 @@ class FileSystem {
                                    std::unique_ptr<FSWritableFile>* result,
                                    IODebugContext* dbg) = 0;
 
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
+  // Create an object that writes to a file with the specified name.
+  // `FSWritableFile::Append()`s will append after any existing content.  If the
+  // file does not already exist, creates it.
+  //
+  // On success, stores a pointer to the file in *result and returns OK.  On
+  // failure stores nullptr in *result and returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
   virtual IOStatus ReopenWritableFile(

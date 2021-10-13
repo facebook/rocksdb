@@ -1098,8 +1098,10 @@ class DBImpl : public DB {
     // Called from WriteBufferManager. This function changes the state_
     // to State::RUNNING indicating the stall is cleared and DB can proceed.
     void Signal() override {
-      MutexLock lock(&state_mutex_);
-      state_ = State::RUNNING;
+      {
+        MutexLock lock(&state_mutex_);
+        state_ = State::RUNNING;
+      }
       state_cv_.Signal();
     }
 

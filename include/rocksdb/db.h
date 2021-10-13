@@ -121,12 +121,15 @@ struct RangePtr {
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
 // be the same in three vectors and guaranteed by the caller.
+// Note that, we assume the temperatures of this batch of files to be
+// ingested are the same.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  Temperature file_temperature = Temperature::kUnknown;
 };
 
 struct GetMergeOperandsOptions {
@@ -1517,9 +1520,10 @@ class DB {
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a
-  // move, the call ensures that the specified files at external_file_path are
-  // deleted on successful return and files are not modified on any error
-  // return.
+  // move, the call makes a best effort to delete the specified files at
+  // external_file_path on successful return, logging any failure to delete
+  // rather than returning in Status. Files are not modified on any error
+  // return, and a best effort is made to remove any newly-created files.
   // On error return, column family handle returned will be nullptr.
   // ColumnFamily will be present on successful return and will not be present
   // on error return. ColumnFamily may be present on any crash during this call.

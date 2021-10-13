@@ -15,9 +15,11 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/utilities/cache_dump_load.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
+#include "utilities/cache_dump_load_impl.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1181,6 +1183,367 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   }
   Destroy(options);
 }
+
+class LRUCacheWithStat : public LRUCache {
+ public:
+  LRUCacheWithStat(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDontChargeCacheMetadata,
+      const std::shared_ptr<SecondaryCache>& _secondary_cache = nullptr)
+      : LRUCache(_capacity, _num_shard_bits, _strict_capacity_limit,
+                 _high_pri_pool_ratio, _memory_allocator, _use_adaptive_mutex,
+                 _metadata_charge_policy, _secondary_cache) {
+    insert_count_ = 0;
+    lookup_count_ = 0;
+  }
+  ~LRUCacheWithStat() {}
+
+  Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
+                Handle** handle, Priority priority) override {
+    insert_count_++;
+    return LRUCache::Insert(key, value, charge, deleter, handle, priority);
+  }
+  Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
+                size_t chargge, Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    insert_count_++;
+    return LRUCache::Insert(key, value, helper, chargge, handle, priority);
+  }
+  Handle* Lookup(const Slice& key, Statistics* stats) override {
+    lookup_count_++;
+    return LRUCache::Lookup(key, stats);
+  }
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 const CreateCallback& create_cb, Priority priority, bool wait,
+                 Statistics* stats = nullptr) override {
+    lookup_count_++;
+    return LRUCache::Lookup(key, helper, create_cb, priority, wait, stats);
+  }
+
+  uint32_t GetInsertCount() { return insert_count_; }
+  uint32_t GetLookupcount() { return lookup_count_; }
+  void ResetCount() {
+    insert_count_ = 0;
+    lookup_count_ = 0;
+  }
+
+ private:
+  uint32_t insert_count_;
+  uint32_t lookup_count_;
+};
+
+#ifndef ROCKSDB_LITE
+
+TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
+  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
+      cache_opts.capacity, cache_opts.num_shard_bits,
+      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
+      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache(tmp_cache);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  DestroyAndReopen(options);
+  fault_fs_->SetFailGetUniqueId(true);
+
+  Random rnd(301);
+  const int N = 256;
+  std::vector<std::string> value;
+  char buf[1000];
+  memset(buf, 'a', 1000);
+  value.resize(N);
+  for (int i = 0; i < N; i++) {
+    // std::string p_v = rnd.RandomString(1000);
+    std::string p_v(buf, 1000);
+    value[i] = p_v;
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  Compact("a", "z");
+
+  // do th eread for all the key value pairs, so all the blocks should be in
+  // cache
+  uint32_t start_insert = tmp_cache->GetInsertCount();
+  uint32_t start_lookup = tmp_cache->GetLookupcount();
+  std::string v;
+  for (int i = 0; i < N; i++) {
+    v = Get(Key(i));
+    ASSERT_EQ(v, value[i]);
+  }
+  uint32_t dump_insert = tmp_cache->GetInsertCount() - start_insert;
+  uint32_t dump_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  ASSERT_EQ(63,
+            static_cast<int>(dump_insert));  // the insert in the block cache
+  ASSERT_EQ(256,
+            static_cast<int>(dump_lookup));  // the lookup in the block cache
+  // We have enough blocks in the block cache
+
+  CacheDumpOptions cd_options;
+  cd_options.clock = fault_env_->GetSystemClock().get();
+  std::string dump_path = db_->GetName() + "/cache_dump";
+  std::unique_ptr<CacheDumpWriter> dump_writer;
+  Status s = NewToFileCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
+                                      &dump_writer);
+  ASSERT_OK(s);
+  std::unique_ptr<CacheDumper> cache_dumper;
+  s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
+                            &cache_dumper);
+  ASSERT_OK(s);
+  std::vector<DB*> db_list;
+  db_list.push_back(db_);
+  s = cache_dumper->SetDumpFilter(db_list);
+  ASSERT_OK(s);
+  s = cache_dumper->DumpCacheEntriesToWriter();
+  ASSERT_OK(s);
+  cache_dumper.reset();
+
+  // we have a new cache it is empty, then, before we do the Get, we do the
+  // dumpload
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048 * 1024);
+  cache_opts.secondary_cache = secondary_cache;
+  tmp_cache = new LRUCacheWithStat(
+      cache_opts.capacity, cache_opts.num_shard_bits,
+      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
+      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache_new(tmp_cache);
+  table_options.block_cache = cache_new;
+  table_options.block_size = 4 * 1024;
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+
+  // start to load the data to new block cache
+  start_insert = secondary_cache->num_inserts();
+  start_lookup = secondary_cache->num_lookups();
+  std::unique_ptr<CacheDumpReader> dump_reader;
+  s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
+                                 &dump_reader);
+  ASSERT_OK(s);
+  std::unique_ptr<CacheDumpedLoader> cache_loader;
+  s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
+                                  std::move(dump_reader), &cache_loader);
+  ASSERT_OK(s);
+  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
+  ASSERT_OK(s);
+  uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
+  uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;
+  // check the number we inserted
+  ASSERT_EQ(64, static_cast<int>(load_insert));
+  ASSERT_EQ(0, static_cast<int>(load_lookup));
+  ASSERT_OK(s);
+
+  Reopen(options);
+
+  // After load, we do the Get again
+  start_insert = secondary_cache->num_inserts();
+  start_lookup = secondary_cache->num_lookups();
+  uint32_t cache_insert = tmp_cache->GetInsertCount();
+  uint32_t cache_lookup = tmp_cache->GetLookupcount();
+  for (int i = 0; i < N; i++) {
+    v = Get(Key(i));
+    ASSERT_EQ(v, value[i]);
+  }
+  uint32_t final_insert = secondary_cache->num_inserts() - start_insert;
+  uint32_t final_lookup = secondary_cache->num_lookups() - start_lookup;
+  // no insert to secondary cache
+  ASSERT_EQ(0, static_cast<int>(final_insert));
+  // lookup the secondary to get all blocks
+  ASSERT_EQ(64, static_cast<int>(final_lookup));
+  uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
+  uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
+  // Check the new block cache insert and lookup, should be no insert since all
+  // blocks are from the secondary cache.
+  ASSERT_EQ(0, static_cast<int>(block_insert));
+  ASSERT_EQ(256, static_cast<int>(block_lookup));
+
+  fault_fs_->SetFailGetUniqueId(false);
+  Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
+  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
+      cache_opts.capacity, cache_opts.num_shard_bits,
+      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
+      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache(tmp_cache);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  std::string dbname1 = test::PerThreadDBPath("db_1");
+  ASSERT_OK(DestroyDB(dbname1, options));
+  DB* db1 = nullptr;
+  ASSERT_OK(DB::Open(options, dbname1, &db1));
+  std::string dbname2 = test::PerThreadDBPath("db_2");
+  ASSERT_OK(DestroyDB(dbname2, options));
+  DB* db2 = nullptr;
+  ASSERT_OK(DB::Open(options, dbname2, &db2));
+  fault_fs_->SetFailGetUniqueId(true);
+
+  // write the KVs to db1
+  Random rnd(301);
+  const int N = 256;
+  std::vector<std::string> value1;
+  WriteOptions wo;
+  char buf[1000];
+  memset(buf, 'a', 1000);
+  value1.resize(N);
+  for (int i = 0; i < N; i++) {
+    std::string p_v(buf, 1000);
+    value1[i] = p_v;
+    ASSERT_OK(db1->Put(wo, Key(i), p_v));
+  }
+  ASSERT_OK(db1->Flush(FlushOptions()));
+  Slice bg("a");
+  Slice ed("b");
+  ASSERT_OK(db1->CompactRange(CompactRangeOptions(), &bg, &ed));
+
+  // Write the KVs to DB2
+  std::vector<std::string> value2;
+  memset(buf, 'b', 1000);
+  value2.resize(N);
+  for (int i = 0; i < N; i++) {
+    std::string p_v(buf, 1000);
+    value2[i] = p_v;
+    ASSERT_OK(db2->Put(wo, Key(i), p_v));
+  }
+  ASSERT_OK(db2->Flush(FlushOptions()));
+  ASSERT_OK(db2->CompactRange(CompactRangeOptions(), &bg, &ed));
+
+  // do th eread for all the key value pairs, so all the blocks should be in
+  // cache
+  uint32_t start_insert = tmp_cache->GetInsertCount();
+  uint32_t start_lookup = tmp_cache->GetLookupcount();
+  ReadOptions ro;
+  std::string v;
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db1->Get(ro, Key(i), &v));
+    ASSERT_EQ(v, value1[i]);
+  }
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db2->Get(ro, Key(i), &v));
+    ASSERT_EQ(v, value2[i]);
+  }
+  uint32_t dump_insert = tmp_cache->GetInsertCount() - start_insert;
+  uint32_t dump_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  ASSERT_EQ(128,
+            static_cast<int>(dump_insert));  // the insert in the block cache
+  ASSERT_EQ(512,
+            static_cast<int>(dump_lookup));  // the lookup in the block cache
+  // We have enough blocks in the block cache
+
+  CacheDumpOptions cd_options;
+  cd_options.clock = fault_env_->GetSystemClock().get();
+  std::string dump_path = db1->GetName() + "/cache_dump";
+  std::unique_ptr<CacheDumpWriter> dump_writer;
+  Status s = NewToFileCacheDumpWriter(fault_fs_, FileOptions(), dump_path,
+                                      &dump_writer);
+  ASSERT_OK(s);
+  std::unique_ptr<CacheDumper> cache_dumper;
+  s = NewDefaultCacheDumper(cd_options, cache, std::move(dump_writer),
+                            &cache_dumper);
+  ASSERT_OK(s);
+  std::vector<DB*> db_list;
+  db_list.push_back(db1);
+  s = cache_dumper->SetDumpFilter(db_list);
+  ASSERT_OK(s);
+  s = cache_dumper->DumpCacheEntriesToWriter();
+  ASSERT_OK(s);
+  cache_dumper.reset();
+
+  // we have a new cache it is empty, then, before we do the Get, we do the
+  // dumpload
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(2048 * 1024);
+  cache_opts.secondary_cache = secondary_cache;
+  tmp_cache = new LRUCacheWithStat(
+      cache_opts.capacity, cache_opts.num_shard_bits,
+      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
+      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  std::shared_ptr<Cache> cache_new(tmp_cache);
+  table_options.block_cache = cache_new;
+  table_options.block_size = 4 * 1024;
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+
+  // Start the cache loading process
+  start_insert = secondary_cache->num_inserts();
+  start_lookup = secondary_cache->num_lookups();
+  std::unique_ptr<CacheDumpReader> dump_reader;
+  s = NewFromFileCacheDumpReader(fault_fs_, FileOptions(), dump_path,
+                                 &dump_reader);
+  ASSERT_OK(s);
+  std::unique_ptr<CacheDumpedLoader> cache_loader;
+  s = NewDefaultCacheDumpedLoader(cd_options, table_options, secondary_cache,
+                                  std::move(dump_reader), &cache_loader);
+  ASSERT_OK(s);
+  s = cache_loader->RestoreCacheEntriesToSecondaryCache();
+  ASSERT_OK(s);
+  uint32_t load_insert = secondary_cache->num_inserts() - start_insert;
+  uint32_t load_lookup = secondary_cache->num_lookups() - start_lookup;
+  // check the number we inserted
+  ASSERT_EQ(64, static_cast<int>(load_insert));
+  ASSERT_EQ(0, static_cast<int>(load_lookup));
+  ASSERT_OK(s);
+
+  ASSERT_OK(db1->Close());
+  delete db1;
+  ASSERT_OK(DB::Open(options, dbname1, &db1));
+
+  // After load, we do the Get again. To validate the cache, we do not allow any
+  // I/O, so we set the file system to false.
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  fault_fs_->SetFilesystemActive(false, error_msg);
+  start_insert = secondary_cache->num_inserts();
+  start_lookup = secondary_cache->num_lookups();
+  uint32_t cache_insert = tmp_cache->GetInsertCount();
+  uint32_t cache_lookup = tmp_cache->GetLookupcount();
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db1->Get(ro, Key(i), &v));
+    ASSERT_EQ(v, value1[i]);
+  }
+  uint32_t final_insert = secondary_cache->num_inserts() - start_insert;
+  uint32_t final_lookup = secondary_cache->num_lookups() - start_lookup;
+  // no insert to secondary cache
+  ASSERT_EQ(0, static_cast<int>(final_insert));
+  // lookup the secondary to get all blocks
+  ASSERT_EQ(64, static_cast<int>(final_lookup));
+  uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
+  uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
+  // Check the new block cache insert and lookup, should be no insert since all
+  // blocks are from the secondary cache.
+  ASSERT_EQ(0, static_cast<int>(block_insert));
+  ASSERT_EQ(256, static_cast<int>(block_lookup));
+  fault_fs_->SetFailGetUniqueId(false);
+  fault_fs_->SetFilesystemActive(true);
+  delete db1;
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname1, options));
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
