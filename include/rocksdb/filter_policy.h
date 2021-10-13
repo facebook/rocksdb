@@ -34,6 +34,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
+class CacheReservationManager;
 struct BlockBasedTableOptions;
 struct ConfigOptions;
 
@@ -139,6 +140,9 @@ struct FilterBuildingContext {
 
   // Reason for creating the file with the filter
   TableFileCreationReason reason = TableFileCreationReason::kMisc;
+
+  // Optional: if provided, it charges memory usage of bloom filter/ribbon filter construction to block cache
+  std::shared_ptr<CacheReservationManager> cache_res_mgr = nullptr;
 };
 
 // We add a new format of filter block called full filter block

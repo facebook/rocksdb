@@ -72,6 +72,8 @@ template Status CacheReservationManager::UpdateCacheReservation<
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
     std::size_t new_mem_used);
+template Status CacheReservationManager::UpdateCacheReservation<
+    CacheEntryRole::kXXPH3FilterConstruction>(std::size_t new_mem_used);
 // For cache reservation manager unit tests
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
