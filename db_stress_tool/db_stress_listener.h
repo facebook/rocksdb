@@ -28,7 +28,7 @@ class UniqueIdVerifier {
  public:
   using FullID = std::array<char, 24>;
 
-  UniqueIdVerifier(const std::string& db_name);
+  explicit UniqueIdVerifier(const std::string& db_name);
   ~UniqueIdVerifier();
 
   void Verify(const FullID& id);

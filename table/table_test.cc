@@ -1572,7 +1572,7 @@ const std::array<T, kLen>& AsSubArray(const std::array<T, kBaseLen>& a) {
 
 template <typename T, size_t kMaxLen>
 void TestShortened(const TableProperties& tp,
-                   const std::array<T, kMaxLen> expected) {
+                   const std::array<T, kMaxLen>& expected) {
   std::array<T, kMaxLen> tmp;
 
   // std::array
@@ -1590,11 +1590,11 @@ void TestShortened(const TableProperties& tp,
 // Base cases
 template <>
 void TestShortened(const TableProperties& /*tp*/,
-                   const std::array<uint64_t, 0> /*expected*/) {}
+                   const std::array<uint64_t, 0>& /*expected*/) {}
 
 template <>
 void TestShortened(const TableProperties& /*tp*/,
-                   const std::array<char, 0> /*expected*/) {}
+                   const std::array<char, 0>& /*expected*/) {}
 
 }  // namespace
 
