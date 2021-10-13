@@ -288,6 +288,7 @@ class MergingIterator : public InternalIterator {
 
   bool is_arena_mode_;
   bool prefix_seek_mode_;
+  // Which direction is the iterator moving?
   enum Direction : uint8_t { kForward, kReverse };
   Direction direction_;
   const InternalKeyComparator* comparator_;
@@ -299,7 +300,6 @@ class MergingIterator : public InternalIterator {
   IteratorWrapper* current_;
   // If any of the children have non-ok status, this is one of them.
   Status status_;
-  // Which direction is the iterator moving?
   MergerMinIterHeap minHeap_;
 
   // Max heap is used for reverse iteration, which is way less common than
