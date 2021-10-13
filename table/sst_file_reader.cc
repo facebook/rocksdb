@@ -56,8 +56,9 @@ Status SstFileReader::Open(const std::string& file_path) {
     file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
   }
   if (s.ok()) {
-    TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),
-                             r->soptions, r->ioptions.internal_comparator);
+    TableReaderOptions t_opt(r->ioptions, r->moptions,
+                             r->moptions.prefix_extractor.get(), r->soptions,
+                             r->ioptions.internal_comparator);
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),

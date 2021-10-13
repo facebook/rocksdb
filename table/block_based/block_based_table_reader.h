@@ -86,24 +86,22 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ReadOptions& ro, const ImmutableOptions& ioptions,
-                     const EnvOptions& env_options,
-                     const BlockBasedTableOptions& table_options,
-                     const InternalKeyComparator& internal_key_comparator,
-                     std::unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size,
-                     std::unique_ptr<TableReader>* table_reader,
-                     const SliceTransform* prefix_extractor = nullptr,
-                     bool prefetch_index_and_filter_in_cache = true,
-                     bool skip_filters = false, int level = -1,
-                     const bool immortal_table = false,
-                     const SequenceNumber largest_seqno = 0,
-                     bool force_direct_prefetch = false,
-                     TailPrefetchStats* tail_prefetch_stats = nullptr,
-                     BlockCacheTracer* const block_cache_tracer = nullptr,
-                     size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& cur_db_session_id = "",
-                     uint64_t cur_file_num = 0);
+  static Status Open(
+      const ReadOptions& ro, const ImmutableOptions& ioptions,
+      const MutableCFOptions& m_cf_options, const EnvOptions& env_options,
+      const BlockBasedTableOptions& table_options,
+      const InternalKeyComparator& internal_key_comparator,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      const SliceTransform* prefix_extractor = nullptr,
+      bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
+      int level = -1, const bool immortal_table = false,
+      const SequenceNumber largest_seqno = 0,
+      bool force_direct_prefetch = false,
+      TailPrefetchStats* tail_prefetch_stats = nullptr,
+      BlockCacheTracer* const block_cache_tracer = nullptr,
+      size_t max_file_size_for_l0_meta_pin = 0,
+      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -281,6 +279,10 @@ class BlockBasedTable : public TableReader {
                                    const Cache::CacheItemHelper* cache_helper,
                                    const Cache::CreateCallback& create_cb,
                                    Cache::Priority priority) const;
+
+  Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+                                   BlockType block_type,
+                                   GetContext* get_context) const;
 
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
@@ -530,11 +532,12 @@ class BlockBasedTable::PartitionedIndexIteratorState
 // Stores all the properties associated with a BlockBasedTable.
 // These are immutable.
 struct BlockBasedTable::Rep {
-  Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
-      const BlockBasedTableOptions& _table_opt,
+  Rep(const ImmutableOptions& _ioptions, const MutableCFOptions& _m_cf_options,
+      const EnvOptions& _env_options, const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
       uint64_t _file_size, int _level, const bool _immortal_table)
       : ioptions(_ioptions),
+        m_cf_options(_m_cf_options),
         env_options(_env_options),
         table_options(_table_opt),
         filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
@@ -550,6 +553,7 @@ struct BlockBasedTable::Rep {
         immortal_table(_immortal_table) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
+  const MutableCFOptions& m_cf_options;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
   const FilterPolicy* const filter_policy;

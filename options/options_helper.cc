@@ -232,6 +232,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.max_bytes_for_level_multiplier;
   cf_opts->ttl = moptions.ttl;
   cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
+  cf_opts->use_secondary_cache = moptions.use_secondary_cache;
 
   cf_opts->max_bytes_for_level_multiplier_additional.clear();
   for (auto value : moptions.max_bytes_for_level_multiplier_additional) {
@@ -265,6 +266,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->bottommost_compression = moptions.bottommost_compression;
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
+  cf_opts->use_secondary_cache = moptions.use_secondary_cache;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,

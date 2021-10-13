@@ -31,6 +31,7 @@ class Status;
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableOptions& _ioptions,
+                     const MutableCFOptions& _mutable_cf_options,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -40,15 +41,16 @@ struct TableReaderOptions {
                      size_t _max_file_size_for_l0_meta_pin = 0,
                      const std::string& _cur_db_session_id = "",
                      uint64_t _cur_file_num = 0)
-      : TableReaderOptions(
-            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
-            _skip_filters, _immortal, _force_direct_prefetch, _level,
-            0 /* _largest_seqno */, _block_cache_tracer,
-            _max_file_size_for_l0_meta_pin, _cur_db_session_id, _cur_file_num) {
-  }
+      : TableReaderOptions(_ioptions, _mutable_cf_options, _prefix_extractor,
+                           _env_options, _internal_comparator, _skip_filters,
+                           _immortal, _force_direct_prefetch, _level,
+                           0 /* _largest_seqno */, _block_cache_tracer,
+                           _max_file_size_for_l0_meta_pin, _cur_db_session_id,
+                           _cur_file_num) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableOptions& _ioptions,
+                     const MutableCFOptions& _mutable_cf_options,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
@@ -60,6 +62,7 @@ struct TableReaderOptions {
                      const std::string& _cur_db_session_id,
                      uint64_t _cur_file_num)
       : ioptions(_ioptions),
+        mutable_cf_options(_mutable_cf_options),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
@@ -74,6 +77,7 @@ struct TableReaderOptions {
         cur_file_num(_cur_file_num) {}
 
   const ImmutableOptions& ioptions;
+  const MutableCFOptions& mutable_cf_options;
   const SliceTransform* prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;

@@ -154,8 +154,9 @@ struct MutableCFOptions {
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
         bottommost_temperature(options.bottommost_temperature),
-        sample_for_compression(
-            options.sample_for_compression) {  // TODO: is 0 fine here?
+        sample_for_compression(options.sample_for_compression),
+        use_secondary_cache(
+            options.use_secondary_cache) {  // TODO: is 0 fine here?
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -197,7 +198,8 @@ struct MutableCFOptions {
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
         bottommost_temperature(Temperature::kUnknown),
-        sample_for_compression(0) {}
+        sample_for_compression(0),
+        use_secondary_cache(true) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -270,6 +272,7 @@ struct MutableCFOptions {
   Temperature bottommost_temperature;
 
   uint64_t sample_for_compression;
+  bool use_secondary_cache;
 
   // Derived options
   // Per-level target file size.

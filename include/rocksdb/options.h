@@ -312,6 +312,15 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // This is a MutableCFOption. If we enable is flag and we provide the
+  // secondary cache pointer to the LRU cache, this CF will use secondary cache
+  // lookup and insertion in the block_based_table_reader.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  bool use_secondary_cache = true;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

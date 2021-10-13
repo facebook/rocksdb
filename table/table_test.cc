@@ -399,10 +399,11 @@ class TableConstructor : public Constructor {
     const bool kSkipFilters = true;
     const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           internal_comparator, !kSkipFilters, !kImmortal,
-                           false, level_, largest_seqno_, &block_cache_tracer_,
-                           moptions.write_buffer_size, "", uniq_id_),
+        TableReaderOptions(ioptions, moptions, moptions.prefix_extractor.get(),
+                           soptions, internal_comparator, !kSkipFilters,
+                           !kImmortal, false, level_, largest_seqno_,
+                           &block_cache_tracer_, moptions.write_buffer_size, "",
+                           uniq_id_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -437,8 +438,8 @@ class TableConstructor : public Constructor {
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           *last_internal_key_),
+        TableReaderOptions(ioptions, moptions, moptions.prefix_extractor.get(),
+                           soptions, *last_internal_key_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -4130,7 +4131,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
+        TableReaderOptions(ioptions, moptions, moptions.prefix_extractor.get(),
                            EnvOptions(), ikc),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
@@ -4299,7 +4300,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, moptions2.prefix_extractor.get(),
+      TableReaderOptions(ioptions2, moptions2, moptions2.prefix_extractor.get(),
                          EnvOptions(),
                          GetPlainInternalComparator(options2.comparator)),
       std::move(file_reader), sink->contents().size(), &table_reader));

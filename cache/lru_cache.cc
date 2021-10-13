@@ -372,8 +372,8 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   // Try to insert the evicted entries into the secondary cache
   // Free the entries here outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
-    if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
-        !entry->IsPromoted()) {
+    if (secondary_cache_ && e->IsSecondaryCacheCompatible() &&
+        entry->IsSecondaryCacheCompatible() && !entry->IsPromoted()) {
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }

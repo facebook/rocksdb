@@ -564,7 +564,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
+      TableReaderOptions(*cfd_->ioptions(), sv->mutable_cf_options,
                          sv->mutable_cf_options.prefix_extractor.get(),
                          env_options_, cfd_->internal_comparator()),
       std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);

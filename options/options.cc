@@ -280,6 +280,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
+    ROCKS_LOG_HEADER(log, "               Options.use_secondary_cache: %d",
+                     use_secondary_cache);
 
     const auto& it_compaction_style =
         compaction_style_to_string.find(compaction_style);
@@ -458,6 +460,9 @@ Options::PrepareForBulkLoad()
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
+
+  // Disable secondary cache by detault
+  use_secondary_cache = true;
   return this;
 }
 
