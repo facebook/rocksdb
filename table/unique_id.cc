@@ -103,43 +103,19 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   return Status::OK();
 }
 
-namespace {
-// Taken from XXH3
-inline uint64_t Avalanche(uint64_t h64) {
-  h64 ^= h64 >> 37;
-  h64 *= 0x165667919E3779F9ULL;
-  h64 ^= h64 >> 32;
-  return h64;
-}
-
-constexpr uint64_t kPrime64_1 = 0x9E3779B185EBCA87U;
-constexpr uint64_t kPrime64_2 = 0xC2B2AE3D27D4EB4FU;
-// Multiplicative inverses mod 2^64
-constexpr uint64_t kPrime64Inv_1 = 0x887493432BADB37U;
-constexpr uint64_t kPrime64Inv_2 = 0xBA79078168D4BAFU;
-
-}  // namespace
-
 void InternalUniqueIdToExternal(std::array<uint64_t, 3> *in_out) {
-  uint64_t a = (*in_out)[0] * kPrime64_1;
-  uint64_t b = (*in_out)[1] * kPrime64_2;
-  b ^= Avalanche(a);
-  a ^= Avalanche(b);
-  (*in_out)[2] += a + b;
-  b ^= Avalanche(a);
-  (*in_out)[0] = a;
-  (*in_out)[1] = b;
+  uint64_t hi, lo;
+  BijectiveHash2x64((*in_out)[1], (*in_out)[0], &hi, &lo);
+  (*in_out)[0] = lo;
+  (*in_out)[1] = hi;
+  (*in_out)[2] += lo + hi;
 }
 
 void ExternalUniqueIdToInternal(std::array<uint64_t, 3> *in_out) {
-  uint64_t a = (*in_out)[0];
-  uint64_t b = (*in_out)[1];
-  b ^= Avalanche(a);
-  (*in_out)[2] -= a + b;
-  a ^= Avalanche(b);
-  b ^= Avalanche(a);
-  (*in_out)[0] = a * kPrime64Inv_1;
-  (*in_out)[1] = b * kPrime64Inv_2;
+  uint64_t lo = (*in_out)[0];
+  uint64_t hi = (*in_out)[1];
+  (*in_out)[2] -= lo + hi;
+  BijectiveUnhash2x64(hi, lo, &(*in_out)[1], &(*in_out)[0]);
 }
 
 template <>
