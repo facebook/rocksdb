@@ -487,8 +487,10 @@ struct BlockBasedTableBuilder::Rep {
       filter_context.info_log = ioptions.logger;
       filter_context.column_family_name = tbo.column_family_name;
       filter_context.reason = reason;
-      if(!table_options.no_block_cache && table_options.block_cache != nullptr){
-        filter_context.cache_res_mgr.reset(new CacheReservationManager(table_options.block_cache));
+      if (!table_options.no_block_cache &&
+          table_options.block_cache != nullptr) {
+        filter_context.cache_res_mgr.reset(
+            new CacheReservationManager(table_options.block_cache));
       }
       // Only populate other fields if known to be in LSM rather than
       // generating external SST file
@@ -1598,7 +1600,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   }
 
   if (ok()) {
-    // Dellocate FilterBlockBuilder object when done using it. Otherwise, 
+    // Dellocate FilterBlockBuilder object when done using it. Otherwise,
     // it won't get dellocated until BlockBasedTableBuilder is dellocated.
     rep_->filter_builder.reset();
   }

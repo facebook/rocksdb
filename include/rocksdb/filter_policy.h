@@ -141,7 +141,8 @@ struct FilterBuildingContext {
   // Reason for creating the file with the filter
   TableFileCreationReason reason = TableFileCreationReason::kMisc;
 
-  // Optional: if provided, it charges memory usage of bloom filter/ribbon filter construction to block cache
+  // Optional: if provided, it charges memory usage of bloom filter/ribbon
+  // filter construction to block cache
   std::shared_ptr<CacheReservationManager> cache_res_mgr = nullptr;
 };
 
