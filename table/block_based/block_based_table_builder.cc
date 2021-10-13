@@ -1602,7 +1602,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   if (ok()) {
     // Dellocate FilterBlockBuilder object when done using it. Otherwise,
     // it won't get dellocated until BlockBasedTableBuilder is dellocated.
-    rep_->filter_builder.reset();
+    rep_->filter_builder.reset(nullptr);
   }
 }
 
