@@ -20,6 +20,9 @@
 * Made FileChecksumGenFactory, SstPartitionerFactory, TablePropertiesCollectorFactory, and WalFilter extend the Customizable class and added a CreateFromString method.
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
 
+### Behavior Changes
+* `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
+
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
 * Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.
