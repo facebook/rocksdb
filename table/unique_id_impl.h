@@ -32,6 +32,9 @@ void InternalUniqueIdToExternal(std::array<uint64_t, 3> *in_out);
 // (demonstrably 1-to-1 on the first 128 bits and on the full 192 bits).
 void ExternalUniqueIdToInternal(std::array<uint64_t, 3> *in_out);
 
+// Convert numerical format to byte format for public API
+std::string EncodeUniqueIdBytes(const std::array<uint64_t, 3> &in);
+
 // Reformat a random value down to a compact but friendly format, 20 chars
 // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
 // to expect no collisions across a billion servers each opening DBs
@@ -48,9 +51,5 @@ std::string EncodeSessionId(uint64_t upper, uint64_t lower);
 // functionality.
 Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
                        uint64_t *lower);
-
-// Converts to hexadecimal, with each 64 bits separated by '-'.
-// TODO: Consider making this public
-std::string UniqueIdToHumanString(const std::array<char, 24> &id);
 
 }  // namespace ROCKSDB_NAMESPACE

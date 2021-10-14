@@ -127,57 +127,34 @@ void ExternalUniqueIdToInternal(std::array<uint64_t, 3> *in_out) {
   (*in_out)[1] = hi - 17391078804906429400U;
 }
 
-template <>
+std::string EncodeUniqueIdBytes(const std::array<uint64_t, 3> &in) {
+  std::string ret(24U, '\0');
+  EncodeFixed64(&ret[0], in[0]);
+  EncodeFixed64(&ret[8], in[1]);
+  EncodeFixed64(&ret[16], in[2]);
+  return ret;
+}
+
 Status GetUniqueIdFromTableProperties(const TableProperties &props,
-                                      std::array<uint64_t, 3> *out_array) {
+                                      std::string *out_id) {
+  std::array<uint64_t, 3> tmp;
   Status s = GetSstInternalUniqueId(props.db_id, props.db_session_id,
-                                    props.orig_file_number, out_array);
+                                    props.orig_file_number, &tmp);
   if (s.ok()) {
-    InternalUniqueIdToExternal(out_array);
+    InternalUniqueIdToExternal(&tmp);
+    *out_id = EncodeUniqueIdBytes(tmp);
+  } else {
+    out_id->clear();
   }
   return s;
 }
 
-Status GetUniqueIdFromTableProperties(const TableProperties &props,
-                                      uint64_t *out_array, size_t out_len) {
-  if (out_len > 3) {
-    return Status::InvalidArgument("Cannot get unique id > 192 bits");
+std::string UniqueIdToHumanString(const std::string &id) {
+  // Not so efficient, but that's OK
+  std::string str = Slice(id).ToString(/*hex*/ true);
+  for (size_t i = 16; i < str.size(); i += 17) {
+    str.insert(i, "-");
   }
-  std::array<uint64_t, 3> tmp;
-  Status s = GetUniqueIdFromTableProperties(props, &tmp);
-  if (s.ok()) {
-    for (size_t i = 0; i < out_len; ++i) {
-      out_array[i] = tmp[i];
-    }
-  }
-  return s;
-}
-
-Status GetUniqueIdFromTableProperties(const TableProperties &props,
-                                      char *out_array, size_t out_len) {
-  if (out_len > 24) {
-    return Status::InvalidArgument("Cannot get unique id > 192 bits");
-  }
-  std::array<uint64_t, 3> tmp;
-  Status s = GetUniqueIdFromTableProperties(props, &tmp);
-  if (s.ok()) {
-    // Always encode to little endian
-    size_t i = 0;
-    for (; i + 8 <= out_len; i += 8) {
-      EncodeFixed64(out_array + i, tmp[i / 8]);
-    }
-    for (; i < out_len; ++i) {
-      out_array[i] = static_cast<char>(tmp[i / 8] >> ((i % 8) * 8));
-    }
-  }
-  return s;
-}
-
-std::string UniqueIdToHumanString(const std::array<char, 24> &id) {
-  std::string str = Slice(id.data(), id.size()).ToString(/*hex*/ true);
-  assert(str.length() == 48);
-  str.insert(16, "-");
-  str.insert(33, "-");
   return str;
 }
 

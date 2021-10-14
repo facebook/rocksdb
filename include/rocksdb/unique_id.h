@@ -5,21 +5,20 @@
 
 #pragma once
 
-#include <array>
-
 #include "rocksdb/table_properties.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Computes a stable unique identifier for an SST file from TableProperties.
-// This is supported for block-based table files created with RocksDB 6.24
-// and later. NotSupported will be returned for other cases.
+// Computes a stable, unique 192-bit (24 binary char) identifier for an
+// SST file from TableProperties. This is supported for block-based table
+// files created with RocksDB 6.24 and later. NotSupported will be returned
+// for other cases. The first 16 bytes (128 bits) is of sufficient quality
+// for almost all applications, and shorter prefixes are usable as a hash
+// of the full unique id.
 //
-// Up to 192 bits (out_len <= 3 with uint64_t*, out_len <= 24 with char*) can
-// be returned in out_array, but at least 128 bits is highly recommended for
-// strong uniqueness properties. Shorter lengths are usable as a hash of the
-// full unique id. The char* overload saves the data as little-endian
-// (binary). No human-readable format is provided.
+// Note: .c_str() is not compatible with binary char strings, so using
+// .c_str() on the result will often result in information loss and very
+// poor uniqueness probability.
 //
 // More detail: the first 128 bits are *guaranteed* unique for SST files
 // generated in the same process (even different DBs, RocksDB >= 6.26),
@@ -32,23 +31,12 @@ namespace ROCKSDB_NAMESPACE {
 // first 128 bits. See https://github.com/pdillinger/unique_id
 // Using the full 192 bits, we expect to generate roughly 2^96 * sqrt(n)
 // files before first collision.
-Status GetUniqueIdFromTableProperties(const TableProperties& props,
-                                      uint64_t* out_array, size_t out_len);
-Status GetUniqueIdFromTableProperties(const TableProperties& props,
-                                      char* out_array, size_t out_len);
+Status GetUniqueIdFromTableProperties(const TableProperties &props,
+                                      std::string *out_id);
 
-template <typename T, size_t N>
-inline Status GetUniqueIdFromTableProperties(const TableProperties& props,
-                                             std::array<T, N>* out_array) {
-  static_assert(N > 0U, "Array must not be empty");
-  static_assert(sizeof(std::array<T, N>) <= 24U,
-                "Maximum of 192 bits supported");
-  return GetUniqueIdFromTableProperties(props, out_array->data(),
-                                        out_array->size());
-}
-
-template <>
-Status GetUniqueIdFromTableProperties(const TableProperties& props,
-                                      std::array<uint64_t, 3>* out_array);
+// Converts a binary string (unique id) to hexadecimal, with each 64 bits
+// separated by '-', e.g. 6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B
+// Also works on unique id prefix.
+std::string UniqueIdToHumanString(const std::string &id);
 
 }  // namespace ROCKSDB_NAMESPACE

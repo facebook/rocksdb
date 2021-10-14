@@ -186,7 +186,7 @@ std::string TableProperties::ToString(
                  kv_delim);
 
   // Unique ID, when available
-  std::array<char, 24> id{};
+  std::string id;
   Status s = GetUniqueIdFromTableProperties(*this, &id);
   AppendProperty(result, "unique ID",
                  s.ok() ? UniqueIdToHumanString(id) : "N/A", prop_delim,

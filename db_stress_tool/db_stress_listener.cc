@@ -36,10 +36,10 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
       fs.NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
   if (s.ok()) {
     // Load from file
-    UniqueIdVerifier::FullID id;
+    std::string id(24U, '\0');
     Slice result;
     for (;;) {
-      s = reader->Read(id.size(), opts, &result, id.data(), /*dbg*/ nullptr);
+      s = reader->Read(id.size(), opts, &result, &id[0], /*dbg*/ nullptr);
       if (!s.ok()) {
         fprintf(stderr, "Error reading unique id file: %s\n",
                 s.ToString().c_str());
@@ -85,7 +85,8 @@ UniqueIdVerifier::~UniqueIdVerifier() {
   data_file_writer_->Close(IOOptions(), /*dbg*/ nullptr);
 }
 
-void UniqueIdVerifier::VerifyNoWrite(const FullID& id) {
+void UniqueIdVerifier::VerifyNoWrite(const std::string& id) {
+  assert(id.size() == 24);
   bool is_new = id_set_.insert(DecodeFixed64(&id[offset_])).second;
   if (!is_new) {
     fprintf(stderr,
@@ -95,15 +96,16 @@ void UniqueIdVerifier::VerifyNoWrite(const FullID& id) {
   }
 }
 
-void UniqueIdVerifier::Verify(const FullID& id) {
+void UniqueIdVerifier::Verify(const std::string& id) {
+  assert(id.size() == 24);
   std::lock_guard<std::mutex> lock(mutex_);
   // If we accumulate more than ~4 million IDs, there would be > 1 in 1M
   // natural chance of collision. Thus, simply stop checking at that point.
   if (id_set_.size() >= 4294967) {
     return;
   }
-  IOStatus s = data_file_writer_->Append(Slice(id.data(), id.size()),
-                                         IOOptions(), /*dbg*/ nullptr);
+  IOStatus s =
+      data_file_writer_->Append(Slice(id), IOOptions(), /*dbg*/ nullptr);
   if (!s.ok()) {
     fprintf(stderr, "Error writing to unique id file: %s\n",
             s.ToString().c_str());
@@ -121,7 +123,7 @@ void UniqueIdVerifier::Verify(const FullID& id) {
 void DbStressListener::VerifyTableFileUniqueId(
     const TableProperties& new_file_properties) {
   // Verify unique ID
-  UniqueIdVerifier::FullID id;
+  std::string id;
   GetUniqueIdFromTableProperties(new_file_properties, &id);
   unique_ids_.Verify(id);
 }

@@ -58,6 +58,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding_lean.h"
 #include "util/compression.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -1426,7 +1427,14 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   tp->db_session_id = db_session_id;
   tp->orig_file_number = file_number;
   TestIds t;
-  EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &t.external_id));
+  {
+    std::string uid;
+    EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &uid));
+    EXPECT_EQ(uid.size(), 24U);
+    t.external_id[0] = DecodeFixed64(&uid[0]);
+    t.external_id[1] = DecodeFixed64(&uid[8]);
+    t.external_id[2] = DecodeFixed64(&uid[16]);
+  }
   // All these should be effectively random
   EXPECT_TRUE(seen->insert(t.external_id[0]).second);
   EXPECT_TRUE(seen->insert(t.external_id[1]).second);
@@ -1575,77 +1583,50 @@ void SetGoodTableProperties(TableProperties* tp) {
   tp->db_session_id = "ABCDEFGHIJ0123456789";
   tp->orig_file_number = 1;
 }
-
-template <size_t kStart, size_t kLen, typename T, size_t kBaseLen>
-const std::array<T, kLen>& AsSubArray(const std::array<T, kBaseLen>& a) {
-  static_assert(kStart + kLen <= kBaseLen, "Sub-array out of bounds");
-  return *reinterpret_cast<const std::array<T, kLen>*>(&a[kStart]);
-}
-
-template <typename T, size_t kMaxLen>
-void TestShortened(const TableProperties& tp,
-                   const std::array<T, kMaxLen>& expected) {
-  std::array<T, kMaxLen> tmp;
-
-  // std::array
-  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
-  EXPECT_EQ(tmp, expected);
-
-  // pointer to array
-  EXPECT_OK(GetUniqueIdFromTableProperties(tp, tmp.data(), tmp.size()));
-  EXPECT_EQ(tmp, expected);
-
-  // Recurse to test smaller prefixes
-  TestShortened(tp, AsSubArray<0, kMaxLen - 1>(expected));
-}
-
-// Base cases
-template <>
-void TestShortened(const TableProperties& /*tp*/,
-                   const std::array<uint64_t, 0>& /*expected*/) {}
-
-template <>
-void TestShortened(const TableProperties& /*tp*/,
-                   const std::array<char, 0>& /*expected*/) {}
-
 }  // namespace
 
-TEST_F(TablePropertyTest, UniqueIdsShortened) {
+TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
   TableProperties tp;
   SetGoodTableProperties(&tp);
 
-  // Test uint64_t API
-  TestShortened(
-      tp, std::array<uint64_t, 3>{
-              {0xf0bd230365df7464U, 0xca089303f3648eb4U, 0x4b44f7e7324b2817U}});
+  std::string tmp;
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_EQ(tmp,
+            (std::string{{'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
+                          '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
+                          '\x03', '\x93', '\x08', '\xca', '\x17', '\x28',
+                          '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}}));
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
 
-  // Test char API (little endian of above)
-  TestShortened(tp, std::array<char, 24>{
-                        {'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
-                         '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
-                         '\x03', '\x93', '\x08', '\xca', '\x17', '\x28',
-                         '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}});
+  // including zero padding
+  tmp = std::string(24U, '\0');
+  tmp[15] = '\x12';
+  tmp[23] = '\xAB';
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "0000000000000000-0000000000000012-00000000000000AB");
 
-  // Also test human string
-  {
-    std::array<char, 24> tmp;
-    EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
-    EXPECT_EQ(UniqueIdToHumanString(tmp),
-              "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
+  // And shortened
+  tmp = std::string(20U, '\0');
+  tmp[5] = '\x12';
+  tmp[10] = '\xAB';
+  tmp[17] = '\xEF';
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "0000000000120000-0000AB0000000000-00EF0000");
 
-    // including zero padding
-    tmp = {};
-    tmp[15] = '\x12';
-    tmp[23] = '\xAB';
-    EXPECT_EQ(UniqueIdToHumanString(tmp),
-              "0000000000000000-0000000000000012-00000000000000AB");
-  }
+  tmp.resize(16);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "0000000000120000-0000AB0000000000");
+
+  tmp.resize(11);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "0000000000120000-0000AB");
+
+  tmp.resize(6);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "000000000012");
 }
 
 TEST_F(TablePropertyTest, UniqueIdsFailure) {
   TableProperties tp;
-  std::array<uint64_t, 3> tmp;
-  std::array<char, 24> tmp_char;
+  std::string tmp;
 
   // Missing DB id
   SetGoodTableProperties(&tp);
@@ -1661,18 +1642,6 @@ TEST_F(TablePropertyTest, UniqueIdsFailure) {
   SetGoodTableProperties(&tp);
   tp.orig_file_number = 0;
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
-
-  // Ask for too much data
-  SetGoodTableProperties(&tp);
-  EXPECT_TRUE(
-      GetUniqueIdFromTableProperties(tp, tmp.data(), 4).IsInvalidArgument());
-  EXPECT_TRUE(
-      GetUniqueIdFromTableProperties(tp, tmp.data(), 1024).IsInvalidArgument());
-
-  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, tmp_char.data(), 25)
-                  .IsInvalidArgument());
-  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, tmp_char.data(), 1024)
-                  .IsInvalidArgument());
 }
 
 // This test include all the basic checks except those for index size and block

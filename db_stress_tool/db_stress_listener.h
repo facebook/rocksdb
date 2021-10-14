@@ -26,15 +26,13 @@ namespace ROCKSDB_NAMESPACE {
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
-  using FullID = std::array<char, 24>;
-
   explicit UniqueIdVerifier(const std::string& db_name);
   ~UniqueIdVerifier();
 
-  void Verify(const FullID& id);
+  void Verify(const std::string& id);
 
  private:
-  void VerifyNoWrite(const FullID& id);
+  void VerifyNoWrite(const std::string& id);
 
  private:
   std::mutex mutex_;
