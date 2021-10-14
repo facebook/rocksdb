@@ -262,6 +262,8 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace(
         "blob_garbage_collection_age_cutoff",
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_garbage_collection_force_threshold",
+                        std::vector<std::string>{"0.5", "0.75", "1.0"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -2310,6 +2312,8 @@ void StressTest::Open() {
         FLAGS_enable_blob_garbage_collection;
     options_.blob_garbage_collection_age_cutoff =
         FLAGS_blob_garbage_collection_age_cutoff;
+    options_.blob_garbage_collection_force_threshold =
+        FLAGS_blob_garbage_collection_force_threshold;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2418,8 +2422,11 @@ void StressTest::Open() {
   }
 
   if (options_.enable_blob_garbage_collection) {
-    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
-            options_.blob_garbage_collection_age_cutoff);
+    fprintf(
+        stdout,
+        "Integrated BlobDB: blob GC enabled, cutoff %f, force threshold %f\n",
+        options_.blob_garbage_collection_age_cutoff,
+        options_.blob_garbage_collection_force_threshold);
   }
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());

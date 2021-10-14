@@ -44,7 +44,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   PessimisticTransaction(const PessimisticTransaction&) = delete;
   void operator=(const PessimisticTransaction&) = delete;
 
-  virtual ~PessimisticTransaction();
+  ~PessimisticTransaction() override;
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -213,7 +213,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
   WriteCommittedTxn(const WriteCommittedTxn&) = delete;
   void operator=(const WriteCommittedTxn&) = delete;
 
-  virtual ~WriteCommittedTxn() {}
+  ~WriteCommittedTxn() override {}
 
  private:
   Status PrepareInternal() override;

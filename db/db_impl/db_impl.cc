@@ -4683,14 +4683,11 @@ Status DBImpl::IngestExternalFiles(
     if (status.ok()) {
       int consumed_seqno_count =
           ingestion_jobs[0].ConsumedSequenceNumbersCount();
-#ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(!!consumed_seqno_count ==
-               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
-        consumed_seqno_count +=
-            ingestion_jobs[i].ConsumedSequenceNumbersCount();
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
       }
-#endif
       if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
         versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
