@@ -1737,6 +1737,19 @@ Status CompactionJob::FinishCompactionOutputFile(
       meta->UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                      tombstone.seq_,
                                      cfd->internal_comparator());
+      // With accurate smallest and largest key, we can get a slightly more
+      // accurate oldest ancester time.
+      // This makes oldest ancester time in manifest more accurate than in
+      // table properties. Not sure how to resolve it.
+      uint64_t refined_oldest_ancester_time;
+      Slice new_smallest = meta->smallest.user_key();
+      Slice new_largest = meta->largest.user_key();
+      refined_oldest_ancester_time =
+          sub_compact->compaction->MinInputFileOldestAncesterTime(&new_smallest,
+                                                                  &new_largest);
+      if (refined_oldest_ancester_time != port::kMaxUint64) {
+        meta->oldest_ancester_time = refined_oldest_ancester_time;
+      }
 
       // The smallest key in a file is used for range tombstone truncation, so
       // it cannot have a seqnum of 0 (unless the smallest data key in a file
@@ -2032,7 +2045,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
   uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime();
+      sub_compact->compaction->MinInputFileOldestAncesterTime(
+          sub_compact->start, sub_compact->end);
   if (oldest_ancester_time == port::kMaxUint64) {
     oldest_ancester_time = current_time;
   }
