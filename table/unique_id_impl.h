@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "rocksdb/unique_id.h"
 
 namespace ROCKSDB_NAMESPACE {

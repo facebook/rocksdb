@@ -137,7 +137,7 @@ std::string EncodeUniqueIdBytes(const std::array<uint64_t, 3> &in) {
 
 Status GetUniqueIdFromTableProperties(const TableProperties &props,
                                       std::string *out_id) {
-  std::array<uint64_t, 3> tmp;
+  std::array<uint64_t, 3> tmp{};
   Status s = GetSstInternalUniqueId(props.db_id, props.db_session_id,
                                     props.orig_file_number, &tmp);
   if (s.ok()) {
