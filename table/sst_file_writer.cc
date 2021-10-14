@@ -34,6 +34,7 @@ struct SstFileWriter::Rep {
       std::string _db_session_id)
       : env_options(_env_options),
         ioptions(options),
+        m_db_options(options),
         mutable_cf_options(options),
         io_priority(_io_priority),
         internal_comparator(_user_comparator),
@@ -46,6 +47,7 @@ struct SstFileWriter::Rep {
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
   ImmutableOptions ioptions;
+  MutableDBOptions m_db_options;
   MutableCFOptions mutable_cf_options;
   Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;
@@ -294,7 +296,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   // XXX: when we can remove skip_filters from the SstFileWriter public API
   // we can remove it from TableBuilderOptions.
   table_builder_options.skip_filters = r->skip_filters;
-  FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
+  FileTypeSet tmp_set = r->m_db_options.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
       nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,

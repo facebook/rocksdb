@@ -2055,7 +2055,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
-  FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
+  FileTypeSet tmp_set = mutable_db_options_copy_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =

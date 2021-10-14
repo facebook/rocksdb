@@ -158,7 +158,8 @@ Status BuildTable(
             file_checksum_func_name);
         return s;
       }
-      FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
+      FileTypeSet tmp_set =
+          versions->mutable_db_options().checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
       file_writer.reset(new WritableFileWriter(

@@ -82,9 +82,9 @@ class CompactionJobTestBase : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
+        versions_(new VersionSet(dbname_, &db_options_, mutable_db_options_,
+                                 env_options_, table_cache_.get(),
+                                 &write_buffer_manager_, &write_controller_,
                                  /*block_cache_tracer=*/nullptr,
                                  /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
@@ -267,11 +267,11 @@ class CompactionJobTestBase : public testing::Test {
   void NewDB() {
     EXPECT_OK(DestroyDB(dbname_, Options()));
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, mutable_db_options_, env_options_,
+        table_cache_.get(), &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_session_id*/ ""));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 

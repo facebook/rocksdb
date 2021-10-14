@@ -308,7 +308,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     if (!s.ok()) {
       return s;
     }
-    FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
+    FileTypeSet tmp_set = mutable_db_options_.checksum_handoff_file_types;
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
@@ -1554,7 +1554,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;
-    FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
+    FileTypeSet tmp_set = mutable_db_options_.checksum_handoff_file_types;
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(lfile), log_fname, opt_file_options,
         immutable_db_options_.clock, io_tracer_, nullptr /* stats */, listeners,
