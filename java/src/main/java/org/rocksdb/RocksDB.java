@@ -1334,6 +1334,29 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Get the value associated with the specified key within column family.
+   * This method has best performance with large values
+   * with at least a couple of kilobytes.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value.
+   * @return An object, which has ownership of native array
+   *     and uses {@link sun.misc.Unsafe} to access it.
+   *     Once you finish using it, call {@link PinnableSlice#close()}
+   *     to free the memory.
+   */
+  @Experimental("Performance optimization for retrieving large values")
+  public PinnableSlice getUnsafe(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final byte[] key) throws RocksDBException {
+    long[] valData = new long[2];
+    int size = getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, valData,
+        columnFamilyHandle.nativeHandle_);
+    return new PinnableSlice(valData[0], valData[1], size);
+  }
+
+  /**
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
    * in the database.
@@ -1879,6 +1902,36 @@ public class RocksDB extends RocksObject {
   /**
    * Get the value associated with the specified key within column family.
    *
+   * This is a performance optimization of
+   * {@link RocksDB#get(ColumnFamilyHandle, byte[], byte[])}.
+   * It uses GetPrimitiveArrayCritical JNI function
+   * instead of GetByteArrayRegion to access byte array natively.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param key the key to retrieve the value.
+   * @param value the out-value to receive the retrieved value.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @see RocksDB#get(ColumnFamilyHandle, byte[], byte[])
+   */
+  @Experimental("Performance optimization of get(ColumnFamilyHandle, byte[], byte[]).")
+  public int getCritical(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value) throws RocksDBException {
+    return getCritical(nativeHandle_, key, 0, key.length, value, 0, value.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    * @param key the key to retrieve the value.
@@ -1984,9 +2037,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions opt, final byte[] key, final byte[] value)
-      throws RocksDBException {
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final byte[] key, final byte[] value) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value,
         0, value.length, columnFamilyHandle.nativeHandle_);
   }
@@ -4616,6 +4668,9 @@ public class RocksDB extends RocksObject {
       final int keyOffset, final int keyLength, byte[] value,
       final int valueOffset, final int valueLength, final long cfHandle)
       throws RocksDBException;
+  private static native int getCritical(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long cfHandle) throws RocksDBException;
   private native int get(final long handle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength,
       final byte[] value, final int valueOffset, final int valueLength)
@@ -4673,6 +4728,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
+  private static native int getUnsafe(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long[] valData, final long cfHandle)
       throws RocksDBException;
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;
