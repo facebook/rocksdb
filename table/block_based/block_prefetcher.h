@@ -31,8 +31,15 @@ class BlockPrefetcher {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
+    initial_auto_readahead_size_ = readahead_size_;
     readahead_limit_ = 0;
     return;
+  }
+
+  void SetInternalInitialReadAheadSize(uint64_t readahead_size) {
+    initial_auto_readahead_size_ = readahead_size;
+    TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetInternalInitialReadAheadSize",
+                             &initial_auto_readahead_size_);
   }
 
  private:
@@ -40,8 +47,13 @@ class BlockPrefetcher {
   // lookup_context_.caller = kCompaction.
   size_t compaction_readahead_size_;
 
+  // readahead_size_ is used if underlying FS supports prefetching.
   size_t readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;
+  // initial_auto_readahead_size_ is used if RocksDB uses internal prefetch
+  // buffer.
+  uint64_t initial_auto_readahead_size_ =
+      BlockBasedTable::kInitAutoReadaheadSize;
   int64_t num_file_reads_ = 0;
   size_t prev_offset_ = 0;
   size_t prev_len_ = 0;

@@ -1195,6 +1195,14 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
+
+  if (read_options_.reuse_internal_auto_readahead_size && old_iter != nullptr &&
+      file_iter_.iter() != nullptr) {
+    uint64_t prev_readahead_size = old_iter->GetInternalCurrentReadAheadSize();
+    // file_iter_ points to BlockBasedTableIterator for L1 - Ln level.
+    file_iter_.SetInternalInitialReadAheadSize(prev_readahead_size);
+  }
+
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
     pinned_iters_mgr_->PinIterator(old_iter);
   } else {

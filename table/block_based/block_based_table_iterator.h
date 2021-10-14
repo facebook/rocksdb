@@ -149,6 +149,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  void SetInternalInitialReadAheadSize(uint64_t readahead_size) override {
+    block_prefetcher_.SetInternalInitialReadAheadSize(readahead_size);
+  }
+
+  uint64_t GetInternalCurrentReadAheadSize() override {
+    if (block_prefetcher_.prefetch_buffer() != nullptr) {
+      return block_prefetcher_.prefetch_buffer()
+          ->GetInternalCurrentReadAheadSize();
+    }
+    return 0;
+  }
+
  private:
   enum class IterDirection {
     kForward,

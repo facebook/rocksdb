@@ -172,6 +172,12 @@ class InternalIteratorBase : public Cleanable {
     return Status::NotSupported("");
   }
 
+  // Noop
+  virtual void SetInternalInitialReadAheadSize(uint64_t /*readahead_size*/) {}
+
+  // Noop
+  virtual uint64_t GetInternalCurrentReadAheadSize() { return 0; }
+
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
     Seek(target);

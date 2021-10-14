@@ -62,13 +62,12 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
-  size_t initial_auto_readahead_size = BlockBasedTable::kInitAutoReadaheadSize;
-  if (initial_auto_readahead_size > max_auto_readahead_size) {
-    initial_auto_readahead_size = max_auto_readahead_size;
+  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
+    initial_auto_readahead_size_ = max_auto_readahead_size;
   }
 
   if (rep->file->use_direct_io()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,
                                              &prefetch_buffer_, true);
     return;
@@ -84,7 +83,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   Status s = rep->file->Prefetch(handle.offset(),
                                  block_size(handle) + readahead_size_);
   if (s.IsNotSupported()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,
                                              &prefetch_buffer_, true);
     return;

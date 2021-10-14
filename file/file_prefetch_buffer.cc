@@ -162,6 +162,8 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
         return false;
       }
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
+      TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
+                               &readahead_size_);
     } else {
       return false;
     }

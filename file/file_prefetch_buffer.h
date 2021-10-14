@@ -104,11 +104,38 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
+  uint64_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
+
+  void DecreaseReadAheadIfEligible(uint64_t offset, uint64_t size,
+                                 uint64_t value = 8 * 1024) {
+    // Decrease the readahead_size if
+    // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
+    // - readahead_size is greater than 0 and,
+    // - this block would have called prefetch API if not found in cache for
+    //   which conditions are:
+    //   - few/no bytes are in buffer and,
+    //   - block is sequential with the previous read and,
+    //   - num_file_reads_ + 1 (including this read) >
+    //   kMinNumFileReadsToStartAutoReadahead
+
+    if (implicit_auto_readahead_ && readahead_size_ > 0) {
+      if ((offset + size > buffer_offset_ + buffer_.CurrentSize()) &&
+          IsBlockSequential(offset) &&
+          (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
+        readahead_size_ =
+            std::max(initial_readahead_size_,
+                (readahead_size_ >= value ? readahead_size_ - value : 0));
+      }
+    }
+  }
+
  private:
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
   RandomAccessFileReader* file_reader_;
   size_t readahead_size_;
+  // FilePrefetchBuffer object won't be created from Iterator flow if
+  // max_readahead_size_ = 0.
   size_t max_readahead_size_;
   size_t initial_readahead_size_;
   // The minimum `offset` ever passed to TryReadFromCache().
@@ -120,8 +147,8 @@ class FilePrefetchBuffer {
   // can be fetched from min_offset_read().
   bool track_min_offset_;
 
-  // implicit_auto_readahead is enabled by rocksdb internally after 2 sequential
-  // IOs.
+  // implicit_auto_readahead is enabled by rocksdb internally after 2
+  // sequential IOs.
   bool implicit_auto_readahead_;
   size_t prev_offset_;
   size_t prev_len_;

@@ -1602,6 +1602,20 @@ struct ReadOptions {
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
 
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead
+  // starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size. However at each level, if iterator moves over next
+  // file, readahead_size starts again from 8KB.
+  // By enabling this option, readahead_size of current file (if reads are
+  // sequential) will be carried forward to next file instead of starting from
+  // the scratch. If reads are not sequential it will fall back to 8KB. This
+  // option is applicable only for RocksDB internal prefetch buffer and isn't
+  // supported if underlying file system supports prefetching.
+  //
+  // Default: false
+  bool reuse_internal_auto_readahead_size;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

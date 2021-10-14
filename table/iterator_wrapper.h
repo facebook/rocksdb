@@ -154,6 +154,14 @@ class IteratorWrapperBase {
     return iter_->user_key();
   }
 
+  void SetInternalInitialReadAheadSize(uint64_t readahead_size) {
+    iter_->SetInternalInitialReadAheadSize(readahead_size);
+  }
+
+  uint64_t GetInternalCurrentReadAheadSize() {
+    return iter_->GetInternalCurrentReadAheadSize();
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();

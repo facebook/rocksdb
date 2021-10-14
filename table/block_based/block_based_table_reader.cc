@@ -1520,6 +1520,14 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         // compressed block cache.
         is_cache_hit = true;
         if (prefetch_buffer) {
+          if (ro.reuse_internal_auto_readahead_size &&
+              block_type == BlockType::kData) {
+            // Since this block was eligible for prefetch but it was found in
+            // cache, so check and decrease the readahead_size by 8KB (default)
+            // if eligible.
+            prefetch_buffer->DecreaseReadAheadIfEligible(handle.offset(),
+                                                       block_size(handle));
+          }
           // Update the block details so that PrefetchBuffer can use the read
           // pattern to determine if reads are sequential or not for
           // prefetching. It should also take in account blocks read from cache.
