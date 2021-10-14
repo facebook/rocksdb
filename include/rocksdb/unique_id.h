@@ -9,12 +9,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Computes a stable, unique 192-bit (24 binary char) identifier for an
-// SST file from TableProperties. This is supported for block-based table
-// files created with RocksDB 6.24 and later. NotSupported will be returned
-// for other cases. The first 16 bytes (128 bits) is of sufficient quality
-// for almost all applications, and shorter prefixes are usable as a hash
-// of the full unique id.
+// Computes a stable, universally unique 192-bit (24 binary char) identifier
+// for an SST file from TableProperties. This is supported for block-based
+// table files created with RocksDB 6.24 and later. NotSupported will be
+// returned for other cases. The first 16 bytes (128 bits) is of sufficient
+// quality for almost all applications, and shorter prefixes are usable as a
+// hash of the full unique id.
 //
 // Note: .c_str() is not compatible with binary char strings, so using
 // .c_str() on the result will often result in information loss and very
