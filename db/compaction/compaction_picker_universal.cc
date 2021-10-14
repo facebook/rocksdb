@@ -726,10 +726,11 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
 
   std::vector<FileMetaData*> grandparents;
   // Include grandparents for potential file cutting in incremental
-  // mode. No need for other mode as there we always compact full
-  // level.
-  // No need to use CompactionPicker::GetGrandparents() as compaction
-  // always cover the full range.
+  // mode. It is for aligning file cutting boundaries across levels,
+  // so that subsequent compactions can pick files with aligned
+  // buffer.
+  // Single files are only picked up in incremental mode, so that
+  // there is no need for full range.
   if (mutable_cf_options_.compaction_options_universal.incremental &&
       first_index_after < sorted_runs_.size() &&
       sorted_runs_[first_index_after].level > 1) {
@@ -847,7 +848,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   }
   // Since incremental compaction can't include more than second last
   // level, it can introduce penalty, compared to full compaction. We
-  // hard code the pentalty to be 50%. If we end up with a compaction
+  // hard code the pentalty to be 80%. If we end up with a compaction
   // fanout higher than 80% of full level compactions, we fall back
   // to full level compaction.
   // The 80% threshold is arbitrary and can be adjusted or made
