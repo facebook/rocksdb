@@ -185,5 +185,5 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // OS_WIN
 #endif  // !_POSIX_THREADS
+#endif  // OS_WIN
