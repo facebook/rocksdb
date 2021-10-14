@@ -199,7 +199,7 @@ public abstract class AbstractMutableOptions {
     }
 
     @SuppressWarnings("unchecked")
-    protected <N extends Enum<N>> N getEnum(final K key)
+    protected <N extends Enum<N>> N getEnum(final K key, Class<N> cls)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if (value == null) {
