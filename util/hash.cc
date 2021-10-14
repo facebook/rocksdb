@@ -149,7 +149,7 @@ void BijectiveHash2x64(uint64_t in_high64, uint64_t in_low64, uint64_t seed,
                        uint64_t* out_high64, uint64_t* out_low64) {
   // Adapted from XXH3_len_9to16_128b
   const uint64_t bitflipl = /*secret part*/ 0x59973f0033362349U - seed;
-  const uint64_t bitfliph = /*secret part*/ 0xc202797692d63d58L + seed;
+  const uint64_t bitfliph = /*secret part*/ 0xc202797692d63d58U + seed;
   Unsigned128 tmp128 =
       Multiply64to128(in_low64 ^ in_high64 ^ bitflipl, 0x9E3779B185EBCA87U);
   uint64_t lo = Lower64of128(tmp128);
@@ -169,7 +169,7 @@ void BijectiveUnhash2x64(uint64_t in_high64, uint64_t in_low64, uint64_t seed,
                          uint64_t* out_high64, uint64_t* out_low64) {
   // Inverted above (also consulting XXH3_len_9to16_128b)
   const uint64_t bitflipl = /*secret part*/ 0x59973f0033362349U - seed;
-  const uint64_t bitfliph = /*secret part*/ 0xc202797692d63d58L + seed;
+  const uint64_t bitfliph = /*secret part*/ 0xc202797692d63d58U + seed;
   uint64_t lo = XXH3_unavalanche(in_low64);
   uint64_t hi = XXH3_unavalanche(in_high64);
   lo *= 0xba79078168d4baf;  // inverse of 0xC2B2AE3D27D4EB4FU

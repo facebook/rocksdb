@@ -1557,7 +1557,7 @@ TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
   // external IDs. This way, as long as we avoid "all zeros" in internal IDs,
   // we avoid it in external IDs.
   {
-    std::array<uint64_t, 3> id1{0, 0, Random::GetTLSInstance()->Next64()};
+    std::array<uint64_t, 3> id1{{0, 0, Random::GetTLSInstance()->Next64()}};
     std::array<uint64_t, 3> id2 = id1;
     InternalUniqueIdToExternal(&id1);
     EXPECT_EQ(id1, id2);
