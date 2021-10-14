@@ -2440,6 +2440,25 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// In atomic flush, concurrent bg flush threads commit to the MANIFEST in
+// serial, in the order of their picked memtables for each column family.
+// Only when a bg flush thread finds out that its memtables are the earliest
+// unflushed ones for all the included column families will this bg flush
+// thread continue to commit to MANIFEST.
+// This unit test uses sync point to coordinate the execution of two bg threads
+// executing the same sequence of functions. The interleaving are as follows.
+// time            bg1                            bg2
+//  |   pick memtables to flush
+//  |   flush memtables cf1_m1, cf2_m1
+//  |   join MANIFEST write queue
+//  |                                     pick memtabls to flush
+//  |                                     flush memtables cf1_(m1+1)
+//  |                                     join MANIFEST write queue
+//  |                                     wait to write MANIFEST
+//  |   write MANIFEST
+//  |   IO error
+//  |                                     detect IO error and stop waiting
+//  V
 TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   bool atomic_flush = GetParam();
   if (!atomic_flush) {
@@ -2488,7 +2507,7 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
           const auto* ptr = reinterpret_cast<std::pair<Status, bool>*>(arg);
           assert(ptr);
           if (0 == called) {
-            // When bg flush thread 2 first reaches here.
+            // When bg flush thread 2 reaches here for the first time.
             ASSERT_OK(ptr->first);
             ASSERT_TRUE(ptr->second);
           } else if (1 == called) {
