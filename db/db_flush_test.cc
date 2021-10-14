@@ -2537,7 +2537,8 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
 
         FlushOptions flush_opts;
         flush_opts.wait = false;
-        ASSERT_OK(dbfull()->Flush(flush_opts, {db_->DefaultColumnFamily()}));
+        std::vector<ColumnFamilyHandle*> cfhs(1, db_->DefaultColumnFamily());
+        ASSERT_OK(dbfull()->Flush(flush_opts, cfhs));
       });
 
   SyncPoint::GetInstance()->SetCallBack(
