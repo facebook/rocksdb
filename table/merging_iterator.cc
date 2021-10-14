@@ -73,6 +73,7 @@ class MergingIterator : public InternalIterator {
       child.DeleteIter(is_arena_mode_);
     }
     status_.PermitUncheckedError();
+    minHeap_.~MergerMinIterHeap();
   }
 
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
@@ -80,7 +81,7 @@ class MergingIterator : public InternalIterator {
   Status status() const override { return status_; }
 
   void SeekToFirst() override {
-    ClearHeaps();
+    InitMinHeap();
     status_ = Status::OK();
     for (auto& child : children_) {
       child.SeekToFirst();
@@ -91,7 +92,6 @@ class MergingIterator : public InternalIterator {
   }
 
   void SeekToLast() override {
-    ClearHeaps();
     InitMaxHeap();
     status_ = Status::OK();
     for (auto& child : children_) {
@@ -103,7 +103,7 @@ class MergingIterator : public InternalIterator {
   }
 
   void Seek(const Slice& target) override {
-    ClearHeaps();
+    InitMinHeap();
     status_ = Status::OK();
     for (auto& child : children_) {
       {
@@ -147,7 +147,6 @@ class MergingIterator : public InternalIterator {
   }
 
   void SeekForPrev(const Slice& target) override {
-    ClearHeaps();
     InitMaxHeap();
     status_ = Status::OK();
 
@@ -236,11 +235,11 @@ class MergingIterator : public InternalIterator {
       // replace_top() to restore the heap property.  When the same child
       // iterator yields a sequence of keys, this is cheap.
       assert(current_->status().ok());
-      maxHeap_->replace_top(current_);
+      maxHeap_.replace_top(current_);
     } else {
       // current stopped being valid, remove it from the heap.
       considerStatus(current_->status());
-      maxHeap_->pop();
+      maxHeap_.pop();
     }
     current_ = CurrentReverse();
   }
@@ -300,11 +299,8 @@ class MergingIterator : public InternalIterator {
   }
 
  private:
-  // Clears heaps for both directions, used when changing direction or seeking
-  void ClearHeaps();
-  // Ensures that maxHeap_ is initialized when starting to go in the reverse
-  // direction
   void InitMaxHeap();
+  void InitMinHeap();
 
   bool is_arena_mode_;
   bool prefix_seek_mode_;
@@ -320,11 +316,11 @@ class MergingIterator : public InternalIterator {
   IteratorWrapper* current_;
   // If any of the children have non-ok status, this is one of them.
   Status status_;
-  MergerMinIterHeap minHeap_;
+  union {
+    MergerMinIterHeap minHeap_;
+    MergerMaxIterHeap maxHeap_;
+  };
 
-  // Max heap is used for reverse iteration, which is way less common than
-  // forward.  Lazily initialize it to save memory.
-  std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
 
   // In forward direction, process a child that is not in the min heap.
@@ -348,8 +344,7 @@ class MergingIterator : public InternalIterator {
 
   IteratorWrapper* CurrentReverse() const {
     assert(direction_ == kReverse);
-    assert(maxHeap_);
-    return !maxHeap_->empty() ? maxHeap_->top() : nullptr;
+    return !maxHeap_.empty() ? maxHeap_.top() : nullptr;
   }
 };
 
@@ -365,7 +360,7 @@ void MergingIterator::AddToMinHeapOrCheckStatus(IteratorWrapper* child) {
 void MergingIterator::AddToMaxHeapOrCheckStatus(IteratorWrapper* child) {
   if (child->Valid()) {
     assert(child->status().ok());
-    maxHeap_->push(child);
+    maxHeap_.push(child);
   } else {
     considerStatus(child->status());
   }
@@ -374,7 +369,7 @@ void MergingIterator::AddToMaxHeapOrCheckStatus(IteratorWrapper* child) {
 void MergingIterator::SwitchToForward() {
   // Otherwise, advance the non-current children.  We advance current_
   // just after the if-block.
-  ClearHeaps();
+  InitMinHeap();
   Slice target = key();
   for (auto& child : children_) {
     if (&child != current_) {
@@ -409,7 +404,6 @@ void MergingIterator::SwitchToForward() {
 }
 
 void MergingIterator::SwitchToBackward() {
-  ClearHeaps();
   InitMaxHeap();
   Slice target = key();
   for (auto& child : children_) {
@@ -434,17 +428,37 @@ void MergingIterator::SwitchToBackward() {
   assert(current_ == CurrentReverse());
 }
 
-void MergingIterator::ClearHeaps() {
-  minHeap_.clear();
-  if (maxHeap_) {
-    maxHeap_->clear();
+void MergingIterator::InitMinHeap() {
+#if 0
+  // this can be simplified because maxHeap_ and minHeap_ are physical identical,
+  // the only difference between them are logical(the interpretation of comparator)
+  if (kReverse == direction_) {
+    maxHeap_.~MergerMaxIterHeap();
+    new(&minHeap_)MergerMinIterHeap(comparator_);
+    direction_ = kForward;
   }
+  else {
+    minHeap_.clear();
+  }
+#else
+  minHeap_.clear();
+#endif
 }
 
 void MergingIterator::InitMaxHeap() {
-  if (!maxHeap_) {
-    maxHeap_.reset(new MergerMaxIterHeap(comparator_));
+#if 0
+  if (kForward == direction_) {
+    minHeap_.~MergerMinIterHeap();
+    new(&maxHeap_)MergerMaxIterHeap(comparator_);
+    direction_ = kReverse;
   }
+  else {
+    maxHeap_.clear();
+  }
+#else
+  // use InitMinHeap(), because maxHeap_ and minHeap_ are physical identical
+  InitMinHeap();
+#endif
 }
 
 InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
