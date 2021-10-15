@@ -166,6 +166,12 @@ Status FileChecksumGenFactory::CreateFromString(
   } else {
     Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
                                                         result);
+    // This is just a short-term change to handle the unregistered object like
+    // user customized factory. In the long term, other solution is needed.
+    if (!s.ok()) {
+      *result = nullptr;
+      return Status::OK();
+    }
     return s;
   }
 }

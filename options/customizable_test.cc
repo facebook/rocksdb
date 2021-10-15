@@ -1530,8 +1530,8 @@ TEST_F(LoadCustomizableTest, LoadSstPartitionerFactoryTest) {
 
 TEST_F(LoadCustomizableTest, LoadChecksumGenFactoryTest) {
   std::shared_ptr<FileChecksumGenFactory> factory;
-  ASSERT_NOK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
-                                                      &factory));
+  ASSERT_OK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
+                                                     &factory));
   ASSERT_OK(FileChecksumGenFactory::CreateFromString(
       config_options_, FileChecksumGenCrc32cFactory::kClassName(), &factory));
   ASSERT_NE(factory, nullptr);

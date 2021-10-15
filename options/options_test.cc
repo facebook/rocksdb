@@ -27,6 +27,7 @@
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -2015,7 +2016,7 @@ TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
       cfg_opts, factory->Name(), &db_opts.file_checksum_gen_factory));
   ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
   ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
-  ASSERT_NOK(GetDBOptionsFromString(
+  ASSERT_OK(GetDBOptionsFromString(
       cfg_opts, DBOptions(), "file_checksum_gen_factory=unknown", &db_opts));
   ASSERT_OK(GetDBOptionsFromString(
       cfg_opts, DBOptions(),
@@ -2032,6 +2033,51 @@ TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
       cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
   ASSERT_TRUE(db_opts.file_checksum_gen_factory->AreEquivalent(
       cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
+}
+
+class FileChecksumGenCrc32cFactory2 : public FileChecksumGenCrc32cFactory {
+ public:
+  const char* Name() const override { return "FileChecksumGenCrc32cFactory2"; }
+};
+
+TEST_F(OptionsTest, CustomizeFileChecksumGenFactoryTest) {
+  ConfigOptions cfg_opts;
+  DBOptions db_opts, new_opt;
+  std::string opts_str, mismatch;
+  std::shared_ptr<FileChecksumGenFactory> factory =
+      std::make_shared<FileChecksumGenCrc32cFactory2>();
+
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
+
+  ASSERT_NE(factory, nullptr);
+  db_opts.file_checksum_gen_factory = factory;
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_OK(GetDBOptionsFromString(
+      cfg_opts, DBOptions(), "file_checksum_gen_factory=unknown", &db_opts));
+  ASSERT_OK(
+      GetDBOptionsFromString(cfg_opts, DBOptions(),
+                             std::string("file_checksum_gen_factory=") +
+                                 GetFileChecksumGenCrc32cFactory()->Name(),
+                             &db_opts));
+  ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
+  ASSERT_STRNE(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+
+  db_opts.file_checksum_gen_factory = factory;
+  std::shared_ptr<test::StringFS> fs;
+  fs.reset(new test::StringFS(FileSystem::Default()));
+  std::vector<std::string> cf_names = {"default"};
+  ColumnFamilyOptions cf_opt;
+  std::vector<ColumnFamilyOptions> cf_opts;
+  cf_opts.emplace_back(cf_opt);
+  const std::string kOptionsFileName =
+      "test-CustomizeFileChecksumGenFactoryTest.ini";
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(PersistRocksDBOptions(db_opts, cf_names, cf_opts, kOptionsFileName,
+                                  fs.get()));
+  ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+      cfg_opts, db_opts, cf_names, cf_opts, kOptionsFileName, fs.get()));
 }
 
 class TestTablePropertiesCollectorFactory

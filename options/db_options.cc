@@ -452,7 +452,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"file_checksum_gen_factory",
          OptionTypeInfo::AsCustomSharedPtr<FileChecksumGenFactory>(
              offsetof(struct ImmutableDBOptions, file_checksum_gen_factory),
-             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
+             OptionVerificationType::kByName,
+             OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever)},
         {"statistics",
          OptionTypeInfo::AsCustomSharedPtr<Statistics>(
              // Statistics should not be compared and can be null

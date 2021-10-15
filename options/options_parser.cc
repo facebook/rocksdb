@@ -293,7 +293,6 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
           config_options.ignore_unknown_options = false;
         }
       }
-
       s = ParseSection(&section, &title, &argument, line, line_num);
       if (!s.ok()) {
         return s;
