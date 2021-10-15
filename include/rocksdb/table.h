@@ -338,6 +338,22 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
+  // If true, the memory usage of bloom/ribbon filter construction
+  // will be charged to the block cache associtaed with the 
+  // block based table builder. 
+  // 
+  // It helps account the memory usage of such filter construction
+  // and especially constraint the memory usage of constructing 
+  // the banding portion during ribbon filter construction, 
+  // by switching to bloom filter if that banding portion uses up 
+  // too much memory (i.e, causing a cache full when 
+  // strick_capacity_limit = true)
+  // 
+  // Note that this option has no effect on legacy bloom filter
+  //
+  // Default: false
+  bool charge_bloom_and_ribbon_filter_construction_memory = false;
+
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression
   // algorithms.
