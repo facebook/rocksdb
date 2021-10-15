@@ -101,22 +101,19 @@ void SyncPoint::Data::ClearAllCallBacks() {
   callbacks_.clear();
 }
 
-void SyncPoint::Data::Process(const char* point, void* cb_arg) {
+void SyncPoint::Data::Process(const Slice& point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
 
-  // Slice construction only uses strlen(), no heap.  Helps
-  //  performance since few sync points active at a given time.
-  Slice point_slice(point);
   // Use a filter to prevent mutex lock if possible.
-  if (!point_filter_.MayContain(point_slice)) {
+  if (!point_filter_.MayContain(point)) {
     return;
   }
 
   // Must convert to std::string for remaining work.  Take
   //  heap hit.
-  std::string point_string(point_slice.ToString());
+  std::string point_string(point.ToString());
   std::unique_lock<std::mutex> lock(mutex_);
   auto thread_id = std::this_thread::get_id();
 
