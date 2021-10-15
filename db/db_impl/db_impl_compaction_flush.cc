@@ -2122,7 +2122,8 @@ Status DBImpl::WaitForFlushMemTables(
   // error_handler_.IsDBStopped() is true.
   while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
     // If an error has occurred during resumption, then no need to wait.
     // But flush operation may fail because of this error, so need to
@@ -2135,7 +2136,8 @@ Status DBImpl::WaitForFlushMemTables(
     // 1) soft error but requires no BG work, 2) no in auto_recovery_
     if (!resuming_from_bg_err && error_handler_.IsBGWorkStopped() &&
         error_handler_.GetBGError().severity() < Status::Severity::kHardError) {
-      return error_handler_.GetBGError();
+      s = error_handler_.GetBGError();
+      return s;
     }
 
     // Number of column families that have been dropped.
@@ -2153,7 +2155,8 @@ Status DBImpl::WaitForFlushMemTables(
       }
     }
     if (1 == num_dropped && 1 == num) {
-      return Status::ColumnFamilyDropped();
+      s = Status::ColumnFamilyDropped();
+      return s;
     }
     // Column families involved in this flush request have either been dropped
     // or finished flush. Then it's time to finish waiting.
