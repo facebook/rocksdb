@@ -7,11 +7,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -51,7 +52,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual bool IsBlockBased() override { return false; }
   virtual void StartBlock(uint64_t /*block_offset*/) override {}
   virtual void Add(const Slice& key_without_ts) override;
-  virtual size_t NumAdded() const override { return num_added_; }
+  virtual bool IsEmpty() const override { return !any_added_; }
+  virtual size_t EstimateEntriesAdded() override;
   virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 
@@ -78,8 +80,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // filter partition will be added to the current partition if
   // last_key_in_domain_ is true, regardless of the current key.
   bool last_key_in_domain_;
-
-  uint32_t num_added_;
+  bool any_added_;
   std::unique_ptr<const char[]> filter_data_;
 };
 

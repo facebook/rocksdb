@@ -78,18 +78,15 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
       : TestConfigurable(name, mode, map) {
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(SimpleConfigurable::Create("Unique" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                          &unique_option_info);
+      RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
     }
     if ((mode & TestConfigMode::kSharedMode) != 0) {
       shared_.reset(SimpleConfigurable::Create("Shared" + name_));
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Shared", &shared_,
-                                          &shared_option_info);
+      RegisterOptions(name_ + "Shared", &shared_, &shared_option_info);
     }
     if ((mode & TestConfigMode::kRawPtrMode) != 0) {
       pointer_ = SimpleConfigurable::Create("Pointer" + name_);
-      ConfigurableHelper::RegisterOptions(*this, name_ + "Pointer", &pointer_,
-                                          &pointer_option_info);
+      RegisterOptions(name_ + "Pointer", &pointer_, &pointer_option_info);
     }
   }
 
@@ -250,19 +247,15 @@ class ValidatedConfigurable : public SimpleConfigurable {
       : SimpleConfigurable(name, TestConfigMode::kDefaultMode),
         validated(false),
         prepared(0) {
-    ConfigurableHelper::RegisterOptions(*this, "Validated", &validated,
-                                        &validated_option_info);
-    ConfigurableHelper::RegisterOptions(*this, "Prepared", &prepared,
-                                        &prepared_option_info);
+    RegisterOptions("Validated", &validated, &validated_option_info);
+    RegisterOptions("Prepared", &prepared, &prepared_option_info);
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(new ValidatedConfigurable(
           "Unique" + name_, TestConfigMode::kDefaultMode, false));
       if (dont_prepare) {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &dont_prepare_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &dont_prepare_option_info);
       } else {
-        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
-                                            &unique_option_info);
+        RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
       }
     }
   }
@@ -338,6 +331,40 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_EQ(*up, 0);
 }
 
+TEST_F(ConfigurableTest, CopyObjectTest) {
+  class CopyConfigurable : public Configurable {
+   public:
+    CopyConfigurable() : prepared_(0), validated_(0) {}
+    Status PrepareOptions(const ConfigOptions& options) override {
+      prepared_++;
+      return Configurable::PrepareOptions(options);
+    }
+    Status ValidateOptions(const DBOptions& db_opts,
+                           const ColumnFamilyOptions& cf_opts) const override {
+      validated_++;
+      return Configurable::ValidateOptions(db_opts, cf_opts);
+    }
+    int prepared_;
+    mutable int validated_;
+  };
+
+  CopyConfigurable c1;
+  ConfigOptions config_options;
+  Options options;
+
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c1.prepared_, 1);
+  ASSERT_EQ(c1.validated_, 1);
+  CopyConfigurable c2 = c1;
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c2.prepared_, 1);
+  ASSERT_EQ(c2.validated_, 1);
+  ASSERT_EQ(c1.prepared_, 2);
+  ASSERT_EQ(c1.validated_, 2);
+}
+
 TEST_F(ConfigurableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> imm_option_info = {
 #ifndef ROCKSDB_LITE
@@ -353,10 +380,8 @@ TEST_F(ConfigurableTest, MutableOptionsTest) {
         : SimpleConfigurable("mutable", TestConfigMode::kDefaultMode |
                                             TestConfigMode::kUniqueMode |
                                             TestConfigMode::kSharedMode) {
-      ConfigurableHelper::RegisterOptions(*this, "struct", &options_,
-                                          &struct_option_info);
-      ConfigurableHelper::RegisterOptions(*this, "imm", &options_,
-                                          &imm_option_info);
+      RegisterOptions("struct", &options_, &struct_option_info);
+      RegisterOptions("imm", &options_, &imm_option_info);
     }
   };
   MutableConfigurable mc;

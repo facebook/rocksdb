@@ -347,33 +347,39 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator) {
   Status ret = Status::OK();
 
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(ioptions.clock, ShouldReportDetailedTime(
-                                          ioptions.env, ioptions.statistics));
+  StopWatchNano timer(ioptions.clock,
+                      ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
       UncompressData(uncompression_info, data, n, &uncompressed_size,
                      GetCompressFormatForVersion(format_version), allocator);
   if (!ubuf) {
-    return Status::Corruption(
-        "Unsupported compression method or corrupted compressed block contents",
-        CompressionTypeToString(uncompression_info.type()));
+    if (!CompressionTypeSupported(uncompression_info.type())) {
+      return Status::NotSupported(
+          "Unsupported compression method for this build",
+          CompressionTypeToString(uncompression_info.type()));
+    } else {
+      return Status::Corruption(
+          "Corrupted compressed block contents",
+          CompressionTypeToString(uncompression_info.type()));
+    }
   }
 
   *contents = BlockContents(std::move(ubuf), uncompressed_size);
 
-  if (ShouldReportDetailedTime(ioptions.env, ioptions.statistics)) {
-    RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
+  if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
+    RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTimeToHistogram(ioptions.statistics, BYTES_DECOMPRESSED,
+  RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
                         contents->data.size());
-  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
   TEST_SYNC_POINT_CALLBACK(
       "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
@@ -396,7 +402,7 @@ Status UncompressBlockContentsForCompressionType(
 Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
-                               const ImmutableCFOptions& ioptions,
+                               const ImmutableOptions& ioptions,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
   assert(data[n] == static_cast<char>(uncompression_info.type()));

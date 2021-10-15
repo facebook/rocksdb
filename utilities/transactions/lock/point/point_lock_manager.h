@@ -98,7 +98,7 @@ class DeadlockInfoBufferTempl {
   }
 };
 
-typedef DeadlockInfoBufferTempl<DeadlockPath> DeadlockInfoBuffer;
+using DeadlockInfoBuffer = DeadlockInfoBufferTempl<DeadlockPath>;
 
 struct TrackedTrxInfo {
   autovector<TransactionID> m_neighbors;
@@ -115,7 +115,7 @@ class PointLockManager : public LockManager {
   PointLockManager(const PointLockManager&) = delete;
   PointLockManager& operator=(const PointLockManager&) = delete;
 
-  ~PointLockManager() override;
+  ~PointLockManager() override {}
 
   bool IsPointLockSupported() const override { return true; }
 

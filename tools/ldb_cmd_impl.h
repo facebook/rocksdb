@@ -46,6 +46,25 @@ class DBFileDumperCommand : public LDBCommand {
   virtual void DoCommand() override;
 };
 
+class DBLiveFilesMetadataDumperCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "list_live_files_metadata"; }
+
+  DBLiveFilesMetadataDumperCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+
+  virtual void DoCommand() override;
+
+ private:
+  bool sort_by_filename_;
+
+  static const std::string ARG_SORT_BY_FILENAME;
+};
+
 class DBDumperCommand : public LDBCommand {
  public:
   static std::string Name() { return "dump"; }
@@ -530,6 +549,12 @@ class RepairCommand : public LDBCommand {
   virtual void OverrideBaseOptions() override;
 
   static void Help(std::string& ret);
+
+ protected:
+  bool verbose_;
+
+ private:
+  static const std::string ARG_VERBOSE;
 };
 
 class BackupableCommand : public LDBCommand {

@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
 #include "env/file_system_tracer.h"
@@ -69,6 +68,8 @@ struct IngestedFileInfo {
   std::string file_checksum;
   // The name of checksum function that generate the checksum
   std::string file_checksum_func_name;
+  // The temperature of the file to be ingested
+  Temperature file_temperature = Temperature::kUnknown;
 };
 
 class ExternalSstFileIngestionJob {
@@ -100,7 +101,8 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
-                 uint64_t next_file_number, SuperVersion* sv);
+                 const Temperature& file_temperature, uint64_t next_file_number,
+                 SuperVersion* sv);
 
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
@@ -139,7 +141,7 @@ class ExternalSstFileIngestionJob {
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
 
-  // Assign `file_to_ingest` the appropriate sequence number and  the lowest
+  // Assign `file_to_ingest` the appropriate sequence number and the lowest
   // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held
   Status AssignLevelAndSeqnoForIngestedFile(SuperVersion* sv,

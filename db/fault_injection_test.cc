@@ -94,7 +94,7 @@ class FaultInjectionTest
       return false;
     } else {
       if (option_config_ == kMultiLevels) {
-        base_env_.reset(new MockEnv(Env::Default()));
+        base_env_.reset(MockEnv::Create(Env::Default()));
       }
       return true;
     }

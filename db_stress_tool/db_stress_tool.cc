@@ -23,6 +23,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "rocksdb/convenience.h"
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif
@@ -33,11 +34,6 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
-
-static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
-  return composite_env.get();
-}
 
 KeyGenContext key_gen_ctx;
 
@@ -78,27 +74,20 @@ int db_stress_tool(int argc, char** argv) {
 
   if (!FLAGS_hdfs.empty()) {
     raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
-  } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
-    if (raw_env == nullptr) {
-      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
-      exit(1);
-    }
-  } else if (!FLAGS_fs_uri.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
-    if (!s.ok()) {
-      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
-      exit(1);
-    }
-    raw_env = GetCompositeEnv(fs);
   } else {
-    raw_env = Env::Default();
+    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                  &raw_env, &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in) {
+      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
+      FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
@@ -299,8 +288,11 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  rocksdb_kill_odds = FLAGS_kill_random_test;
-  rocksdb_kill_exclude_prefixes = SplitString(FLAGS_kill_exclude_prefixes);
+#ifndef NDEBUG
+  KillPoint* kp = KillPoint::GetInstance();
+  kp->rocksdb_kill_odds = FLAGS_kill_random_test;
+  kp->rocksdb_kill_exclude_prefixes = SplitString(FLAGS_kill_exclude_prefixes);
+#endif
 
   unsigned int levels = FLAGS_max_key_len;
   std::vector<std::string> weights;

@@ -31,6 +31,9 @@ bool LevelCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
+  if (!vstorage->FilesMarkedForForcedBlobGC().empty()) {
+    return true;
+  }
   for (int i = 0; i <= vstorage->MaxInputLevel(); i++) {
     if (vstorage->CompactionScore(i) >= 1) {
       return true;
@@ -49,7 +52,7 @@ class LevelCompactionBuilder {
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
-                         const ImmutableCFOptions& ioptions,
+                         const ImmutableOptions& ioptions,
                          const MutableDBOptions& mutable_db_options)
       : cf_name_(cf_name),
         vstorage_(vstorage),
@@ -121,7 +124,7 @@ class LevelCompactionBuilder {
   CompactionReason compaction_reason_ = CompactionReason::kUnknown;
 
   const MutableCFOptions& mutable_cf_options_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const MutableDBOptions& mutable_db_options_;
   // Pick a path ID to place a newly generated file, with its level
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
@@ -248,6 +251,13 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     compaction_reason_ = CompactionReason::kPeriodicCompaction;
     return;
   }
+
+  // Forced blob garbage collection
+  PickFileToCompact(vstorage_->FilesMarkedForForcedBlobGC(), false);
+  if (!start_level_inputs_.empty()) {
+    compaction_reason_ = CompactionReason::kForcedBlobGC;
+    return;
+  }
 }
 
 bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
@@ -336,6 +346,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
+      Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
@@ -384,7 +395,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
           if (ioptions.level_compaction_dynamic_level_bytes) {
             // Currently, level_compaction_dynamic_level_bytes is ignored when
             // multiple db paths are specified. https://github.com/facebook/
-            // rocksdb/blob/master/db/column_family.cc.
+            // rocksdb/blob/main/db/column_family.cc.
             // Still, adding this check to avoid accidentally using
             // max_bytes_for_level_multiplier_additional
             level_size = static_cast<uint64_t>(

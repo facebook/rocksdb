@@ -553,7 +553,7 @@ Status WriteUnpreparedTxn::CommitInternal() {
     // When not writing to memtable, we can still cache the latest write batch.
     // The cached batch will be written to memtable in WriteRecoverableState
     // during FlushMemTable
-    WriteBatchInternal::SetAsLastestPersistentState(working_batch);
+    WriteBatchInternal::SetAsLatestPersistentState(working_batch);
   }
 
   const bool includes_data = !empty && !for_recovery;
@@ -968,6 +968,7 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
              wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {
+    res.PermitUncheckedError();
     wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }

@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <limits>
 
+#include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -19,6 +20,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -95,7 +97,9 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_compression_type(options.blob_compression_type),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
-          options.blob_garbage_collection_age_cutoff) {
+          options.blob_garbage_collection_age_cutoff),
+      blob_garbage_collection_force_threshold(
+          options.blob_garbage_collection_force_threshold) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -385,20 +389,22 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
-    ROCKS_LOG_HEADER(log, "                   Options.enable_blob_files: %s",
+    ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
-    ROCKS_LOG_HEADER(log,
-                     "                       Options.min_blob_size: %" PRIu64,
-                     min_blob_size);
-    ROCKS_LOG_HEADER(log,
-                     "                      Options.blob_file_size: %" PRIu64,
-                     blob_file_size);
-    ROCKS_LOG_HEADER(log, "               Options.blob_compression_type: %s",
+    ROCKS_LOG_HEADER(
+        log, "                          Options.min_blob_size: %" PRIu64,
+        min_blob_size);
+    ROCKS_LOG_HEADER(
+        log, "                         Options.blob_file_size: %" PRIu64,
+        blob_file_size);
+    ROCKS_LOG_HEADER(log, "                  Options.blob_compression_type: %s",
                      CompressionTypeToString(blob_compression_type).c_str());
-    ROCKS_LOG_HEADER(log, "      Options.enable_blob_garbage_collection: %s",
+    ROCKS_LOG_HEADER(log, "         Options.enable_blob_garbage_collection: %s",
                      enable_blob_garbage_collection ? "true" : "false");
-    ROCKS_LOG_HEADER(log, "  Options.blob_garbage_collection_age_cutoff: %f",
+    ROCKS_LOG_HEADER(log, "     Options.blob_garbage_collection_age_cutoff: %f",
                      blob_garbage_collection_age_cutoff);
+    ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
+                     blob_garbage_collection_force_threshold);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

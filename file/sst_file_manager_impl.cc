@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
@@ -317,7 +318,7 @@ void SstFileManagerImpl::ClearError() {
         // error is also a NoSpace() non-fatal error, leave the instance in
         // the list
         Status err = cur_instance_->GetBGError();
-        if (s.ok() && err == Status::NoSpace() &&
+        if (s.ok() && err.subcode() == IOStatus::SubCode::kNoSpace &&
             err.severity() < Status::Severity::kFatalError) {
           s = err;
         }

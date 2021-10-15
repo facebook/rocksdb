@@ -16,6 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Env;
+class Logger;
+class ObjectRegistry;
+
 struct ColumnFamilyOptions;
 struct DBOptions;
 struct Options;
@@ -27,6 +30,15 @@ struct Options;
 // of the serialization (e.g. delimiter), and how to compare
 // options (sanity_level).
 struct ConfigOptions {
+  // Constructs a new ConfigOptions with a new object registry.
+  // This method should only be used when a DBOptions is not available,
+  // else registry settings may be lost
+  ConfigOptions();
+
+  // Constructs a new ConfigOptions using the settings from
+  // the input DBOptions.  Currently constructs a new object registry.
+  explicit ConfigOptions(const DBOptions&);
+
   // This enum defines the RocksDB options sanity level.
   enum SanityLevel : unsigned char {
     kSanityLevelNone = 0x01,  // Performs no sanity check at all.
@@ -77,6 +89,11 @@ struct ConfigOptions {
 
   // The environment to use for this option
   Env* env = Env::Default();
+
+#ifndef ROCKSDB_LITE
+  // The object registry to use for this options
+  std::shared_ptr<ObjectRegistry> registry;
+#endif
 
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
@@ -500,7 +517,6 @@ Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
                              const std::string& file_path);
-
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

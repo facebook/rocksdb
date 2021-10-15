@@ -8,7 +8,12 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
+
+#include "rocksdb/convenience.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -201,6 +206,16 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.error.handler.autoresume.retry.total.count"},
     {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
      "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
+    {SECONDARY_CACHE_HITS, "rocksdb.secondary.cache.hits"},
+    {VERIFY_CHECKSUM_READ_BYTES, "rocksdb.verify_checksum.read.bytes"},
+    {BACKUP_READ_BYTES, "rocksdb.backup.read.bytes"},
+    {BACKUP_WRITE_BYTES, "rocksdb.backup.write.bytes"},
+    {REMOTE_COMPACT_READ_BYTES, "rocksdb.remote.compact.read.bytes"},
+    {REMOTE_COMPACT_WRITE_BYTES, "rocksdb.remote.compact.write.bytes"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -264,8 +279,52 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinStatistics(ObjectLibrary& library,
+                                     const std::string& /*arg*/) {
+  library.Register<Statistics>(
+      StatisticsImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new StatisticsImpl(nullptr));
+        return guard->get();
+      });
+  return 1;
+}
+#endif  // ROCKSDB_LITE
+
+Status Statistics::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& id,
+                                    std::shared_ptr<Statistics>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinStatistics(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  Status s;
+  if (id == "" || id == StatisticsImpl::kClassName()) {
+    result->reset(new StatisticsImpl(nullptr));
+  } else if (id == kNullptrString) {
+    result->reset();
+  } else {
+    s = LoadSharedObject<Statistics>(config_options, id, nullptr, result);
+  }
+  return s;
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> stats_type_info = {
+#ifndef ROCKSDB_LITE
+    {"inner", OptionTypeInfo::AsCustomSharedPtr<Statistics>(
+                  0, OptionVerificationType::kByNameAllowFromNull,
+                  OptionTypeFlags::kCompareNever)},
+#endif  // !ROCKSDB_LITE
+};
+
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)
-    : stats_(std::move(stats)) {}
+    : stats_(std::move(stats)) {
+  RegisterOptions("StatisticsOptions", &stats_, &stats_type_info);
+}
 
 StatisticsImpl::~StatisticsImpl() {}
 

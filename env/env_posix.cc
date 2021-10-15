@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 
+#include "port/lang.h"
 #if !defined(OS_WIN)
 
 #include <dirent.h>
@@ -126,7 +127,10 @@ class PosixDynamicLibrary : public DynamicLibrary {
 
 class PosixClock : public SystemClock {
  public:
-  const char* Name() const override { return "PosixClock"; }
+  static const char* kClassName() { return "PosixClock"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
   uint64_t NowMicros() override {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
@@ -468,32 +472,6 @@ void PosixEnv::WaitForJoin() {
 
 }  // namespace
 
-std::string Env::GenerateUniqueId() {
-  std::string uuid_file = "/proc/sys/kernel/random/uuid";
-  std::shared_ptr<FileSystem> fs = FileSystem::Default();
-
-  Status s = fs->FileExists(uuid_file, IOOptions(), nullptr);
-  if (s.ok()) {
-    std::string uuid;
-    s = ReadFileToString(fs.get(), uuid_file, &uuid);
-    if (s.ok()) {
-      return uuid;
-    }
-  }
-  // Could not read uuid_file - generate uuid using "nanos-random"
-  Random64 r(time(nullptr));
-  uint64_t random_uuid_portion =
-    r.Uniform(std::numeric_limits<uint64_t>::max());
-  uint64_t nanos_uuid_portion = NowNanos();
-  char uuid2[200];
-  snprintf(uuid2,
-           200,
-           "%lx-%lx",
-           (unsigned long)nanos_uuid_portion,
-           (unsigned long)random_uuid_portion);
-  return uuid2;
-}
-
 //
 // Default Posix Env
 //
@@ -511,6 +489,7 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
+  // ~PosixEnv must be called on exit
   static PosixEnv default_env;
   return &default_env;
 }

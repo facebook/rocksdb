@@ -13,15 +13,19 @@
 #include <memory>
 #include <string>
 
-#include "db/dbformat.h"
+#include "port/port.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct ColumnFamilyOptions;
 struct ConfigOptions;
+struct DBOptions;
 struct EnvOptions;
 
 class BlockBasedTableBuilder;
+class RandomAccessFileReader;
+class WritableFileWriter;
 
 // A class used to track actual bytes written from the tail in the recent SST
 // file opens, and provide a suggestion for following open.
@@ -60,7 +64,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // Valdates the specified DB Options.
   Status ValidateOptions(const DBOptions& db_opts,

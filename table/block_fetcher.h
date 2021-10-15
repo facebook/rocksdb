@@ -39,7 +39,7 @@ class BlockFetcher {
   BlockFetcher(RandomAccessFileReader* file,
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents, const ImmutableCFOptions& ioptions,
+               BlockContents* contents, const ImmutableOptions& ioptions,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
                const UncompressionDict& uncompression_dict,
                const PersistentCacheOptions& cache_options,
@@ -62,7 +62,9 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction) {
+    io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
+  }
 
   IOStatus ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
@@ -90,7 +92,7 @@ class BlockFetcher {
   const ReadOptions read_options_;
   const BlockHandle& handle_;
   BlockContents* contents_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const bool do_uncompress_;
   const bool maybe_compressed_;
   const BlockType block_type_;

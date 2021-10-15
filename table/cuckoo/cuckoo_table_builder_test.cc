@@ -14,6 +14,7 @@
 
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
@@ -64,7 +65,7 @@ class CuckooBuilderTest : public testing::Test {
 
     Options options;
     options.allow_mmap_reads = true;
-    ImmutableCFOptions ioptions(options);
+    ImmutableOptions ioptions(options);
 
     // Assert Table Properties.
     TableProperties* props = nullptr;

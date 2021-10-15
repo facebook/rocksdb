@@ -208,8 +208,6 @@ struct SuperVersion {
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
 
-  InstrumentedMutex* db_mutex;
-
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -258,8 +256,7 @@ extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 // one too.
 extern void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories);
+    IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 
@@ -282,8 +279,7 @@ class ColumnFamilyData {
   // UnrefAndTryDelete() decreases the reference count and do free if needed,
   // return true if this is freed else false, UnrefAndTryDelete() can only
   // be called while holding a DB mutex, or during single-threaded recovery.
-  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
-  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
+  bool UnrefAndTryDelete();
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
@@ -316,7 +312,7 @@ class ColumnFamilyData {
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const FileOptions* soptions() const;
-  const ImmutableCFOptions* ioptions() const { return &ioptions_; }
+  const ImmutableOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
   // You should use this API to reference MutableCFOptions most of the time.
@@ -361,6 +357,7 @@ class ColumnFamilyData {
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
+  uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
     uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
     new_mem->SetID(memtable_id);
@@ -428,8 +425,7 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-  int_tbl_prop_collector_factories() const {
+  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
     return &int_tbl_prop_collector_factories_;
   }
 
@@ -455,7 +451,6 @@ class ColumnFamilyData {
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   void InstallSuperVersion(SuperVersionContext* sv_context,
-                           InstrumentedMutex* db_mutex,
                            const MutableCFOptions& mutable_cf_options);
   void InstallSuperVersion(SuperVersionContext* sv_context,
                            InstrumentedMutex* db_mutex);
@@ -522,6 +517,7 @@ class ColumnFamilyData {
   }
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
+  WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
 
  private:
   friend class ColumnFamilySet;
@@ -531,10 +527,11 @@ class ColumnFamilyData {
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const FileOptions& file_options,
+                   const FileOptions* file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
-                   const std::shared_ptr<IOTracer>& io_tracer);
+                   const std::shared_ptr<IOTracer>& io_tracer,
+                   const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -548,11 +545,10 @@ class ColumnFamilyData {
   std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories_;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
 
   const bool is_delete_range_supported_;
@@ -671,7 +667,8 @@ class ColumnFamilySet {
                   WriteBufferManager* _write_buffer_manager,
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
-                  const std::shared_ptr<IOTracer>& io_tracer);
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const std::string& db_session_id);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -721,6 +718,8 @@ class ColumnFamilySet {
   std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
 
   uint32_t max_column_family_;
+  const FileOptions file_options_;
+
   ColumnFamilyData* dummy_cfd_;
   // We don't hold the refcount here, since default column family always exists
   // We are also not responsible for cleaning up default_cfd_cache_. This is
@@ -730,12 +729,12 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::string db_session_id_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access

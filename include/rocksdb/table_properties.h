@@ -5,8 +5,12 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
+#include <memory>
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -26,13 +30,14 @@ namespace ROCKSDB_NAMESPACE {
 //      ++pos) {
 //   ...
 // }
-typedef std::map<std::string, std::string> UserCollectedProperties;
+using UserCollectedProperties = std::map<std::string, std::string>;
 
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {
   static const std::string kDbId;
   static const std::string kDbSessionId;
   static const std::string kDbHostId;
+  static const std::string kOriginalFileNumber;
   static const std::string kDataSize;
   static const std::string kIndexSize;
   static const std::string kIndexPartitions;
@@ -44,6 +49,7 @@ struct TablePropertiesNames {
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
   static const std::string kNumEntries;
+  static const std::string kNumFilterEntries;
   static const std::string kDeletedKeys;
   static const std::string kMergeOperands;
   static const std::string kNumRangeDeletions;
@@ -127,14 +133,23 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
-class TablePropertiesCollectorFactory {
+class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
     uint32_t column_family_id;
+    // The level at creating the SST file (i.e, table), of which the
+    // properties are being collected.
+    int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
+    static const int kUnknownLevelAtCreation = -1;
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
+  static const char* Type() { return "TablePropertiesCollectorFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<TablePropertiesCollectorFactory>* result);
+
   // has to be thread-safe
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
@@ -152,6 +167,9 @@ class TablePropertiesCollectorFactory {
 // table.
 struct TableProperties {
  public:
+  // the file number at creation time, or 0 for unknown. When known,
+  // combining with db_session_id must uniquely identify an SST file.
+  uint64_t orig_file_number = 0;
   // the total size of all data blocks.
   uint64_t data_size = 0;
   // the size of index block.
@@ -175,6 +193,8 @@ struct TableProperties {
   uint64_t num_data_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
+  // the number of unique entries (keys or prefixes) added to filters
+  uint64_t num_filter_entries = 0;
   // the number of deletions in the table
   uint64_t num_deletions = 0;
   // the number of merge operands in the table

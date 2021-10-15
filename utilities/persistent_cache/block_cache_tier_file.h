@@ -65,7 +65,7 @@ struct LogicalBlockAddress {
   uint32_t size_ = 0;
 };
 
-typedef LogicalBlockAddress LBA;
+using LBA = LogicalBlockAddress;
 
 // class Writer
 //

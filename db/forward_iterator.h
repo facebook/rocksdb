@@ -10,7 +10,6 @@
 #include <vector>
 #include <queue>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -39,8 +38,9 @@ class MinIterComparator {
   const Comparator* comparator_;
 };
 
-typedef std::priority_queue<InternalIterator*, std::vector<InternalIterator*>,
-                            MinIterComparator> MinIterHeap;
+using MinIterHeap =
+    std::priority_queue<InternalIterator*, std::vector<InternalIterator*>,
+                        MinIterComparator>;
 
 /**
  * ForwardIterator is a special type of iterator that only supports Seek()

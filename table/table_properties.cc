@@ -111,6 +111,8 @@ std::string TableProperties::ToString(
   }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
                  kv_delim);
+  AppendProperty(result, "# entries for filter", num_filter_entries, prop_delim,
+                 kv_delim);
   AppendProperty(result, "(estimated) table size",
                  data_size + index_size + filter_size, prop_delim, kv_delim);
 
@@ -177,6 +179,9 @@ std::string TableProperties::ToString(
   AppendProperty(result, "DB identity", db_id, prop_delim, kv_delim);
   AppendProperty(result, "DB session identity", db_session_id, prop_delim,
                  kv_delim);
+  AppendProperty(result, "DB host id", db_host_id, prop_delim, kv_delim);
+  AppendProperty(result, "original file number", orig_file_number, prop_delim,
+                 kv_delim);
 
   return result;
 }
@@ -193,6 +198,7 @@ void TableProperties::Add(const TableProperties& tp) {
   raw_value_size += tp.raw_value_size;
   num_data_blocks += tp.num_data_blocks;
   num_entries += tp.num_entries;
+  num_filter_entries += tp.num_filter_entries;
   num_deletions += tp.num_deletions;
   num_merge_operands += tp.num_merge_operands;
   num_range_deletions += tp.num_range_deletions;
@@ -214,6 +220,7 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["raw_value_size"] = raw_value_size;
   rv["num_data_blocks"] = num_data_blocks;
   rv["num_entries"] = num_entries;
+  rv["num_filter_entries"] = num_filter_entries;
   rv["num_deletions"] = num_deletions;
   rv["num_merge_operands"] = num_merge_operands;
   rv["num_range_deletions"] = num_range_deletions;
@@ -229,6 +236,8 @@ const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";
 const std::string TablePropertiesNames::kDbHostId =
     "rocksdb.creating.host.identity";
+const std::string TablePropertiesNames::kOriginalFileNumber =
+    "rocksdb.original.file.number";
 const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =
@@ -251,6 +260,8 @@ const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
 const std::string TablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
+const std::string TablePropertiesNames::kNumFilterEntries =
+    "rocksdb.num.filter_entries";
 const std::string TablePropertiesNames::kDeletedKeys = "rocksdb.deleted.keys";
 const std::string TablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";

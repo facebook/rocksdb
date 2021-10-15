@@ -11,29 +11,13 @@
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_index.h"
 #include "db/snapshot_checker.h"
+#include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
 #include "test_util/sync_point.h"
 
-#define DEFINITELY_IN_SNAPSHOT(seq, snapshot)                       \
-  ((seq) <= (snapshot) &&                                           \
-   (snapshot_checker_ == nullptr ||                                 \
-    LIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
-           SnapshotCheckerResult::kInSnapshot)))
-
-#define DEFINITELY_NOT_IN_SNAPSHOT(seq, snapshot)                     \
-  ((seq) > (snapshot) ||                                              \
-   (snapshot_checker_ != nullptr &&                                   \
-    UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) == \
-             SnapshotCheckerResult::kNotInSnapshot)))
-
-#define IN_EARLIEST_SNAPSHOT(seq) \
-  ((seq) <= earliest_snapshot_ && \
-   (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))))
-
 namespace ROCKSDB_NAMESPACE {
-
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -46,6 +30,7 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : CompactionIterator(
@@ -56,7 +41,8 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
-          manual_compaction_paused, info_log, full_history_ts_low) {}
+          manual_compaction_paused, manual_compaction_canceled, info_log,
+          full_history_ts_low) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -71,9 +57,11 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
-    : input_(input),
+    : input_(input, cmp,
+             !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
@@ -89,6 +77,7 @@ CompactionIterator::CompactionIterator(
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
+      manual_compaction_canceled_(manual_compaction_canceled),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
@@ -100,8 +89,8 @@ CompactionIterator::CompactionIterator(
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
       current_key_committed_(false),
-      cmp_with_history_ts_low_(0) {
-  assert(compaction_filter_ == nullptr || compaction_ != nullptr);
+      cmp_with_history_ts_low_(0),
+      level_(compaction_ == nullptr ? 0 : compaction_->level()) {
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
                           ? false
@@ -130,13 +119,13 @@ CompactionIterator::CompactionIterator(
   assert(timestamp_size_ == 0 || !full_history_ts_low_ ||
          timestamp_size_ == full_history_ts_low_->size());
 #endif
-  input_->SetPinnedItersMgr(&pinned_iters_mgr_);
+  input_.SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
 
 CompactionIterator::~CompactionIterator() {
   // input_ Iterator lifetime is longer than pinned_iters_mgr_ lifetime
-  input_->SetPinnedItersMgr(nullptr);
+  input_.SetPinnedItersMgr(nullptr);
 }
 
 void CompactionIterator::ResetRecordCounts() {
@@ -189,7 +178,7 @@ void CompactionIterator::Next() {
     // Only advance the input iterator if there is no merge output and the
     // iterator is not already at the next record.
     if (!at_next_) {
-      input_->Next();
+      AdvanceInputIter();
     }
     NextFromInput();
   }
@@ -232,7 +221,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (kTypeBlobIndex == ikey_.type) {
       blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(
-          compaction_->level(), filter_key, &compaction_filter_value_,
+          level_, filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
@@ -248,6 +237,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         }
         if (blob_index.HasTTL() || blob_index.IsInlined()) {
           status_ = Status::Corruption("Unexpected TTL/inlined blob index");
+          valid_ = false;
+          return false;
+        }
+        if (compaction_ == nullptr) {
+          status_ =
+              Status::Corruption("Unexpected blob index outside of compaction");
           valid_ = false;
           return false;
         }
@@ -271,7 +266,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
     if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
-          compaction_->level(), filter_key, value_type,
+          level_, filter_key, value_type,
           blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
     }
@@ -350,10 +345,10 @@ void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
 
-  while (!valid_ && input_->Valid() && !IsPausingManualCompaction() &&
+  while (!valid_ && input_.Valid() && !IsPausingManualCompaction() &&
          !IsShuttingDown()) {
-    key_ = input_->key();
-    value_ = input_->value();
+    key_ = input_.key();
+    value_ = input_.value();
     iter_stats_.num_input_records++;
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
@@ -501,11 +496,11 @@ void CompactionIterator::NextFromInput() {
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
       }
-      assert(current_user_key_snapshot_ == last_snapshot);
-      if (current_user_key_snapshot_ != last_snapshot) {
+      assert(current_user_key_snapshot_ >= last_snapshot);
+      if (current_user_key_snapshot_ < last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
                         "current_user_key_snapshot_ (%" PRIu64
-                        ") != last_snapshot (%" PRIu64 ")",
+                        ") < last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
       }
 
@@ -549,35 +544,61 @@ void CompactionIterator::NextFromInput() {
       // we can choose how to handle such a combinations of operations.  We will
       // try to compact out as much as we can in these cases.
       // We will report counts on these anomalous cases.
+      //
+      // Note: If timestamp is enabled, then record will be eligible for
+      // deletion, only if, along with above conditions (Rule 1 and Rule 2)
+      // full_history_ts_low_ is specified and timestamp for that key is less
+      // than *full_history_ts_low_. If it's not eligible for deletion, then we
+      // will output the SingleDelete. For Optimization 3 also, if
+      // full_history_ts_low_ is specified and timestamp for the key is less
+      // than *full_history_ts_low_ then only optimization will be applied.
 
       // The easiest way to process a SingleDelete during iteration is to peek
       // ahead at the next key.
+      const bool is_timestamp_eligible_for_gc =
+          (timestamp_size_ == 0 ||
+           (full_history_ts_low_ && cmp_with_history_ts_low_ < 0));
+
       ParsedInternalKey next_ikey;
-      input_->Next();
+      AdvanceInputIter();
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
-      if (input_->Valid() &&
-          ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+      if (input_.Valid() &&
+          ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
-          cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+#ifndef NDEBUG
+        const Compaction* c =
+            compaction_ ? compaction_->real_compaction() : nullptr;
+#endif
+        TEST_SYNC_POINT_CALLBACK(
+            "CompactionIterator::NextFromInput:SingleDelete:1",
+            const_cast<Compaction*>(c));
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
         if (prev_snapshot == 0 ||
-            DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot)) {
+            DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
+          TEST_SYNC_POINT_CALLBACK(
+              "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
           if (next_ikey.type == kTypeSingleDeletion) {
-            // We encountered two SingleDeletes in a row.  This could be due to
-            // unexpected user input.
-            // Skip the first SingleDelete and let the next iteration decide how
-            // to handle the second SingleDelete
+            // We encountered two SingleDeletes for same key in a row. This
+            // could be due to unexpected user input. Skip the first
+            // SingleDelete and let the next iteration decide how to handle the
+            // second SingleDelete
 
             // First SingleDelete has been skipped since we already called
-            // input_->Next().
+            // input_.Next().
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
+          } else if (!is_timestamp_eligible_for_gc) {
+            // We cannot drop the SingleDelete as timestamp is enabled, and
+            // timestamp of this key is greater than or equal to
+            // *full_history_ts_low_. We will output the SingleDelete.
+            valid_ = true;
           } else if (has_outputted_key_ ||
-                     DEFINITELY_IN_SNAPSHOT(
-                         ikey_.sequence, earliest_write_conflict_snapshot_)) {
+                     DefinitelyInSnapshot(ikey_.sequence,
+                                          earliest_write_conflict_snapshot_)) {
             // Found a matching value, we can drop the single delete and the
             // value.  It is safe to drop both records since we've already
             // outputted a key in this snapshot, or there is no earlier
@@ -594,9 +615,9 @@ void CompactionIterator::NextFromInput() {
 
             ++iter_stats_.num_record_drop_hidden;
             ++iter_stats_.num_record_drop_obsolete;
-            // Already called input_->Next() once.  Call it a second time to
+            // Already called input_.Next() once.  Call it a second time to
             // skip past the second key.
-            input_->Next();
+            AdvanceInputIter();
           } else {
             // Found a matching value, but we cannot drop both keys since
             // there is an earlier snapshot and we need to leave behind a record
@@ -610,6 +631,9 @@ void CompactionIterator::NextFromInput() {
             // Set up the Put to be outputted in the next iteration.
             // (Optimization 3).
             clear_and_output_next_key_ = true;
+            TEST_SYNC_POINT_CALLBACK(
+                "CompactionIterator::NextFromInput:KeepSDForWW",
+                /*arg=*/nullptr);
           }
         } else {
           // We hit the next snapshot without hitting a put, so the iterator
@@ -625,9 +649,11 @@ void CompactionIterator::NextFromInput() {
         // iteration. If the next key is corrupt, we return before the
         // comparison, so the value of has_current_user_key does not matter.
         has_current_user_key_ = false;
-        if (compaction_ != nullptr && IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
+        if (compaction_ != nullptr &&
+            DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
-                                                       &level_ptrs_)) {
+                                                       &level_ptrs_) &&
+            is_timestamp_eligible_for_gc) {
           // Key doesn't exist outside of this range.
           // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
@@ -664,12 +690,12 @@ void CompactionIterator::NextFromInput() {
       }
 
       ++iter_stats_.num_record_drop_hidden;  // rule (A)
-      input_->Next();
+      AdvanceInputIter();
     } else if (compaction_ != nullptr &&
                (ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
-               IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
+               DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                           &level_ptrs_)) {
@@ -700,7 +726,7 @@ void CompactionIterator::NextFromInput() {
       if (!bottommost_level_) {
         ++iter_stats_.num_optimized_del_drop_obsolete;
       }
-      input_->Next();
+      AdvanceInputIter();
     } else if ((ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
@@ -711,7 +737,14 @@ void CompactionIterator::NextFromInput() {
       assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
                                  ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
-      input_->Next();
+      AdvanceInputIter();
+#ifndef NDEBUG
+      const Compaction* c =
+          compaction_ ? compaction_->real_compaction() : nullptr;
+#endif
+      TEST_SYNC_POINT_CALLBACK(
+          "CompactionIterator::NextFromInput:BottommostDelete:1",
+          const_cast<Compaction*>(c));
       // Skip over all versions of this key that happen to occur in the same
       // snapshot range as the delete.
       //
@@ -719,18 +752,18 @@ void CompactionIterator::NextFromInput() {
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
-             input_->Valid() &&
-             (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+             input_.Valid() &&
+             (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
-              DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
-        input_->Next();
+              DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
+        AdvanceInputIter();
       }
       // If you find you still need to output a row with this key, we need to output the
       // delete too
-      if (input_->Valid() &&
-          (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+      if (input_.Valid() &&
+          (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
@@ -744,13 +777,15 @@ void CompactionIterator::NextFromInput() {
       }
 
       pinned_iters_mgr_.StartPinning();
+      Version* version = compaction_ ? compaction_->input_version() : nullptr;
+
       // We know the merge type entry is not hidden, otherwise we would
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s =
-          merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
-                                    bottommost_level_, allow_data_in_errors_);
+      Status s = merge_helper_->MergeUntil(&input_, range_del_agg_,
+                                           prev_snapshot, bottommost_level_,
+                                           allow_data_in_errors_, version);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -793,14 +828,14 @@ void CompactionIterator::NextFromInput() {
       if (should_delete) {
         ++iter_stats_.num_record_drop_hidden;
         ++iter_stats_.num_record_drop_range_del;
-        input_->Next();
+        AdvanceInputIter();
       } else {
         valid_ = true;
       }
     }
 
     if (need_skip) {
-      input_->Seek(skip_until);
+      SkipUntil(skip_until);
     }
   }
 
@@ -902,6 +937,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     ++iter_stats_.num_blobs_read;
     iter_stats_.total_blob_bytes_read += bytes_read;
 
+    ++iter_stats_.num_blobs_relocated;
+    iter_stats_.total_blob_bytes_relocated += blob_index.size();
+
     value_ = blob_value_;
 
     if (ExtractLargeValueIfNeededImpl()) {
@@ -965,9 +1003,14 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
-        IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
-      assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
-      if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
+        DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
+        ikey_.type != kTypeMerge) {
+      assert(ikey_.type != kTypeDeletion);
+      assert(ikey_.type != kTypeSingleDeletion ||
+             (timestamp_size_ || full_history_ts_low_));
+      if (ikey_.type == kTypeDeletion ||
+          (ikey_.type == kTypeSingleDeletion &&
+           (!timestamp_size_ || !full_history_ts_low_))) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for seq-zero optimization",
                         ikey_.type);
@@ -1041,7 +1084,7 @@ inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
          (ikey_.sequence < preserve_deletes_seqnum_);
 }
 
-bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
+bool CompactionIterator::IsInCurrentEarliestSnapshot(SequenceNumber sequence) {
   assert(snapshot_checker_ != nullptr);
   bool pre_condition = (earliest_snapshot_ == kMaxSequenceNumber ||
                         (earliest_snapshot_iter_ != snapshots_->end() &&

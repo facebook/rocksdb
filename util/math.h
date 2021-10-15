@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // Fast implementation of floor(log2(v)). Undefined for 0 or negative

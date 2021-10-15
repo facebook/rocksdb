@@ -112,12 +112,6 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
   }
 }
 
-std::string NumberToString(uint64_t num) {
-  std::string r;
-  AppendNumberTo(&r, num);
-  return r;
-}
-
 std::string NumberToHumanString(int64_t num) {
   char buf[19];
   int64_t absnum = num < 0 ? -num : num;
@@ -299,6 +293,15 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
     return false;
   }
   throw std::invalid_argument(type);
+}
+
+uint8_t ParseUint8(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 8LL) == 0) {
+    return static_cast<uint8_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
 }
 
 uint32_t ParseUint32(const std::string& value) {
