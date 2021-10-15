@@ -95,7 +95,7 @@ struct SyncPoint::Data {
     return marked_point_iter != marked_thread_id_.end() &&
            thread_id != marked_point_iter->second;
   }
-  void Process(const std::string& point, void* cb_arg);
+  void Process(const Slice& point, void* cb_arg);
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif // NDEBUG
