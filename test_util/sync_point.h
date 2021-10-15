@@ -5,6 +5,7 @@
 #pragma once
 
 #include <assert.h>
+
 #include <functional>
 #include <mutex>
 #include <string>
@@ -125,7 +126,7 @@ class SyncPoint {
   template <size_t kLen>
   void Process(const char (&point)[kLen], void* cb_arg = nullptr) {
     static_assert(kLen > 0, "Must not be empty");
-    assert(point[kLen-1] == '\0');
+    assert(point[kLen - 1] == '\0');
     Process(Slice(point, kLen - 1), cb_arg);
   }
 
