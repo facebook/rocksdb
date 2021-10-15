@@ -23,7 +23,6 @@
 * Made FileChecksumGenFactory, SstPartitionerFactory, TablePropertiesCollectorFactory, and WalFilter extend the Customizable class and added a CreateFromString method.
 * Some fields of SstFileMetaData are deprecated for compatibility with new base class FileStorageInfo.
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
-* Add a property_bag in FileOptions for direct FileSystem users to pass custom properties to the provider in APIs such as NewRandomAccessFile, NewWritableFile etc. This is only useful in cases where a RocksDB user directly uses the FileSystem object for their own purposes.
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes

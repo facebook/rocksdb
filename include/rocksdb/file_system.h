@@ -90,6 +90,14 @@ struct IOOptions {
   // Type of data being read/written
   IOType type;
 
+  // EXPERIMENTAL
+  // An option map that's opaque to RocksDB. It can be used to implement a
+  // custom contract between a FileSystem user and the provider. This is only
+  // useful in cases where a RocksDB user directly uses the FileSystem or file
+  // object for their own purposes, and wants to pass extra options to APIs
+  // such as NewRandomAccessFile and NewWritableFile.
+  std::unordered_map<std::string, void*> property_bag;
+
   IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
 
@@ -111,13 +119,6 @@ struct FileOptions : EnvOptions {
   // The checksum type that is used to calculate the checksum value for
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
-
-  // An option map that's opaque to RocksDB. It can be used to implement a
-  // custom contract between a FileSystem user and the provider. This is only
-  // useful in cases where a RocksDB user directly uses the FileSystem object
-  // for their own purposes, and wants to pass extra options to APIs such as
-  // NewRandomAccessFile and NewWritableFile.
-  std::unordered_map<std::string, void*> property_bag;
 
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
