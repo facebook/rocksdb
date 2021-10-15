@@ -695,7 +695,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
@@ -789,7 +789,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Thefore, block_1 is evicted from block
@@ -848,7 +848,9 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled1) {
+// Test the option to for a DB CF not to use the secondary cache, when we start
+// to use it already
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -886,7 +888,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled1) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
@@ -931,24 +933,22 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled1) {
 
   v = Get(Key(70));
   ASSERT_EQ(1007, v.size());
-  // Lookup the first data block, not in the block cache, so lookup the
-  // secondary cache. Also not in the secondary cache. After Get, still
-  // block_1 is will not be cached.
+
+  // No longer use the secondary cache since after we set the option
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
 
   v = Get(Key(75));
   ASSERT_EQ(1007, v.size());
-  // Lookup the first data block, not in the block cache, so lookup the
-  // secondary cache. Also not in the secondary cache. After Get, still
-  // block_1 is will not be cached.
+
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
 
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled2) {
+// Turn of the secondary cache when DB is opened
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionOff) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1023,7 +1023,9 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled2) {
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled3) {
+// Test when we change the use secondary cache option to false and later on
+// change to true
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1055,7 +1057,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled3) {
 
   ASSERT_OK(Flush());
 
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
@@ -1072,34 +1074,35 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled3) {
   }
 
   ASSERT_OK(Flush());
-  // The secondary cache is disabled for table 2, so no insertion and no
-  // lookups for this table
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  // The secondary cache is disabled for table 2, but when we do flush for table
+  // 2, the one block from table 1 is evicted from block cache and it is still
+  // secondary cache comparable. So one insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   Compact("a", "z");
 
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   std::string v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
 
   // Search table 1, it is still enabled for this table
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   v = Get(Key(5));
   ASSERT_EQ(1007, v.size());
 
   // Search table 1, it is still enabled for this table
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   v = Get(Key(5));
   ASSERT_EQ(1007, v.size());
 
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   dbfull()->SetOptions({{"use_secondary_cache", "true"}});
@@ -1108,13 +1111,13 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled3) {
   ASSERT_EQ(1007, v.size());
 
   // Enable the secondary cache, trigger lookup
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 3u);
 
   v = Get(Key(75));
   ASSERT_EQ(1007, v.size());
 
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
   Destroy(options);
 }
@@ -1122,7 +1125,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled3) {
 // Two db test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2 at beginning and then
 // enable it.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled4) {
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1179,7 +1182,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled4) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
   ASSERT_OK(db2->Flush(FlushOptions()));
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   Slice bg("a");
@@ -1187,7 +1190,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled4) {
   ASSERT_OK(db1->CompactRange(CompactRangeOptions(), &bg, &ed));
   ASSERT_OK(db2->CompactRange(CompactRangeOptions(), &bg, &ed));
 
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
   ReadOptions ro;
@@ -1195,22 +1198,24 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled4) {
   ASSERT_OK(db1->Get(ro, Key(0), &v));
   ASSERT_EQ(1007, v.size());
 
-  // Search table 1, it is still enabled for this table
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  // The secondary cache is disabled for table 2, but when we do flush for table
+  // 2, the one block from table 1 is evicted from block cache and it is still
+  // secondary cache comparable. So one insertion.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 3u);
 
   ASSERT_OK(db1->Get(ro, Key(5), &v));
   ASSERT_EQ(1007, v.size());
 
   // Search table 1, it is still enabled for this table
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
 
   ASSERT_OK(db2->Get(ro, Key(0), &v));
   ASSERT_EQ(1007, v.size());
 
   // For db2, it is not enabled, so no search in the secondary cache
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
 
   db2->SetOptions({{"use_secondary_cache", "true"}});
@@ -1220,7 +1225,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheDisabled4) {
 
   // We enabled the secondary cache usage for db2, so it will trigger
   // one secondary cache lookup
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 5u);
 
   fault_fs_->SetFailGetUniqueId(false);
@@ -1266,7 +1271,7 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. Now, block cache is large enough, it cache
   // both block_1 and block_2. When first time read block_1 and block_2
@@ -1368,7 +1373,7 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
