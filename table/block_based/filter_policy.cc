@@ -71,13 +71,13 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // recognize and collapse for estimating true filter space
     // requirements.
     if (hash_entries_.empty() || hash != hash_entries_.back()) {
-      hash_entries_.push_back(hash);
       if (cache_res_mgr_ != nullptr) {
         Status s = cache_res_mgr_->UpdateCacheReservation<
             CacheEntryRole::kXXPH3FilterConstruction>(
             cache_res_mgr_->GetTotalReservedCacheSize() + sizeof(hash));
         s.PermitUncheckedError();
       }
+      hash_entries_.push_back(hash);
     }
   }
 
