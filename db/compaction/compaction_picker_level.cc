@@ -31,6 +31,9 @@ bool LevelCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
+  if (!vstorage->FilesMarkedForForcedBlobGC().empty()) {
+    return true;
+  }
   for (int i = 0; i <= vstorage->MaxInputLevel(); i++) {
     if (vstorage->CompactionScore(i) >= 1) {
       return true;
@@ -246,6 +249,13 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   PickFileToCompact(vstorage_->FilesMarkedForPeriodicCompaction(), false);
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kPeriodicCompaction;
+    return;
+  }
+
+  // Forced blob garbage collection
+  PickFileToCompact(vstorage_->FilesMarkedForForcedBlobGC(), false);
+  if (!start_level_inputs_.empty()) {
+    compaction_reason_ = CompactionReason::kForcedBlobGC;
     return;
   }
 }

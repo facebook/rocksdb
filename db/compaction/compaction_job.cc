@@ -109,6 +109,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "PeriodicCompaction";
     case CompactionReason::kChangeTemperature:
       return "ChangeTemperature";
+    case CompactionReason::kForcedBlobGC:
+      return "ForcedBlobGC";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:

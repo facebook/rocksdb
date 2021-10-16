@@ -1793,8 +1793,11 @@ int main(int argc, char** argv) {
     rocksdb_options_set_enable_blob_gc(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_gc(o));
 
-    rocksdb_options_set_blob_gc_age_cutoff(o, 0.75);
-    CheckCondition(0.75 == rocksdb_options_get_blob_gc_age_cutoff(o));
+    rocksdb_options_set_blob_gc_age_cutoff(o, 0.5);
+    CheckCondition(0.5 == rocksdb_options_get_blob_gc_age_cutoff(o));
+
+    rocksdb_options_set_blob_gc_force_threshold(o, 0.75);
+    CheckCondition(0.75 == rocksdb_options_get_blob_gc_force_threshold(o));
 
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
