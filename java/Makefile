@@ -145,6 +145,8 @@ JAVA_TESTS = \
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MultiGetManyKeysTest\
+	org.rocksdb.MultiGetTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
 	org.rocksdb.MutableDBOptionsTest\
