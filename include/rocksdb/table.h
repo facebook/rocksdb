@@ -346,8 +346,8 @@ struct BlockBasedTableOptions {
   // and especially constraint the memory usage of constructing 
   // the banding portion during ribbon filter construction, 
   // by switching to bloom filter if that banding portion uses up 
-  // too much memory (i.e, causing a cache full when 
-  // strick_capacity_limit = true)
+  // too much memory relative to the avaible space left in the block cache
+  //  (i.e, causing a cache full and strict_capacity_limit = true)
   // 
   // Note that this option has no effect on legacy bloom filter
   //
