@@ -546,7 +546,6 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     bool success = banding.ResetAndFindSeedToSolve(
         num_slots, hash_entries_.begin(), hash_entries_.end(),
         /*starting seed*/ entropy & 255, /*seed mask*/ 255);
-
     if (!success) {
       ROCKS_LOG_WARN(info_log_,
                      "Too many re-seeds (256) for Ribbon filter, %llu / %llu",
