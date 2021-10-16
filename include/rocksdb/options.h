@@ -1457,6 +1457,16 @@ struct ReadOptions {
   // Default: true
   bool verify_checksums;
 
+  // If true and DBOptions::rate_limiter is provided, 
+  // the read IO in Db::VerifyCheckSum will be rate-limited.
+  // Default: false
+  bool rate_limit_verify_checksum;
+
+  // If DBOptions::rate_limiter is provided and rate_limit_verify_checksum = true, 
+  // this will be the priority level to charge the read IO in Db::VerifyCheckSum to the rate limiter.
+  // Default: Env::IO_LOW
+  Env::IOPriority verify_checksum_rate_limit_pri;
+
   // Should the "data block"/"index block" read for this iteration be placed in
   // block cache?
   // Callers may wish to set this field to false for bulk scans.

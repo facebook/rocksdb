@@ -4935,6 +4935,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
   uint64_t prev_bytes_read = IOSTATS(bytes_read);
   uint64_t verify_checksum_read_bytes = 0;
 
+  std::shared_ptr<RateLimiter> rate_limiter = immutable_db_options_.rate_limiter;
+  bool rate_limit_verify_checksum = read_options.rate_limit_verify_checksum;
+  Env::IOPriority verify_checksum_rate_limit_pri = read_options.verify_checksum_rate_limit_pri;
   Status s;
 
   if (use_file_checksum) {
@@ -4989,7 +4992,10 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
-        verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read
+        verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read;
+        if (rate_limiter != nullptr && rate_limit_verify_checksum) {
+          rate_limiter->Request(static_cast<int64_t>(verify_checksum_read_bytes), verify_checksum_rate_limit_pri, nullptr /* stats */);
+        }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
         prev_bytes_read = IOSTATS(bytes_read);
       }
@@ -5007,6 +5013,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
         verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read;
+        if (rate_limiter != nullptr && rate_limit_verify_checksum) {
+          rate_limiter->Request(static_cast<int64_t>(verify_checksum_read_bytes), verify_checksum_rate_limit_pri, nullptr /* stats */);
+        }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
         prev_bytes_read = IOSTATS(bytes_read);
         if (!s.ok()) {
@@ -5042,6 +5051,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
   }
 
   verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read;
+  if (rate_limiter != nullptr && rate_limit_verify_checksum) {
+    rate_limiter->Request(static_cast<int64_t>(verify_checksum_read_bytes), verify_checksum_rate_limit_pri, nullptr /* stats */);
+  }
   RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
   return s;
 }
