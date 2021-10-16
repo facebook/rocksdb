@@ -31,49 +31,51 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
   FileSystem& fs = *FileSystem::Default();
   IOOptions opts;
 
-  std::unique_ptr<FSSequentialFile> reader;
-  Status s =
-      fs.NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
-  if (s.ok()) {
-    // Load from file
-    std::string id(24U, '\0');
-    Slice result;
-    for (;;) {
-      s = reader->Read(id.size(), opts, &result, &id[0], /*dbg*/ nullptr);
-      if (!s.ok()) {
-        fprintf(stderr, "Error reading unique id file: %s\n",
+  {
+    std::unique_ptr<FSSequentialFile> reader;
+    Status s =
+        fs.NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
+    if (s.ok()) {
+      // Load from file
+      std::string id(24U, '\0');
+      Slice result;
+      for (;;) {
+        s = reader->Read(id.size(), opts, &result, &id[0], /*dbg*/ nullptr);
+        if (!s.ok()) {
+          fprintf(stderr, "Error reading unique id file: %s\n",
+                  s.ToString().c_str());
+          assert(false);
+        }
+        if (result.size() < id.size()) {
+          // EOF
+          if (result.size() != 0) {
+            // Corrupt file. Not a DB bug but could happen if OS doesn't provide
+            // good guarantees on process crash.
+            fprintf(stdout, "Warning: clearing corrupt unique id file\n");
+            id_set_.clear();
+            reader.reset();
+            s = fs.DeleteFile(path_, opts, /*dbg*/ nullptr);
+            assert(s.ok());
+          }
+          break;
+        }
+        VerifyNoWrite(id);
+      }
+    } else {
+      // Newly created is ok.
+      // But FileSystem doesn't tell us whether non-existence was the cause of
+      // the failure. (Issue #9021)
+      Status s2 = fs.FileExists(path_, opts, /*dbg*/ nullptr);
+      if (!s2.IsNotFound()) {
+        fprintf(stderr, "Error opening unique id file: %s\n",
                 s.ToString().c_str());
         assert(false);
       }
-      if (result.size() < id.size()) {
-        // EOF
-        if (result.size() != 0) {
-          // Corrupt file. Not a DB bug but could happen if OS doesn't provide
-          // good guarantees on process crash.
-          fprintf(stdout, "Warning: clearing corrupt unique id file\n");
-          id_set_.clear();
-          reader.reset();
-          s = fs.DeleteFile(path_, opts, /*dbg*/ nullptr);
-          assert(s.ok());
-        }
-        break;
-      }
-      VerifyNoWrite(id);
-    }
-  } else {
-    // Newly created is ok.
-    // But FileSystem doesn't tell us whether non-existence was the cause of
-    // the failure. (Issue #9021)
-    Status s2 = fs.FileExists(path_, opts, /*dbg*/ nullptr);
-    if (!s2.IsNotFound()) {
-      fprintf(stderr, "Error opening unique id file: %s\n",
-              s.ToString().c_str());
-      assert(false);
     }
   }
   fprintf(stdout, "(Re-)verified %zu unique IDs\n", id_set_.size());
-  s = fs.ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
-                            /*dbg*/ nullptr);
+  Status s = fs.ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
+                                   /*dbg*/ nullptr);
   if (!s.ok()) {
     fprintf(stderr, "Error opening unique id file for append: %s\n",
             s.ToString().c_str());

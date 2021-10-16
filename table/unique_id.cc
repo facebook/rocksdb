@@ -58,8 +58,7 @@ Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
 
 Status GetSstInternalUniqueId(const std::string &db_id,
                               const std::string &db_session_id,
-                              uint64_t file_number,
-                              std::array<uint64_t, 3> *out) {
+                              uint64_t file_number, UniqueId64x3 *out) {
   if (db_id.empty()) {
     return Status::NotSupported("Missing db_id");
   }
@@ -106,28 +105,34 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   return Status::OK();
 }
 
-void InternalUniqueIdToExternal(std::array<uint64_t, 3> *in_out) {
+namespace {
+// For InternalUniqueIdToExternal / ExternalUniqueIdToInternal we want all
+// zeros in first 128 bits to map to itself, so that excluding zero in
+// internal IDs (session_lower != 0 above) does the same for external IDs.
+// These values are meaningless except for making that work.
+constexpr uint64_t kHiOffsetForZero = 17391078804906429400U;
+constexpr uint64_t kLoOffsetForZero = 6417269962128484497U;
+}  // namespace
+
+void InternalUniqueIdToExternal(UniqueId64x3 *in_out) {
   uint64_t hi, lo;
-  // The offsets are used to ensure no external ID is all zeros, because only
-  // internal ID of all zeros maps to it, and that is excluded by
-  // session_lower != 0.
-  BijectiveHash2x64((*in_out)[1] + 17391078804906429400U,
-                    (*in_out)[0] + 6417269962128484497U, &hi, &lo);
+  BijectiveHash2x64((*in_out)[1] + kHiOffsetForZero,
+                    (*in_out)[0] + kLoOffsetForZero, &hi, &lo);
   (*in_out)[0] = lo;
   (*in_out)[1] = hi;
   (*in_out)[2] += lo + hi;
 }
 
-void ExternalUniqueIdToInternal(std::array<uint64_t, 3> *in_out) {
+void ExternalUniqueIdToInternal(UniqueId64x3 *in_out) {
   uint64_t lo = (*in_out)[0];
   uint64_t hi = (*in_out)[1];
   (*in_out)[2] -= lo + hi;
   BijectiveUnhash2x64(hi, lo, &hi, &lo);
-  (*in_out)[0] = lo - 6417269962128484497U;
-  (*in_out)[1] = hi - 17391078804906429400U;
+  (*in_out)[0] = lo - kLoOffsetForZero;
+  (*in_out)[1] = hi - kHiOffsetForZero;
 }
 
-std::string EncodeUniqueIdBytes(const std::array<uint64_t, 3> &in) {
+std::string EncodeUniqueIdBytes(const UniqueId64x3 &in) {
   std::string ret(24U, '\0');
   EncodeFixed64(&ret[0], in[0]);
   EncodeFixed64(&ret[8], in[1]);
@@ -137,7 +142,7 @@ std::string EncodeUniqueIdBytes(const std::array<uint64_t, 3> &in) {
 
 Status GetUniqueIdFromTableProperties(const TableProperties &props,
                                       std::string *out_id) {
-  std::array<uint64_t, 3> tmp{};
+  UniqueId64x3 tmp{};
   Status s = GetSstInternalUniqueId(props.db_id, props.db_session_id,
                                     props.orig_file_number, &tmp);
   if (s.ok()) {

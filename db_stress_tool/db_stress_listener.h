@@ -3,6 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifdef GFLAGS
+#pragma once
+
 #include <mutex>
 #include <unordered_set>
 
@@ -10,9 +13,6 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/unique_id.h"
-#ifdef GFLAGS
-#pragma once
-
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
 #include "util/gflags_compat.h"

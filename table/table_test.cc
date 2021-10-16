@@ -1395,8 +1395,8 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
 
 namespace {
 struct TestIds {
-  std::array<uint64_t, 3> internal_id;
-  std::array<uint64_t, 3> external_id;
+  UniqueId64x3 internal_id;
+  UniqueId64x3 external_id;
 };
 
 inline bool operator==(const TestIds& lhs, const TestIds& rhs) {
@@ -1445,7 +1445,7 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
                                    &t.internal_id));
 
   // Verify relationship
-  std::array<uint64_t, 3> tmp = t.internal_id;
+  UniqueId64x3 tmp = t.internal_id;
   InternalUniqueIdToExternal(&tmp);
   EXPECT_EQ(tmp, t.external_id);
   ExternalUniqueIdToInternal(&tmp);
@@ -1565,8 +1565,8 @@ TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
   // external IDs. This way, as long as we avoid "all zeros" in internal IDs,
   // we avoid it in external IDs.
   {
-    std::array<uint64_t, 3> id1{{0, 0, Random::GetTLSInstance()->Next64()}};
-    std::array<uint64_t, 3> id2 = id1;
+    UniqueId64x3 id1{{0, 0, Random::GetTLSInstance()->Next64()}};
+    UniqueId64x3 id2 = id1;
     InternalUniqueIdToExternal(&id1);
     EXPECT_EQ(id1, id2);
     ExternalUniqueIdToInternal(&id2);

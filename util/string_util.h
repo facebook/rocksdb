@@ -56,7 +56,11 @@ inline void PutBaseChars(char** buf, size_t n, uint64_t v, bool uppercase) {
 // position after what was read. On success, true is returned. On failure,
 // false is returned, *buf is placed at the first bad character, and *v
 // contains the partial parsed data. Overflow is not checked but the
-// result is accurate mod 2^64.
+// result is accurate mod 2^64. Requires the starting value of *v to be
+// zero or previously accumulated parsed digits, i.e.
+//   ParseBaseChars(&b, n, &v);
+// is equivalent to n calls to
+//   ParseBaseChars(&b, 1, &v);
 template <int kBase>
 inline bool ParseBaseChars(const char** buf, size_t n, uint64_t* v) {
   while (n) {
