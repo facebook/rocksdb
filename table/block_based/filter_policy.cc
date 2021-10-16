@@ -511,9 +511,6 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     }
 
     BandingType banding;
-    bool success = banding.ResetAndFindSeedToSolve(
-        num_slots, hash_entries_.begin(), hash_entries_.end(),
-        /*starting seed*/ entropy & 255, /*seed mask*/ 255);
 
     std::size_t bytes_coeff_rows =
         num_slots * sizeof(Standard128RibbonRehasherTypesAndSettings::CoeffRow);
@@ -524,17 +521,17 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     std::size_t bytes_banding = sizeof(BandingType) + bytes_coeff_rows +
                                 bytes_result_rows + bytes_backtrack;
     Status status_banding_cache_res = Status::OK();
+
     if (cache_res_mgr_ != nullptr) {
       status_banding_cache_res = cache_res_mgr_->UpdateCacheReservation<
           CacheEntryRole::kXXPH3FilterConstruction>(
           cache_res_mgr_->GetTotalReservedCacheSize() + bytes_banding);
     }
 
-    if (!success) {
+    if (status_banding_cache_res.IsIncomplete()) {
       ROCKS_LOG_WARN(info_log_,
-                     "Too many re-seeds (256) for Ribbon filter, %llu / %llu",
-                     static_cast<unsigned long long>(hash_entries_.size()),
-                     static_cast<unsigned long long>(num_slots));
+                     "Cache reservation for Ribbon filter banding failed due "
+                     "to cache full");
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_.empty());
       if (cache_res_mgr_ != nullptr) {
@@ -545,11 +542,16 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       }
       return bloom_fallback_.Finish(buf);
     }
+    
+    bool success = banding.ResetAndFindSeedToSolve(
+        num_slots, hash_entries_.begin(), hash_entries_.end(),
+        /*starting seed*/ entropy & 255, /*seed mask*/ 255);
 
-    if (status_banding_cache_res.IsIncomplete()) {
+    if (!success) {
       ROCKS_LOG_WARN(info_log_,
-                     "Cache reservation for Ribbon filter banding failed due "
-                     "to cache full");
+                     "Too many re-seeds (256) for Ribbon filter, %llu / %llu",
+                     static_cast<unsigned long long>(hash_entries_.size()),
+                     static_cast<unsigned long long>(num_slots));
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_.empty());
       if (cache_res_mgr_ != nullptr) {
