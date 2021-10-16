@@ -338,18 +338,16 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
-  // If true, the memory usage of bloom/ribbon filter construction
-  // will be charged to the block cache associtaed with the 
-  // block based table builder. 
+  // If true, the memory usage of (new) Bloom filter and Ribbon 
+  // filter construction will be charged to the block cache associated 
+  // with the block based table builder. 
   // 
   // It helps account the memory usage of such filter construction
-  // and especially constraint the memory usage of constructing 
-  // the banding portion during ribbon filter construction, 
-  // by switching to bloom filter if that banding portion uses up 
-  // too much memory relative to the avaible space left in the block cache
-  //  (i.e, causing a cache full and strict_capacity_limit = true)
-  // 
-  // Note that this option has no effect on legacy bloom filter
+  // and constrain the memory usage of constructing 
+  // the banding in Ribbon filter, by switching to Bloom filter 
+  // if that banding portion uses up too much memory relative to 
+  // the avaible space left in the block cache 
+  // (i.e, causing a cache full when strict_capacity_limit = true)
   //
   // Default: false
   bool charge_bloom_ribbon_filter_construction_memory = false;
