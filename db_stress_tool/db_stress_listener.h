@@ -10,11 +10,11 @@
 #include <unordered_set>
 
 #include "file/filename.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/unique_id.h"
-#include "rocksdb/db.h"
-#include "rocksdb/listener.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 
