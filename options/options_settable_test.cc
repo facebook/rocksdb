@@ -174,7 +174,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "partition_filters=false;"
       "optimize_filters_for_memory=true;"
       "index_block_restart_interval=4;"
-      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;charge_bloom_ribbon_filter_construction_memory=false;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
