@@ -4933,6 +4933,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
   // be dynamically toggled. So we do not need to worry about `PerfLevel`
   // here, unlike many other `IOStatsContext` / `PerfContext` stats.
   uint64_t prev_bytes_read = IOSTATS(bytes_read);
+  uint64_t verify_checksum_read_bytes = 0;
 
   Status s;
 
@@ -4988,8 +4989,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
         }
-        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
-                   IOSTATS(bytes_read) - prev_bytes_read);
+        verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
         prev_bytes_read = IOSTATS(bytes_read);
       }
     }
@@ -5005,8 +5006,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
-        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
-                   IOSTATS(bytes_read) - prev_bytes_read);
+        verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read;
+        RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
         prev_bytes_read = IOSTATS(bytes_read);
         if (!s.ok()) {
           break;
@@ -5039,8 +5040,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       cfd->UnrefAndTryDelete();
     }
   }
-  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
-             IOSTATS(bytes_read) - prev_bytes_read);
+
+  verify_checksum_read_bytes = IOSTATS(bytes_read) - prev_bytes_read;
+  RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES, verify_checksum_read_bytes);
   return s;
 }
 
