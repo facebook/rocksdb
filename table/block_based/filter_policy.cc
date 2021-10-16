@@ -542,7 +542,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       }
       return bloom_fallback_.Finish(buf);
     }
-    
+
     bool success = banding.ResetAndFindSeedToSolve(
         num_slots, hash_entries_.begin(), hash_entries_.end(),
         /*starting seed*/ entropy & 255, /*seed mask*/ 255);

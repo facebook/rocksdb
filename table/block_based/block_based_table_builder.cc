@@ -487,7 +487,9 @@ struct BlockBasedTableBuilder::Rep {
       filter_context.info_log = ioptions.logger;
       filter_context.column_family_name = tbo.column_family_name;
       filter_context.reason = reason;
-      if (table_options.charge_bloom_ribbon_filter_construction_memory && !table_options.no_block_cache && table_options.block_cache != nullptr) {
+      if (table_options.charge_bloom_ribbon_filter_construction_memory &&
+          !table_options.no_block_cache &&
+          table_options.block_cache != nullptr) {
         filter_context.cache_res_mgr.reset(
             new CacheReservationManager(table_options.block_cache));
       }
