@@ -31,9 +31,9 @@ class SystemClock;
 class WritableFileWriter;
 
 #ifdef OS_WIN
-const char kFilePathSeparator = '\\';
+constexpr char kFilePathSeparator = '\\';
 #else
-const char kFilePathSeparator = '/';
+constexpr char kFilePathSeparator = '/';
 #endif
 
 // Return the name of the log file with the specified number
@@ -49,8 +49,6 @@ extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 extern std::string BlobFileName(const std::string& dbname,
                                 const std::string& blob_dir, uint64_t number);
-
-static const std::string ARCHIVAL_DIR = "archive";
 
 extern std::string ArchivalDirectory(const std::string& dbname);
 
@@ -91,6 +89,8 @@ extern std::string DescriptorFileName(const std::string& dbname,
 
 extern std::string DescriptorFileName(uint64_t number);
 
+extern const std::string kCurrentFileName;  // = "CURRENT"
+
 // Return the name of the current file.  This file contains the name
 // of the current manifest file.  The result will be prefixed with
 // "dbname".
@@ -124,8 +124,8 @@ extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
                                       const std::string& db_path = "",
                                       const std::string& log_dir = "");
 
-static const std::string kOptionsFileNamePrefix = "OPTIONS-";
-static const std::string kTempFileNameSuffix = "dbtmp";
+extern const std::string kOptionsFileNamePrefix;  // = "OPTIONS-"
+extern const std::string kTempFileNameSuffix;     // = "dbtmp"
 
 // Return a options file name given the "dbname" and file number.
 // Format:  OPTIONS-[number].dbtmp

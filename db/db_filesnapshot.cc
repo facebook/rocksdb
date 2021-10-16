@@ -227,7 +227,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     auto& cf_paths = cfd->ioptions()->cf_paths;
 
     auto GetDir = [&](size_t path_id) {
-      // See TableFileName()
+      // Matching TableFileName() behavior
       if (path_id >= cf_paths.size()) {
         assert(false);
         return cf_paths.back().path;
@@ -315,7 +315,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     results.emplace_back();
     LiveFileStorageInfo& info = results.back();
 
-    info.relative_filename = "CURRENT";
+    info.relative_filename = kCurrentFileName;
     info.directory = GetName();
     info.file_type = kCurrentFile;
     // CURRENT could be replaced so we have to record the contents we want

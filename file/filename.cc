@@ -20,9 +20,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const std::string kCurrentFileName = "CURRENT";
+const std::string kOptionsFileNamePrefix = "OPTIONS-";
+const std::string kTempFileNameSuffix = "dbtmp";
+
 static const std::string kRocksDbTFileExt = "sst";
 static const std::string kLevelDbTFileExt = "ldb";
 static const std::string kRocksDBBlobFileExt = "blob";
+static const std::string kArchivalDirName = "archive";
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
@@ -96,11 +101,11 @@ std::string BlobFileName(const std::string& dbname, const std::string& blob_dir,
 }
 
 std::string ArchivalDirectory(const std::string& dir) {
-  return dir + "/" + ARCHIVAL_DIR;
+  return dir + "/" + kArchivalDirName;
 }
 std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
-  return MakeFileName(name + "/" + ARCHIVAL_DIR, number, "log");
+  return MakeFileName(name + "/" + kArchivalDirName, number, "log");
 }
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
@@ -168,7 +173,7 @@ std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
 }
 
 std::string CurrentFileName(const std::string& dbname) {
-  return dbname + "/CURRENT";
+  return dbname + "/" + kCurrentFileName;
 }
 
 std::string LockFileName(const std::string& dbname) {
@@ -338,11 +343,12 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     // Avoid strtoull() to keep filename format independent of the
     // current locale
     bool archive_dir_found = false;
-    if (rest.starts_with(ARCHIVAL_DIR)) {
-      if (rest.size() <= ARCHIVAL_DIR.size()) {
+    if (rest.starts_with(kArchivalDirName)) {
+      if (rest.size() <= kArchivalDirName.size()) {
         return false;
       }
-      rest.remove_prefix(ARCHIVAL_DIR.size() + 1); // Add 1 to remove / also
+      rest.remove_prefix(kArchivalDirName.size() +
+                         1);  // Add 1 to remove / also
       if (log_type) {
         *log_type = kArchivedLogFile;
       }
