@@ -352,7 +352,7 @@ struct BlockBasedTableOptions {
   // Note that this option has no effect on legacy bloom filter
   //
   // Default: false
-  bool charge_bloom_and_ribbon_filter_construction_memory = false;
+  bool charge_bloom_ribbon_filter_construction_memory = false;
 
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression
