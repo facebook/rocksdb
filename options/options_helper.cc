@@ -232,7 +232,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.max_bytes_for_level_multiplier;
   cf_opts->ttl = moptions.ttl;
   cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
-  cf_opts->use_secondary_cache = moptions.use_secondary_cache;
+  cf_opts->lowest_used_cache_tier = moptions.lowest_used_cache_tier;
 
   cf_opts->max_bytes_for_level_multiplier_additional.clear();
   for (auto value : moptions.max_bytes_for_level_multiplier_additional) {
@@ -266,7 +266,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->bottommost_compression = moptions.bottommost_compression;
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
-  cf_opts->use_secondary_cache = moptions.use_secondary_cache;
+  cf_opts->lowest_used_cache_tier = moptions.lowest_used_cache_tier;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -344,6 +344,11 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
+
+std::unordered_map<std::string, CacheTier>
+    OptionsHelper::cache_tier_type_string_map = {
+        {"kVolatileTier", CacheTier::kVolatileTier},
+        {"kNonVolatileTier", CacheTier::kNonVolatileTier}};
 
 std::vector<CompressionType> GetSupportedCompressions() {
   std::vector<CompressionType> supported_compressions;
@@ -430,6 +435,9 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       (Slice(value)).DecodeHex(output_addr);
       break;
     }
+    case OptionType::kCacheTierType:
+      return ParseEnum<CacheTier>(cache_tier_type_string_map, value,
+                                  static_cast<CacheTier*>(opt_address));
     default:
       return false;
   }
@@ -523,6 +531,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       *value = (Slice(*ptr)).ToString(true);
       break;
     }
+    case OptionType::kCacheTierType:
+      return SerializeEnum<CacheTier>(
+          cache_tier_type_string_map,
+          *static_cast<const CacheTier*>(opt_address), value);
     default:
       return false;
   }
@@ -628,6 +640,17 @@ Status GetStringFromCompressionType(std::string* compression_str,
     return Status::OK();
   } else {
     return Status::InvalidArgument("Invalid compression types");
+  }
+}
+
+Status GetStringFromCacheTierType(std::string* cache_tier_str,
+                                  CacheTier cache_tier) {
+  bool ok = SerializeEnum<CacheTier>(cache_tier_type_string_map, cache_tier,
+                                     cache_tier_str);
+  if (ok) {
+    return Status::OK();
+  } else {
+    return Status::InvalidArgument("Invalid cache tier types");
   }
 }
 
@@ -1183,6 +1206,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       return IsOptionEqual<EncodingType>(this_offset, that_offset);
     case OptionType::kEncodedString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
+    case OptionType::kCacheTierType:
+      return IsOptionEqual<CacheTier>(this_offset, that_offset);
     default:
       return false;
   }  // End switch

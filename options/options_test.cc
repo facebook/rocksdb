@@ -85,7 +85,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
-      {"use_secondary_cache", "true"},
+      {"lowest_used_cache_tier", "kNonVolatileTier"},
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
@@ -219,7 +219,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
-  ASSERT_EQ(new_cf_opt.use_secondary_cache, true);
+  ASSERT_EQ(new_cf_opt.lowest_used_cache_tier, CacheTier::kNonVolatileTier);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
@@ -2245,7 +2245,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
-      {"use_secondary_cache", "true"},
+      {"lowest_used_cache_tier", "kNonVolatileTier"},
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
@@ -2371,7 +2371,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
-  ASSERT_EQ(new_cf_opt.use_secondary_cache, true);
+  ASSERT_EQ(new_cf_opt.lowest_used_cache_tier, CacheTier::kNonVolatileTier);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,

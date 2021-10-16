@@ -1191,7 +1191,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
     Cache::Handle* cache_handle = nullptr;
-    if (rep_->m_cf_options.use_secondary_cache) {
+    if (rep_->m_cf_options.lowest_used_cache_tier ==
+        CacheTier::kNonVolatileTier) {
       cache_handle = GetEntryFromCache(
           block_cache, block_cache_key, block_type, wait, get_context,
           BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type),
@@ -1259,7 +1260,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
-      if (rep_->m_cf_options.use_secondary_cache) {
+      if (rep_->m_cf_options.lowest_used_cache_tier ==
+          CacheTier::kNonVolatileTier) {
         s = block_cache->Insert(
             block_cache_key, block_holder.get(),
             BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
@@ -1357,7 +1359,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
-    if (rep_->m_cf_options.use_secondary_cache) {
+    if (rep_->m_cf_options.lowest_used_cache_tier ==
+        CacheTier::kNonVolatileTier) {
       s = block_cache_compressed->Insert(
           compressed_block_cache_key, block_cont_for_comp_cache,
           BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
@@ -1382,7 +1385,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block_holder->own_bytes()) {
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
-    if (rep_->m_cf_options.use_secondary_cache) {
+    if (rep_->m_cf_options.lowest_used_cache_tier ==
+        CacheTier::kNonVolatileTier) {
       s = block_cache->Insert(
           block_cache_key, block_holder.get(),
           BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,

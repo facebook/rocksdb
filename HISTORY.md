@@ -15,13 +15,13 @@
 * Add remote compaction read/write bytes statistics: `REMOTE_COMPACT_READ_BYTES`, `REMOTE_COMPACT_WRITE_BYTES`.
 * Introduce an experimental feature to dump out the blocks from block cache and insert them to the secondary cache to reduce the cache warmup time (e.g., used while migrating DB instance). More information are in `class CacheDumper` and `CacheDumpedLoader` at `rocksdb/utilities/cache_dump_load.h` Note that, this feature is subject to the potential change in the future, it is still experimental.
 * Introduced a new BlobDB configuration option `blob_garbage_collection_force_threshold`, which can be used to trigger compactions targeting the SST files which reference the oldest blob files when the ratio of garbage in those blob files meets or exceeds the specified threshold. This can reduce space amplification with skewed workloads where the affected SST files might not otherwise get picked up for compaction.
-* Addd a `use_secondary_cache` option to MutableCFOptions and pass it to BlockBasedTableReader. By default it is true, which means, we always use secondary cache. By set it to false, this CF will not use the secondary cache. SetOptions is used to set it when DB is running.
 
 ### Public API change
 * Made SystemClock extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 * Made SliceTransform extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.  The Capped and Prefixed transform classes return a short name (no length); use GetId for the fully qualified name.
 * Made FileChecksumGenFactory, SstPartitionerFactory, TablePropertiesCollectorFactory, and WalFilter extend the Customizable class and added a CreateFromString method.
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
+* Add CacheTier to advanced_options.h to describe the cache tier we used. Addd a `lowest_used_cache_tier` option to `ColumnFamilyOptions` (mutable) and pass MutableCFOptions to BlockBasedTableReader. By default it is `CacheTier::kNonVolatileTier`, which means, we always use both block cache (kVolatileTier) and secondary cache (kNonVolatileTier). By set it to `CacheTier::kVolatileTier`, this column family will not use the secondary cache. `SetOptions()` is used to set it when DB is running.
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes

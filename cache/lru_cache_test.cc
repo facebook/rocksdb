@@ -929,7 +929,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
 
-  dbfull()->SetOptions({{"use_secondary_cache", "false"}});
+  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
 
   v = Get(Key(70));
   ASSERT_EQ(1007, v.size());
@@ -969,7 +969,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionOff) {
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
 
-  dbfull()->SetOptions({{"use_secondary_cache", "false"}});
+  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
   std::string session_id;
   ASSERT_OK(db_->GetDbSessionId(session_id));
   secondary_cache->SetDbSessionId(session_id);
@@ -1066,7 +1066,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  dbfull()->SetOptions({{"use_secondary_cache", "false"}});
+  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
 
   for (int i = 0; i < N; i++) {
     std::string p_v = rnd.RandomString(1007);
@@ -1105,7 +1105,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  dbfull()->SetOptions({{"use_secondary_cache", "true"}});
+  dbfull()->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}});
 
   v = Get(Key(70));
   ASSERT_EQ(1007, v.size());
@@ -1171,7 +1171,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  db2->SetOptions({{"use_secondary_cache", "false"}});
+  db2->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
 
   for (int i = 0; i < N; i++) {
     std::string p_v = rnd.RandomString(1007);
@@ -1218,7 +1218,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
 
-  db2->SetOptions({{"use_secondary_cache", "true"}});
+  db2->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}});
 
   ASSERT_OK(db2->Get(ro, Key(5), &v));
   ASSERT_EQ(1007, v.size());

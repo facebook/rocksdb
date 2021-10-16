@@ -456,6 +456,8 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
                                         const std::string& delimiter = ";  ");
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
+Status GetStringFromCacheTierType(std::string* cache_tier_str,
+                                  CacheTier cache_tier);
 
 std::vector<CompressionType> GetSupportedCompressions();
 

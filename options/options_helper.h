@@ -69,6 +69,7 @@ struct OptionsHelper {
   static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
   static std::unordered_map<std::string, CompressionType>
       compression_type_string_map;
+  static std::unordered_map<std::string, CacheTier> cache_tier_type_string_map;
 #ifndef ROCKSDB_LITE
   static std::unordered_map<std::string, CompactionStopStyle>
       compaction_stop_style_string_map;
@@ -92,6 +93,8 @@ static auto& compaction_stop_style_string_map =
     OptionsHelper::compaction_stop_style_string_map;
 static auto& compression_type_string_map =
     OptionsHelper::compression_type_string_map;
+static auto& cache_tier_type_string_map =
+    OptionsHelper::cache_tier_type_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
 static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;

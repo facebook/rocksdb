@@ -155,8 +155,8 @@ struct MutableCFOptions {
         bottommost_compression_opts(options.bottommost_compression_opts),
         bottommost_temperature(options.bottommost_temperature),
         sample_for_compression(options.sample_for_compression),
-        use_secondary_cache(
-            options.use_secondary_cache) {  // TODO: is 0 fine here?
+        lowest_used_cache_tier(
+            options.lowest_used_cache_tier) {  // TODO: is 0 fine here?
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -199,7 +199,7 @@ struct MutableCFOptions {
         bottommost_compression(kDisableCompressionOption),
         bottommost_temperature(Temperature::kUnknown),
         sample_for_compression(0),
-        use_secondary_cache(true) {}
+        lowest_used_cache_tier(CacheTier::kNonVolatileTier) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -272,7 +272,7 @@ struct MutableCFOptions {
   Temperature bottommost_temperature;
 
   uint64_t sample_for_compression;
-  bool use_secondary_cache;
+  CacheTier lowest_used_cache_tier;
 
   // Derived options
   // Per-level target file size.
