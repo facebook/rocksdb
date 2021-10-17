@@ -54,7 +54,9 @@ class ObsoleteFilesTest : public DBTestBase {
       AddKeys(numKeysPerFile, startKey);
       startKey += numKeysPerFile;
       ASSERT_OK(dbfull()->TEST_FlushMemTable());
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      ASSERT_OK(
+          dbfull()->TEST_WaitForCompact());  // wait for background flush (flush
+                                             // is also a kind of compaction).
     }
   }
 
