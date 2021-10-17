@@ -3715,32 +3715,56 @@ class OptionsSanityCheckTest : public OptionsParserTest {
   OptionsSanityCheckTest() {}
 
  protected:
-  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
-                              ConfigOptions::SanityLevel level,
-                              bool input_strings_escaped = true) {
+  Status SanityCheckOptions(const DBOptions& db_opts,
+                            const ColumnFamilyOptions& cf_opts,
+                            ConfigOptions::SanityLevel level,
+                            bool input_strings_escaped = true) {
     ConfigOptions config_options;
     config_options.sanity_level = level;
     config_options.ignore_unknown_options = false;
     config_options.input_strings_escaped = input_strings_escaped;
 
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-        config_options, DBOptions(), {"default"}, {cf_opts}, kOptionsFileName,
+        config_options, db_opts, {"default"}, {cf_opts}, kOptionsFileName,
         fs_.get());
   }
 
-  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
+                              ConfigOptions::SanityLevel level,
+                              bool input_strings_escaped = true) {
+    return SanityCheckOptions(DBOptions(), cf_opts, level,
+                              input_strings_escaped);
+  }
+
+  Status SanityCheckDBOptions(const DBOptions& db_opts,
+                              ConfigOptions::SanityLevel level,
+                              bool input_strings_escaped = true) {
+    return SanityCheckOptions(db_opts, ColumnFamilyOptions(), level,
+                              input_strings_escaped);
+  }
+
+  Status PersistOptions(const DBOptions& db_opts,
+                        const ColumnFamilyOptions& cf_opts) {
     Status s = fs_->DeleteFile(kOptionsFileName, IOOptions(), nullptr);
     if (!s.ok()) {
       return s;
     }
-    return PersistRocksDBOptions(DBOptions(), {"default"}, {cf_opts},
+    return PersistRocksDBOptions(db_opts, {"default"}, {cf_opts},
                                  kOptionsFileName, fs_.get());
+  }
+
+  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+    return PersistOptions(DBOptions(), cf_opts);
+  }
+
+  Status PersistDBOptions(const DBOptions& db_opts) {
+    return PersistOptions(db_opts, ColumnFamilyOptions());
   }
 
   const std::string kOptionsFileName = "OPTIONS";
 };
 
-TEST_F(OptionsSanityCheckTest, SanityCheck) {
+TEST_F(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;
   Random rnd(301);
 
@@ -3900,6 +3924,54 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
           SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
     }
   }
+}
+
+TEST_F(OptionsSanityCheckTest, DBOptionsSanityCheck) {
+  DBOptions opts;
+  Random rnd(301);
+
+  // default DBOptions
+  {
+    ASSERT_OK(PersistDBOptions(opts));
+    ASSERT_OK(
+        SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+  }
+
+  // File checksum generator
+  {
+    class MockFileChecksumGenFactory : public FileChecksumGenFactory {
+     public:
+      static const char* kClassName() { return "Mock"; }
+      const char* Name() const override { return kClassName(); }
+      std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+          const FileChecksumGenContext& /*context*/) override {
+        return nullptr;
+      }
+    };
+
+    // Okay to change file_checksum_gen_factory form nullptr to non-nullptr
+    ASSERT_EQ(opts.file_checksum_gen_factory.get(), nullptr);
+    opts.file_checksum_gen_factory.reset(new MockFileChecksumGenFactory());
+    ASSERT_OK(SanityCheckDBOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistDBOptions(opts));
+    ASSERT_OK(
+        SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+
+    // Change file_checksum_gen_factory from non-nullptr to nullptr
+    opts.file_checksum_gen_factory.reset();
+    // expect pass as it's safe to change file_checksum_gen_factory
+    // from non-null to null
+    ASSERT_OK(SanityCheckDBOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelNone));
+  }
+  // persist the change
+  ASSERT_OK(PersistDBOptions(opts));
+  ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 }
 
 namespace {

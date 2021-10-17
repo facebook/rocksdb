@@ -622,9 +622,9 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
     const DBOptions& file_opt,
-    const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  auto base_config = DBOptionsAsConfigurable(base_opt);
-  auto file_config = DBOptionsAsConfigurable(file_opt);
+    const std::unordered_map<std::string, std::string>* opt_map) {
+  auto base_config = DBOptionsAsConfigurable(base_opt, opt_map);
+  auto file_config = DBOptionsAsConfigurable(file_opt, opt_map);
   std::string mismatch;
   if (!base_config->AreEquivalent(config_options, file_config.get(),
                                   &mismatch)) {
