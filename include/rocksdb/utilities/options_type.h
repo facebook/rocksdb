@@ -45,7 +45,6 @@ enum class OptionType {
   kConfigurable,
   kCustomizable,
   kEncodedString,
-  kCacheTierType,
   kUnknown,
 };
 

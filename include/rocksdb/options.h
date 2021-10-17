@@ -315,10 +315,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // This is a MutableCFOption. It indicates, which lowest cache tier we want to
   // use for a certain column family. Currently we support volatile_tier and
   // non_volatile_tier. They are layered. By setting it to kVolatileTier, only
-  // the block cache is used. So the block cache entries from this DB will not
-  // spill to secondary cache, and block cache lookup misses will not lookup in
-  // the secondary cache. When it is set to kNonVolatileTier, we use both block
-  // cache and secondary cache.
+  // the block cache (current implemented volatile_tier) is used. So the block
+  // cache entries from this CF will not spill to secondary cache (current
+  // implemented non_volatile_tier), and block cache lookup misses will not
+  // lookup in the secondary cache. When it is set to kNonVolatileTier, we use
+  // both block cache and secondary cache.
   //
   // Default: kNonVolatileTier
   //

@@ -848,6 +848,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   Destroy(options);
 }
 
+#ifndef ROCKSDB_LITE
 // Test the option to for a DB CF not to use the secondary cache, when we start
 // to use it already
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
@@ -929,7 +930,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
 
-  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
+  ASSERT_OK(
+      dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}}));
 
   v = Get(Key(70));
   ASSERT_EQ(1007, v.size());
@@ -969,7 +971,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionOff) {
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
 
-  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
+  ASSERT_OK(
+      dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}}));
   std::string session_id;
   ASSERT_OK(db_->GetDbSessionId(session_id));
   secondary_cache->SetDbSessionId(session_id);
@@ -1066,7 +1069,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
+  ASSERT_OK(
+      dbfull()->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}}));
 
   for (int i = 0; i < N; i++) {
     std::string p_v = rnd.RandomString(1007);
@@ -1105,7 +1109,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  dbfull()->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}});
+  ASSERT_OK(
+      dbfull()->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}}));
 
   v = Get(Key(70));
   ASSERT_EQ(1007, v.size());
@@ -1171,7 +1176,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
-  db2->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}});
+  ASSERT_OK(db2->SetOptions({{"lowest_used_cache_tier", "kVolatileTier"}}));
 
   for (int i = 0; i < N; i++) {
     std::string p_v = rnd.RandomString(1007);
@@ -1218,7 +1223,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 4u);
 
-  db2->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}});
+  ASSERT_OK(db2->SetOptions({{"lowest_used_cache_tier", "kNonVolatileTier"}}));
 
   ASSERT_OK(db2->Get(ro, Key(5), &v));
   ASSERT_EQ(1007, v.size());
@@ -1235,6 +1240,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }
+#endif  // ROCKSDB_LITE
 
 // The block cache size is set to 1024*1024, after insert 6 KV-pairs
 // and flush, there are 5 blocks in this SST file, 2 data blocks and 3 meta

@@ -154,9 +154,9 @@ struct MutableCFOptions {
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
         bottommost_temperature(options.bottommost_temperature),
-        sample_for_compression(options.sample_for_compression),
-        lowest_used_cache_tier(
-            options.lowest_used_cache_tier) {  // TODO: is 0 fine here?
+        sample_for_compression(
+            options.sample_for_compression),  // TODO: is 0 fine here?
+        lowest_used_cache_tier(options.lowest_used_cache_tier) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -201,6 +201,128 @@ struct MutableCFOptions {
         sample_for_compression(0),
         lowest_used_cache_tier(CacheTier::kNonVolatileTier) {}
 
+  MutableCFOptions(const MutableCFOptions& options) {
+    std::unique_lock<std::mutex> lock_other(options.m_cf_mutex);
+
+    write_buffer_size = options.write_buffer_size;
+    max_write_buffer_number = options.max_write_buffer_number;
+    arena_block_size = options.arena_block_size;
+    memtable_prefix_bloom_size_ratio = options.memtable_prefix_bloom_size_ratio;
+    memtable_whole_key_filtering = options.memtable_whole_key_filtering;
+    memtable_huge_page_size = options.memtable_huge_page_size;
+    max_successive_merges = options.max_successive_merges;
+    inplace_update_num_locks = options.inplace_update_num_locks;
+    prefix_extractor = options.prefix_extractor;
+    disable_auto_compactions = options.disable_auto_compactions;
+    soft_pending_compaction_bytes_limit =
+        options.soft_pending_compaction_bytes_limit;
+    hard_pending_compaction_bytes_limit =
+        options.hard_pending_compaction_bytes_limit;
+    level0_file_num_compaction_trigger =
+        options.level0_file_num_compaction_trigger;
+    level0_slowdown_writes_trigger = options.level0_slowdown_writes_trigger;
+    level0_stop_writes_trigger = options.level0_stop_writes_trigger;
+    max_compaction_bytes = options.max_compaction_bytes;
+    target_file_size_base = options.target_file_size_base;
+    target_file_size_multiplier = options.target_file_size_multiplier;
+    max_bytes_for_level_base = options.max_bytes_for_level_base;
+    max_bytes_for_level_multiplier = options.max_bytes_for_level_multiplier;
+    ttl = options.ttl;
+    periodic_compaction_seconds = options.periodic_compaction_seconds;
+    max_bytes_for_level_multiplier_additional =
+        options.max_bytes_for_level_multiplier_additional;
+    compaction_options_fifo = options.compaction_options_fifo;
+    compaction_options_universal = options.compaction_options_universal;
+    enable_blob_files = options.enable_blob_files;
+    min_blob_size = options.min_blob_size;
+    blob_file_size = options.blob_file_size;
+    blob_compression_type = options.blob_compression_type;
+    enable_blob_garbage_collection = options.enable_blob_garbage_collection;
+    blob_garbage_collection_age_cutoff =
+        options.blob_garbage_collection_age_cutoff;
+    blob_garbage_collection_force_threshold =
+        options.blob_garbage_collection_force_threshold;
+    max_sequential_skip_in_iterations =
+        options.max_sequential_skip_in_iterations;
+    check_flush_compaction_key_order = options.check_flush_compaction_key_order;
+    paranoid_file_checks = options.paranoid_file_checks;
+    report_bg_io_stats = options.report_bg_io_stats;
+    compression = options.compression;
+    bottommost_compression = options.bottommost_compression;
+    compression_opts = options.compression_opts;
+    bottommost_compression_opts = options.bottommost_compression_opts;
+    bottommost_temperature = options.bottommost_temperature;
+    sample_for_compression = options.sample_for_compression;
+    lowest_used_cache_tier = options.lowest_used_cache_tier;
+    max_file_size = options.max_file_size;
+  }
+
+  MutableCFOptions& operator=(const MutableCFOptions& options) {
+    if (&options != this) {
+      // lock both objects
+      std::unique_lock<std::mutex> lock_this(m_cf_mutex, std::defer_lock);
+      std::unique_lock<std::mutex> lock_options(options.m_cf_mutex,
+                                                std::defer_lock);
+      // ensure no deadlock
+      std::lock(lock_this, lock_options);
+
+      write_buffer_size = options.write_buffer_size;
+      max_write_buffer_number = options.max_write_buffer_number;
+      arena_block_size = options.arena_block_size;
+      memtable_prefix_bloom_size_ratio =
+          options.memtable_prefix_bloom_size_ratio;
+      memtable_whole_key_filtering = options.memtable_whole_key_filtering;
+      memtable_huge_page_size = options.memtable_huge_page_size;
+      max_successive_merges = options.max_successive_merges;
+      inplace_update_num_locks = options.inplace_update_num_locks;
+      prefix_extractor = options.prefix_extractor;
+      disable_auto_compactions = options.disable_auto_compactions;
+      soft_pending_compaction_bytes_limit =
+          options.soft_pending_compaction_bytes_limit;
+      hard_pending_compaction_bytes_limit =
+          options.hard_pending_compaction_bytes_limit;
+      level0_file_num_compaction_trigger =
+          options.level0_file_num_compaction_trigger;
+      level0_slowdown_writes_trigger = options.level0_slowdown_writes_trigger;
+      level0_stop_writes_trigger = options.level0_stop_writes_trigger;
+      max_compaction_bytes = options.max_compaction_bytes;
+      target_file_size_base = options.target_file_size_base;
+      target_file_size_multiplier = options.target_file_size_multiplier;
+      max_bytes_for_level_base = options.max_bytes_for_level_base;
+      max_bytes_for_level_multiplier = options.max_bytes_for_level_multiplier;
+      ttl = options.ttl;
+      periodic_compaction_seconds = options.periodic_compaction_seconds;
+      max_bytes_for_level_multiplier_additional =
+          options.max_bytes_for_level_multiplier_additional;
+      compaction_options_fifo = options.compaction_options_fifo;
+      compaction_options_universal = options.compaction_options_universal;
+      enable_blob_files = options.enable_blob_files;
+      min_blob_size = options.min_blob_size;
+      blob_file_size = options.blob_file_size;
+      blob_compression_type = options.blob_compression_type;
+      enable_blob_garbage_collection = options.enable_blob_garbage_collection;
+      blob_garbage_collection_age_cutoff =
+          options.blob_garbage_collection_age_cutoff;
+      blob_garbage_collection_force_threshold =
+          options.blob_garbage_collection_force_threshold;
+      max_sequential_skip_in_iterations =
+          options.max_sequential_skip_in_iterations;
+      check_flush_compaction_key_order =
+          options.check_flush_compaction_key_order;
+      paranoid_file_checks = options.paranoid_file_checks;
+      report_bg_io_stats = options.report_bg_io_stats;
+      compression = options.compression;
+      bottommost_compression = options.bottommost_compression;
+      compression_opts = options.compression_opts;
+      bottommost_compression_opts = options.bottommost_compression_opts;
+      bottommost_temperature = options.bottommost_temperature;
+      sample_for_compression = options.sample_for_compression;
+      lowest_used_cache_tier = options.lowest_used_cache_tier;
+      max_file_size = options.max_file_size;
+    }
+    return *this;
+  }
+
   explicit MutableCFOptions(const Options& options);
 
   // Must be called after any change to MutableCFOptions
@@ -219,6 +341,8 @@ struct MutableCFOptions {
   }
 
   void Dump(Logger* log) const;
+
+  mutable std::mutex m_cf_mutex;
 
   // Memtable related options
   size_t write_buffer_size;
