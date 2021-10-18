@@ -1374,6 +1374,7 @@ class VersionSet {
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
+  uint64_t options_file_size_;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the

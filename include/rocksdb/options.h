@@ -1884,4 +1884,14 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<Statistics> statistics = nullptr;
 };
 
+#ifndef ROCKSDB_LITE
+struct LiveFilesStorageInfoOptions {
+  // Whether to populate FileStorageInfo::file_checksum* or leave blank
+  bool include_checksum_info = false;
+  // Flushes memtables if total size in bytes of live WAL files is >= this
+  // number. Default: always force a flush without checking sizes.
+  uint64_t wal_size_for_flush = 0;
+};
+#endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE

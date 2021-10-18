@@ -5,6 +5,7 @@
 #pragma once
 
 #include <assert.h>
+
 #include <functional>
 #include <mutex>
 #include <string>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 
 #ifdef NDEBUG
 // empty in release build
@@ -117,7 +119,16 @@ class SyncPoint {
   // triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
   // And/or call registered callback function, with argument `cb_arg`
-  void Process(const std::string& point, void* cb_arg = nullptr);
+  void Process(const Slice& point, void* cb_arg = nullptr);
+
+  // template gets length of const string at compile time,
+  //  avoiding strlen() at runtime
+  template <size_t kLen>
+  void Process(const char (&point)[kLen], void* cb_arg = nullptr) {
+    static_assert(kLen > 0, "Must not be empty");
+    assert(point[kLen - 1] == '\0');
+    Process(Slice(point, kLen - 1), cb_arg);
+  }
 
   // TODO: it might be useful to provide a function that blocks until all
   // sync points are cleared.
