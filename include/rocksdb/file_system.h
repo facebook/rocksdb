@@ -96,7 +96,7 @@ struct IOOptions {
   // useful in cases where a RocksDB user directly uses the FileSystem or file
   // object for their own purposes, and wants to pass extra options to APIs
   // such as NewRandomAccessFile and NewWritableFile.
-  std::unordered_map<std::string, void*> property_bag;
+  std::unordered_map<std::string, string> property_bag;
 
   IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
