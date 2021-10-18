@@ -84,14 +84,14 @@ public class BlobOptionsTest {
           .isEqualTo(options);
       assertThat(options.setEnableBlobGarbageCollection(true)).isEqualTo(options);
       assertThat(options.setBlobFileSize(132768L)).isEqualTo(options);
-      assertThat(options.setBlobGarbageCollectionAgeCutoff(2.75)).isEqualTo(options);
+      assertThat(options.setBlobGarbageCollectionAgeCutoff(0.89)).isEqualTo(options);
 
       assertThat(options.enableBlobFiles()).isEqualTo(true);
       assertThat(options.minBlobSize()).isEqualTo(132768L);
       assertThat(options.blobCompressionType()).isEqualTo(CompressionType.BZLIB2_COMPRESSION);
       assertThat(options.enableBlobGarbageCollection()).isEqualTo(true);
       assertThat(options.blobFileSize()).isEqualTo(132768L);
-      assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(2.75);
+      assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
     }
   }
 

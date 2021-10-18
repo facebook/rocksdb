@@ -33,14 +33,13 @@ public class MutableOptionsGetSetTest {
     final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
     final ColumnFamilyDescriptor columnFamilyDescriptor0 =
         new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0);
-    List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
         Collections.singletonList(columnFamilyDescriptor0);
-    List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-      db.flush(new FlushOptions().setWaitForFlush(true));
 
       try (final ColumnFamilyOptions columnFamilyOptions1 =
                new ColumnFamilyOptions()
@@ -95,10 +94,9 @@ public class MutableOptionsGetSetTest {
             db.createColumnFamily(columnFamilyDescriptor1);
         final ColumnFamilyHandle columnFamilyHandle2 =
             db.createColumnFamily(columnFamilyDescriptor2);
-        db.flush(new FlushOptions().setWaitForFlush(true));
 
         // Check the getOptions() brings back the creation options for CF1
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
             db.getOptions(columnFamilyHandle1);
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
@@ -121,7 +119,7 @@ public class MutableOptionsGetSetTest {
         assertThat(builder1.reportBgIoStats()).isEqualTo(true);
 
         // Check the getOptions() brings back the creation options for CF2
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
             db.getOptions(columnFamilyHandle2);
         assertThat(builder2.enableBlobFiles()).isEqualTo(false);
         assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
@@ -160,14 +158,13 @@ public class MutableOptionsGetSetTest {
     final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
     final ColumnFamilyDescriptor columnFamilyDescriptor0 =
         new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0);
-    List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
         Collections.singletonList(columnFamilyDescriptor0);
-    List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-      db.flush(new FlushOptions().setWaitForFlush(true));
 
       try (final ColumnFamilyOptions columnFamilyOptions1 = new ColumnFamilyOptions();
 
@@ -207,7 +204,7 @@ public class MutableOptionsGetSetTest {
         db.setOptions(columnFamilyHandle1, mutableColumnFamilyOptions1.build());
 
         // Check the getOptions() brings back the creation options for CF1
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
             db.getOptions(columnFamilyHandle1);
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
@@ -250,7 +247,7 @@ public class MutableOptionsGetSetTest {
         db.setOptions(columnFamilyHandle2, mutableColumnFamilyOptions2.build());
 
         // Check the getOptions() brings back the creation options for CF2
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
             db.getOptions(columnFamilyHandle2);
         assertThat(builder2.enableBlobFiles()).isEqualTo(false);
         assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
@@ -287,14 +284,13 @@ public class MutableOptionsGetSetTest {
     final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
     final ColumnFamilyDescriptor columnFamilyDescriptor0 =
         new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0);
-    List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
         Collections.singletonList(columnFamilyDescriptor0);
-    List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-      db.flush(new FlushOptions().setWaitForFlush(true));
 
       final MutableColumnFamilyOptions
           .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions =
@@ -319,7 +315,7 @@ public class MutableOptionsGetSetTest {
       db.setOptions(mutableColumnFamilyOptions.build());
 
       // Check the getOptions() brings back the creation options for CF1
-      MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 = db.getOptions();
+      final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 = db.getOptions();
       assertThat(builder1.enableBlobFiles()).isEqualTo(true);
       assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
       assertThat(builder1.arenaBlockSize()).isEqualTo(42);
@@ -345,14 +341,13 @@ public class MutableOptionsGetSetTest {
     final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
     final ColumnFamilyDescriptor columnFamilyDescriptor0 =
         new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0);
-    List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
         Collections.singletonList(columnFamilyDescriptor0);
-    List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-      db.flush(new FlushOptions().setWaitForFlush(true));
 
       final MutableDBOptions.MutableDBOptionsBuilder mutableDBOptions =
           MutableDBOptions.builder()
@@ -373,7 +368,7 @@ public class MutableOptionsGetSetTest {
 
       db.setDBOptions(mutableDBOptions.build());
 
-      MutableDBOptions.MutableDBOptionsBuilder getBuilder = db.getDBOptions();
+      final MutableDBOptions.MutableDBOptionsBuilder getBuilder = db.getDBOptions();
       assertThat(getBuilder.maxBackgroundJobs()).isEqualTo(16); // 4
       assertThat(getBuilder.avoidFlushDuringShutdown()).isEqualTo(true); // false
       assertThat(getBuilder.writableFileMaxBufferSize()).isEqualTo(2097152); // 1048576
