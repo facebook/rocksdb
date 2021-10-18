@@ -903,8 +903,6 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_cf_name(
     const rocksdb_flushjobinfo_t*, size_t*);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_file_path(
     const rocksdb_flushjobinfo_t*, size_t*);
-/* extern ROCKSDB_LIBRARY_API const rocksdb_table_properties_t* */
-/* rocksdb_flushjobinfo_table_properties(const rocksdb_flushjobinfo_t*); */
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_flushjobinfo_triggered_writes_slowdown(const rocksdb_flushjobinfo_t*);
 extern ROCKSDB_LIBRARY_API unsigned char
@@ -924,9 +922,6 @@ extern ROCKSDB_LIBRARY_API size_t rocksdb_compactionjobinfo_output_files_count(
     const rocksdb_compactionjobinfo_t*);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionjobinfo_output_file_at(
     const rocksdb_compactionjobinfo_t*, size_t pos, size_t*);
-/* extern ROCKSDB_LIBRARY_API const rocksdb_table_properties_collection_t* */
-/* rocksdb_compactionjobinfo_table_properties( */
-/*     const rocksdb_compactionjobinfo_t*); */
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_compactionjobinfo_elapsed_micros(const rocksdb_compactionjobinfo_t*);
 extern ROCKSDB_LIBRARY_API uint64_t
