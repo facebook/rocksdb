@@ -52,6 +52,7 @@ static void StartPhase(const char* name) {
   phase = name;
 }
 #ifdef _MSC_VER
+#define __attribute__(A)
 #pragma warning(push)
 #pragma warning (disable: 4996) // getenv security warning
 #endif
