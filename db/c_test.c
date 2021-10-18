@@ -438,7 +438,7 @@ void eventlistener_on_flush_completed_cb(
   CheckCondition(clientd != NULL);
   CheckCondition(db != NULL);
 
-  const char* file_path __attribute__((__unused__)) = NULL;
+  const char* file_path = NULL;
   size_t sz = 0;
   unsigned char triggered_writes_slowdown __attribute__((__unused__)) = 0;
   unsigned char triggered_writes_stop __attribute__((__unused__)) = 0;
@@ -448,6 +448,7 @@ void eventlistener_on_flush_completed_cb(
       rocksdb_flushjobinfo_triggered_writes_slowdown(flushjobinfo);
   triggered_writes_stop =
       rocksdb_flushjobinfo_triggered_writes_stop(flushjobinfo);
+  CheckCondition(file_path != NULL);
 }
 
 void eventlistener_on_compaction_completed_cb(
@@ -487,27 +488,29 @@ void eventlistener_on_external_file_ingested_cb(
   CheckCondition(clientd != NULL);
   CheckCondition(db != NULL);
 
-  const char* file_path __attribute__((__unused__)) = NULL;
+  const char* file_path = NULL;
   size_t sz = 0;
 
   file_path = rocksdb_externalfileingestioninfo_internal_file_path(
       externalfileingestioninfo, &sz);
+  CheckCondition(file_path != NULL);
 }
 
 void eventlistener_on_stall_conditions_changed_cb(
     void* clientd, const rocksdb_writestallinfo_t* writestallinfo) {
   CheckCondition(clientd != NULL);
 
-  const enum _tibdgKvStore_WriteStallCondition* curr
-      __attribute__((__unused__)) = NULL;
-  const enum _tibdgKvStore_WriteStallCondition* prev
-      __attribute__((__unused__)) = NULL;
+  const enum _tibdgKvStore_WriteStallCondition* curr = NULL;
+  const enum _tibdgKvStore_WriteStallCondition* prev = NULL;
 
   curr =
       (const enum _tibdgKvStore_WriteStallCondition*)rocksdb_writestallinfo_cur(
           writestallinfo);
   prev = (const enum _tibdgKvStore_WriteStallCondition*)
       rocksdb_writestallinfo_prev(writestallinfo);
+
+  CheckCondition(curr != NULL);
+  CheckCondition(prev != NULL);
 }
 
 int main(int argc, char** argv) {
