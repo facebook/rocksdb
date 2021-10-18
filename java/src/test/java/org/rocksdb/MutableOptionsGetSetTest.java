@@ -40,7 +40,6 @@ public class MutableOptionsGetSetTest {
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-
       try (final ColumnFamilyOptions columnFamilyOptions1 =
                new ColumnFamilyOptions()
                    .setMinBlobSize(minBlobSize)
@@ -165,7 +164,6 @@ public class MutableOptionsGetSetTest {
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-
       try (final ColumnFamilyOptions columnFamilyOptions1 = new ColumnFamilyOptions();
 
            final ColumnFamilyOptions columnFamilyOptions2 = new ColumnFamilyOptions()) {
@@ -291,7 +289,6 @@ public class MutableOptionsGetSetTest {
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-
       final MutableColumnFamilyOptions
           .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions =
           MutableColumnFamilyOptions.builder()
@@ -348,7 +345,6 @@ public class MutableOptionsGetSetTest {
     try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-
       final MutableDBOptions.MutableDBOptionsBuilder mutableDBOptions =
           MutableDBOptions.builder()
               .setMaxBackgroundJobs(16)
