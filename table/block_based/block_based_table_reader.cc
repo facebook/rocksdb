@@ -370,6 +370,21 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
   return cache_handle;
 }
 
+Cache::Handle* BlockBasedTable::GetEntryFromCache(
+    Cache* block_cache, const Slice& key, BlockType block_type,
+    GetContext* get_context) const {
+  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
+
+  if (cache_handle != nullptr) {
+    UpdateCacheHitMetrics(block_type, get_context,
+                          block_cache->GetUsage(cache_handle));
+  } else {
+    UpdateCacheMissMetrics(block_type, get_context);
+  }
+
+  return cache_handle;
+}
+
 // Helper function to setup the cache key's prefix for the Table.
 void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
                                           const std::string& db_session_id,
@@ -1174,10 +1189,16 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
-    auto cache_handle = GetEntryFromCache(
-        block_cache, block_cache_key, block_type, wait, get_context,
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), create_cb,
-        priority);
+    Cache::Handle* cache_handle = nullptr;
+    if (rep_->ioptions.lowest_used_cache_tier == CacheTier::kNonVolatileTier) {
+      cache_handle = GetEntryFromCache(
+          block_cache, block_cache_key, block_type, wait, get_context,
+          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type),
+          create_cb, priority);
+    } else {
+      cache_handle = GetEntryFromCache(block_cache, block_cache_key, block_type,
+                                       get_context);
+    }
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
@@ -1195,12 +1216,17 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   assert(!compressed_block_cache_key.empty());
   BlockContents contents;
-  Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
-  block_cache_compressed_handle = block_cache_compressed->Lookup(
-      compressed_block_cache_key,
-      BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
-      create_cb_special, priority, true);
+  if (rep_->ioptions.lowest_used_cache_tier == CacheTier::kNonVolatileTier) {
+    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
+        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+    block_cache_compressed_handle = block_cache_compressed->Lookup(
+        compressed_block_cache_key,
+        BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
+        create_cb_special, priority, true);
+  } else {
+    block_cache_compressed_handle =
+        block_cache_compressed->Lookup(compressed_block_cache_key, statistics);
+  }
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1237,10 +1263,19 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
-      s = block_cache->Insert(
-          block_cache_key, block_holder.get(),
-          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
-          &cache_handle, priority);
+      if (rep_->ioptions.lowest_used_cache_tier ==
+          CacheTier::kNonVolatileTier) {
+        s = block_cache->Insert(
+            block_cache_key, block_holder.get(),
+            BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
+            &cache_handle, priority);
+      } else {
+        s = block_cache->Insert(
+            block_cache_key, block_holder.get(), charge,
+            (BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type))
+                ->del_cb,
+            &cache_handle, priority);
+      }
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1327,10 +1362,18 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
-    s = block_cache_compressed->Insert(
-        compressed_block_cache_key, block_cont_for_comp_cache,
-        BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
-        block_cont_for_comp_cache->ApproximateMemoryUsage());
+    if (rep_->ioptions.lowest_used_cache_tier == CacheTier::kNonVolatileTier) {
+      s = block_cache_compressed->Insert(
+          compressed_block_cache_key, block_cont_for_comp_cache,
+          BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
+          block_cont_for_comp_cache->ApproximateMemoryUsage());
+    } else {
+      s = block_cache_compressed->Insert(
+          compressed_block_cache_key, block_cont_for_comp_cache,
+          block_cont_for_comp_cache->ApproximateMemoryUsage(),
+          (BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type))
+              ->del_cb);
+    }
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1344,10 +1387,17 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block_holder->own_bytes()) {
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
-    s = block_cache->Insert(
-        block_cache_key, block_holder.get(),
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
-        &cache_handle, priority);
+    if (rep_->ioptions.lowest_used_cache_tier == CacheTier::kNonVolatileTier) {
+      s = block_cache->Insert(
+          block_cache_key, block_holder.get(),
+          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
+          &cache_handle, priority);
+    } else {
+      s = block_cache->Insert(
+          block_cache_key, block_holder.get(), charge,
+          (BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type))->del_cb,
+          &cache_handle, priority);
+    }
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,
