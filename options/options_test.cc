@@ -4688,10 +4688,11 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
 }
-#endif  // !ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
                         ::testing::Bool());
+#endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
