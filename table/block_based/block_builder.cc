@@ -50,7 +50,7 @@ BlockBuilder::BlockBuilder(
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
-      restarts_(),
+      restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false) {
   switch (index_type) {
@@ -64,14 +64,13 @@ BlockBuilder::BlockBuilder(
       assert(0);
   }
   assert(block_restart_interval_ >= 1);
-  restarts_.push_back(0);  // First restart point is at offset 0
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
 }
 
 void BlockBuilder::Reset() {
   buffer_.clear();
-  restarts_.clear();
-  restarts_.push_back(0);  // First restart point is at offset 0
+  restarts_.resize(1);  // First restart point is at offset 0
+  assert(restarts_[0] == 0);
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
   counter_ = 0;
   finished_ = false;
