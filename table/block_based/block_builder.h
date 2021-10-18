@@ -37,7 +37,9 @@ class BlockBuilder {
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
-  // DO NOT mix with AddWithLastKey() between Resets.
+  // DO NOT mix with AddWithLastKey() between Resets. For efficiency, use
+  // AddWithLastKey() in contexts where previous added key is already known
+  // and delta encoding might be used.
   void Add(const Slice& key, const Slice& value,
            const Slice* const delta_value = nullptr);
 
