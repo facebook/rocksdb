@@ -318,6 +318,10 @@ class EncryptedWritableFile : public FSWritableFile {
                             const IOOptions& options,
                             IODebugContext* dbg) override;
 
+  // true if Sync() and Fsync() are safe to call concurrently with Append()
+  // and Flush().
+  bool IsSyncThreadSafe() const override;
+
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
   bool use_direct_io() const override;

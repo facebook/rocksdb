@@ -101,19 +101,23 @@ void SyncPoint::Data::ClearAllCallBacks() {
   callbacks_.clear();
 }
 
-void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
+void SyncPoint::Data::Process(const Slice& point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
+
   // Use a filter to prevent mutex lock if possible.
   if (!point_filter_.MayContain(point)) {
     return;
   }
 
+  // Must convert to std::string for remaining work.  Take
+  //  heap hit.
+  std::string point_string(point.ToString());
   std::unique_lock<std::mutex> lock(mutex_);
   auto thread_id = std::this_thread::get_id();
 
-  auto marker_iter = markers_.find(point);
+  auto marker_iter = markers_.find(point_string);
   if (marker_iter != markers_.end()) {
     for (auto& marked_point : marker_iter->second) {
       marked_thread_id_.emplace(marked_point, thread_id);
@@ -121,18 +125,18 @@ void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
     }
   }
 
-  if (DisabledByMarker(point, thread_id)) {
+  if (DisabledByMarker(point_string, thread_id)) {
     return;
   }
 
-  while (!PredecessorsAllCleared(point)) {
+  while (!PredecessorsAllCleared(point_string)) {
     cv_.wait(lock);
-    if (DisabledByMarker(point, thread_id)) {
+    if (DisabledByMarker(point_string, thread_id)) {
       return;
     }
   }
 
-  auto callback_pair = callbacks_.find(point);
+  auto callback_pair = callbacks_.find(point_string);
   if (callback_pair != callbacks_.end()) {
     num_callbacks_running_++;
     mutex_.unlock();
@@ -140,7 +144,7 @@ void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
     mutex_.lock();
     num_callbacks_running_--;
   }
-  cleared_points_.insert(point);
+  cleared_points_.insert(point_string);
   cv_.notify_all();
 }
 }  // namespace ROCKSDB_NAMESPACE

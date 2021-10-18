@@ -1676,12 +1676,10 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
   }
 }
 
-inline void multi_get_helper_release_keys(
-    JNIEnv* env, std::vector<std::pair<jbyte*, jobject>>& keys_to_free) {
+inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
   auto end = keys_to_free.end();
   for (auto it = keys_to_free.begin(); it != end; ++it) {
-    delete[] it->first;
-    env->DeleteLocalRef(it->second);
+    delete[] * it;
   }
   keys_to_free.clear();
 }
@@ -1703,6 +1701,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
     jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
     if (jcfh == nullptr) {
       // exception thrown: OutOfMemoryError
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for CF handle array.");
       return nullptr;
     }
 
@@ -1714,15 +1715,11 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
     env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
   }
 
-  const jsize len_keys = env->GetArrayLength(jkeys);
-  if (env->EnsureLocalCapacity(len_keys) != 0) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-
   jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
   if (jkey_off == nullptr) {
     // exception thrown: OutOfMemoryError
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key offset array.");
     return nullptr;
   }
 
@@ -1730,18 +1727,24 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   if (jkey_len == nullptr) {
     // exception thrown: OutOfMemoryError
     env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key length array.");
     return nullptr;
   }
 
+  const jsize len_keys = env->GetArrayLength(jkeys);
   std::vector<ROCKSDB_NAMESPACE::Slice> keys;
-  std::vector<std::pair<jbyte*, jobject>> keys_to_free;
+  std::vector<jbyte*> keys_to_free;
   for (jsize i = 0; i < len_keys; i++) {
     jobject jkey = env->GetObjectArrayElement(jkeys, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(env, keys_to_free);
+      multi_get_helper_release_keys(keys_to_free);
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for key object array.");
       return nullptr;
     }
 
@@ -1756,14 +1759,18 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
       env->DeleteLocalRef(jkey);
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(env, keys_to_free);
+      multi_get_helper_release_keys(keys_to_free);
+      jclass exception_cls =
+          (env)->FindClass("java/lang/ArrayIndexOutOfBoundsException");
+      (env)->ThrowNew(exception_cls, "Invalid byte array region index.");
       return nullptr;
     }
 
     ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), len_key);
     keys.push_back(key_slice);
 
-    keys_to_free.push_back(std::pair<jbyte*, jobject>(key, jkey));
+    env->DeleteLocalRef(jkey);
+    keys_to_free.push_back(key);
   }
 
   // cleanup jkey_off and jken_len
@@ -1779,22 +1786,18 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   }
 
   // free up allocated byte arrays
-  multi_get_helper_release_keys(env, keys_to_free);
+  multi_get_helper_release_keys(keys_to_free);
 
   // prepare the results
   jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
       env, static_cast<jsize>(s.size()));
   if (jresults == nullptr) {
     // exception occurred
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
     return nullptr;
   }
 
-  // TODO(AR) it is not clear to me why EnsureLocalCapacity is needed for the
-  //     loop as we cleanup references with env->DeleteLocalRef(jentry_value);
-  if (env->EnsureLocalCapacity(static_cast<jint>(s.size())) != 0) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
   // add to the jresults
   for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
        i++) {

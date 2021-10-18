@@ -357,6 +357,12 @@ class StackableDB : public DB {
     return db_->GetLiveFilesChecksumInfo(checksum_list);
   }
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override {
+    return db_->GetLiveFilesStorageInfo(opts, files);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);

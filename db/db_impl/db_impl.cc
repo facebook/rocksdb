@@ -4284,11 +4284,16 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   uint64_t options_file_number = versions_->NewFileNumber();
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  // Retry if the file name happen to conflict with an existing one.
-  s = GetEnv()->RenameFile(file_name, options_file_name);
+  uint64_t options_file_size = 0;
+  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  if (s.ok()) {
+    // Retry if the file name happen to conflict with an existing one.
+    s = GetEnv()->RenameFile(file_name, options_file_name);
+  }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
     versions_->options_file_number_ = options_file_number;
+    versions_->options_file_size_ = options_file_size;
   }
 
   if (0 == disable_delete_obsolete_files_) {
@@ -4683,14 +4688,11 @@ Status DBImpl::IngestExternalFiles(
     if (status.ok()) {
       int consumed_seqno_count =
           ingestion_jobs[0].ConsumedSequenceNumbersCount();
-#ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(!!consumed_seqno_count ==
-               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
-        consumed_seqno_count +=
-            ingestion_jobs[i].ConsumedSequenceNumbersCount();
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
       }
-#endif
       if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
         versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
