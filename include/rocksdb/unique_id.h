@@ -9,11 +9,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// EXPERIMENTAL: This API is subject to change
+//
 // Computes a stable, universally unique 192-bit (24 binary char) identifier
-// for an SST file from TableProperties. This is supported for block-based
-// table files created with RocksDB 6.24 and later. NotSupported will be
-// returned for other cases. The first 16 bytes (128 bits) is of sufficient
-// quality for almost all applications, and shorter prefixes are usable as a
+// for an SST file from TableProperties. This is supported for table (SST)
+// files created with RocksDB 6.24 and later. NotSupported will be returned
+// for other cases. The first 16 bytes (128 bits) is of sufficient quality
+// for almost all applications, and shorter prefixes are usable as a
 // hash of the full unique id.
 //
 // Note: .c_str() is not compatible with binary char strings, so using
@@ -34,6 +36,8 @@ namespace ROCKSDB_NAMESPACE {
 Status GetUniqueIdFromTableProperties(const TableProperties &props,
                                       std::string *out_id);
 
+// EXPERIMENTAL: This API is subject to change
+//
 // Converts a binary string (unique id) to hexadecimal, with each 64 bits
 // separated by '-', e.g. 6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B
 // Also works on unique id prefix.

@@ -45,6 +45,8 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
+
+  VerifySstUniqueIds(props);
 }
 }  // namespace
 
