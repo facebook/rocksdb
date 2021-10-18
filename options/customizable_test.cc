@@ -1463,7 +1463,6 @@ class LoadCustomizableTest : public testing::Test {
 };
 
 TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
-  ColumnFamilyOptions cf_opts;
   std::shared_ptr<TableFactory> factory;
   ASSERT_NOK(TableFactory::CreateFromString(
       config_options_, mock::MockTableFactory::kClassName(), &factory));
@@ -1474,10 +1473,10 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 #ifndef ROCKSDB_LITE
   std::string opts_str = "table_factory=";
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      config_options_, ColumnFamilyOptions(),
-      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts));
-  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-  ASSERT_STREQ(cf_opts.table_factory->Name(),
+      config_options_, cf_opts_,
+      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts_));
+  ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+  ASSERT_STREQ(cf_opts_.table_factory->Name(),
                TableFactory::kBlockBasedTableName());
 #endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
@@ -1487,10 +1486,10 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(factory->Name(), mock::MockTableFactory::kClassName());
 #ifndef ROCKSDB_LITE
     ASSERT_OK(GetColumnFamilyOptionsFromString(
-        config_options_, ColumnFamilyOptions(),
-        opts_str + mock::MockTableFactory::kClassName(), &cf_opts));
-    ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-    ASSERT_STREQ(cf_opts.table_factory->Name(),
+        config_options_, cf_opts_,
+        opts_str + mock::MockTableFactory::kClassName(), &cf_opts_));
+    ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+    ASSERT_STREQ(cf_opts_.table_factory->Name(),
                  mock::MockTableFactory::kClassName());
 #endif  // ROCKSDB_LITE
   }
@@ -1763,12 +1762,12 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
       EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_NOK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_NOK(result->ValidateOptions(db_opts_, cf_opts_));
   ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
                                                  &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
 
   if (RegisterTests("Test")) {
     ASSERT_OK(
@@ -1779,7 +1778,7 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
                                                    "Mock://test", &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), "Mock");
-    ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+    ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
   }
 }
 

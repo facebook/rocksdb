@@ -553,6 +553,12 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   ConfigOptions config_options = config_options_in;
   config_options.invoke_prepare_options =
       false;  // No need to do a prepare for verify
+  if (config_options.sanity_level < ConfigOptions::kSanityLevelExactMatch) {
+    // If we are not doing an exact comparison, we should ignore
+    // unsupported options, as they may cause the Parse to fail
+    // (if the ObjectRegistry is not initialized)
+    config_options.ignore_unsupported_options = true;
+  }
   Status s = parser.Parse(config_options, file_name, fs);
   if (!s.ok()) {
     return s;
