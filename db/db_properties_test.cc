@@ -28,6 +28,17 @@ class DBPropertiesTest : public DBTestBase {
  public:
   DBPropertiesTest()
       : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
+
+  void AssertDbStats(const std::map<std::string, std::string>& db_stats) {
+    ASSERT_EQ("0", db_stats.at("db.uptime"));
+    ASSERT_EQ("0", db_stats.at("db.wal_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
+    ASSERT_EQ("0", db_stats.at("db.user_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_by_other"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_by_self"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_with_wal"));
+    ASSERT_EQ("0", db_stats.at("db.user_write_stall_micros"));
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -1893,6 +1904,11 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
   ASSERT_EQ(0, value);
+}
+
+TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
+  std::map<std::string, std::string> db_stats;
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
 }
 
 #endif  // ROCKSDB_LITE
