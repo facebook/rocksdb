@@ -555,9 +555,12 @@ void CompactionPicker::GetGrandparents(
   GetRange(inputs, output_level_inputs, &start, &limit);
   // Compute the set of grandparent files that overlap this compaction
   // (parent == level+1; grandparent == level+2)
-  if (output_level_inputs.level + 1 < NumberLevels()) {
-    vstorage->GetOverlappingInputs(output_level_inputs.level + 1, &start,
-                                   &limit, grandparents);
+  for (int level = output_level_inputs.level + 1;
+       level < vstorage->NumberLevels(); level++) {
+    vstorage->GetOverlappingInputs(level, &start, &limit, grandparents);
+    if (!grandparents->empty()) {
+      break;
+    }
   }
 }
 
