@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <sstream>
 #include <string>
@@ -107,7 +108,7 @@ class FilePrefetchBuffer {
   uint64_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, uint64_t size,
-                                   uint64_t value = 8 * 1024) {
+                                   size_t value = 8 * 1024) {
     // Decrease the readahead_size if
     // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
     // - readahead_size is greater than 0 and,

@@ -678,6 +678,7 @@ class PrefetchTest1 : public DBTestBase,
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1, ::testing::Bool());
 
+#ifndef ROCKSDB_LITE
 TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;
   // Set options
@@ -769,6 +770,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   }
   Close();
 }
+#endif  //! ROCKSDB_LITE
 
 TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
   const int kNumKeys = 2000;
