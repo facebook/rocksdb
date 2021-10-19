@@ -41,7 +41,7 @@ Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
     return Status::NotSupported("Too long db_session_id");
   }
   uint64_t a = 0, b = 0;
-  const char *buf = &*db_session_id.begin();
+  const char *buf = &db_session_id.front();
   bool success = ParseBaseChars<36>(&buf, len - 12U, &a);
   if (!success) {
     return Status::NotSupported("Bad digit in db_session_id");
@@ -50,7 +50,7 @@ Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
   if (!success) {
     return Status::NotSupported("Bad digit in db_session_id");
   }
-  assert(buf == &*db_session_id.end());
+  assert(buf == &db_session_id.back() + 1);
   *upper = a >> 2;
   *lower = (b & (UINT64_MAX >> 2)) | (a << 62);
   return Status::OK();
