@@ -1543,8 +1543,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
-// Test the option to for a DB CF not to use the secondary cache, when we start
-// to use it already
+// Test the option not to use the secondary cache in a certain DB.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
@@ -1586,14 +1585,14 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   ASSERT_OK(Flush());
 
   // Flush will trigger the paranoid check and read blocks. But only block cache
-  // will be read.
+  // will be read. No operations for secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
   Compact("a", "z");
 
   // Compaction will also insert and evict blocks, no operations to the block
-  // cache.
+  // cache. No operations for secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
@@ -1622,7 +1621,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   ASSERT_EQ(1007, v.size());
 
   // Check the first block in the second SST file. Cache miss and trigger SST
-  // file read.
+  // file read. No operations for secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
@@ -1630,15 +1629,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   ASSERT_EQ(1007, v.size());
 
   // Check the second block in the second SST file. Cache miss and trigger SST
-  // file read.
+  // file read. No operations for secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
   Destroy(options);
 }
 
-// Test when we change the use secondary cache option to false and later on
-// change to true
+// We disable the secondary cache in DBOptions at first. Close and reopen the DB
+// with new options, which set the lowest_used_cache_tier to
+// kNonVolatileBlockTier. So secondary cache will be used.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
@@ -1712,8 +1712,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
-  // Change the option to enable secondary cache
-  options.lowest_used_cache_tier = CacheTier::kNonVolatileTier;
+  // Change the option to enable secondary cache after we Reopen the DB
+  options.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
   Reopen(options);
 
   v = Get(Key(70));
@@ -1733,8 +1733,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 }
 
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
-// cache. We diable the secondary cache option for DB2 at beginning and then
-// enable it.
+// cache. We diable the secondary cache option for DB2.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);

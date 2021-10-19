@@ -28,7 +28,7 @@
 * Some fields of SstFileMetaData are deprecated for compatibility with new base class FileStorageInfo.
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
 * If `DB::Close()` failed with a non aborted status, calling `DB::Close()` again will return the original status instead of Status::OK.
-* Add CacheTier to advanced_options.h to describe the cache tier we used. Addd a `lowest_used_cache_tier` option to `DBOptigitons` (immutable) and pass it to BlockBasedTableReader. By default it is `CacheTier::kNonVolatileTier`, which means, we always use both block cache (kVolatileTier) and secondary cache (kNonVolatileTier). By set it to `CacheTier::kVolatileTier`, the DB will not use the secondary cache.
+* Add CacheTier to advanced_options.h to describe the cache tier we used. Add a `lowest_used_cache_tier` option to `DBOptions` (immutable) and pass it to BlockBasedTableReader. By default it is `CacheTier::kNonVolatileBlockTier`, which means, we always use both block cache (kVolatileTier) and secondary cache (kNonVolatileBlockTier). By set it to `CacheTier::kVolatileTier`, the DB will not use the secondary cache.
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes

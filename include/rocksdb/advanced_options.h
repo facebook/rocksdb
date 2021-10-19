@@ -207,7 +207,7 @@ enum class Temperature : uint8_t {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kNonVolatileTier = 0x01,
+  kNonVolatileBlockTier = 0x01,
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
