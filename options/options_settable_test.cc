@@ -342,6 +342,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_bgerror_resume_count=2;"
                              "bgerror_resume_retry_interval=1000000"
                              "db_host_id=hostname;"
+                             "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false",
                              new_options));
 
