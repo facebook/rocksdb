@@ -113,7 +113,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.setEnableBlobGarbageCollection(true))
           .isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setBlobFileSize(132768L)).isEqualTo(columnFamilyOptions);
-      assertThat(columnFamilyOptions.setBlobGarbageCollectionAgeCutoff(2.75))
+      assertThat(columnFamilyOptions.setBlobGarbageCollectionAgeCutoff(0.89))
           .isEqualTo(columnFamilyOptions);
 
       assertThat(columnFamilyOptions.enableBlobFiles()).isEqualTo(true);
@@ -122,7 +122,7 @@ public class BlobOptionsTest {
           .isEqualTo(CompressionType.BZLIB2_COMPRESSION);
       assertThat(columnFamilyOptions.enableBlobGarbageCollection()).isEqualTo(true);
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(132768L);
-      assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(2.75);
+      assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
     }
   }
 
@@ -134,28 +134,28 @@ public class BlobOptionsTest {
         .setMinBlobSize(1024)
         .setBlobCompressionType(CompressionType.BZLIB2_COMPRESSION)
         .setEnableBlobGarbageCollection(true)
-        .setBlobGarbageCollectionAgeCutoff(2020.2)
+        .setBlobGarbageCollectionAgeCutoff(0.89)
         .setBlobFileSize(132768);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(true);
     assertThat(builder.minBlobSize()).isEqualTo(1024);
     assertThat(builder.blobCompressionType()).isEqualTo(CompressionType.BZLIB2_COMPRESSION);
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(true);
-    assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(2020.2);
+    assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
     assertThat(builder.blobFileSize()).isEqualTo(132768);
 
     builder.setEnableBlobFiles(false)
         .setMinBlobSize(4096)
         .setBlobCompressionType(CompressionType.LZ4_COMPRESSION)
         .setEnableBlobGarbageCollection(false)
-        .setBlobGarbageCollectionAgeCutoff(2020.5)
+        .setBlobGarbageCollectionAgeCutoff(0.91)
         .setBlobFileSize(2048);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(false);
     assertThat(builder.minBlobSize()).isEqualTo(4096);
     assertThat(builder.blobCompressionType()).isEqualTo(CompressionType.LZ4_COMPRESSION);
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(false);
-    assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(2020.5);
+    assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.91);
     assertThat(builder.blobFileSize()).isEqualTo(2048);
 
     final MutableColumnFamilyOptions options = builder.build();
@@ -164,7 +164,7 @@ public class BlobOptionsTest {
             "enable_blob_garbage_collection", "blob_garbage_collection_age_cutoff",
             "blob_file_size"});
     assertThat(options.getValues())
-        .isEqualTo(new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "2020.5", "2048"});
+        .isEqualTo(new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "0.91", "2048"});
   }
 
   /**
@@ -276,12 +276,12 @@ public class BlobOptionsTest {
       try (final DBOptions dbOptions = new DBOptions();
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
                columnFamilyDescriptors, columnFamilyHandles)) {
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
             db.getOptions(columnFamilyHandles.get(1));
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
 
-        MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
             db.getOptions(columnFamilyHandles.get(2));
         assertThat(builder2.enableBlobFiles()).isEqualTo(false);
         assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);

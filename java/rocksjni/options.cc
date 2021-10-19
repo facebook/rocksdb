@@ -5428,7 +5428,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinBlobSize(JNIEnv*, jobject,
                                                          jlong jmin_blob_size) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  opts->min_blob_size = static_cast<long>(jmin_blob_size);
+  opts->min_blob_size = static_cast<uint64_t>(jmin_blob_size);
 }
 
 /*
@@ -5452,7 +5452,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setBlobFileSize(
     JNIEnv*, jobject, jlong jhandle, jlong jblob_file_size) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  opts->blob_file_size = static_cast<long>(jblob_file_size);
+  opts->blob_file_size = static_cast<uint64_t>(jblob_file_size);
 }
 
 /*
