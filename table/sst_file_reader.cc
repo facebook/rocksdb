@@ -24,6 +24,7 @@ struct SstFileReader::Rep {
   Options options;
   EnvOptions soptions;
   ImmutableOptions ioptions;
+  MutableDBOptions m_db_options;
   MutableCFOptions moptions;
 
   std::unique_ptr<TableReader> table_reader;
@@ -32,6 +33,7 @@ struct SstFileReader::Rep {
       : options(opts),
         soptions(options),
         ioptions(options),
+        m_db_options(options),
         moptions(ColumnFamilyOptions(options)) {}
 };
 

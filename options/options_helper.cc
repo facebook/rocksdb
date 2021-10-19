@@ -185,7 +185,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.db_host_id = immutable_db_options.db_host_id;
   options.allow_data_in_errors = immutable_db_options.allow_data_in_errors;
   options.checksum_handoff_file_types =
-      immutable_db_options.checksum_handoff_file_types;
+      mutable_db_options.checksum_handoff_file_types;
   return options;
 }
 

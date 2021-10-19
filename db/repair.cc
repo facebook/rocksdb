@@ -100,6 +100,7 @@ class Repairer {
         file_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
+        m_db_options_(db_options_),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
@@ -118,7 +119,7 @@ class Repairer {
                                     /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        vset_(dbname_, &immutable_db_options_, file_options_,
+        vset_(dbname_, &immutable_db_options_, m_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               db_session_id_),
@@ -247,6 +248,7 @@ class Repairer {
   const FileOptions file_options_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
+  const MutableDBOptions m_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
   const ImmutableOptions default_iopts_;  // table_cache_ holds reference

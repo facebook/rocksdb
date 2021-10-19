@@ -41,14 +41,16 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
-                      immutable_options, mutable_cf_options, file_options,
-                      job_id, column_family_id, column_family_name, io_priority,
+                      immutable_options, versions->mutable_db_options(),
+                      mutable_cf_options, file_options, job_id,
+                      column_family_id, column_family_name, io_priority,
                       write_hint, io_tracer, blob_callback, creation_reason,
                       blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
+    const MutableDBOptions& m_db_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
@@ -61,6 +63,7 @@ BlobFileBuilder::BlobFileBuilder(
     : file_number_generator_(std::move(file_number_generator)),
       fs_(fs),
       immutable_options_(immutable_options),
+      m_db_options_(m_db_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
@@ -193,7 +196,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(file);
   file->SetIOPriority(io_priority_);
   file->SetWriteLifeTimeHint(write_hint_);
-  FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
+  FileTypeSet tmp_set = m_db_options_.checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_,

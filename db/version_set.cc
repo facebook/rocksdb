@@ -4040,6 +4040,7 @@ void AtomicGroupReadBuffer::Clear() {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* _db_options,
+                       const MutableDBOptions& _m_db_options,
                        const FileOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller,
@@ -4056,6 +4057,7 @@ VersionSet::VersionSet(const std::string& dbname,
       clock_(_db_options->clock),
       dbname_(dbname),
       db_options_(_db_options),
+      m_db_options_(_m_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
@@ -4392,7 +4394,7 @@ Status VersionSet::ProcessManifestWrites(
       if (io_s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
-        FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
+        FileTypeSet tmp_set = m_db_options_.checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
             io_tracer_, nullptr, db_options_->listeners, nullptr,
@@ -5107,13 +5109,15 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   ImmutableDBOptions db_options(*options);
+  MutableDBOptions m_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
-                      nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+  VersionSet versions(dbname, &db_options, m_db_options, file_options, tc.get(),
+                      &wb, &wc, nullptr /*BlockCacheTracer*/,
+                      nullptr /*IOTracer*/,
                       /*db_session_id*/ "");
   Status status;
 
@@ -5955,10 +5959,11 @@ Status VersionSet::VerifyFileMetadata(const std::string& fpath,
 
 ReactiveVersionSet::ReactiveVersionSet(
     const std::string& dbname, const ImmutableDBOptions* _db_options,
-    const FileOptions& _file_options, Cache* table_cache,
-    WriteBufferManager* write_buffer_manager, WriteController* write_controller,
+    const MutableDBOptions& _m_db_options, const FileOptions& _file_options,
+    Cache* table_cache, WriteBufferManager* write_buffer_manager,
+    WriteController* write_controller,
     const std::shared_ptr<IOTracer>& io_tracer)
-    : VersionSet(dbname, _db_options, _file_options, table_cache,
+    : VersionSet(dbname, _db_options, _m_db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer,
                  /*db_session_id*/ "") {}

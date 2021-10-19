@@ -38,6 +38,7 @@ class FlushJobTestBase : public testing::Test {
         ucmp_(ucmp),
         options_(),
         db_options_(options_),
+        m_db_options_(options_),
         column_family_names_({kDefaultColumnFamilyName, "foo", "bar"}),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
@@ -124,11 +125,11 @@ class FlushJobTestBase : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, m_db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_session_id*/ ""));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
@@ -139,6 +140,7 @@ class FlushJobTestBase : public testing::Test {
   EnvOptions env_options_;
   Options options_;
   ImmutableDBOptions db_options_;
+  MutableDBOptions m_db_options_;
   const std::vector<std::string> column_family_names_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;

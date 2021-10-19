@@ -722,7 +722,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
-      checksum_handoff_file_types(options.checksum_handoff_file_types),
       compaction_service(options.compaction_service) {
   stats = statistics.get();
   fs = env->GetFileSystem();
@@ -956,7 +955,8 @@ MutableDBOptions::MutableDBOptions()
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
-      max_background_flushes(-1) {}
+      max_background_flushes(-1),
+      checksum_handoff_file_types() {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -977,7 +977,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes) {}
+      max_background_flushes(options.max_background_flushes),
+      checksum_handoff_file_types(options.checksum_handoff_file_types) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",

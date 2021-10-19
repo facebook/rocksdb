@@ -98,7 +98,6 @@ struct ImmutableDBOptions {
   uint64_t bgerror_resume_retry_interval;
   bool allow_data_in_errors;
   std::string db_host_id;
-  FileTypeSet checksum_handoff_file_types;
   // Convenience/Helper objects that are not part of the base DBOptions
   std::shared_ptr<FileSystem> fs;
   SystemClock* clock;
@@ -138,6 +137,7 @@ struct MutableDBOptions {
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
   int max_background_flushes;
+  FileTypeSet checksum_handoff_file_types;
 };
 
 #ifndef ROCKSDB_LITE
