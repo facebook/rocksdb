@@ -60,6 +60,25 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::W_BLOB_GB, LevelStat{"WblobGB", "Wblob(GB)"}},
 };
 
+const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
+    InternalStats::db_stats_type_to_info = {
+        {InternalStats::kIntStatsWalFileBytes,
+         DBStatInfo{"db.wal_bytes_written"}},
+        {InternalStats::kIntStatsWalFileSynced, DBStatInfo{"db.wal_syncs"}},
+        {InternalStats::kIntStatsBytesWritten,
+         DBStatInfo{"db.user_bytes_written"}},
+        {InternalStats::kIntStatsNumKeysWritten,
+         DBStatInfo{"db.user_keys_written"}},
+        {InternalStats::kIntStatsWriteDoneByOther,
+         DBStatInfo{"db.user_writes_by_other"}},
+        {InternalStats::kIntStatsWriteDoneBySelf,
+         DBStatInfo{"db.user_writes_by_self"}},
+        {InternalStats::kIntStatsWriteWithWal,
+         DBStatInfo{"db.user_writes_with_wal"}},
+        {InternalStats::kIntStatsWriteStallMicros,
+         DBStatInfo{"db.user_write_stall_micros"}},
+};
+
 namespace {
 const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
@@ -408,7 +427,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr,
           nullptr}},
         {DB::Properties::kDBStats,
-         {false, &InternalStats::HandleDBStats, nullptr, nullptr, nullptr}},
+         {false, &InternalStats::HandleDBStats, nullptr,
+          &InternalStats::HandleDBMapStats, nullptr}},
         {DB::Properties::kBlockCacheEntryStats,
          {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
           &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
@@ -898,6 +918,12 @@ bool InternalStats::HandleCFFileHistogram(std::string* value,
   return true;
 }
 
+bool InternalStats::HandleDBMapStats(
+    std::map<std::string, std::string>* db_stats, Slice /*suffix*/) {
+  DumpDBMapStats(db_stats);
+  return true;
+}
+
 bool InternalStats::HandleDBStats(std::string* value, Slice /*suffix*/) {
   DumpDBStats(value);
   return true;
@@ -1272,6 +1298,17 @@ bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
   }
   *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
   return true;
+}
+
+void InternalStats::DumpDBMapStats(
+    std::map<std::string, std::string>* db_stats) {
+  for (int i = 0; i < static_cast<int>(kIntStatsNumMax); ++i) {
+    InternalDBStatsType type = static_cast<InternalDBStatsType>(i);
+    (*db_stats)[db_stats_type_to_info.at(type).property_name] =
+        std::to_string(GetDBStats(type));
+  }
+  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  (*db_stats)["db.uptime"] = std::to_string(seconds_up);
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
