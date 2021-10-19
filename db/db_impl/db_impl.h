@@ -2290,6 +2290,10 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+  // save the closing status, for re-calling the close()
+  Status closing_status_;
+  // mutex for DB::Close()
+  InstrumentedMutex closing_mutex_;
 
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
