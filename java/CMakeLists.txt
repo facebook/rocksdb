@@ -190,6 +190,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
   src/main/java/org/rocksdb/Options.java
+  src/main/java/org/rocksdb/OptionString.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java

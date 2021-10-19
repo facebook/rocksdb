@@ -2709,6 +2709,9 @@ void Java_org_rocksdb_RocksDB_setOptions(
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle == nullptr) {
+    cf_handle = db->DefaultColumnFamily();
+  }
   auto s = db->SetOptions(cf_handle, options_map);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -2771,6 +2774,55 @@ void Java_org_rocksdb_RocksDB_setDBOptions(
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getOptions
+ * Signature: (JJ)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_RocksDB_getOptions(JNIEnv* env, jobject,
+                                            jlong jdb_handle,
+                                            jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  if (jcf_handle == 0) {
+    cf_handle = db->DefaultColumnFamily();
+  } else {
+    cf_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  }
+
+  auto options = db->GetOptions(cf_handle);
+  std::string options_as_string;
+  ROCKSDB_NAMESPACE::Status s =
+      GetStringFromColumnFamilyOptions(&options_as_string, options);
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  }
+  return env->NewStringUTF(options_as_string.c_str());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getDBOptions
+ * Signature: (J)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_RocksDB_getDBOptions(JNIEnv* env, jobject,
+                                              jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  auto options = db->GetDBOptions();
+  std::string options_as_string;
+  ROCKSDB_NAMESPACE::Status s =
+      GetStringFromDBOptions(&options_as_string, options);
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  }
+  return env->NewStringUTF(options_as_string.c_str());
 }
 
 /*

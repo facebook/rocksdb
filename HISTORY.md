@@ -11,6 +11,7 @@
 * Make `DB::close()` thread-safe.
 
 ### New Features
+* Add Java API bindings for new integrated BlobDB options
 * Print information about blob files when using "ldb list_live_files_metadata"
 * Provided support for SingleDelete with user defined timestamp.
 * Experimental new function DB::GetLiveFilesStorageInfo offers essentially a unified version of other functions like GetLiveFiles, GetLiveFilesChecksumInfo, and GetSortedWalFiles. Checkpoints and backups could show small behavioral changes and/or improved performance as they now use this new API.

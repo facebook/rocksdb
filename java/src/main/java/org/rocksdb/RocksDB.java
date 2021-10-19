@@ -3747,6 +3747,50 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Get the options for the column family handle
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance, or null for the default column family.
+   *
+   * @return the options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder getOptions(
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    String optionsString = getOptions(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+    return MutableColumnFamilyOptions.parse(optionsString, true);
+  }
+
+  /**
+   * Default column family options
+   *
+   * @return the options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder getOptions()
+      throws RocksDBException {
+    return getOptions(null);
+  }
+
+  /**
+   * Get the database options
+   *
+   * @return the DB options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableDBOptions.MutableDBOptionsBuilder getDBOptions() throws RocksDBException {
+    String optionsString = getDBOptions(nativeHandle_);
+    return MutableDBOptions.parse(optionsString, true);
+  }
+
+  /**
    * Change the options for the default column family handle.
    *
    * @param mutableColumnFamilyOptions the options.
@@ -4853,8 +4897,10 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void setOptions(final long handle, final long cfHandle,
       final String[] keys, final String[] values) throws RocksDBException;
+  private native String getOptions(final long handle, final long cfHandle);
   private native void setDBOptions(final long handle,
       final String[] keys, final String[] values) throws RocksDBException;
+  private native String getDBOptions(final long handle);
   private native String[] compactFiles(final long handle,
       final long compactionOptionsHandle,
       final long columnFamilyHandle,
