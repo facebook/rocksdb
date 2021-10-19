@@ -33,7 +33,7 @@
 ### Java API Changes
 * Add Java API bindings for new integrated BlobDB options
 * `keyMayExist()` supports ByteBuffer.
-* Fix multiget throwing NPE for num of keys > 70k (#9012)
+* Fix multiget throwing Null Pointer Exception for num of keys > 70k (https://github.com/facebook/rocksdb/issues/8039).
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
