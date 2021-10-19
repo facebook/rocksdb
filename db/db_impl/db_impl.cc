@@ -721,7 +721,8 @@ DBImpl::~DBImpl() {
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
-    CloseHelper().PermitUncheckedError();
+    closing_status_ = CloseHelper();
+    closing_status_.PermitUncheckedError();
   }
 }
 
