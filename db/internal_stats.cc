@@ -1307,13 +1307,14 @@ void InternalStats::DumpDBMapStats(
     (*db_stats)[db_stats_type_to_info.at(type).property_name] =
         std::to_string(GetDBStats(type));
   }
-  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  double seconds_up = (clock_->NowMicros() - started_at_) / kMicrosInSec;
   (*db_stats)["db.uptime"] = std::to_string(seconds_up);
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
   char buf[1000];
   // DB-level stats, only available from default column family
+  // TODO: why do we add one microsecond here?
   double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf),

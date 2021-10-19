@@ -19,6 +19,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -29,8 +30,9 @@ class DBPropertiesTest : public DBTestBase {
   DBPropertiesTest()
       : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
 
-  void AssertDbStats(const std::map<std::string, std::string>& db_stats) {
-    ASSERT_EQ("0", db_stats.at("db.uptime"));
+  void AssertDbStats(const std::map<std::string, std::string>& db_stats,
+                     double expected_uptime) {
+    ASSERT_EQ(std::to_string(expected_uptime), db_stats.at("db.uptime"));
     ASSERT_EQ("0", db_stats.at("db.wal_bytes_written"));
     ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
     ASSERT_EQ("0", db_stats.at("db.user_bytes_written"));
@@ -1907,8 +1909,27 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 }
 
 TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
-  std::map<std::string, std::string> db_stats;
-  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  CompositeEnvWrapper env(env_, mock_clock);
+
+  Options opts = CurrentOptions();
+  opts.env = &env;
+  Reopen(opts);
+
+  {
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 0.0 /* expected_uptime */);
+  }
+
+  mock_clock->SleepForMicroseconds(1500000);
+  {
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */);
+  }
+
+  Close();
 }
 
 #endif  // ROCKSDB_LITE
