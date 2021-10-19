@@ -90,7 +90,7 @@ TEST_F(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  DataBlock reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
@@ -149,8 +149,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents));
-  Block reader2(std::move(contents_ref));
+  DataBlock reader1(std::move(contents));
+  DataBlock reader2(std::move(contents_ref));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -374,7 +374,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    DataBlock reader(std::move(contents), kBytesPerBit, stats.get());
 
     // read contents of block sequentially
     size_t read_bytes = 0;
@@ -406,7 +406,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    DataBlock reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
@@ -440,7 +440,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    DataBlock reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
@@ -559,7 +559,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  IndexBlock reader(std::move(contents), useValueDeltaEncoding());
 
   const bool kTotalOrderSeek = true;
   const bool kIncludesSeq = true;
@@ -567,7 +567,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   IndexBlockIter *kNullIter = nullptr;
   Statistics *kNullStats = nullptr;
   // read contents of block sequentially
-  InternalIteratorBase<IndexValue> *iter = reader.NewIndexIterator(
+  InternalIteratorBase<IndexValue> *iter = reader.NewIterator(
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
   iter->SeekToFirst();
@@ -588,9 +588,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIndexIterator(
-      options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
-      kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
+  iter = reader.NewIterator(options.comparator, kDisableGlobalSequenceNumber,
+                            kNullIter, kNullStats, kTotalOrderSeek,
+                            includeFirstKey(), kIncludesSeq, kValueIsFull);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);

@@ -84,8 +84,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/block_based/block.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/get_context.h"
 #include "table/merging_iterator.h"
 #include "table/multiget_context.h"

@@ -20,7 +20,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "table/meta_blocks.h"
+#include "table/block_based/block_type.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
 
@@ -28,6 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder;
 class BlockHandle;
+class MetaIndexBuilder;
 class WritableFile;
 struct BlockBasedTableOptions;
 

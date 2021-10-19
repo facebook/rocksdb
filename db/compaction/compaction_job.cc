@@ -59,8 +59,6 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
-#include "table/block_based/block.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "test_util/sync_point.h"

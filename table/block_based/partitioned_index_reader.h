@@ -43,9 +43,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
 
  private:
   PartitionIndexReader(const BlockBasedTable* t,
-                       CachableEntry<Block>&& index_block)
+                       CachableEntry<IndexBlock>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 
-  std::unordered_map<uint64_t, CachableEntry<Block>> partition_map_;
+  std::unordered_map<uint64_t, CachableEntry<IndexBlock>> partition_map_;
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -93,13 +93,10 @@ void PartitionedIndexIterator::InitPartitionedIndexBlock() {
                                        read_options_.readahead_size,
                                        is_for_compaction);
 
-    Status s;
-    table_->NewDataBlockIterator<IndexBlockIter>(
-        read_options_, partitioned_index_handle, &block_iter_,
-        BlockType::kIndex,
-        /*get_context=*/nullptr, &lookup_context_, s,
-        block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction);
+    table_->NewIndexBlockIterator(read_options_, partitioned_index_handle,
+                                  &block_iter_, &lookup_context_,
+                                  block_prefetcher_.prefetch_buffer(),
+                                  /*for_compaction=*/is_for_compaction);
     block_iter_points_to_real_block_ = true;
     // We could check upper bound here but it is complicated to reason about
     // upper bound in index iterator. On the other than, in large scans, index

@@ -159,7 +159,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
 }
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
-    const BlockBasedTable* t, CachableEntry<Block>&& filter_block)
+    const BlockBasedTable* t, CachableEntry<IndexBlock>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
 std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
@@ -170,7 +170,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
   assert(table->get_rep());
   assert(!pin || prefetch);
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<IndexBlock> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
                                      nullptr /* get_context */, lookup_context,
@@ -246,15 +246,15 @@ void PartitionedFilterBlockReader::PrefixesMayMatch(
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
-    const CachableEntry<Block>& filter_block, const Slice& entry) const {
+    const CachableEntry<IndexBlock>& filter_block, const Slice& entry) const {
   IndexBlockIter iter;
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
-  filter_block.GetValue()->NewIndexIterator(
+  filter_block.GetValue()->NewIterator(
       comparator->user_comparator(),
       table()->get_rep()->get_global_seqno(BlockType::kFilter), &iter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      index_key_includes_seq());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -308,7 +308,7 @@ bool PartitionedFilterBlockReader::MayMatch(
     uint64_t block_offset, bool no_io, const Slice* const_ikey_ptr,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     FilterFunction filter_function) const {
-  CachableEntry<Block> filter_block;
+  CachableEntry<IndexBlock> filter_block;
   Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
@@ -316,7 +316,7 @@ bool PartitionedFilterBlockReader::MayMatch(
     return true;
   }
 
-  if (UNLIKELY(filter_block.GetValue()->size() == 0)) {
+  if (UNLIKELY(filter_block.GetValue()->block_limit() == 0)) {
     return true;
   }
 
@@ -345,7 +345,7 @@ void PartitionedFilterBlockReader::MayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
     uint64_t block_offset, bool no_io, BlockCacheLookupContext* lookup_context,
     FilterManyFunction filter_function) const {
-  CachableEntry<Block> filter_block;
+  CachableEntry<IndexBlock> filter_block;
   Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                   lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
@@ -353,7 +353,7 @@ void PartitionedFilterBlockReader::MayMatch(
     return;  // Any/all may match
   }
 
-  if (UNLIKELY(filter_block.GetValue()->size() == 0)) {
+  if (UNLIKELY(filter_block.GetValue()->block_limit() == 0)) {
     return;  // Any/all may match
   }
 
@@ -435,7 +435,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
 
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<IndexBlock> filter_block;
 
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block);
@@ -453,11 +453,10 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   IndexBlockIter biter;
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
-  filter_block.GetValue()->NewIndexIterator(
+  filter_block.GetValue()->NewIterator(
       comparator->user_comparator(), rep->get_global_seqno(BlockType::kFilter),
       &biter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      false /* have_first_key */, index_key_includes_seq());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -523,13 +522,6 @@ bool PartitionedFilterBlockReader::index_key_includes_seq() const {
   assert(table()->get_rep());
 
   return table()->get_rep()->index_key_includes_seq;
-}
-
-bool PartitionedFilterBlockReader::index_value_is_full() const {
-  assert(table());
-  assert(table()->get_rep());
-
-  return table()->get_rep()->index_value_is_full;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

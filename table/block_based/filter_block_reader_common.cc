@@ -97,7 +97,7 @@ size_t FilterBlockReaderCommon<TBlocklike>::ApproximateFilterBlockMemoryUsage()
 // Explicitly instantiate templates for both "blocklike" types we use.
 // This makes it possible to keep the template definitions in the .cc file.
 template class FilterBlockReaderCommon<BlockContents>;
-template class FilterBlockReaderCommon<Block>;
+template class FilterBlockReaderCommon<IndexBlock>;
 template class FilterBlockReaderCommon<ParsedFullFilterBlock>;
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -27,14 +27,13 @@ class MockedBlockBasedTable : public BlockBasedTable {
       : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
     rep->index_key_includes_seq = pib->seperator_is_key_plus_seq();
-    rep->index_value_is_full = !pib->get_use_value_delta_encoding();
   }
 };
 
 class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
  public:
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
-                                 CachableEntry<Block>&& filter_block)
+                                 CachableEntry<IndexBlock>&& filter_block)
       : PartitionedFilterBlockReader(t, std::move(filter_block)) {
     for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
@@ -151,8 +150,9 @@ class PartitionedFilterBlockTest
                                  immortal_table),
         pib));
     BlockContents contents(slice);
-    CachableEntry<Block> block(
-        new Block(std::move(contents), 0 /* read_amp_bytes_per_bit */, nullptr),
+    CachableEntry<IndexBlock> block(
+        new IndexBlock(std::move(contents),
+                       pib->get_use_value_delta_encoding()),
         nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
     auto reader =
         new MyPartitionedFilterBlockReader(table_.get(), std::move(block));
