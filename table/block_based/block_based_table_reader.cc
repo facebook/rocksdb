@@ -370,6 +370,21 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
   return cache_handle;
 }
 
+Cache::Handle* BlockBasedTable::GetEntryFromCache(
+    Cache* block_cache, const Slice& key, BlockType block_type,
+    GetContext* get_context) const {
+  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
+
+  if (cache_handle != nullptr) {
+    UpdateCacheHitMetrics(block_type, get_context,
+                          block_cache->GetUsage(cache_handle));
+  } else {
+    UpdateCacheMissMetrics(block_type, get_context);
+  }
+
+  return cache_handle;
+}
+
 // Helper function to setup the cache key's prefix for the Table.
 void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
                                           const std::string& db_session_id,
@@ -514,7 +529,8 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 
 Status BlockBasedTable::Open(
     const ReadOptions& read_options, const ImmutableOptions& ioptions,
-    const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
+    const MutableCFOptions& m_cf_options, const EnvOptions& env_options,
+    const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
@@ -587,9 +603,9 @@ Status BlockBasedTable::Open(
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters,
-                                      file_size, level, immortal_table);
+  Rep* rep = new BlockBasedTable::Rep(
+      ioptions, m_cf_options, env_options, table_options, internal_comparator,
+      skip_filters, file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
@@ -1174,10 +1190,22 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
-    auto cache_handle = GetEntryFromCache(
-        block_cache, block_cache_key, block_type, wait, get_context,
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), create_cb,
-        priority);
+    Cache::Handle* cache_handle = nullptr;
+    CacheTier effective_tier = CacheTier::kNonVolatileTier;
+    {
+      rep_->m_cf_options.m_cf_mutex.lock();
+      effective_tier = rep_->m_cf_options.lowest_used_cache_tier;
+      rep_->m_cf_options.m_cf_mutex.unlock();
+    }
+    if (effective_tier == CacheTier::kNonVolatileTier) {
+      cache_handle = GetEntryFromCache(
+          block_cache, block_cache_key, block_type, wait, get_context,
+          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type),
+          create_cb, priority);
+    } else {
+      cache_handle = GetEntryFromCache(block_cache, block_cache_key, block_type,
+                                       get_context);
+    }
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
@@ -1237,10 +1265,24 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
-      s = block_cache->Insert(
-          block_cache_key, block_holder.get(),
-          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
-          &cache_handle, priority);
+      CacheTier effective_tier = CacheTier::kNonVolatileTier;
+      {
+        rep_->m_cf_options.m_cf_mutex.lock();
+        effective_tier = rep_->m_cf_options.lowest_used_cache_tier;
+        rep_->m_cf_options.m_cf_mutex.unlock();
+      }
+      if (effective_tier == CacheTier::kNonVolatileTier) {
+        s = block_cache->Insert(
+            block_cache_key, block_holder.get(),
+            BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
+            &cache_handle, priority);
+      } else {
+        s = block_cache->Insert(
+            block_cache_key, block_holder.get(), charge,
+            (BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type))
+                ->del_cb,
+            &cache_handle, priority);
+      }
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1327,10 +1369,24 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
-    s = block_cache_compressed->Insert(
-        compressed_block_cache_key, block_cont_for_comp_cache,
-        BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
-        block_cont_for_comp_cache->ApproximateMemoryUsage());
+    CacheTier effective_tier = CacheTier::kNonVolatileTier;
+    {
+      rep_->m_cf_options.m_cf_mutex.lock();
+      effective_tier = rep_->m_cf_options.lowest_used_cache_tier;
+      rep_->m_cf_options.m_cf_mutex.unlock();
+    }
+    if (effective_tier == CacheTier::kNonVolatileTier) {
+      s = block_cache_compressed->Insert(
+          compressed_block_cache_key, block_cont_for_comp_cache,
+          BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
+          block_cont_for_comp_cache->ApproximateMemoryUsage());
+    } else {
+      s = block_cache_compressed->Insert(
+          compressed_block_cache_key, block_cont_for_comp_cache,
+          block_cont_for_comp_cache->ApproximateMemoryUsage(),
+          (BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type))
+              ->del_cb);
+    }
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1344,10 +1400,23 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block_holder->own_bytes()) {
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
-    s = block_cache->Insert(
-        block_cache_key, block_holder.get(),
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
-        &cache_handle, priority);
+    CacheTier effective_tier = CacheTier::kNonVolatileTier;
+    {
+      rep_->m_cf_options.m_cf_mutex.lock();
+      effective_tier = rep_->m_cf_options.lowest_used_cache_tier;
+      rep_->m_cf_options.m_cf_mutex.unlock();
+    }
+    if (effective_tier == CacheTier::kNonVolatileTier) {
+      s = block_cache->Insert(
+          block_cache_key, block_holder.get(),
+          BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
+          &cache_handle, priority);
+    } else {
+      s = block_cache->Insert(
+          block_cache_key, block_holder.get(), charge,
+          (BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type))->del_cb,
+          &cache_handle, priority);
+    }
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,

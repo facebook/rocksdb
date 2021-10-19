@@ -24,6 +24,7 @@
 * Made FileChecksumGenFactory, SstPartitionerFactory, TablePropertiesCollectorFactory, and WalFilter extend the Customizable class and added a CreateFromString method.
 * Some fields of SstFileMetaData are deprecated for compatibility with new base class FileStorageInfo.
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
+* Add CacheTier to advanced_options.h to describe the cache tier we used. Addd a `lowest_used_cache_tier` option to `ColumnFamilyOptions` (mutable) and pass MutableCFOptions to BlockBasedTableReader. By default it is `CacheTier::kNonVolatileTier`, which means, we always use both block cache (kVolatileTier) and secondary cache (kNonVolatileTier). By set it to `CacheTier::kVolatileTier`, this column family will not use the secondary cache. `SetOptions()` is used to set it when DB is running.
 
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes

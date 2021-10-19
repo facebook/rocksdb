@@ -492,7 +492,8 @@ Status BlockBasedTableFactory::NewTableReader(
     std::unique_ptr<TableReader>* table_reader,
     bool prefetch_index_and_filter_in_cache) const {
   return BlockBasedTable::Open(
-      ro, table_reader_options.ioptions, table_reader_options.env_options,
+      ro, table_reader_options.ioptions,
+      table_reader_options.mutable_cf_options, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,

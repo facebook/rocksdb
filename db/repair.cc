@@ -112,8 +112,9 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(default_iopts_, &file_options_,
-                                    raw_table_cache_.get(),
+        table_cache_(new TableCache(default_iopts_,
+                                    MutableCFOptions(default_cf_opts_),
+                                    &file_options_, raw_table_cache_.get(),
                                     /*block_cache_tracer=*/nullptr,
                                     /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),

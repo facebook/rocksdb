@@ -24,13 +24,15 @@ class MockBlockBasedTableTester {
  public:
   Options options_;
   ImmutableOptions ioptions_;
+  MutableCFOptions m_cf_options_;
   EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
   InternalKeyComparator icomp_;
   std::unique_ptr<BlockBasedTable> table_;
 
-  MockBlockBasedTableTester(const FilterPolicy *filter_policy)
+  MockBlockBasedTableTester(const FilterPolicy* filter_policy)
       : ioptions_(options_),
+        m_cf_options_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {
     table_options_.filter_policy.reset(filter_policy);
@@ -38,8 +40,8 @@ class MockBlockBasedTableTester {
     constexpr bool skip_filters = false;
     constexpr bool immortal_table = false;
     table_.reset(new MockBlockBasedTable(new BlockBasedTable::Rep(
-        ioptions_, env_options_, table_options_, icomp_, skip_filters,
-        12345 /*file_size*/, kMockLevel, immortal_table)));
+        ioptions_, m_cf_options_, env_options_, table_options_, icomp_,
+        skip_filters, 12345 /*file_size*/, kMockLevel, immortal_table)));
   }
 
   FilterBitsBuilder* GetBuilder() const {

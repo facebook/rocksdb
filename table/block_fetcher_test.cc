@@ -273,6 +273,7 @@ class BlockFetcherTest : public testing::Test {
   }
 
   void NewTableReader(const ImmutableOptions& ioptions,
+                      const MutableCFOptions& m_cf_options,
                       const FileOptions& foptions,
                       const InternalKeyComparator& comparator,
                       const std::string& table_name,
@@ -288,9 +289,9 @@ class BlockFetcherTest : public testing::Test {
     const auto* table_options =
         table_factory_.GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(table_options, nullptr);
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
-                                    comparator, std::move(file), file_size,
-                                    &table_reader));
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, m_cf_options, EnvOptions(),
+                                    *table_options, comparator, std::move(file),
+                                    file_size, &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -350,12 +351,14 @@ class BlockFetcherTest : public testing::Test {
                            BlockContents* block, std::string* result,
                            MemcpyStats* memcpy_stats) {
     ImmutableOptions ioptions(options_);
+    MutableCFOptions m_cf_options(options_);
     InternalKeyComparator comparator(options_.comparator);
     FileOptions foptions(options_);
 
     // Get block handle for the first data block.
     std::unique_ptr<BlockBasedTable> table;
-    NewTableReader(ioptions, foptions, comparator, table_name, &table);
+    NewTableReader(ioptions, m_cf_options, foptions, comparator, table_name,
+                   &table);
 
     std::unique_ptr<BlockBasedTable::IndexReader> index_reader;
     ReadOptions ro;

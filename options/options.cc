@@ -19,6 +19,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
@@ -458,6 +459,9 @@ Options::PrepareForBulkLoad()
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
+
+  // Use secondary cache by detault
+  lowest_used_cache_tier = CacheTier::kNonVolatileTier;
   return this;
 }
 

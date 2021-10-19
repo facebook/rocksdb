@@ -59,6 +59,7 @@ class PartitionedFilterBlockTest
  public:
   Options options_;
   ImmutableOptions ioptions_;
+  MutableCFOptions m_cf_options_;
   EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
   InternalKeyComparator icomp_;
@@ -68,6 +69,7 @@ class PartitionedFilterBlockTest
 
   PartitionedFilterBlockTest()
       : ioptions_(options_),
+        m_cf_options_(options_),
         env_options_(options_),
         icomp_(options_.comparator),
         bits_per_key_(10) {
@@ -146,9 +148,9 @@ class PartitionedFilterBlockTest
     constexpr int level = 0;
     constexpr bool immortal_table = false;
     table_.reset(new MockedBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, file_size, level,
-                                 immortal_table),
+        new BlockBasedTable::Rep(ioptions_, m_cf_options_, env_options_,
+                                 table_options_, icomp_, skip_filters,
+                                 file_size, level, immortal_table),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(

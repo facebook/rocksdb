@@ -66,11 +66,13 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 const int kLoadConcurency = 128;
 
 TableCache::TableCache(const ImmutableOptions& ioptions,
+                       const MutableCFOptions& mutable_cf_options,
                        const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        const std::string& db_session_id)
     : ioptions_(ioptions),
+      mutable_cf_options_(mutable_cf_options),
       file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
@@ -136,11 +138,12 @@ Status TableCache::GetTableReader(
             file_temperature));
     s = ioptions_.table_factory->NewTableReader(
         ro,
-        TableReaderOptions(
-            ioptions_, prefix_extractor, file_options, internal_comparator,
-            skip_filters, immortal_tables_, false /* force_direct_prefetch */,
-            level, fd.largest_seqno, block_cache_tracer_,
-            max_file_size_for_l0_meta_pin, db_session_id_, fd.GetNumber()),
+        TableReaderOptions(ioptions_, mutable_cf_options_, prefix_extractor,
+                           file_options, internal_comparator, skip_filters,
+                           immortal_tables_, false /* force_direct_prefetch */,
+                           level, fd.largest_seqno, block_cache_tracer_,
+                           max_file_size_for_l0_meta_pin, db_session_id_,
+                           fd.GetNumber()),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

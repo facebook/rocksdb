@@ -46,6 +46,10 @@ int offset_of(T1 ImmutableCFOptions::*member) {
   return int(size_t(&(dummy_cf_options.*member)) - size_t(&dummy_cf_options));
 }
 
+static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
+    {"kVolatileTier", CacheTier::kVolatileTier},
+    {"kNonVolatileTier", CacheTier::kNonVolatileTier}};
+
 static Status ParseCompressionOptions(const std::string& value,
                                       const std::string& name,
                                       CompressionOptions& compression_opts) {
@@ -228,6 +232,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"lowest_used_cache_tier",
+         OptionTypeInfo::Enum<CacheTier>(
+             offsetof(struct MutableCFOptions, lowest_used_cache_tier),
+             &cache_tier_string_map,
+             OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever)},
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},

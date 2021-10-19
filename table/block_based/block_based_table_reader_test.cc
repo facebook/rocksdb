@@ -83,6 +83,7 @@ class BlockBasedTableReaderTest
 
   void NewBlockBasedTableReader(const FileOptions& foptions,
                                 const ImmutableOptions& ioptions,
+                                const MutableCFOptions& m_cf_options,
                                 const InternalKeyComparator& comparator,
                                 const std::string& table_name,
                                 std::unique_ptr<BlockBasedTable>* table) {
@@ -97,9 +98,9 @@ class BlockBasedTableReaderTest
     const auto* table_options =
         table_factory_->GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(table_options, nullptr);
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
-                                    comparator, std::move(file), file_size,
-                                    &table_reader));
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, m_cf_options, EnvOptions(),
+                                    *table_options, comparator, std::move(file),
+                                    file_size, &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -199,10 +200,12 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   std::unique_ptr<BlockBasedTable> table;
   Options options;
   ImmutableOptions ioptions(options);
+  MutableCFOptions m_cf_options(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
-  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  NewBlockBasedTableReader(foptions, ioptions, m_cf_options, comparator,
+                           table_name, &table);
 
   // Ensure that keys are not in cache before MultiGet.
   for (auto& key : keys) {
@@ -285,10 +288,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   std::unique_ptr<BlockBasedTable> table;
   Options options;
   ImmutableOptions ioptions(options);
+  MutableCFOptions m_cf_options(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
-  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  NewBlockBasedTableReader(foptions, ioptions, m_cf_options, comparator,
+                           table_name, &table);
 
   // Use the top level iterator to find the offset/size of the first
   // 2nd level index block and corrupt the block
@@ -312,7 +317,8 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   ASSERT_OK(test::CorruptFile(options.env, Path(table_name),
                               static_cast<int>(handle.offset()), 128));
 
-  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  NewBlockBasedTableReader(foptions, ioptions, m_cf_options, comparator,
+                           table_name, &table);
   Status s = table->VerifyChecksum(ReadOptions(),
                                    TableReaderCaller::kUserVerifyChecksum);
   ASSERT_EQ(s.code(), Status::kCorruption);
