@@ -16,6 +16,7 @@
 * Add remote compaction read/write bytes statistics: `REMOTE_COMPACT_READ_BYTES`, `REMOTE_COMPACT_WRITE_BYTES`.
 * Introduce an experimental feature to dump out the blocks from block cache and insert them to the secondary cache to reduce the cache warmup time (e.g., used while migrating DB instance). More information are in `class CacheDumper` and `CacheDumpedLoader` at `rocksdb/utilities/cache_dump_load.h` Note that, this feature is subject to the potential change in the future, it is still experimental.
 * Introduced a new BlobDB configuration option `blob_garbage_collection_force_threshold`, which can be used to trigger compactions targeting the SST files which reference the oldest blob files when the ratio of garbage in those blob files meets or exceeds the specified threshold. This can reduce space amplification with skewed workloads where the affected SST files might not otherwise get picked up for compaction.
+* [JAVA] `keyMayExist()` supports ByteBuffer.
 
 ### Public API change
 * Made SystemClock extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.

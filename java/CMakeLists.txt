@@ -167,6 +167,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/LevelMetaData.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
+  src/main/java/org/rocksdb/KeyMayExist.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java

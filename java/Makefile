@@ -40,6 +40,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HdfsEnv\
 	org.rocksdb.ConcurrentTaskLimiter\
 	org.rocksdb.ConcurrentTaskLimiterImpl\
+	org.rocksdb.KeyMayExist\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\

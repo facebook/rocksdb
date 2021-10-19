@@ -2218,8 +2218,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2278,8 +2278,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2317,8 +2317,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2378,8 +2378,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2415,8 +2415,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2461,8 +2461,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2488,8 +2488,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2534,8 +2534,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2548,7 +2548,7 @@ public class RocksDB extends RocksObject {
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
-   * positives, but never a true negative.
+   * positives, but never a false negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2574,7 +2574,7 @@ public class RocksDB extends RocksObject {
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
-   * positives, but never a true negative.
+   * positives, but never a false negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2605,7 +2605,7 @@ public class RocksDB extends RocksObject {
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
-   * positives, but never a true negative.
+   * positives, but never a false negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2634,7 +2634,7 @@ public class RocksDB extends RocksObject {
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
-   * positives, but never a true negative.
+   * positives, but never a false negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2762,7 +2762,7 @@ public class RocksDB extends RocksObject {
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
-   * positives, but never a true negative.
+   * positives, but never a false negative.
    *
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
@@ -2813,6 +2813,158 @@ public class RocksDB extends RocksObject {
         return true;
       }
     }
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ByteBuffer key) {
+    return keyMayExist(null, (ReadOptions) null, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key) {
+    return keyMayExist(columnFamilyHandle, (ReadOptions) null, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ReadOptions readOptions, final ByteBuffer key) {
+    return keyMayExist(null, readOptions, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(null, null, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(columnFamilyHandle, null, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(
+      final ReadOptions readOptions, final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(null, readOptions, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param columnFamilyHandle
+   * @param readOptions
+   * @param key
+   * @return
+   */
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final ByteBuffer key) {
+    assert key != null : "key ByteBuffer parameter cannot be null";
+    assert key.isDirect() : "key parameter must be a direct ByteBuffer";
+    return keyMayExistDirect(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.limit());
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final ByteBuffer key, final ByteBuffer value) {
+    assert key != null : "key ByteBuffer parameter cannot be null";
+    assert key.isDirect() : "key parameter must be a direct ByteBuffer";
+    assert value
+        != null
+        : "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method";
+    assert value.isDirect() : "value parameter must be a direct ByteBuffer";
+
+    final int[] result = keyMayExistDirectFoundValue(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.remaining(),
+        value, value.position(), value.remaining());
+    final int valueLength = result[1];
+    value.limit(value.position() + Math.min(valueLength, value.remaining()));
+    return new KeyMayExist(KeyMayExist.KeyMayExistEnum.values()[result[0]], valueLength);
   }
 
   /**
@@ -4674,6 +4826,11 @@ public class RocksDB extends RocksObject {
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
+  private native boolean keyMayExistDirect(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
+  private native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength,
+      final ByteBuffer value, final int valueOffset, final int valueLength);
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;
   private native long getLongProperty(final long nativeHandle,
