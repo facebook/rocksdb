@@ -107,7 +107,7 @@ class FilePrefetchBuffer {
   uint64_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, uint64_t size,
-                                 uint64_t value = 8 * 1024) {
+                                   uint64_t value = 8 * 1024) {
     // Decrease the readahead_size if
     // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
     // - readahead_size is greater than 0 and,
@@ -124,7 +124,7 @@ class FilePrefetchBuffer {
           (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
         readahead_size_ =
             std::max(initial_readahead_size_,
-                (readahead_size_ >= value ? readahead_size_ - value : 0));
+                     (readahead_size_ >= value ? readahead_size_ - value : 0));
       }
     }
   }

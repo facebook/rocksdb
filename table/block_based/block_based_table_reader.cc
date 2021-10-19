@@ -1526,7 +1526,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             // cache, so check and decrease the readahead_size by 8KB (default)
             // if eligible.
             prefetch_buffer->DecreaseReadAheadIfEligible(handle.offset(),
-                                                       block_size(handle));
+                                                         block_size(handle));
           }
           // Update the block details so that PrefetchBuffer can use the read
           // pattern to determine if reads are sequential or not for
