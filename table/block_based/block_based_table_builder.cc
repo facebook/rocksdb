@@ -961,8 +961,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       }
     }
 
+    r->data_block.AddWithLastKey(key, value, r->last_key);
     r->last_key.assign(key.data(), key.size());
-    r->data_block.Add(key, value);
     if (r->state == Rep::State::kBuffered) {
       // Buffered keys will be replayed from data_block_buffers during
       // `Finish()` once compression dictionary has been finalized.

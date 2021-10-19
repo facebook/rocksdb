@@ -29,6 +29,9 @@
 * Add `file_temperature` to `IngestExternalFileArg` such that when ingesting SST files, we are able to indicate the temperature of the this batch of files.
 * If `DB::Close()` failed with a non aborted status, calling `DB::Close()` again will return the original status instead of Status::OK.
 
+### Performance Improvements
+* Improved CPU efficiency of building block-based table (SST) files (#9039 and #9040).
+
 ## 6.25.0 (2021-09-20)
 ### Bug Fixes
 * Allow secondary instance to refresh iterator. Assign read seq after referencing SuperVersion.

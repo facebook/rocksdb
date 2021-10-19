@@ -78,6 +78,9 @@ void BlockBuilder::Reset() {
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
+#ifndef NDEBUG
+  add_with_last_key_called_ = false;
+#endif
 }
 
 void BlockBuilder::SwapAndReset(std::string& buffer) {
@@ -138,33 +141,62 @@ Slice BlockBuilder::Finish() {
 
 void BlockBuilder::Add(const Slice& key, const Slice& value,
                        const Slice* const delta_value) {
+  // Ensure no unsafe mixing of Add and AddWithLastKey
+  assert(!add_with_last_key_called_);
+
+  AddWithLastKeyImpl(key, value, last_key_, delta_value, buffer_.size());
+  if (use_delta_encoding_) {
+    // Update state
+    // We used to just copy the changed data, but it appears to be
+    // faster to just copy the whole thing.
+    last_key_.assign(key.data(), key.size());
+  }
+}
+
+void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
+                                  const Slice& last_key_param,
+                                  const Slice* const delta_value) {
+  // Ensure no unsafe mixing of Add and AddWithLastKey
+  assert(last_key_.empty());
+#ifndef NDEBUG
+  add_with_last_key_called_ = false;
+#endif
+
+  // Here we make sure to use an empty `last_key` on first call after creation
+  // or Reset. This is more convenient for the caller and we can be more
+  // clever inside BlockBuilder. On this hot code path, we want to avoid
+  // conditional jumps like `buffer_.empty() ? ... : ...` so we can use a
+  // fast min operation instead, with an assertion to be sure our logic is
+  // sound.
+  size_t buffer_size = buffer_.size();
+  size_t last_key_size = last_key_param.size();
+  assert(buffer_size == 0 || buffer_size >= last_key_size);
+
+  Slice last_key(last_key_param.data(), std::min(buffer_size, last_key_size));
+
+  AddWithLastKeyImpl(key, value, last_key, delta_value, buffer_size);
+}
+
+inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
+                                             const Slice& value,
+                                             const Slice& last_key,
+                                             const Slice* const delta_value,
+                                             size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
   assert(!use_value_delta_encoding_ || delta_value);
   size_t shared = 0;  // number of bytes shared with prev key
   if (counter_ >= block_restart_interval_) {
     // Restart compression
-    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
+    restarts_.push_back(static_cast<uint32_t>(buffer_size));
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
-
-    if (use_delta_encoding_) {
-      // Update state
-      last_key_.assign(key.data(), key.size());
-    }
   } else if (use_delta_encoding_) {
-    Slice last_key_piece(last_key_);
     // See how much sharing to do with previous string
-    shared = key.difference_offset(last_key_piece);
-
-    // Update state
-    // We used to just copy the changed data here, but it appears to be
-    // faster to just copy the whole thing.
-    last_key_.assign(key.data(), key.size());
+    shared = key.difference_offset(last_key);
   }
 
   const size_t non_shared = key.size() - shared;
-  const size_t curr_size = buffer_.size();
 
   if (use_value_delta_encoding_) {
     // Add "<shared><non_shared>" to buffer_
@@ -194,7 +226,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   }
 
   counter_++;
-  estimate_ += buffer_.size() - curr_size;
+  estimate_ += buffer_.size() - buffer_size;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
