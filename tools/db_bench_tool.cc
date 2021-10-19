@@ -1049,7 +1049,9 @@ DEFINE_bool(io_uring_enabled, true,
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
-DEFINE_bool(reuse_internal_auto_readahead_size, false, "reuse readahead size");
+DEFINE_bool(reuse_internal_auto_readahead_size, false,
+            "carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
