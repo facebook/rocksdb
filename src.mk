@@ -94,7 +94,7 @@ LIB_SOURCES =                                                   \
   env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
-  env/unique_id.cc                                              \
+  env/unique_id_gen.cc                                          \
   file/delete_scheduler.cc                                      \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
@@ -196,6 +196,7 @@ LIB_SOURCES =                                                   \
   table/table_factory.cc                                        \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  table/unique_id.cc                                            \
   test_util/sync_point.cc                                       \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
@@ -343,9 +344,10 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
   db_stress_tool/db_stress_driver.cc                           \
-  db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_gflags.cc                           \
+  db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \

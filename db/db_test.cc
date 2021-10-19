@@ -2077,6 +2077,13 @@ TEST_F(DBTest, OverlapInLevel0) {
     Flush(1);
     ASSERT_EQ("2,1,1", FilesPerLevel(1));
 
+    // BEGIN addition to existing test
+    // Take this opportunity to verify SST unique ids (including Plain table)
+    TablePropertiesCollection tbc;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &tbc));
+    VerifySstUniqueIds(tbc);
+    // END addition to existing test
+
     // Compact away the placeholder files we created initially
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(2, nullptr, nullptr, handles_[1]);
