@@ -1023,6 +1023,7 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
                                         BlockType block_type) {
   block->Finish();
   std::string raw_block_contents;
+  raw_block_contents.reserve(rep_->table_options.block_size);
   block->SwapAndReset(raw_block_contents);
   if (rep_->state == Rep::State::kBuffered) {
     assert(block_type == BlockType::kData);

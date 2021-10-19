@@ -38,7 +38,9 @@ if [ "$CLANG_FORMAT_DIFF" ]; then
   fi
 else
   # First try directly executing the possibilities
-  if clang-format-diff.py --help &> /dev/null < /dev/null; then
+  if clang-format-diff --help &> /dev/null < /dev/null; then
+    CLANG_FORMAT_DIFF=clang-format-diff
+  elif clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=clang-format-diff.py
   elif $REPO_ROOT/clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=$REPO_ROOT/clang-format-diff.py

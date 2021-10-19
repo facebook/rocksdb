@@ -40,6 +40,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HdfsEnv\
 	org.rocksdb.ConcurrentTaskLimiter\
 	org.rocksdb.ConcurrentTaskLimiterImpl\
+	org.rocksdb.KeyMayExist\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -145,6 +146,8 @@ JAVA_TESTS = \
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MultiGetManyKeysTest\
+	org.rocksdb.MultiGetTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
 	org.rocksdb.MutableDBOptionsTest\
