@@ -1352,7 +1352,8 @@ void InternalStats::DumpDBStats(std::string* value) {
            NumberToHumanString(num_keys_written).c_str(),
            NumberToHumanString(write_self).c_str(),
            (write_other + write_self) / static_cast<double>(write_self + 1),
-           user_bytes_written / kGB, user_bytes_written / kMB / seconds_up);
+           user_bytes_written / kGB,
+           user_bytes_written / kMB / std::max(seconds_up, 0.001));
   value->append(buf);
   // WAL
   snprintf(buf, sizeof(buf),
@@ -1361,7 +1362,7 @@ void InternalStats::DumpDBStats(std::string* value) {
            NumberToHumanString(write_with_wal).c_str(),
            NumberToHumanString(wal_synced).c_str(),
            write_with_wal / static_cast<double>(wal_synced + 1),
-           wal_bytes / kGB, wal_bytes / kMB / seconds_up);
+           wal_bytes / kGB, wal_bytes / kMB / std::max(seconds_up, 0.001));
   value->append(buf);
   // Stall
   AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen, true);
@@ -1651,7 +1652,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   value->append(buf);
 
   uint64_t now_micros = clock_->NowMicros();
-  double seconds_up = (now_micros - started_at_ + 1) / kMicrosInSec;
+  double seconds_up = (now_micros - started_at_) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
@@ -1701,8 +1702,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   snprintf(buf, sizeof(buf),
            "Cumulative compaction: %.2f GB write, %.2f MB/s write, "
            "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
-           compact_bytes_write / kGB, compact_bytes_write / kMB / seconds_up,
-           compact_bytes_read / kGB, compact_bytes_read / kMB / seconds_up,
+           compact_bytes_write / kGB,
+           compact_bytes_write / kMB / std::max(seconds_up, 0.001),
+           compact_bytes_read / kGB,
+           compact_bytes_read / kMB / std::max(seconds_up, 0.001),
            compact_micros / kMicrosInSec);
   value->append(buf);
 
