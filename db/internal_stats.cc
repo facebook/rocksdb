@@ -1362,7 +1362,7 @@ void InternalStats::DumpDBStats(std::string* value) {
            "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
            NumberToHumanString(write_with_wal).c_str(),
            NumberToHumanString(wal_synced).c_str(),
-           write_with_wal / static_cast<double>(wal_synced + 1),
+           write_with_wal / std::max(1.0, static_cast<double>(wal_synced)),
            wal_bytes / kGB, wal_bytes / kMB / std::max(seconds_up, 0.001));
   value->append(buf);
   // Stall
@@ -1386,7 +1386,7 @@ void InternalStats::DumpDBStats(std::string* value) {
       NumberToHumanString(interval_num_keys_written).c_str(),
       NumberToHumanString(interval_write_self).c_str(),
       static_cast<double>(interval_write_other + interval_write_self) /
-          (interval_write_self + 1),
+          std::max(1.0, static_cast<double>(interval_write_self)),
       (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
       (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
           std::max(interval_seconds_up, 0.001)),
@@ -1397,15 +1397,15 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_wal_synced = wal_synced - db_stats_snapshot_.wal_synced;
   uint64_t interval_wal_bytes = wal_bytes - db_stats_snapshot_.wal_bytes;
 
-  snprintf(
-      buf, sizeof(buf),
-      "Interval WAL: %s writes, %s syncs, "
-      "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
-      NumberToHumanString(interval_write_with_wal).c_str(),
-      NumberToHumanString(interval_wal_synced).c_str(),
-      interval_write_with_wal / static_cast<double>(interval_wal_synced + 1),
-      interval_wal_bytes / kGB,
-      interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
+  snprintf(buf, sizeof(buf),
+           "Interval WAL: %s writes, %s syncs, "
+           "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(interval_write_with_wal).c_str(),
+           NumberToHumanString(interval_wal_synced).c_str(),
+           interval_write_with_wal /
+               std::max(1.0, static_cast<double>(interval_wal_synced)),
+           interval_wal_bytes / kGB,
+           interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
   // Stall
