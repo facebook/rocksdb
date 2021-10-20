@@ -1952,10 +1952,10 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
     write_opts.disableWAL = true;
 
     WriteBatch batch;
-    batch.Put("key", "val");
+    ASSERT_OK(batch.Put("key", "val"));
     expected_user_bytes_written += batch.GetDataSize();
 
-    db_->Write(write_opts, &batch);
+    ASSERT_OK(db_->Write(write_opts, &batch));
 
     std::map<std::string, std::string> db_stats;
     ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
@@ -1970,11 +1970,11 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   {
     // Write with WAL enabled.
     WriteBatch batch;
-    batch.Delete("key");
+    ASSERT_OK(batch.Delete("key"));
     expected_user_bytes_written += batch.GetDataSize();
     expected_wal_bytes_written += batch.GetDataSize();
 
-    db_->Write(WriteOptions(), &batch);
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
     std::map<std::string, std::string> db_stats;
     ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
@@ -1983,10 +1983,12 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
                   2 /* expected_user_writes_by_self */,
                   1 /* expected_user_writes_with_wal */);
   }
+
   Close();
 }
 
 #endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
