@@ -1953,7 +1953,7 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
 
     WriteBatch batch;
     ASSERT_OK(batch.Put("key", "val"));
-    expected_user_bytes_written += batch.GetDataSize();
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
 
     ASSERT_OK(db_->Write(write_opts, &batch));
 
@@ -1971,8 +1971,8 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
     // Write with WAL enabled.
     WriteBatch batch;
     ASSERT_OK(batch.Delete("key"));
-    expected_user_bytes_written += batch.GetDataSize();
-    expected_wal_bytes_written += batch.GetDataSize();
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+    expected_wal_bytes_written += static_cast<int>(batch.GetDataSize());
 
     ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
