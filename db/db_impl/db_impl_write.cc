@@ -1756,8 +1756,6 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
-  WriteThread::Writer nonmem_w;
-  std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
@@ -1861,17 +1859,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
     assert(creating_new_log);
-    if (new_mem) {
-      delete new_mem;
-    }
-    if (new_log) {
-      delete new_log;
-    }
-    SuperVersion* new_superversion =
-        context->superversion_context.new_superversion.release();
-    if (new_superversion != nullptr) {
-      delete new_superversion;
-    }
+    delete new_mem;
+    delete new_log;
+    context->superversion_context.new_superversion.reset();
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
     if (!io_s.ok()) {
