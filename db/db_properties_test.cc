@@ -1979,8 +1979,7 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
     std::map<std::string, std::string> db_stats;
     ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
     AssertDbStats(db_stats, 1.5 /* expected_uptime */,
-                  expected_user_bytes_written,
-                  expected_wal_bytes_written,
+                  expected_user_bytes_written, expected_wal_bytes_written,
                   2 /* expected_user_writes_by_self */,
                   1 /* expected_user_writes_with_wal */);
   }
