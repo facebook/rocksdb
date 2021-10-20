@@ -74,6 +74,13 @@ class CompactionOptionsUniversal {
   // Default: false
   bool allow_trivial_move;
 
+  // EXPERIMENTAL
+  // If true, try to limit compaction size under max_compaction_bytes.
+  // This might cause higher write amplification, but can prevent some
+  // problem caused by large compactions.
+  // Default: false
+  bool incremental;
+
   // Default set of parameters
   CompactionOptionsUniversal()
       : size_ratio(1),
@@ -82,7 +89,8 @@ class CompactionOptionsUniversal {
         max_size_amplification_percent(200),
         compression_size_percent(-1),
         stop_style(kCompactionStopStyleTotalSize),
-        allow_trivial_move(false) {}
+        allow_trivial_move(false),
+        incremental(false) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

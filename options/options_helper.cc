@@ -186,6 +186,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_data_in_errors = immutable_db_options.allow_data_in_errors;
   options.checksum_handoff_file_types =
       immutable_db_options.checksum_handoff_file_types;
+  options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   return options;
 }
 

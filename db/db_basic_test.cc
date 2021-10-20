@@ -1130,9 +1130,15 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   ASSERT_OK(Put("key3", "value3"));
   fault_injection_env->SetFilesystemActive(false);
   Status s = dbfull()->Close();
-  fault_injection_env->SetFilesystemActive(true);
   ASSERT_NE(s, Status::OK());
-
+  // retry should return the same error
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
+  fault_injection_env->SetFilesystemActive(true);
+  // retry close() is no-op even the system is back. Could be improved if
+  // Close() is retry-able: #9029
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
   Destroy(options);
 }
 
@@ -2589,6 +2595,21 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_OK(Flush());
   s = TryReopen(options);
   ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 10; i++) {
+    workers.push_back(std::thread([&]() {
+      auto s = db_->Close();
+      ASSERT_OK(s);
+    }));
+  }
+  for (auto& w : workers) {
+    w.join();
+  }
 }
 
 #ifndef ROCKSDB_LITE

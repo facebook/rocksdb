@@ -6,6 +6,7 @@
 #pragma once
 
 #include "rocksdb/status.h"
+#include "rocksdb/table_properties.h"
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -27,4 +28,7 @@ Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
                            BlockHandle* block_handle);
 
+#ifndef NDEBUG
+void TEST_SetRandomTableProperties(TableProperties* props);
+#endif
 }  // namespace ROCKSDB_NAMESPACE

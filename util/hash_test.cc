@@ -14,9 +14,13 @@
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/coding_lean.h"
 #include "util/hash128.h"
 #include "util/math128.h"
 
+using ROCKSDB_NAMESPACE::BijectiveHash2x64;
+using ROCKSDB_NAMESPACE::BijectiveUnhash2x64;
+using ROCKSDB_NAMESPACE::DecodeFixed64;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Hash;
@@ -277,9 +281,16 @@ TEST(HashTest, Hash64LargeValueSchema) {
 TEST(HashTest, Hash128Misc) {
   constexpr uint32_t kSeed = 0;  // Same as GetSliceHash128
 
-  for (char fill : {'\0', 'a', '1', '\xff'}) {
+  for (char fill : {'\0', 'a', '1', '\xff', 'e'}) {
     const size_t max_size = 1000;
-    const std::string str(max_size, fill);
+    std::string str(max_size, fill);
+
+    if (fill == 'e') {
+      // Use different characters to check endianness handling
+      for (size_t i = 0; i < str.size(); ++i) {
+        str[i] += static_cast<char>(i);
+      }
+    }
 
     for (size_t size = 0; size <= max_size; ++size) {
       Unsigned128 here = Hash128(str.data(), size, kSeed);
@@ -293,6 +304,18 @@ TEST(HashTest, Hash128Misc) {
         EXPECT_EQ(Lower64of128(here), lo);
         EXPECT_EQ(Upper64of128(here), hi);
       }
+      if (size == 16) {
+        const uint64_t in_hi = DecodeFixed64(str.data() + 8);
+        const uint64_t in_lo = DecodeFixed64(str.data());
+        uint64_t hi, lo;
+        BijectiveHash2x64(in_hi, in_lo, &hi, &lo);
+        EXPECT_EQ(Lower64of128(here), lo);
+        EXPECT_EQ(Upper64of128(here), hi);
+        uint64_t un_hi, un_lo;
+        BijectiveUnhash2x64(hi, lo, &un_hi, &un_lo);
+        EXPECT_EQ(in_lo, un_lo);
+        EXPECT_EQ(in_hi, un_hi);
+      }
 
       // Upper and Lower must reconstruct hash
       EXPECT_EQ(here,
@@ -302,7 +325,27 @@ TEST(HashTest, Hash128Misc) {
 
       // Seed changes hash value (with high probability)
       for (uint64_t var_seed = 1; var_seed != 0; var_seed <<= 1) {
-        EXPECT_NE(here, Hash128(str.data(), size, var_seed));
+        Unsigned128 seeded = Hash128(str.data(), size, var_seed);
+        EXPECT_NE(here, seeded);
+        // Must match seeded Hash2x64
+        {
+          uint64_t hi, lo;
+          Hash2x64(str.data(), size, var_seed, &hi, &lo);
+          EXPECT_EQ(Lower64of128(seeded), lo);
+          EXPECT_EQ(Upper64of128(seeded), hi);
+        }
+        if (size == 16) {
+          const uint64_t in_hi = DecodeFixed64(str.data() + 8);
+          const uint64_t in_lo = DecodeFixed64(str.data());
+          uint64_t hi, lo;
+          BijectiveHash2x64(in_hi, in_lo, var_seed, &hi, &lo);
+          EXPECT_EQ(Lower64of128(seeded), lo);
+          EXPECT_EQ(Upper64of128(seeded), hi);
+          uint64_t un_hi, un_lo;
+          BijectiveUnhash2x64(hi, lo, var_seed, &un_hi, &un_lo);
+          EXPECT_EQ(in_lo, un_lo);
+          EXPECT_EQ(in_hi, un_hi);
+        }
       }
 
       // Size changes hash value (with high probability)

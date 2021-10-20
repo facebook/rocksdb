@@ -532,6 +532,9 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
+DEFINE_bool(universal_incremental, false,
+            "Enable incremental compactions in universal compaction.");
+
 DEFINE_int64(cache_size, 8 << 20,  // 8MB
              "Number of bytes to use as a cache of uncompressed data");
 
@@ -1303,8 +1306,6 @@ DEFINE_double(mix_put_ratio, 0.0,
 DEFINE_double(mix_seek_ratio, 0.0,
               "The ratio of Seek queries of mix_graph workload");
 DEFINE_int64(mix_max_scan_len, 10000, "The max scan length of Iterator");
-DEFINE_int64(mix_ave_kv_size, 512,
-             "The average key-value size of this workload");
 DEFINE_int64(mix_max_value_size, 1024, "The max value size of this workload");
 DEFINE_double(
     sine_mix_rate_noise, 0.0,
@@ -4315,6 +4316,8 @@ class Benchmark {
     }
     options.compaction_options_universal.allow_trivial_move =
         FLAGS_universal_allow_trivial_move;
+    options.compaction_options_universal.incremental =
+        FLAGS_universal_incremental;
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }
@@ -6150,10 +6153,9 @@ class Benchmark {
     query.Initiate(ratio);
 
     // the limit of qps initiation
-    if (FLAGS_sine_a != 0 || FLAGS_sine_d != 0) {
-      thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
-          static_cast<int64_t>(read_rate), 100000 /* refill_period_us */, 10 /* fairness */,
-          RateLimiter::Mode::kReadsOnly));
+    if (FLAGS_sine_mix_rate) {
+      thread->shared->read_rate_limiter.reset(
+          NewGenericRateLimiter(static_cast<int64_t>(read_rate)));
       thread->shared->write_rate_limiter.reset(
           NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
     }
@@ -6201,23 +6203,25 @@ class Benchmark {
         usecs_since_last = 0;
       }
 
-      if (usecs_since_last >
-          (FLAGS_sine_mix_rate_interval_milliseconds * uint64_t{1000})) {
+      if (FLAGS_sine_mix_rate &&
+          usecs_since_last >
+              (FLAGS_sine_mix_rate_interval_milliseconds * uint64_t{1000})) {
         double usecs_since_start =
             static_cast<double>(now - thread->stats.GetStart());
         thread->stats.ResetSineInterval();
         double mix_rate_with_noise = AddNoise(
             SineRate(usecs_since_start / 1000000.0), FLAGS_sine_mix_rate_noise);
         read_rate = mix_rate_with_noise * (query.ratio_[0] + query.ratio_[2]);
-        write_rate =
-            mix_rate_with_noise * query.ratio_[1] * FLAGS_mix_ave_kv_size;
+        write_rate = mix_rate_with_noise * query.ratio_[1];
 
-        thread->shared->write_rate_limiter.reset(
-            NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
-        thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
-            static_cast<int64_t>(read_rate),
-            FLAGS_sine_mix_rate_interval_milliseconds * uint64_t{1000}, 10,
-            RateLimiter::Mode::kReadsOnly));
+        if (read_rate > 0) {
+          thread->shared->read_rate_limiter->SetBytesPerSecond(
+              static_cast<int64_t>(read_rate));
+        }
+        if (write_rate > 0) {
+          thread->shared->write_rate_limiter->SetBytesPerSecond(
+              static_cast<int64_t>(write_rate));
+        }
       }
       // Start the query
       if (query_type == 0) {
@@ -6242,11 +6246,9 @@ class Benchmark {
           abort();
         }
 
-        if (thread->shared->read_rate_limiter.get() != nullptr &&
-            read % 256 == 255) {
-          thread->shared->read_rate_limiter->Request(
-              256, Env::IO_HIGH, nullptr /* stats */,
-              RateLimiter::OpType::kRead);
+        if (thread->shared->read_rate_limiter && read % 100 == 0) {
+          thread->shared->read_rate_limiter->Request(100, Env::IO_HIGH,
+                                                     nullptr /*stats*/);
         }
         thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
       } else if (query_type == 1) {
@@ -6267,10 +6269,9 @@ class Benchmark {
           ErrorExit();
         }
 
-        if (thread->shared->write_rate_limiter) {
-          thread->shared->write_rate_limiter->Request(
-              key.size() + val_size, Env::IO_HIGH, nullptr /*stats*/,
-              RateLimiter::OpType::kWrite);
+        if (thread->shared->write_rate_limiter && puts % 100 == 0) {
+          thread->shared->write_rate_limiter->Request(100, Env::IO_HIGH,
+                                                      nullptr /*stats*/);
         }
         thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
       } else if (query_type == 2) {

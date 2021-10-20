@@ -37,8 +37,23 @@ class BlockBuilder {
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
+  // DO NOT mix with AddWithLastKey() between Resets. For efficiency, use
+  // AddWithLastKey() in contexts where previous added key is already known
+  // and delta encoding might be used.
   void Add(const Slice& key, const Slice& value,
            const Slice* const delta_value = nullptr);
+
+  // A faster version of Add() if the previous key is already known for all
+  // Add()s.
+  // REQUIRES: Finish() has not been called since the last call to Reset().
+  // REQUIRES: key is larger than any previously added key
+  // REQUIRES: if AddWithLastKey has been called since last Reset(), last_key
+  // is the key from most recent AddWithLastKey. (For convenience, last_key
+  // is ignored on first call after creation or Reset().)
+  // DO NOT mix with Add() between Resets.
+  void AddWithLastKey(const Slice& key, const Slice& value,
+                      const Slice& last_key,
+                      const Slice* const delta_value = nullptr);
 
   // Finish building the block and return a slice that refers to the
   // block contents.  The returned slice will remain valid for the
@@ -60,6 +75,11 @@ class BlockBuilder {
   bool empty() const { return buffer_.empty(); }
 
  private:
+  inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
+                                 const Slice& last_key,
+                                 const Slice* const delta_value,
+                                 size_t buffer_size);
+
   const int block_restart_interval_;
   // TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool use_delta_encoding_;
@@ -73,6 +93,9 @@ class BlockBuilder {
   bool finished_;  // Has Finish() been called?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
+#ifndef NDEBUG
+  bool add_with_last_key_called_ = false;
+#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

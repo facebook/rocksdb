@@ -202,6 +202,14 @@ enum class Temperature : uint8_t {
   kCold = 0x0C,
 };
 
+// The control option of how the cache tiers will be used. Currently rocksdb
+// support block cahe (volatile tier), secondary cache (non-volatile tier).
+// In the future, we may add more caching layers.
+enum class CacheTier : uint8_t {
+  kVolatileTier = 0,
+  kNonVolatileBlockTier = 0x01,
+};
+
 enum UpdateStatus {    // Return status For inplace update callback
   UPDATE_FAILED   = 0, // Nothing to update
   UPDATED_INPLACE = 1, // Value updated inplace
@@ -787,7 +795,8 @@ struct AdvancedColumnFamilyOptions {
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
-  // and blob_garbage_collection_age_cutoff below.
+  // blob_garbage_collection_age_cutoff, and
+  // blob_garbage_collection_force_threshold below.
   //
   // Default: false
   //
@@ -828,7 +837,8 @@ struct AdvancedColumnFamilyOptions {
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
   // makes it possible to clean up blob files once they contain nothing but
-  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff and
+  // blob_garbage_collection_force_threshold below.
   //
   // Default: false
   //
