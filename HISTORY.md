@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.26.0 (2021-10-20)
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
 * Fix the incorrect disabling of SST rate limited deletion when the WAL and DB are in different directories. Only WAL rate limited deletion should be disabled if its in a different directory.
