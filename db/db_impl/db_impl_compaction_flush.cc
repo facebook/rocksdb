@@ -595,9 +595,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     };
 
     bool resuming_from_bg_err = error_handler_.IsDBStopped();
-    while ((!error_handler_.IsDBStopped() ||
-            error_handler_.GetRecoveryError().ok())) {
-      auto res = wait_to_install_func();
+    while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
+      std::pair<Status, bool> res = wait_to_install_func();
 
       TEST_SYNC_POINT_CALLBACK(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", &res);
@@ -609,11 +608,22 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         break;
       }
       atomic_flush_install_cv_.Wait();
+
+      resuming_from_bg_err = error_handler_.IsDBStopped();
     }
 
-    if (s.ok()) {
-      s = resuming_from_bg_err ? error_handler_.GetRecoveryError()
-                               : error_handler_.GetBGError();
+    if (!resuming_from_bg_err) {
+      // If not resuming from bg err, then we determine future action based on
+      // whether we hit background error.
+      if (s.ok()) {
+        s = error_handler_.GetBGError();
+      }
+    } else if (s.ok()) {
+      // If resuming from bg err, we still rely on wait_to_install_func()'s
+      // result to determine future action. If wait_to_install_func() returns
+      // non-ok already, then we should not proceed to flush result
+      // installation.
+      s = error_handler_.GetRecoveryError();
     }
   }
 
