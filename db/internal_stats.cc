@@ -1351,7 +1351,8 @@ void InternalStats::DumpDBStats(std::string* value) {
            NumberToHumanString(write_other + write_self).c_str(),
            NumberToHumanString(num_keys_written).c_str(),
            NumberToHumanString(write_self).c_str(),
-           (write_other + write_self) / static_cast<double>(write_self + 1),
+           (write_other + write_self) /
+               std::max(1.0, static_cast<double>(write_self)),
            user_bytes_written / kGB,
            user_bytes_written / kMB / std::max(seconds_up, 0.001));
   value->append(buf);
