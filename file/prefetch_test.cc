@@ -812,19 +812,15 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
   }
   MoveFilesToLevel(2);
 
-  std::cout << "Num file: " << NumTableFilesAtLevel(2) << "\n";
-
   int buff_prefetch_count = 0;
   int set_readahead = 0;
-  int readahead_size = 0;
+  size_t readahead_size = 0;
 
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
-      "BlockPrefetcher::SetInternalInitialReadAheadSize", [&](void* /*arg*/) {
-        set_readahead++;
-        printf("Set\n");
-      });
+      "BlockPrefetcher::SetInternalInitialReadAheadSize",
+      [&](void* /*arg*/) { set_readahead++; });
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::TryReadFromCache",
       [&](void* arg) { readahead_size = *reinterpret_cast<size_t*>(arg); });
@@ -908,15 +904,15 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   int buff_prefetch_count = 0;
-  size_t next_readahead_size = 0;
-  size_t expected_next_readahead_size = 8 * 1024;
+  size_t current_readahead_size = 0;
+  size_t expected_current_readahead_size = 8 * 1024;
   size_t decrease_readahead_size = 8 * 1024;
 
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
-        next_readahead_size = *reinterpret_cast<size_t*>(arg);
+        current_readahead_size = *reinterpret_cast<size_t*>(arg);
       });
 
   SyncPoint::GetInstance()->EnableProcessing();
@@ -934,47 +930,43 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
     iter->Seek(BuildKey(1011));
     iter->Seek(BuildKey(1015));
     iter->Seek(BuildKey(1019));
-
     buff_prefetch_count = 0;
   }
   {
     // After caching, blocks will be read from cache (Sequential blocks)
-    expected_next_readahead_size = 8 * 1024;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->Seek(BuildKey(0));
     iter->Seek(BuildKey(1000));
     iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
-    expected_next_readahead_size *= 2;
-    ASSERT_EQ(next_readahead_size, expected_next_readahead_size);
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
 
     // Missed one sequential block but 1011 is already in buffer so
     // readahead will not be reset.
     iter->Seek(BuildKey(1011));
-    ASSERT_EQ(next_readahead_size, expected_next_readahead_size);
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
 
     // Eligible to Prefetch data (not in buffer) but block is in cache so no
     // prefetch will happen and will result in decrease in readahead_size.
     // readahead_size will be 8 * 1024
     iter->Seek(BuildKey(1015));
-    expected_next_readahead_size -= decrease_readahead_size;
+    expected_current_readahead_size -= decrease_readahead_size;
 
     // 1016 is the same block as 1015. So no change in readahead_size.
     iter->Seek(BuildKey(1016));
 
     // Prefetch data (not in buffer) but found in cache. So decrease
     // readahead_size. Since it will 0 after decrementing so readahead_size will
-    // be set to intial value.
+    // be set to initial value.
     iter->Seek(BuildKey(1019));
-    expected_next_readahead_size =
-        std::max(decrease_readahead_size,
-                 (expected_next_readahead_size >= decrease_readahead_size
-                      ? (expected_next_readahead_size - decrease_readahead_size)
-                      : 0));
+    expected_current_readahead_size = std::max(
+        decrease_readahead_size,
+        (expected_current_readahead_size >= decrease_readahead_size
+             ? (expected_current_readahead_size - decrease_readahead_size)
+             : 0));
 
     // Prefetch next sequential data.
     iter->Seek(BuildKey(1022));
-    expected_next_readahead_size *= 2;
-    ASSERT_EQ(next_readahead_size, expected_next_readahead_size);
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
     ASSERT_EQ(buff_prefetch_count, 2);
     buff_prefetch_count = 0;
   }

@@ -149,16 +149,19 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  void SetInternalInitialReadAheadSize(size_t readahead_size) override {
-    block_prefetcher_.SetInternalInitialReadAheadSize(readahead_size);
+  void SetPrefetchBufferReadPattern(size_t readahead_size, uint64_t prev_offset,
+                                    size_t prev_len) override {
+    block_prefetcher_.SetPrefetchBufferReadPattern(readahead_size, prev_offset,
+                                                   prev_len);
   }
 
-  uint64_t GetInternalCurrentReadAheadSize() override {
+  void GetPrefetchBufferReadPattern(size_t* readahead_size,
+                                    uint64_t* prev_offset,
+                                    size_t* prev_len) override {
     if (block_prefetcher_.prefetch_buffer() != nullptr) {
-      return block_prefetcher_.prefetch_buffer()
-          ->GetInternalCurrentReadAheadSize();
+      block_prefetcher_.prefetch_buffer()->GetPrefetchBufferReadPattern(
+          readahead_size, prev_offset, prev_len);
     }
-    return 0;
   }
 
  private:

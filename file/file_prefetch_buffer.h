@@ -105,7 +105,12 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
-  size_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
+  void GetPrefetchBufferReadPattern(size_t* readahead_size,
+                                    uint64_t* prev_offset, size_t* prev_len) {
+    *prev_offset = prev_offset_;
+    *prev_len = prev_len_;
+    *readahead_size = readahead_size_;
+  }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
                                    size_t value = 8 * 1024) {

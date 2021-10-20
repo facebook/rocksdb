@@ -154,12 +154,14 @@ class IteratorWrapperBase {
     return iter_->user_key();
   }
 
-  void SetInternalInitialReadAheadSize(uint64_t readahead_size) {
-    iter_->SetInternalInitialReadAheadSize(readahead_size);
+  void SetPrefetchBufferReadPattern(size_t readahead_size, uint64_t prev_offset,
+                                    size_t prev_len) {
+    iter_->SetPrefetchBufferReadPattern(readahead_size, prev_offset, prev_len);
   }
 
-  uint64_t GetInternalCurrentReadAheadSize() {
-    return iter_->GetInternalCurrentReadAheadSize();
+  void GetPrefetchBufferReadPattern(size_t* readahead_size,
+                                    uint64_t* prev_offset, size_t* prev_len) {
+    iter_->GetPrefetchBufferReadPattern(readahead_size, prev_offset, prev_len);
   }
 
  private:
