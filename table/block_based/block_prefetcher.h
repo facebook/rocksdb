@@ -19,12 +19,12 @@ class BlockPrefetcher {
                         bool is_for_compaction);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
-  void UpdateReadPattern(const size_t& offset, const size_t& len) {
+  void UpdateReadPattern(const uint64_t& offset, const size_t& len) {
     prev_offset_ = offset;
     prev_len_ = len;
   }
 
-  bool IsBlockSequential(const size_t& offset) {
+  bool IsBlockSequential(const uint64_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
   }
 
@@ -36,7 +36,7 @@ class BlockPrefetcher {
     return;
   }
 
-  void SetInternalInitialReadAheadSize(uint64_t readahead_size) {
+  void SetInternalInitialReadAheadSize(size_t readahead_size) {
     initial_auto_readahead_size_ = readahead_size;
     TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetInternalInitialReadAheadSize",
                              &initial_auto_readahead_size_);
@@ -55,7 +55,7 @@ class BlockPrefetcher {
   uint64_t initial_auto_readahead_size_ =
       BlockBasedTable::kInitAutoReadaheadSize;
   int64_t num_file_reads_ = 0;
-  size_t prev_offset_ = 0;
+  uint64_t prev_offset_ = 0;
   size_t prev_len_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };

@@ -149,7 +149,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  void SetInternalInitialReadAheadSize(uint64_t readahead_size) override {
+  void SetInternalInitialReadAheadSize(size_t readahead_size) override {
     block_prefetcher_.SetInternalInitialReadAheadSize(readahead_size);
   }
 

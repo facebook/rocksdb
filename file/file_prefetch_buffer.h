@@ -91,7 +91,7 @@ class FilePrefetchBuffer {
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
-  void UpdateReadPattern(const size_t& offset, const size_t& len) {
+  void UpdateReadPattern(const uint64_t& offset, const size_t& len) {
     prev_offset_ = offset;
     prev_len_ = len;
   }
@@ -105,9 +105,9 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
-  uint64_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
+  size_t GetInternalCurrentReadAheadSize() { return readahead_size_; }
 
-  void DecreaseReadAheadIfEligible(uint64_t offset, uint64_t size,
+  void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
                                    size_t value = 8 * 1024) {
     // Decrease the readahead_size if
     // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
@@ -151,7 +151,7 @@ class FilePrefetchBuffer {
   // implicit_auto_readahead is enabled by rocksdb internally after 2
   // sequential IOs.
   bool implicit_auto_readahead_;
-  size_t prev_offset_;
+  uint64_t prev_offset_;
   size_t prev_len_;
   int num_file_reads_;
 };

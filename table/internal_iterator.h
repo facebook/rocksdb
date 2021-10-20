@@ -173,10 +173,10 @@ class InternalIteratorBase : public Cleanable {
   }
 
   // Noop
-  virtual void SetInternalInitialReadAheadSize(uint64_t /*readahead_size*/) {}
+  virtual void SetInternalInitialReadAheadSize(size_t /*readahead_size*/) {}
 
   // Noop
-  virtual uint64_t GetInternalCurrentReadAheadSize() { return 0; }
+  virtual size_t GetInternalCurrentReadAheadSize() { return 0; }
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
