@@ -73,6 +73,7 @@ class RandomAccessFileReader {
   HistogramImpl* file_read_hist_;
   RateLimiter* rate_limiter_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  Temperature file_temperature_;
 
  public:
   explicit RandomAccessFileReader(
@@ -82,7 +83,8 @@ class RandomAccessFileReader {
       Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      Temperature file_temperature = Temperature::kUnknown)
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
@@ -90,7 +92,8 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        listeners_() {
+        listeners_(),
+        file_temperature_(file_temperature) {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {

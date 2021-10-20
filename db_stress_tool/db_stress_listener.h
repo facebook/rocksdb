@@ -3,18 +3,48 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "file/filename.h"
 #ifdef GFLAGS
 #pragma once
 
+#include <mutex>
+#include <unordered_set>
+
+#include "file/filename.h"
 #include "rocksdb/db.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/unique_id.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 
 DECLARE_int32(compact_files_one_in);
 
 namespace ROCKSDB_NAMESPACE {
+
+#ifndef ROCKSDB_LITE
+// Verify across process executions that all seen IDs are unique
+class UniqueIdVerifier {
+ public:
+  explicit UniqueIdVerifier(const std::string& db_name);
+  ~UniqueIdVerifier();
+
+  void Verify(const std::string& id);
+
+ private:
+  void VerifyNoWrite(const std::string& id);
+
+ private:
+  std::mutex mutex_;
+  // IDs persisted to a hidden file inside DB dir
+  std::string path_;
+  std::unique_ptr<FSWritableFile> data_file_writer_;
+  // Starting byte for which 8 bytes to check in memory within 24 byte ID
+  size_t offset_;
+  // Working copy of the set of 8 byte pieces
+  std::unordered_set<uint64_t> id_set_;
+};
+
 class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
@@ -23,9 +53,9 @@ class DbStressListener : public EventListener {
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
-        num_pending_file_creations_(0) {}
+        num_pending_file_creations_(0),
+        unique_ids_(db_name) {}
 
-#ifndef ROCKSDB_LITE
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
 
@@ -82,6 +112,8 @@ class DbStressListener : public EventListener {
       assert(info.table_properties.num_entries > 0);
     }
     --num_pending_file_creations_;
+
+    VerifyTableFileUniqueId(info.table_properties);
   }
 
   void OnMemTableSealed(const MemTableInfo& /*info*/) override {
@@ -93,9 +125,12 @@ class DbStressListener : public EventListener {
     RandomSleep();
   }
 
-  void OnExternalFileIngested(
-      DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) override {
+  void OnExternalFileIngested(DB* /*db*/,
+                              const ExternalFileIngestionInfo& info) override {
     RandomSleep();
+    // Here we assume that each generated external file is ingested
+    // exactly once (or thrown away in case of crash)
+    VerifyTableFileUniqueId(info.table_properties);
   }
 
   void OnBackgroundError(BackgroundErrorReason /* reason */,
@@ -213,17 +248,20 @@ class DbStressListener : public EventListener {
 #endif  // !NDEBUG
   }
 
+  void VerifyTableFileUniqueId(const TableProperties& new_file_properties);
+
   void RandomSleep() {
     std::this_thread::sleep_for(
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
   std::vector<ColumnFamilyDescriptor> column_families_;
   std::atomic<int> num_pending_file_creations_;
+  UniqueIdVerifier unique_ids_;
 };
+#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

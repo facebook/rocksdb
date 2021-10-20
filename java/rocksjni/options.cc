@@ -3697,6 +3697,146 @@ jboolean Java_org_rocksdb_Options_forceConsistencyChecks(
   return static_cast<bool>(opts->force_consistency_checks);
 }
 
+/// BLOB options
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEnableBlobFiles
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setEnableBlobFiles(JNIEnv*, jobject,
+                                                 jlong jhandle,
+                                                 jboolean jenable_blob_files) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->enable_blob_files = static_cast<bool>(jenable_blob_files);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    enableBlobFiles
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_enableBlobFiles(JNIEnv*, jobject,
+                                                  jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jboolean>(opts->enable_blob_files);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMinBlobSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMinBlobSize(JNIEnv*, jobject, jlong jhandle,
+                                             jlong jmin_blob_size) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->min_blob_size = static_cast<uint64_t>(jmin_blob_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    minBlobSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_minBlobSize(JNIEnv*, jobject, jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jlong>(opts->min_blob_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMinBlobSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setBlobFileSize(JNIEnv*, jobject, jlong jhandle,
+                                              jlong jblob_file_size) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_file_size = static_cast<uint64_t>(jblob_file_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    minBlobSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_blobFileSize(JNIEnv*, jobject, jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jlong>(opts->blob_file_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setBlobCompressionType
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setBlobCompressionType(
+    JNIEnv*, jobject, jlong jhandle, jbyte jblob_compression_type_value) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_compression_type =
+      ROCKSDB_NAMESPACE::CompressionTypeJni::toCppCompressionType(
+          jblob_compression_type_value);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blobCompressionType
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_blobCompressionType(JNIEnv*, jobject,
+                                                   jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return ROCKSDB_NAMESPACE::CompressionTypeJni::toJavaCompressionType(
+      opts->blob_compression_type);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEnableBlobGarbageCollection
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setEnableBlobGarbageCollection(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_blob_garbage_collection) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->enable_blob_garbage_collection =
+      static_cast<bool>(jenable_blob_garbage_collection);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    enableBlobGarbageCollection
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_enableBlobGarbageCollection(JNIEnv*, jobject,
+                                                              jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jboolean>(opts->enable_blob_garbage_collection);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setBlobGarbageCollectionAgeCutoff
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_Options_setBlobGarbageCollectionAgeCutoff(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_age_cutoff) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_garbage_collection_age_cutoff =
+      static_cast<double>(jblob_garbage_collection_age_cutoff);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blobGarbageCollectionAgeCutoff
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_Options_blobGarbageCollectionAgeCutoff(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_age_cutoff);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ColumnFamilyOptions
 
@@ -5249,7 +5389,160 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_forceConsistencyChecks(
     JNIEnv*, jobject, jlong jhandle) {
   auto* cf_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  return static_cast<bool>(cf_opts->force_consistency_checks);
+  return static_cast<jboolean>(cf_opts->force_consistency_checks);
+}
+
+/// BLOB options
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setEnableBlobFiles
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setEnableBlobFiles(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_blob_files) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->enable_blob_files = static_cast<bool>(jenable_blob_files);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    enableBlobFiles
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_enableBlobFiles(JNIEnv*, jobject,
+                                                              jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jboolean>(opts->enable_blob_files);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMinBlobSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMinBlobSize(JNIEnv*, jobject,
+                                                         jlong jhandle,
+                                                         jlong jmin_blob_size) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->min_blob_size = static_cast<uint64_t>(jmin_blob_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    minBlobSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_minBlobSize(JNIEnv*, jobject,
+                                                       jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jlong>(opts->min_blob_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMinBlobSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobFileSize(
+    JNIEnv*, jobject, jlong jhandle, jlong jblob_file_size) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_file_size = static_cast<uint64_t>(jblob_file_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    minBlobSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_blobFileSize(JNIEnv*, jobject,
+                                                        jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jlong>(opts->blob_file_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBlobCompressionType
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobCompressionType(
+    JNIEnv*, jobject, jlong jhandle, jbyte jblob_compression_type_value) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_compression_type =
+      ROCKSDB_NAMESPACE::CompressionTypeJni::toCppCompressionType(
+          jblob_compression_type_value);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    blobCompressionType
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_ColumnFamilyOptions_blobCompressionType(JNIEnv*, jobject,
+                                                               jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return ROCKSDB_NAMESPACE::CompressionTypeJni::toJavaCompressionType(
+      opts->blob_compression_type);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setEnableBlobGarbageCollection
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setEnableBlobGarbageCollection(
+    JNIEnv*, jobject, jlong jhandle, jboolean jenable_blob_garbage_collection) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->enable_blob_garbage_collection =
+      static_cast<bool>(jenable_blob_garbage_collection);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    enableBlobGarbageCollection
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_enableBlobGarbageCollection(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jboolean>(opts->enable_blob_garbage_collection);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBlobGarbageCollectionAgeCutoff
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobGarbageCollectionAgeCutoff(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_age_cutoff) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_garbage_collection_age_cutoff =
+      static_cast<double>(jblob_garbage_collection_age_cutoff);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    blobGarbageCollectionAgeCutoff
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionAgeCutoff(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_age_cutoff);
 }
 
 /////////////////////////////////////////////////////////////////////

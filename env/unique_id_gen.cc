@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 
 #include <algorithm>
 #include <array>
@@ -140,5 +140,24 @@ void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
   GenerateRawUniqueIdImpl(a, b, opts);
 }
 #endif
+
+SemiStructuredUniqueIdGen::SemiStructuredUniqueIdGen() : counter_{} {
+  saved_process_id_ = port::GetProcessID();
+  GenerateRawUniqueId(&base_upper_, &base_lower_);
+}
+
+void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
+  if (port::GetProcessID() == saved_process_id_) {
+    // Safe to increment the atomic for guaranteed uniqueness within this
+    // process lifetime. Xor slightly better than +. See
+    // https://github.com/pdillinger/unique_id
+    *lower = base_lower_ ^ counter_.fetch_add(1);
+    *upper = base_upper_;
+  } else {
+    // There must have been a fork() or something. Rather than attempting to
+    // update in a thread-safe way, simply fall back on GenerateRawUniqueId.
+    GenerateRawUniqueId(upper, lower);
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE

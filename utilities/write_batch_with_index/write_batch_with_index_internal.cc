@@ -517,7 +517,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
 // 1. first compare the column family, the one with larger CF will be larger;
 // 2. Inside the same CF, we first decode the entry to find the key of the entry
 //    and the entry with larger key will be larger;
-// 3. If two entries are of the same CF and offset, the one with larger offset
+// 3. If two entries are of the same CF and key, the one with larger offset
 //    will be larger.
 // Some times either `entry1` or `entry2` is dummy entry, which is actually
 // a search key. In this case, in step 2, we don't go ahead and decode the

@@ -266,8 +266,8 @@ TableBuilder* MockTableFactory::NewTableBuilder(
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
                                          KVVector file_contents) {
   std::unique_ptr<WritableFileWriter> file_writer;
-  auto s = WritableFileWriter::Create(env->GetFileSystem(), fname,
-                                      FileOptions(), &file_writer, nullptr);
+  Status s = WritableFileWriter::Create(env->GetFileSystem(), fname,
+                                        FileOptions(), &file_writer, nullptr);
   if (!s.ok()) {
     return s;
   }

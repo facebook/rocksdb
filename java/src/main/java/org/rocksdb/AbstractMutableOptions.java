@@ -7,7 +7,7 @@ public abstract class AbstractMutableOptions {
 
   protected static final String KEY_VALUE_PAIR_SEPARATOR = ";";
   protected static final char KEY_VALUE_SEPARATOR = '=';
-  static final String INT_ARRAY_INT_SEPARATOR = ",";
+  static final String INT_ARRAY_INT_SEPARATOR = ":";
 
   protected final String[] keys;
   private final String[] values;
@@ -59,6 +59,7 @@ public abstract class AbstractMutableOptions {
       K extends MutableOptionKey> {
 
     private final Map<K, MutableOptionValue<?>> options = new LinkedHashMap<>();
+    private final List<OptionString.Entry> unknown = new ArrayList<>();
 
     protected abstract U self();
 
@@ -213,44 +214,149 @@ public abstract class AbstractMutableOptions {
       return ((MutableOptionValue.MutableOptionEnumValue<N>) value).asObject();
     }
 
-    public U fromString(
-        final String keyStr, final String valueStr)
-        throws IllegalArgumentException {
-      Objects.requireNonNull(keyStr);
-      Objects.requireNonNull(valueStr);
+    /**
+     * Parse a string into a long value, accepting values expressed as a double (such as 9.00) which
+     * are meant to be a long, not a double
+     *
+     * @param value the string containing a value which represents a long
+     * @return the long value of the parsed string
+     */
+    private long parseAsLong(final String value) {
+      try {
+        return Long.parseLong(value);
+      } catch (NumberFormatException nfe) {
+        final double doubleValue = Double.parseDouble(value);
+        if (doubleValue != Math.round(doubleValue))
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to int");
+        return Math.round(doubleValue);
+      }
+    }
 
-      final K key = allKeys().get(keyStr);
-      switch(key.getValueType()) {
+    /**
+     * Parse a string into an int value, accepting values expressed as a double (such as 9.00) which
+     * are meant to be an int, not a double
+     *
+     * @param value the string containing a value which represents an int
+     * @return the int value of the parsed string
+     */
+    private int parseAsInt(final String value) {
+      try {
+        return Integer.parseInt(value);
+      } catch (NumberFormatException nfe) {
+        final double doubleValue = Double.parseDouble(value);
+        if (doubleValue != Math.round(doubleValue))
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to long");
+        return (int) Math.round(doubleValue);
+      }
+    }
+
+    /**
+     * Constructs a builder for mutable column family options from a hierarchical parsed options
+     * string representation. The {@link OptionString.Parser} class output has been used to create a
+     * (name,value)-list; each value may be either a simple string or a (name, value)-list in turn.
+     *
+     * @param options a list of parsed option string objects
+     * @param ignoreUnknown what to do if the key is not one of the keys we expect
+     *
+     * @return a builder with the values from the parsed input set
+     *
+     * @throws IllegalArgumentException if an option value is of the wrong type, or a key is empty
+     */
+    protected U fromParsed(final List<OptionString.Entry> options, final boolean ignoreUnknown) {
+      Objects.requireNonNull(options);
+
+      for (final OptionString.Entry option : options) {
+        try {
+          if (option.key.isEmpty()) {
+            throw new IllegalArgumentException("options string is invalid: " + option);
+          }
+          fromOptionString(option, ignoreUnknown);
+        } catch (NumberFormatException nfe) {
+          throw new IllegalArgumentException(
+              "" + option.key + "=" + option.value + " - not a valid value for its type", nfe);
+        }
+      }
+
+      return self();
+    }
+
+    /**
+     * Set a value in the builder from the supplied option string
+     *
+     * @param option the option key/value to add to this builder
+     * @param ignoreUnknown if this is not set, throw an exception when a key is not in the known
+     *     set
+     * @return the same object, after adding options
+     * @throws IllegalArgumentException if the key is unkown, or a value has the wrong type/form
+     */
+    private U fromOptionString(final OptionString.Entry option, final boolean ignoreUnknown)
+        throws IllegalArgumentException {
+      Objects.requireNonNull(option.key);
+      Objects.requireNonNull(option.value);
+
+      final K key = allKeys().get(option.key);
+      if (key == null && ignoreUnknown) {
+        unknown.add(option);
+        return self();
+      } else if (key == null) {
+        throw new IllegalArgumentException("Key: " + key + " is not a known option key");
+      }
+
+      if (!option.value.isList()) {
+        throw new IllegalArgumentException(
+            "Option: " + key + " is not a simple value or list, don't know how to parse it");
+      }
+
+      // Check that simple values are the single item in the array
+      if (key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
+        {
+          if (option.value.list.size() != 1) {
+            throw new IllegalArgumentException(
+                "Simple value does not have exactly 1 item: " + option.value.list);
+          }
+        }
+      }
+
+      final List<String> valueStrs = option.value.list;
+      final String valueStr = valueStrs.get(0);
+
+      switch (key.getValueType()) {
         case DOUBLE:
           return setDouble(key, Double.parseDouble(valueStr));
 
         case LONG:
-          return setLong(key, Long.parseLong(valueStr));
+          return setLong(key, parseAsLong(valueStr));
 
         case INT:
-          return setInt(key, Integer.parseInt(valueStr));
+          return setInt(key, parseAsInt(valueStr));
 
         case BOOLEAN:
           return setBoolean(key, Boolean.parseBoolean(valueStr));
 
         case INT_ARRAY:
-          final String[] strInts = valueStr
-              .trim().split(INT_ARRAY_INT_SEPARATOR);
-          if(strInts == null || strInts.length == 0) {
-            throw new IllegalArgumentException(
-                "int array value is not correctly formatted");
-          }
-
-          final int value[] = new int[strInts.length];
-          int i = 0;
-          for(final String strInt : strInts) {
-            value[i++] = Integer.parseInt(strInt);
+          final int[] value = new int[valueStrs.size()];
+          for (int i = 0; i < valueStrs.size(); i++) {
+            value[i] = Integer.parseInt(valueStrs.get(i));
           }
           return setIntArray(key, value);
+
+        case ENUM:
+          final Optional<CompressionType> compressionType =
+              CompressionType.getFromInternal(valueStr);
+          if (compressionType.isPresent()) {
+            return setEnum(key, compressionType.get());
+          }
       }
 
-      throw new IllegalStateException(
-          key + " has unknown value type: " + key.getValueType());
+      throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
+    }
+
+    /**
+     *
+     * @return the list of keys encountered which were not known to the type being generated
+     */
+    public List<OptionString.Entry> getUnknown() {
+      return new ArrayList<>(unknown);
     }
   }
 }

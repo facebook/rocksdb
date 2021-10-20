@@ -1,13 +1,13 @@
 add_executable(db_stress${ARTIFACT_SUFFIX}
-  db_stress.cc
-  db_stress_tool.cc
   batched_ops_stress.cc
   cf_consistency_stress.cc
+  db_stress.cc
   db_stress_common.cc
   db_stress_driver.cc
-  db_stress_test_base.cc
-  db_stress_shared_state.cc
   db_stress_gflags.cc
+  db_stress_listener.cc
+  db_stress_shared_state.cc
+  db_stress_test_base.cc
   db_stress_tool.cc
   expected_state.cc
   no_batched_ops_stress.cc)

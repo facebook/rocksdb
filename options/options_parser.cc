@@ -553,6 +553,12 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   ConfigOptions config_options = config_options_in;
   config_options.invoke_prepare_options =
       false;  // No need to do a prepare for verify
+  if (config_options.sanity_level < ConfigOptions::kSanityLevelExactMatch) {
+    // If we are not doing an exact comparison, we should ignore
+    // unsupported options, as they may cause the Parse to fail
+    // (if the ObjectRegistry is not initialized)
+    config_options.ignore_unsupported_options = true;
+  }
   Status s = parser.Parse(config_options, file_name, fs);
   if (!s.ok()) {
     return s;
@@ -622,9 +628,9 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
     const DBOptions& file_opt,
-    const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  auto base_config = DBOptionsAsConfigurable(base_opt);
-  auto file_config = DBOptionsAsConfigurable(file_opt);
+    const std::unordered_map<std::string, std::string>* opt_map) {
+  auto base_config = DBOptionsAsConfigurable(base_opt, opt_map);
+  auto file_config = DBOptionsAsConfigurable(file_opt, opt_map);
   std::string mismatch;
   if (!base_config->AreEquivalent(config_options, file_config.get(),
                                   &mismatch)) {

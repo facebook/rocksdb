@@ -47,7 +47,9 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(
     const MutableDBOptions& opts);
-std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts);
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const DBOptions& opts,
+    const std::unordered_map<std::string, std::string>* opt_map = nullptr);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const MutableCFOptions& opts);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
