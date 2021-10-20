@@ -1628,6 +1628,7 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -1667,6 +1668,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
   DestroyAndReopen(options);
   Random rnd(301);
