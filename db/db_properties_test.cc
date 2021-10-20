@@ -31,14 +31,21 @@ class DBPropertiesTest : public DBTestBase {
       : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
 
   void AssertDbStats(const std::map<std::string, std::string>& db_stats,
-                     double expected_uptime) {
+                     double expected_uptime, int expected_user_bytes_written,
+                     int expected_wal_bytes_written,
+                     int expected_user_writes_by_self,
+                     int expected_user_writes_with_wal) {
     ASSERT_EQ(std::to_string(expected_uptime), db_stats.at("db.uptime"));
-    ASSERT_EQ("0", db_stats.at("db.wal_bytes_written"));
+    ASSERT_EQ(std::to_string(expected_wal_bytes_written),
+              db_stats.at("db.wal_bytes_written"));
     ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
-    ASSERT_EQ("0", db_stats.at("db.user_bytes_written"));
+    ASSERT_EQ(std::to_string(expected_user_bytes_written),
+              db_stats.at("db.user_bytes_written"));
     ASSERT_EQ("0", db_stats.at("db.user_writes_by_other"));
-    ASSERT_EQ("0", db_stats.at("db.user_writes_by_self"));
-    ASSERT_EQ("0", db_stats.at("db.user_writes_with_wal"));
+    ASSERT_EQ(std::to_string(expected_user_writes_by_self),
+              db_stats.at("db.user_writes_by_self"));
+    ASSERT_EQ(std::to_string(expected_user_writes_with_wal),
+              db_stats.at("db.user_writes_with_wal"));
     ASSERT_EQ("0", db_stats.at("db.user_write_stall_micros"));
   }
 };
@@ -1919,16 +1926,64 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   {
     std::map<std::string, std::string> db_stats;
     ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
-    AssertDbStats(db_stats, 0.0 /* expected_uptime */);
+    AssertDbStats(db_stats, 0.0 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
   }
 
-  mock_clock->SleepForMicroseconds(1500000);
   {
+    mock_clock->SleepForMicroseconds(1500000);
+
     std::map<std::string, std::string> db_stats;
     ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
-    AssertDbStats(db_stats, 1.5 /* expected_uptime */);
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
   }
 
+  int expected_user_bytes_written = 0;
+  {
+    // Write with WAL disabled.
+    WriteOptions write_opts;
+    write_opts.disableWAL = true;
+
+    WriteBatch batch;
+    batch.Put("key", "val");
+    expected_user_bytes_written += batch.GetDataSize();
+
+    db_->Write(write_opts, &batch);
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written,
+                  0 /* expected_wal_bytes_written */,
+                  1 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_wal_bytes_written = 0;
+  {
+    // Write with WAL enabled.
+    WriteBatch batch;
+    batch.Delete("key");
+    expected_user_bytes_written += batch.GetDataSize();
+    expected_wal_bytes_written += batch.GetDataSize();
+
+    db_->Write(WriteOptions(), &batch);
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written,
+                  expected_wal_bytes_written,
+                  2 /* expected_user_writes_by_self */,
+                  1 /* expected_user_writes_with_wal */);
+  }
   Close();
 }
 
