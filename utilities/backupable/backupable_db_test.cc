@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -25,8 +26,10 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/options_util.h"
@@ -2884,13 +2887,13 @@ INSTANTIATE_TEST_CASE_P(
 TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
   backupable_options_->max_background_operations = 1;
-  const std::uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
+  const uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
   std::shared_ptr<RateLimiter> backup_rate_limiter(
       new MockedRateLimiterWithLowRefillBytesPerPeriod(RateLimiter::Mode::kAllIo,
                                      backup_rate_limiter_limit, 1000 * 1000));
   backupable_options_->backup_rate_limiter = backup_rate_limiter;
 
-  const std::uint64_t restore_rate_limiter_limit =
+  const uint64_t restore_rate_limiter_limit =
       std::get<0>(GetParam()).second;
   std::shared_ptr<RateLimiter> restore_rate_limiter(
       new MockedRateLimiterWithLowRefillBytesPerPeriod(RateLimiter::Mode::kAllIo,
@@ -2901,11 +2904,11 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, kShareWithChecksum /* shared_option */);
 
   FillDB(db_.get(), 0, 5);
-  std::int64_t total_bytes_through_before_backup =
+  int64_t total_bytes_through_before_backup =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             false /* flush_before_backup */));
-  std::int64_t total_bytes_through_after_backup =
+  int64_t total_bytes_through_after_backup =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_backup,
             total_bytes_through_before_backup);
@@ -2918,11 +2921,11 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   ASSERT_EQ(backup_id, backup_infos[0].backup_id);
   ASSERT_OK(backup_engine_->GetBackupInfo(backup_id, &backup_info,
                                           true /* include_file_details */));
-  std::int64_t total_bytes_through_before_verify_backup =
+  int64_t total_bytes_through_before_verify_backup =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(
       backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
-  std::int64_t total_bytes_through_after_verify_backup =
+  int64_t total_bytes_through_after_verify_backup =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_verify_backup,
             total_bytes_through_before_verify_backup);
@@ -2930,13 +2933,13 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   CloseDBAndBackupEngine();
   AssertBackupConsistency(backup_id, 0, 5, 10);
 
-  std::int64_t total_bytes_through_before_initialize =
+  int64_t total_bytes_through_before_initialize =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   OpenDBAndBackupEngine(false /* destroy_old_data */);
   // We charge read in BackupEngineImpl::BackupMeta::LoadFromFile,
   // which is called in BackupEngineImpl::Initialize() during
   // OpenBackupEngine(false)
-  std::int64_t total_bytes_through_after_initialize =
+  int64_t total_bytes_through_after_initialize =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_initialize,
             total_bytes_through_before_initialize);
@@ -2944,10 +2947,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
 
   DestroyDB(dbname_, Options());
   OpenBackupEngine(false /* destroy_old_data */);
-  std::int64_t total_bytes_through_before_restore =
+  int64_t total_bytes_through_before_restore =
       backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-  std::int64_t total_bytes_through_after_restore =
+  int64_t total_bytes_through_after_restore =
       backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_restore,
             total_bytes_through_before_restore);

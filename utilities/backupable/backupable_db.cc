@@ -35,7 +35,9 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
@@ -233,7 +235,7 @@ class BackupEngineImpl {
   };
 
   static void LoopRateLimitRequestHelper(
-      const std::size_t total_bytes_to_request, RateLimiter* rate_limiter,
+      const size_t total_bytes_to_request, RateLimiter* rate_limiter,
       const Env::IOPriority pri, Statistics* stats,
       const RateLimiter::OpType op_type);
 
@@ -2396,12 +2398,12 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
 }
 
 void BackupEngineImpl::LoopRateLimitRequestHelper(
-    const std::size_t total_bytes_to_request, RateLimiter* rate_limiter,
+    const size_t total_bytes_to_request, RateLimiter* rate_limiter,
     const Env::IOPriority pri, Statistics* stats,
     const RateLimiter::OpType op_type) {
   assert(rate_limiter != nullptr);
-  std::size_t remaining_bytes = total_bytes_to_request;
-  std::size_t request_bytes = 0;
+  size_t remaining_bytes = total_bytes_to_request;
+  size_t request_bytes = 0;
   while (remaining_bytes > 0) {
     request_bytes =
         std::min(static_cast<size_t>(rate_limiter->GetSingleBurstBytes()),
