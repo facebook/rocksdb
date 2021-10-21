@@ -2821,7 +2821,6 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
                                                int64_t rate_bytes_per_sec,
                                                int64_t refill_period_us)
       : RateLimiter(mode),
-        rate_bytes_per_sec_(rate_bytes_per_sec),
         refill_period_us_(refill_period_us),
         refill_bytes_per_period_(
             CalculateRefillBytesPerPeriod(rate_bytes_per_sec)) {}
@@ -2879,7 +2878,6 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
     }
   }
 
-  const int64_t rate_bytes_per_sec_;
   const int64_t refill_period_us_;
   std::atomic<int64_t> refill_bytes_per_period_;
   int64_t total_bytes_through_[Env::IO_TOTAL];
