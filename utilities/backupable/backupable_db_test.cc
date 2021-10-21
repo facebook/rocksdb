@@ -2831,10 +2831,10 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
         refill_period_us_(refill_period_us),
         refill_bytes_per_period_(
             CalculateRefillBytesPerPeriod(rate_bytes_per_sec)) {
-              for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-                total_bytes_through_[i] = 0;
-              }
-            }
+    for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+      total_bytes_through_[i] = 0;
+    }
+  }
 
   ~MockedRateLimiterWithLowRefillBytesPerPeriod() override {
     MutexLock g(&request_mutex_);
