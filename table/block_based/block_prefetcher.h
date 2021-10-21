@@ -41,7 +41,7 @@ class BlockPrefetcher {
     prev_offset_ = prev_offset;
     prev_len_ = prev_len;
     initial_auto_readahead_size_ = readahead_size;
-    TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetInternalInitialReadAheadSize",
+    TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetPrefetchBufferReadPattern",
                              &initial_auto_readahead_size_);
   }
 

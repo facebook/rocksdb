@@ -172,12 +172,24 @@ class InternalIteratorBase : public Cleanable {
     return Status::NotSupported("");
   }
 
-  // Noop
+  // When iterator moves from one file to another file at same level, new file's
+  // read pattern (details of last block read) is updated with previous file's
+  // read pattern. This way internal readahead_size of Prefetch Buffer doesn't
+  // start from scratch and can fall back to 8KB with no prefetch if reads are
+  // not sequential.
+  //
+  // Default implementation is no-op and its implemnted by data block iterators.
   virtual void SetPrefetchBufferReadPattern(size_t /*readahead_size*/,
                                             uint64_t /*prev_offset*/,
                                             size_t /*prev_len*/) {}
 
-  // Noop
+  // When iterator moves from one file to another file at same level, new file's
+  // read pattern (details of last block read) is updated with previous file's
+  // read pattern. This way internal readahead_size of Prefetch Buffer doesn't
+  // start from scratch and can fall back to 8KB with no prefetch if reads are
+  // not sequential.
+  //
+  // Default implementation is no-op and its implemnted by data block iterators.
   virtual void GetPrefetchBufferReadPattern(size_t* /*prev_readahead_size*/,
                                             uint64_t* /*prev_offset*/,
                                             size_t* /*prev_len*/) {}

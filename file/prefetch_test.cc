@@ -736,7 +736,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     // start from 8KB when iterator moves to next file and its called
     // num_sst_files-1 times (excluding for first file).
     SyncPoint::GetInstance()->SetCallBack(
-        "BlockPrefetcher::SetInternalInitialReadAheadSize", [&](void* arg) {
+        "BlockPrefetcher::SetPrefetchBufferReadPattern", [&](void* arg) {
           readahead_carry_over_count++;
           size_t readahead_size = *reinterpret_cast<size_t*>(arg);
           if (readahead_carry_over_count) {
@@ -819,7 +819,7 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
-      "BlockPrefetcher::SetInternalInitialReadAheadSize",
+      "BlockPrefetcher::SetPrefetchBufferReadPattern",
       [&](void* /*arg*/) { set_readahead++; });
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::TryReadFromCache",
@@ -848,6 +848,8 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
       iter->Next();
     }
     ASSERT_EQ(readahead_size, 8 * 1024);
+    // Make sure SetPrefetchBufferReadPattern is called to set next file's
+    // readahead_size.
     ASSERT_EQ(set_readahead, 1);
     ASSERT_EQ(buff_prefetch_count, 1);
   }
