@@ -2582,8 +2582,8 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
                       std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1,
-                                      std::make_pair(2 * MB, 3 * MB))));
+                      std::make_tuple(true, 1, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 1, std::make_pair(200, 200))));
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   size_t const kMicrosPerSec = 1000 * 1000LL;
