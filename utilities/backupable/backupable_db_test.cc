@@ -2895,11 +2895,15 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
   backupable_options_->max_background_operations = 1;
   const uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
-  std::shared_ptr<RateLimiter> backup_rate_limiter = std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(RateLimiter::Mode::kAllIo, backup_rate_limiter_limit, 1000 * 1000);
+  std::shared_ptr<RateLimiter> backup_rate_limiter =
+      std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(
+          RateLimiter::Mode::kAllIo, backup_rate_limiter_limit, 1000 * 1000);
   backupable_options_->backup_rate_limiter = backup_rate_limiter;
 
   const uint64_t restore_rate_limiter_limit = std::get<0>(GetParam()).second;
-  std::shared_ptr<RateLimiter> restore_rate_limiter = std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(RateLimiter::Mode::kAllIo, restore_rate_limiter_limit, 1000 * 1000);
+  std::shared_ptr<RateLimiter> restore_rate_limiter =
+      std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(
+          RateLimiter::Mode::kAllIo, restore_rate_limiter_limit, 1000 * 1000);
   backupable_options_->restore_rate_limiter = restore_rate_limiter;
 
   DestroyDB(dbname_, Options());
