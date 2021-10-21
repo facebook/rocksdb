@@ -161,8 +161,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, WRITE_WITH_WAL);
   }
 
-  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
-                     DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
@@ -472,8 +471,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   uint64_t* log_used, uint64_t log_ref,
                                   bool disable_memtable, uint64_t* seq_used) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
-                     DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   WriteContext write_context;
 
@@ -629,8 +627,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       SequenceNumber seq,
                                       const size_t sub_batch_cnt) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
-                     DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         false /*disable_memtable*/);
@@ -685,8 +682,7 @@ Status DBImpl::WriteImplWALOnly(
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
-  StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
-                     DB_WRITE);
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread->JoinBatchGroup(&w);
   assert(w.state != WriteThread::STATE_PARALLEL_MEMTABLE_WRITER);
@@ -1760,8 +1756,6 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
-  WriteThread::Writer nonmem_w;
-  std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
@@ -1865,17 +1859,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
     assert(creating_new_log);
-    if (new_mem) {
-      delete new_mem;
-    }
-    if (new_log) {
-      delete new_log;
-    }
-    SuperVersion* new_superversion =
-        context->superversion_context.new_superversion.release();
-    if (new_superversion != nullptr) {
-      delete new_superversion;
-    }
+    delete new_mem;
+    delete new_log;
+    context->superversion_context.new_superversion.reset();
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
     if (!io_s.ok()) {
