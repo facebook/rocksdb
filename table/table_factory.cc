@@ -14,6 +14,35 @@
 #include "table/plain/plain_table_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
+Status TableFactoryImpl::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  MutexLock l(&mutable_mu_);
+  Status s;
+  if (is_mutable_) {
+    s = TableFactory::ValidateOptions(db_opts, cf_opts);
+    if (s.ok()) {
+      is_mutable_ = false;
+    }
+  }
+  return s;
+}
+
+bool TableFactoryImpl::IsMutable() const {
+  MutexLock l(&mutable_mu_);
+  return is_mutable_;
+}
+
+Status TableFactoryImpl::ConfigureOptions(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    std::unordered_map<std::string, std::string>* unused) {
+  MutexLock l(&mutable_mu_);
+  ConfigOptions copy = config_options;
+  if (!is_mutable_) {
+    copy.mutable_options_only = false;
+  }
+  return TableFactory::ConfigureOptions(config_options, opts_map, unused);
+}
 
 static void RegisterTableFactories(const std::string& /*arg*/) {
 #ifndef ROCKSDB_LITE

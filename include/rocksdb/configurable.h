@@ -244,6 +244,10 @@ class Configurable {
   // initialized.
   virtual Status PrepareOptions(const ConfigOptions& config_options);
 
+  // Returns true if the object is mutable.  An object may be mutable until it
+  // is prepared and/or validated.
+  virtual bool IsMutable() const;
+
   // Checks to see if the settings are valid for this object.
   // This method checks to see if the input DBOptions and ColumnFamilyOptions
   // are valid for the settings of this object.  For example, an Env might not

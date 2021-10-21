@@ -7,9 +7,10 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+
 #include "rocksdb/table.h"
+#include "table/table_factory_impl.h"
 #include "util/murmurhash.h"
-#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,7 +51,7 @@ static inline uint64_t CuckooHash(
 // - Does not support Snapshot.
 // - Does not support Merge operations.
 // - Does not support prefix bloom filters.
-class CuckooTableFactory : public TableFactory {
+class CuckooTableFactory : public TableFactoryImpl {
  public:
   explicit CuckooTableFactory(
       const CuckooTableOptions& table_option = CuckooTableOptions());
