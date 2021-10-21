@@ -234,10 +234,11 @@ class BackupEngineImpl {
     }
   };
 
-  static void LoopRateLimitRequestHelper(
-      const size_t total_bytes_to_request, RateLimiter* rate_limiter,
-      const Env::IOPriority pri, Statistics* stats,
-      const RateLimiter::OpType op_type);
+  static void LoopRateLimitRequestHelper(const size_t total_bytes_to_request,
+                                         RateLimiter* rate_limiter,
+                                         const Env::IOPriority pri,
+                                         Statistics* stats,
+                                         const RateLimiter::OpType op_type);
 
   static inline std::string WithoutTrailingSlash(const std::string& path) {
     if (path.empty() || path.back() != '/') {
