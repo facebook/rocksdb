@@ -2832,7 +2832,9 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
         refill_bytes_per_period_(
             CalculateRefillBytesPerPeriod(rate_bytes_per_sec)) {}
 
-  ~MockedRateLimiterWithLowRefillBytesPerPeriod() override {}
+  ~MockedRateLimiterWithLowRefillBytesPerPeriod() override {
+    MutexLock g(&request_mutex_);
+  }
 
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
@@ -2841,6 +2843,7 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
                Statistics* stats) override {
+    MutexLock g(&request_mutex_);
     (void)stats;
     assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
     total_bytes_through_[pri] += bytes;
@@ -2852,6 +2855,7 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
 
   int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
       int64_t total_bytes_through_sum = 0;
       for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
@@ -2864,6 +2868,7 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
 
   int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    MutexLock g(&request_mutex_);
     (void)pri;
     return 0;
   }
@@ -2884,7 +2889,8 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
       return rate_bytes_per_sec * refill_period_us_ / 1000000;
     }
   }
-
+  // This mutex guard all internal states
+  mutable port::Mutex request_mutex_;
   const int64_t refill_period_us_;
   std::atomic<int64_t> refill_bytes_per_period_;
   int64_t total_bytes_through_[Env::IO_TOTAL];
