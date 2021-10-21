@@ -2582,7 +2582,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
                       std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1, 
+                      std::make_tuple(true, 1,
                                       std::make_pair(2 * MB, 3 * MB))));
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
@@ -2806,15 +2806,21 @@ TEST_P(BackupEngineRateLimitingTestWithParam,
 
 class BackupEngineRateLimitingTestWithParam2
     : public BackupEngineTest,
-      public testing::WithParamInterface<std::tuple<std::pair<uint64_t, uint64_t> /* limits */>> {
+      public testing::WithParamInterface<
+          std::tuple<std::pair<uint64_t, uint64_t> /* limits */>> {
  public:
   BackupEngineRateLimitingTestWithParam2() {}
 };
 
 class MockedRateLimiterSmallImpl : public RateLimiter {
  public:
-  MockedRateLimiterSmallImpl(RateLimiter::Mode mode, int64_t rate_bytes_per_sec, int64_t refill_period_us) : RateLimiter(mode), rate_bytes_per_sec_(rate_bytes_per_sec),refill_period_us_(refill_period_us),refill_bytes_per_period_(CalculateRefillBytesPerPeriod(rate_bytes_per_sec)){
-  }
+  MockedRateLimiterSmallImpl(RateLimiter::Mode mode, int64_t rate_bytes_per_sec,
+                             int64_t refill_period_us)
+      : RateLimiter(mode),
+        rate_bytes_per_sec_(rate_bytes_per_sec),
+        refill_period_us_(refill_period_us),
+        refill_bytes_per_period_(
+            CalculateRefillBytesPerPeriod(rate_bytes_per_sec)) {}
 
   ~MockedRateLimiterSmallImpl() override {}
 
@@ -2830,7 +2836,9 @@ class MockedRateLimiterSmallImpl : public RateLimiter {
     total_bytes_through_[pri] += bytes;
   }
 
-  int64_t GetSingleBurstBytes() const override { return refill_bytes_per_period_.load(std::memory_order_relaxed); }
+  int64_t GetSingleBurstBytes() const override {
+    return refill_bytes_per_period_.load(std::memory_order_relaxed);
+  }
 
   int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
@@ -2851,22 +2859,22 @@ class MockedRateLimiterSmallImpl : public RateLimiter {
   }
 
   int64_t GetBytesPerSecond() const override { return 0; }
-  
-  private:
-    int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
-      if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
-        // Avoid unexpected result in the overflow case. The result now is still
-        // inaccurate but is a number that is large enough.
-        return port::kMaxInt64 / 1000000;
-      } else {
-        return rate_bytes_per_sec * refill_period_us_ / 1000000;
-      }
-    }
 
-    const int64_t rate_bytes_per_sec_;
-    const int64_t refill_period_us_;
-    std::atomic<int64_t> refill_bytes_per_period_;
-    int64_t total_bytes_through_[Env::IO_TOTAL];
+ private:
+  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
+    if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
+      // Avoid unexpected result in the overflow case. The result now is still
+      // inaccurate but is a number that is large enough.
+      return port::kMaxInt64 / 1000000;
+    } else {
+      return rate_bytes_per_sec * refill_period_us_ / 1000000;
+    }
+  }
+
+  const int64_t rate_bytes_per_sec_;
+  const int64_t refill_period_us_;
+  std::atomic<int64_t> refill_bytes_per_period_;
+  int64_t total_bytes_through_[Env::IO_TOTAL];
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -2877,14 +2885,17 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingChargeReadInInitialize2) {
   backupable_options_->max_background_operations = 1;
   const std::uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
-  std::shared_ptr<RateLimiter> backup_rate_limiter(new MockedRateLimiterSmallImpl(RateLimiter::Mode::kAllIo, backup_rate_limiter_limit, 1000 * 1000));
+  std::shared_ptr<RateLimiter> backup_rate_limiter(
+      new MockedRateLimiterSmallImpl(RateLimiter::Mode::kAllIo,
+                                     backup_rate_limiter_limit, 1000 * 1000));
   backupable_options_->backup_rate_limiter = backup_rate_limiter;
 
-  const std::uint64_t restore_rate_limiter_limit = std::get<0>(GetParam()).second;
-  std::shared_ptr<RateLimiter> restore_rate_limiter(new MockedRateLimiterSmallImpl(RateLimiter::Mode::kAllIo, restore_rate_limiter_limit, 1000 * 1000));
+  const std::uint64_t restore_rate_limiter_limit =
+      std::get<0>(GetParam()).second;
+  std::shared_ptr<RateLimiter> restore_rate_limiter(
+      new MockedRateLimiterSmallImpl(RateLimiter::Mode::kAllIo,
+                                     restore_rate_limiter_limit, 1000 * 1000));
   backupable_options_->restore_rate_limiter = restore_rate_limiter;
-
-  
 
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true /* destroy_old_data */);
@@ -2895,10 +2906,12 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   EXPECT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             false /* flush_before_backup */));
   std::int64_t total_bytes_through_after_backup =
-    backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
-  ASSERT_GT(total_bytes_through_after_backup, total_bytes_through_before_backup);
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_backup,
+            total_bytes_through_before_backup);
 
-  std::int64_t total_bytes_through_before_verify_backup = backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  std::int64_t total_bytes_through_before_verify_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   std::vector<BackupInfo> backup_infos;
   BackupInfo backup_info;
   backup_engine_->GetBackupInfo(&backup_infos);
@@ -2909,8 +2922,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
                                           true /* include_file_details */));
   EXPECT_OK(
       backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
-  std::int64_t total_bytes_through_after_verify_backup = backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
-  ASSERT_GT(total_bytes_through_after_verify_backup, total_bytes_through_before_verify_backup);
+  std::int64_t total_bytes_through_after_verify_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_verify_backup,
+            total_bytes_through_before_verify_backup);
 
   CloseDBAndBackupEngine();
   AssertBackupConsistency(1, 0, 5, 10);
@@ -2923,17 +2938,21 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   // OpenBackupEngine(false)
   std::int64_t total_bytes_through_after_initialize =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
-  ASSERT_GT(total_bytes_through_after_initialize, total_bytes_through_before_initialize);
+  ASSERT_GT(total_bytes_through_after_initialize,
+            total_bytes_through_before_initialize);
   CloseDBAndBackupEngine();
 
   DestroyDB(dbname_, Options());
   OpenBackupEngine(false /* destroy_old_data */);
-  std::int64_t total_bytes_through_before_restore = backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+  std::int64_t total_bytes_through_before_restore =
+      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-  std::int64_t total_bytes_through_after_restore = backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
-  ASSERT_GT(total_bytes_through_after_restore, total_bytes_through_before_restore);
+  std::int64_t total_bytes_through_after_restore =
+      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_restore,
+            total_bytes_through_before_restore);
   CloseBackupEngine();
-  
+
   DestroyDB(dbname_, Options());
 }
 
