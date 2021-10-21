@@ -474,7 +474,6 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   options.env = mock_env_.get();
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
-  ASSERT_OK(Put(1, "foo", "old"));
   ASSERT_OK(Put(1, "foo", "bar"));
   ReopenWithColumnFamilies({"default", "one", "two", "three"}, options);
   ASSERT_EQ(Get(2, "foo"), "bar");
@@ -507,7 +506,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
     }
   }
   stats_iter.reset();
-  ASSERT_EQ(num_write_wal, 2);
+  ASSERT_EQ(num_write_wal, 1);
 
   options.persist_stats_to_disk = false;
   ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
@@ -543,7 +542,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
       }
     }
   }
-  ASSERT_EQ(num_write_wal, 2);
+  ASSERT_EQ(num_write_wal, 1);
 
   Close();
   Destroy(options);
