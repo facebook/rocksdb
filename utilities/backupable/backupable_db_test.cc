@@ -2815,12 +2815,13 @@ class BackupEngineRateLimitingTestWithParam2
   BackupEngineRateLimitingTestWithParam2() {}
 };
 
-// A mocked rate limiter where extremly low refill_bytes_per_period_ can be achieved
-// and makes it easier to test whether we trigger the assertion failure on 
-// bytes <= refill_bytes_per_period_ or not when Request() is called in BackupEngine. 
-// It is hard to directly test on GenericRateLimiter since it imposes a lower limit = 100
-// on refill_bytes_per_period_ and it's hard to artificially create a case 
-// where Request() is called with bytes > 100 in BackupEngine
+// A mocked rate limiter where extremly low refill_bytes_per_period_ can be
+// achieved and makes it easier to test whether we trigger the assertion failure
+// on bytes <= refill_bytes_per_period_ or not when Request() is called in
+// BackupEngine. It is hard to directly test on GenericRateLimiter since it
+// imposes a lower limit = 100 on refill_bytes_per_period_ and it's hard to
+// artificially create a case where Request() is called with bytes > 100 in
+// BackupEngine
 class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
  public:
   MockedRateLimiterWithLowRefillBytesPerPeriod(RateLimiter::Mode mode,
@@ -2895,8 +2896,9 @@ INSTANTIATE_TEST_CASE_P(RateLimiterWithLowRefillBytesPerPeriod,
                                                                          1))));
 // To verify we don't request over-sized bytes relative to
 // refill_bytes_per_period_ in each RateLimiter::Request() called in
-// BackupEngine and hence indirectly verify we don't trigger assertion 
-// failure on over-sized request like the one in GenericRateLimiter in debug builds
+// BackupEngine and hence indirectly verify we don't trigger assertion
+// failure on over-sized request like the one in GenericRateLimiter in debug
+// builds
 TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
   backupable_options_->max_background_operations = 1;
