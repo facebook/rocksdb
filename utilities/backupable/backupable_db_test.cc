@@ -2865,6 +2865,8 @@ class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
   int64_t GetBytesPerSecond() const override { return 0; }
 
  private:
+  // This is the key to this MockedRateLimiterWithLowRefillBytesPerPeriod where we don't impose minimum refill_bytes_per_period_ like 
+  // GenericRateLimiter does. Therefore, we can achieve creating a rate limiter with really low refill_bytes_per_period_
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
     if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
       // Avoid unexpected result in the overflow case. The result now is still
@@ -2885,7 +2887,7 @@ INSTANTIATE_TEST_CASE_P(RateLimiterWithLowRefillBytesPerPeriod,
                         BackupEngineRateLimitingTestWithParam2,
                         ::testing::Values(std::make_tuple(std::make_pair(1,
                                                                          1))));
-
+// To verify we don't request over-sized bytes relative to refill_bytes_per_period_ in each GenericRateLimiter::Request() called in BackupEngine and trigger assertion failure on over-sized request in debug builds
 TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
   backupable_options_->max_background_operations = 1;
