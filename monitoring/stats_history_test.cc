@@ -474,6 +474,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   options.env = mock_env_.get();
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
+  ASSERT_OK(Put(1, "foo", "old"));
   ASSERT_OK(Put(1, "foo", "bar"));
   ReopenWithColumnFamilies({"default", "one", "two", "three"}, options);
   ASSERT_EQ(Get(2, "foo"), "bar");
