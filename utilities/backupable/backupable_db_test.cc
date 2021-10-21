@@ -2565,7 +2565,7 @@ class BackupEngineRateLimitingTestWithParam
     : public BackupEngineTest,
       public testing::WithParamInterface<
           std::tuple<bool /* make throttle */,
-                     int  /* 0 = single threaded, 1 = multi threaded*/,
+                     int /* 0 = single threaded, 1 = multi threaded*/,
                      std::pair<uint64_t, uint64_t> /* limits */>> {
  public:
   BackupEngineRateLimitingTestWithParam() {}
@@ -2582,8 +2582,8 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
                       std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
-                      std::make_tuple(true, 1, std::make_pair(2 * MB, 3 * MB)),
-                      std::make_tuple(true, 0, std::make_pair(100, 100))));
+                      std::make_tuple(true, 1, 
+                                      std::make_pair(2 * MB, 3 * MB))));
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   size_t const kMicrosPerSec = 1000 * 1000LL;

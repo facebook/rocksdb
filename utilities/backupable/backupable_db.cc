@@ -2397,8 +2397,6 @@ void BackupEngineImpl::LoopRateLimitRequestHelper(const std::size_t total_bytes_
     rate_limiter->Request(request_bytes, pri, stats, op_type);
     remaining_bytes -= request_bytes;
   }
-  // rate_limiter->Request(total_bytes_to_request, pri, stats, op_type);
-
 }
 
 void BackupEngineImpl::DeleteChildren(const std::string& dir,
