@@ -232,6 +232,8 @@ class BackupEngineImpl {
     }
   };
 
+  static void LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, RateLimiter::OpType op_type);
+
   static inline std::string WithoutTrailingSlash(const std::string& path) {
     if (path.empty() || path.back() != '/') {
       return path;
@@ -2023,8 +2025,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     }
     io_s = dest_writer->Append(data);
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kWrite);
+        LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kWrite);
     }
     while (*bytes_toward_next_callback >=
            options_.callback_trigger_interval_size) {
@@ -2358,8 +2359,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
         // sizeof(*table_properties) is a sufficent but far-from-exact
         // approximation of read bytes due to metaindex block, std::string
         // properties and varint compression
-        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
-                              nullptr /* stats */, RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(sizeof(*table_properties), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
     }
   } else {
@@ -2386,6 +2386,19 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
     return s;
   }
+}
+
+void BackupEngineImpl::LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, RateLimiter::OpType op_type) {
+  assert(rate_limiter != nullptr);
+  std::size_t remaining_bytes = total_bytes_to_request;
+  std::size_t request_bytes = 0;
+  while(remaining_bytes > 0) {
+    request_bytes = std::min(static_cast<size_t>(rate_limiter->GetSingleBurstBytes()), remaining_bytes);
+    rate_limiter->Request(request_bytes, pri, stats, op_type);
+    remaining_bytes -= request_bytes;
+  }
+  // rate_limiter->Request(total_bytes_to_request, pri, stats, op_type);
+
 }
 
 void BackupEngineImpl::DeleteChildren(const std::string& dir,
@@ -2716,8 +2729,7 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   std::string line;
   if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
     }
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
@@ -2736,23 +2748,20 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   } else if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
     }
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
     }
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
   while (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
     }
     if (line.empty()) {
       return IOStatus::Corruption("Unexpected empty line");
@@ -2794,8 +2803,7 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   bool footer_present = false;
   while (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
     }
     std::vector<std::string> components = StringSplit(line, ' ');
 
@@ -2885,8 +2893,7 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
     assert(schema_major_version >= 2);
     while (backup_meta_reader->ReadLine(&line)) {
       if (rate_limiter != nullptr) {
-        rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                              RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
       if (line.empty()) {
         return IOStatus::Corruption("Unexpected empty line");
