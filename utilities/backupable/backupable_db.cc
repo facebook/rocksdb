@@ -232,7 +232,7 @@ class BackupEngineImpl {
     }
   };
 
-  static void LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, RateLimiter::OpType op_type);
+  static void LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, const RateLimiter::OpType op_type);
 
   static inline std::string WithoutTrailingSlash(const std::string& path) {
     if (path.empty() || path.back() != '/') {
@@ -2388,7 +2388,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
   }
 }
 
-void BackupEngineImpl::LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, RateLimiter::OpType op_type) {
+void BackupEngineImpl::LoopRateLimitRequestHelper(const std::size_t total_bytes_to_request, RateLimiter* rate_limiter, const Env::IOPriority pri, Statistics* stats, const RateLimiter::OpType op_type) {
   assert(rate_limiter != nullptr);
   std::size_t remaining_bytes = total_bytes_to_request;
   std::size_t request_bytes = 0;
