@@ -2815,11 +2815,12 @@ class BackupEngineRateLimitingTestWithParam2
   BackupEngineRateLimitingTestWithParam2() {}
 };
 
-// A mocked rate limiter where extremly low refill_bytes_per_period_ can be
-// achieved and makes it easier to test whether we trigger the assertion failure
+// A mocked rate limiter where extremly low refill_bytes_per_period_ is achievable
+// and makes it easier to test whether we trigger the assertion failure
 // on bytes <= refill_bytes_per_period_ or not when Request() is called in
-// BackupEngine. It is hard to directly test on GenericRateLimiter since it
-// imposes a lower limit = 100 on refill_bytes_per_period_ and it's hard to
+// BackupEngine. 
+// It is hard to directly test on GenericRateLimiter since it
+// imposes a low bound = 100 on refill_bytes_per_period_ and it's hard to
 // artificially create a case where Request() is called with bytes > 100 in
 // BackupEngine
 class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
