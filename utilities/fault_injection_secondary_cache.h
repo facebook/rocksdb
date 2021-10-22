@@ -3,36 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-// This class implements a custom SecondaryCache that randomly injects an
-// error status into Inserts/Lookups based on a specified probability.
-//
 #include "rocksdb/secondary_cache.h"
 #include "util/random.h"
 #include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class FaultInjectionSecondaryCacheHandle : public SecondaryCacheResultHandle {
- public:
-  FaultInjectionSecondaryCacheHandle(
-      std::unique_ptr<SecondaryCacheResultHandle>&& base,
-      SecondaryCache* cache)
-    : base_(std::move(base)), cache_(cache) {}
-  ~FaultInjectionSecondaryCacheHandle() override {}
-
-  bool IsReady() override { return base_->IsReady(); }
-
-  void Wait() override;
-
-  void* Value() override { return base_->Value(); }
-
-  size_t Size() override { return base_->Size(); }
-
- private:
-  std::unique_ptr<SecondaryCacheResultHandle> base_;
-  SecondaryCache* cache_;
-};
-
+// This class implements a custom SecondaryCache that randomly injects an
+// error status into Inserts/Lookups based on a specified probability.
+// Its used by db_stress to verify correctness in the presence of
+// secondary cache errors.
+//
 class FaultInjectionSecondaryCache : public SecondaryCache {
  public:
   explicit FaultInjectionSecondaryCache(

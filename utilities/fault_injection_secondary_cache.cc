@@ -6,7 +6,7 @@
 // This class implements a custom SecondaryCache that randomly injects an
 // error status into Inserts/Lookups based on a specified probability.
 
-#include "utilities/fault_injection_sec_cache.h"
+#include "utilities/fault_injection_secondary_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 

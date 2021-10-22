@@ -22,7 +22,7 @@
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
-#include "utilities/fault_injection_sec_cache.h"
+#include "utilities/fault_injection_secondary_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
