@@ -1317,11 +1317,11 @@ Status DBImpl::FlushWAL(bool sync) {
       // future writes
       IOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
-      return std::move(io_s);
+      return io_status_to_status(io_s);
     }
     if (!sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
-      return std::move(io_s);
+      return io_status_to_status(io_s);
     }
   }
   if (!sync) {
@@ -1410,15 +1410,15 @@ Status DBImpl::SyncWAL() {
 Status DBImpl::LockWAL() {
   log_write_mutex_.Lock();
   auto cur_log_writer = logs_.back().writer;
-  auto status = cur_log_writer->WriteBuffer();
-  if (!status.ok()) {
+  IOStatus io_status = cur_log_writer->WriteBuffer();
+  if (!io_status.ok()) {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
-                    status.ToString().c_str());
+                    io_status.ToString().c_str());
     // In case there is a fs error we should set it globally to prevent the
     // future writes
-    WriteStatusCheck(status);
+    WriteStatusCheck(io_status);
   }
-  return std::move(status);
+  return io_status_to_status(io_status);
 }
 
 Status DBImpl::UnlockWAL() {
