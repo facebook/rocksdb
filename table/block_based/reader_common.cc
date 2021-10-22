@@ -9,6 +9,7 @@
 #include "table/block_based/reader_common.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/hash.h"
@@ -47,6 +48,11 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
     case kxxHash64:
       computed = Lower32of64(XXH64(data, len, 0));
       break;
+    case kXXH3:
+      computed = Lower32of64(XXH3_64bits(data, block_size));
+      // Treat compression type separately for speed in building table files
+      computed = ModifyChecksumForCompressionType(computed, data[block_size]);
+      break;
     default:
       s = Status::Corruption(
           "unknown checksum type " + ToString(type) + " from footer of " +
@@ -56,8 +62,9 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
   if (s.ok() && stored != computed) {
     s = Status::Corruption(
         "block checksum mismatch: stored = " + ToString(stored) +
-        ", computed = " + ToString(computed) + "  in " + file_name +
-        " offset " + ToString(offset) + " size " + ToString(block_size));
+        ", computed = " + ToString(computed) + ", type = " + ToString(type) +
+        "  in " + file_name + " offset " + ToString(offset) + " size " +
+        ToString(block_size));
   }
   return s;
 }

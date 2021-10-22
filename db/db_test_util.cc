@@ -475,12 +475,8 @@ Options DBTestBase::GetOptions(
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
-    case kxxHashChecksum: {
-      table_options.checksum = kxxHash;
-      break;
-    }
-    case kxxHash64Checksum: {
-      table_options.checksum = kxxHash64;
+    case kXXH3Checksum: {
+      table_options.checksum = kXXH3;
       break;
     }
     case kFIFOCompaction: {

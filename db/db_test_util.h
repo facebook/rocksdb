@@ -854,7 +854,7 @@ class DBTestBase : public testing::Test {
     kUniversalCompactionMultiLevel = 20,
     kCompressedBlockCache = 21,
     kInfiniteMaxOpenFiles = 22,
-    kxxHashChecksum = 23,
+    kXXH3Checksum = 23,
     kFIFOCompaction = 24,
     kOptimizeFiltersForHits = 25,
     kRowCache = 26,
@@ -869,7 +869,6 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
-    kxxHash64Checksum,
     kUnorderedWrite,
     // This must be the last line
     kEnd,

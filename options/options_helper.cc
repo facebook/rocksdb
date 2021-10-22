@@ -329,7 +329,8 @@ std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash},
-                                               {"kxxHash64", kxxHash64}};
+                                               {"kxxHash64", kxxHash64},
+                                               {"kXXH3", kXXH3}};
 
 std::unordered_map<std::string, CompressionType>
     OptionsHelper::compression_type_string_map = {
@@ -364,6 +365,14 @@ std::vector<CompressionType> GetSupportedDictCompressions() {
     }
   }
   return dict_compression_types;
+}
+
+std::vector<ChecksumType> GetSupportedChecksums() {
+  std::vector<ChecksumType> checksum_types;
+  for (const auto& e : OptionsHelper::checksum_type_string_map) {
+    checksum_types.push_back(e.second);
+  }
+  return checksum_types;
 }
 
 #ifndef ROCKSDB_LITE

@@ -28,6 +28,8 @@ std::vector<CompressionType> GetSupportedCompressions();
 
 std::vector<CompressionType> GetSupportedDictCompressions();
 
+std::vector<ChecksumType> GetSupportedChecksums();
+
 // Checks that the combination of DBOptions and ColumnFamilyOptions are valid
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts);

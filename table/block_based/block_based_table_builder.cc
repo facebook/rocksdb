@@ -1257,6 +1257,17 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         XXH64_freeState(state);
         break;
       }
+      case kXXH3: {
+        // XXH3 is a complicated hash function that is extremely fast on
+        // contiguous input, but that makes its streaming support rather
+        // complex. It is worth custom handling of the last byte (`type`)
+        // in order to avoid allocating a large state object and bringing
+        // that code complexity into CPU working set.
+        checksum = Lower32of64(
+            XXH3_64bits(block_contents.data(), block_contents.size()));
+        checksum = ModifyChecksumForCompressionType(checksum, type);
+        break;
+      }
       default:
         assert(false);
         break;
