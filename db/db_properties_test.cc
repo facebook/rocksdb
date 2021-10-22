@@ -233,7 +233,7 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
 
 void VerifyTableProperties(
     const TableProperties& base_tp, const TableProperties& new_tp,
-    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
+    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.18 : 0.1,
     double index_size_bias = 0.1, double data_size_bias = 0.1,
     double num_data_blocks_bias = 0.05) {
   VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
@@ -627,7 +627,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
           value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
-      VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);
+      VerifyTableProperties(expected_tp, tp, CACHE_LINE_SIZE >= 256 ? 0.6 : 0.5,
+                            0.4, 0.4, 0.25);
     }
   }
 }

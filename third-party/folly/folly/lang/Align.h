@@ -120,7 +120,7 @@ struct alignas(max_align_v) max_align_t {};
 //
 //  mimic: std::hardware_destructive_interference_size, C++17
 constexpr std::size_t hardware_destructive_interference_size =
-    kIsArchArm ? 64 : 128;
+    (kIsArchArm || kIsArchS390X) ? 64 : 128;
 static_assert(hardware_destructive_interference_size >= max_align_v, "math?");
 
 //  Memory locations within the same cache line are subject to constructive

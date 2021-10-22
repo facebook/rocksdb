@@ -133,6 +133,10 @@ static inline tokutime_t toku_time_now(void) {
   return result;
 #elif defined(__powerpc__)
   return __ppc_get_timebase();
+#elif defined(__s390x__)
+  uint64_t result;
+  asm volatile("stckf %0" : "=Q"(result) : : "cc");
+  return result;
 #else
 #error No timer implementation for this platform
 #endif
