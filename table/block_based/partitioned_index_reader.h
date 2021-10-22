@@ -46,6 +46,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
                        CachableEntry<Block>&& index_block)
       : IndexReaderCommon(t, std::move(index_block)) {}
 
+  // For partition blocks pinned in cache. This is expected to be "all or
+  // none" so that !partition_map_.empty() can use an iterator expecting
+  // all partitions to be saved here.
   std::unordered_map<uint64_t, CachableEntry<Block>> partition_map_;
 };
 }  // namespace ROCKSDB_NAMESPACE
