@@ -27,8 +27,6 @@ class CacheReservationManagerTest : public ::testing::Test {
 
   static constexpr std::size_t kSizeDummyEntry =
       CacheReservationManager::GetDummyEntrySize();
-  static const std::size_t kCacheKeyPrefixSize =
-      BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length;
   static constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   std::shared_ptr<Cache> cache = NewLRUCache(kOneGigabyte, kNumShardBits);
@@ -40,22 +38,6 @@ class CacheReservationManagerTest : public ::testing::Test {
 };
 
 TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
-  // The first cache reservation manager owning the cache will have
-  // cache->NewId() = 1
-  constexpr std::size_t kCacheNewId = 1;
-  // The first key generated inside of cache reservation manager will have
-  // next_cache_key_id = 0
-  constexpr std::size_t kCacheKeyId = 0;
-
-  char expected_cache_key[kCacheKeyPrefixSize + kMaxVarint64Length];
-  std::memset(expected_cache_key, 0, kCacheKeyPrefixSize + kMaxVarint64Length);
-
-  EncodeVarint64(expected_cache_key, kCacheNewId);
-  char* end =
-      EncodeVarint64(expected_cache_key + kCacheKeyPrefixSize, kCacheKeyId);
-  Slice expected_cache_key_slice(
-      expected_cache_key, static_cast<std::size_t>(end - expected_cache_key));
-
   std::size_t new_mem_used = 1 * kSizeDummyEntry;
   Status s =
       test_cache_rev_mng
@@ -66,7 +48,17 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
   ASSERT_LT(cache->GetPinnedUsage(),
             1 * kSizeDummyEntry + kMetaDataChargeOverhead);
 
-  Cache::Handle* handle = cache->Lookup(expected_cache_key_slice);
+  // Next unique Cache key
+  CacheKey ckey = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  // Back it up to the one used by CRM (using CacheKey implementation details)
+  using PairU64 = std::pair<uint64_t, uint64_t>;
+  auto& ckey_pair = *reinterpret_cast<PairU64*>(&ckey);
+  ckey_pair.second--;
+
+  // Specific key (subject to implementation details)
+  EXPECT_EQ(ckey_pair, PairU64(0, 2));
+
+  Cache::Handle* handle = cache->Lookup(ckey.AsSlice());
   EXPECT_NE(handle, nullptr)
       << "Failed to generate the cache key for the dummy entry correctly";
   // Clean up the returned handle from Lookup() to prevent memory leak

@@ -138,6 +138,7 @@ class ExternalSstFileIngestionJob {
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,
+                             uint64_t new_file_number,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
 

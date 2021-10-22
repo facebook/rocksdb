@@ -16,6 +16,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/utilities/cache_dump_load.h"
+#include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -233,7 +234,10 @@ class TestSecondaryCache : public SecondaryCache {
   void ResetInjectFailure() { inject_failure_ = false; }
 
   void SetDbSessionId(const std::string& db_session_id) {
-    db_session_id_ = db_session_id;
+    uint64_t upper = 0, lower = 0;
+    ASSERT_OK(DecodeSessionId(db_session_id, &upper, &lower));
+    ckey_prefix_.resize(sizeof(lower));
+    memcpy(&ckey_prefix_[0], &lower, sizeof(lower));
   }
 
   Status Insert(const Slice& key, void* value,
@@ -241,7 +245,7 @@ class TestSecondaryCache : public SecondaryCache {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
-    assert(IsDbSessionIdAsKeyPrefix(key) == true);
+    EXPECT_TRUE(IsDbSessionLowerAsKeyPrefix(key));
     size_t size;
     char* buf;
     Status s;
@@ -317,18 +321,8 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
-  bool IsDbSessionIdAsKeyPrefix(const Slice& key) {
-    if (db_session_id_.size() == 0) {
-      return true;
-    }
-    if (key.size() < 20) {
-      return false;
-    }
-    std::string s_key = key.ToString();
-    if (s_key.substr(0, 20) != db_session_id_) {
-      return false;
-    }
-    return true;
+  bool IsDbSessionLowerAsKeyPrefix(const Slice& key) {
+    return key.starts_with(ckey_prefix_);
   }
 
  private:
@@ -373,7 +367,7 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_inserts_;
   uint32_t num_lookups_;
   bool inject_failure_;
-  std::string db_session_id_;
+  std::string ckey_prefix_;
   ResultMap result_map_;
 };
 

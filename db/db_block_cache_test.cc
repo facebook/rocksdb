@@ -1404,7 +1404,8 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     // This is a "control" side of the test that also ensures safely degraded
     // behavior on old files.
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
+        [&](void* arg) {
           TableProperties* props = reinterpret_cast<TableProperties*>(arg);
           props->orig_file_number = 0;
         });
@@ -1464,11 +1465,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   }
 
   if (exclude_file_numbers_) {
-    // FIXME(peterd): figure out where these extra two ADDs are coming from
-    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
-                                   uint64_t{0} - uint64_t{2});
-    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
-                                   uint64_t{0} - uint64_t{2});
+    // FIXME(peterd): figure out where these extra ADDs are coming from
     options.statistics->recordTick(BLOCK_CACHE_COMPRESSED_ADD,
                                    uint64_t{0} - uint64_t{2});
   }
@@ -1522,14 +1519,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
 
   IngestExternalFileOptions ingest_opts;
   ASSERT_OK(db_->IngestExternalFile(handles_[1], {external}, ingest_opts));
-
-  if (exclude_file_numbers_) {
-    // FIXME(peterd): figure out where these extra two ADDs are coming from
-    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
-                                   uint64_t{0} - uint64_t{2});
-    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
-                                   uint64_t{0} - uint64_t{2});
-  }
 
   perform_gets();
   verify_stats();

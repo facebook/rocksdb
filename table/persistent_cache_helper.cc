@@ -15,13 +15,10 @@ void PersistentCacheHelper::InsertRawPage(
   assert(cache_options.persistent_cache);
   assert(cache_options.persistent_cache->IsCompressed());
 
-  // construct the page key
-  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  auto key = BlockBasedTable::GetCacheKey(cache_options.key_prefix.c_str(),
-                                          cache_options.key_prefix.size(),
-                                          handle, cache_key);
-  // insert content to cache
-  cache_options.persistent_cache->Insert(key, data, size)
+  CacheKey key =
+      BlockBasedTable::GetCacheKey(cache_options.base_cache_key, handle);
+
+  cache_options.persistent_cache->Insert(key.AsSlice(), data, size)
       .PermitUncheckedError();
 }
 
@@ -34,14 +31,11 @@ void PersistentCacheHelper::InsertUncompressedPage(
   // (1) content is cacheable
   // (2) content is not compressed
 
-  // construct the page key
-  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  auto key = BlockBasedTable::GetCacheKey(cache_options.key_prefix.c_str(),
-                                          cache_options.key_prefix.size(),
-                                          handle, cache_key);
-  // insert block contents to page cache
+  CacheKey key =
+      BlockBasedTable::GetCacheKey(cache_options.base_cache_key, handle);
+
   cache_options.persistent_cache
-      ->Insert(key, contents.data.data(), contents.data.size())
+      ->Insert(key.AsSlice(), contents.data.data(), contents.data.size())
       .PermitUncheckedError();
   ;
 }
@@ -55,14 +49,12 @@ Status PersistentCacheHelper::LookupRawPage(
   assert(cache_options.persistent_cache);
   assert(cache_options.persistent_cache->IsCompressed());
 
-  // construct the page key
-  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  auto key = BlockBasedTable::GetCacheKey(cache_options.key_prefix.c_str(),
-                                          cache_options.key_prefix.size(),
-                                          handle, cache_key);
-  // Lookup page
+  CacheKey key =
+      BlockBasedTable::GetCacheKey(cache_options.base_cache_key, handle);
+
   size_t size;
-  Status s = cache_options.persistent_cache->Lookup(key, raw_data, &size);
+  Status s =
+      cache_options.persistent_cache->Lookup(key.AsSlice(), raw_data, &size);
   if (!s.ok()) {
     // cache miss
     RecordTick(cache_options.statistics, PERSISTENT_CACHE_MISS);
@@ -87,15 +79,13 @@ Status PersistentCacheHelper::LookupUncompressedPage(
     return Status::NotFound();
   }
 
-  // construct the page key
-  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  auto key = BlockBasedTable::GetCacheKey(cache_options.key_prefix.c_str(),
-                                          cache_options.key_prefix.size(),
-                                          handle, cache_key);
-  // Lookup page
+  CacheKey key =
+      BlockBasedTable::GetCacheKey(cache_options.base_cache_key, handle);
+
   std::unique_ptr<char[]> data;
   size_t size;
-  Status s = cache_options.persistent_cache->Lookup(key, &data, &size);
+  Status s =
+      cache_options.persistent_cache->Lookup(key.AsSlice(), &data, &size);
   if (!s.ok()) {
     // cache miss
     RecordTick(cache_options.statistics, PERSISTENT_CACHE_MISS);

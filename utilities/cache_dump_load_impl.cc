@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache/cache_key.h"
+#include "table/block_based/block_based_table_reader.h"
 #ifndef ROCKSDB_LITE
 
 #include "utilities/cache_dump_load_impl.h"
@@ -33,8 +35,12 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
       return s;
     }
     for (auto id = ptc.begin(); id != ptc.end(); id++) {
-      assert(id->second->db_session_id.size() == 20);
-      prefix_filter_.insert(id->second->db_session_id);
+      OffsetableCacheKey base;
+      BlockBasedTable::SetupBaseCacheKey(
+          id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
+          /*file_size*/ 42, &base);
+      prefix_filter_.insert(
+          base.WithOffset(0).AsSlice().ToString().substr(0, 8));
     }
   }
   return s;
@@ -82,10 +88,11 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
 // Check if we need to filter out the block based on its key
 bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
+  // FIXME
   // Since now we use db_session_id as the prefix, the prefix size is 20. If
   // Anything changes in the future, we need to update it here.
   bool filter_out = true;
-  size_t prefix_size = 20;
+  size_t prefix_size = 8;
   Slice key_prefix(key.data(), prefix_size);
   std::string prefix = key_prefix.ToString();
   if (prefix_filter_.find(prefix) != prefix_filter_.end()) {
