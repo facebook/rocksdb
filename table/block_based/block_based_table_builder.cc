@@ -2030,6 +2030,11 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
+  if (ok()) {
+    // Dellocate FilterBlockBuilder object when done using it. Otherwise,
+    // it won't get dellocated until BlockBasedTableBuilder is dellocated.
+    r->filter_builder.reset(nullptr);
+  }
   r->state = Rep::State::kClosed;
   r->SetStatus(r->CopyIOStatus());
   Status ret_status = r->CopyStatus();
