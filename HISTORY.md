@@ -32,6 +32,7 @@
 * Fixed a bug where stalled writes would remain stalled forever after the user calls `WriteBufferManager::SetBufferSize()` with `new_size == 0` to dynamically disable memory limiting.
 * Make `DB::close()` thread-safe.
 * Fix a bug in atomic flush where one bg flush thread will wait forever for a preceding bg flush thread to commit its result to MANIFEST but encounters an error which is mapped to a soft error (DB not stopped).
+* Fix a bug in `BlockBasedTableBuilder` where `BlockBasedTableBuilder::Rep::FilterBlockBuilder` object is not deallocated until `BlockBasedTableBuilder` is deallocated, despite the fact that it is no longer useful after `BlockBasedTableBuilder::Finish()`.
 
 ### New Features
 * Print information about blob files when using "ldb list_live_files_metadata"
