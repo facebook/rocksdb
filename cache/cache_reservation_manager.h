@@ -74,7 +74,9 @@ class CacheReservationManager {
   // On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);
   std::size_t GetTotalReservedCacheSize();
-
+  // Return the latest total memory used indicated by the most recent call of
+  // UpdateCacheReservation(std::size_t new_memory_used);
+  std::size_t GetTotalMemoryUsed();
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
  private:
@@ -92,6 +94,7 @@ class CacheReservationManager {
   std::shared_ptr<Cache> cache_;
   bool delayed_decrease_;
   std::atomic<std::size_t> cache_allocated_size_;
+  std::atomic<std::size_t> memory_used_;
   std::vector<Cache::Handle *> dummy_handles_;
   std::uint64_t next_cache_key_id_ = 0;
   // The non-prefix part will be updated according to the ID to use.
