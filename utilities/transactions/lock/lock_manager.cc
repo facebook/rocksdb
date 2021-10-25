@@ -30,14 +30,18 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
 namespace {
 static int RegisterBuiltinLockManagerHandles(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
+#ifndef OS_WIN
   library.Register<LockManagerHandle>(
       RangeTreeLockManager::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<LockManagerHandle>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new RangeTreeLockManager(nullptr));
+        std::shared_ptr<TransactionDBMutexFactory> mutex_factory;
+        guard->reset(new RangeTreeLockManager(mutex_factory));
         return guard->get();
       });
-  return 1;
+#endif  // OS_WIN
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 }  // namespace
 Status LockManagerHandle::CreateFromString(
