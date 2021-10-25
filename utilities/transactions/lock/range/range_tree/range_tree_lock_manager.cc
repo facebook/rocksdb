@@ -14,6 +14,7 @@
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -27,14 +28,9 @@ namespace ROCKSDB_NAMESPACE {
 
 RangeLockManagerHandle* NewRangeLockManager(
     std::shared_ptr<TransactionDBMutexFactory> mutex_factory) {
-  std::shared_ptr<TransactionDBMutexFactory> use_factory;
-
-  if (mutex_factory) {
-    use_factory = mutex_factory;
-  } else {
-    use_factory.reset(new TransactionDBMutexFactoryImpl());
-  }
-  return new RangeTreeLockManager(use_factory);
+  auto rlmh = new RangeTreeLockManager(mutex_factory);
+  rlmh->Initialize();
+  return rlmh;
 }
 
 static const char SUFFIX_INFIMUM = 0x0;
@@ -252,14 +248,36 @@ void UnrefLockTreeMapsCache(void* ptr) {
       std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
   delete lock_tree_map_cache;
 }
+static std::unordered_map<std::string, OptionTypeInfo> mutex_factory_type_info =
+    {
+        {"mutex_factory",
+         OptionTypeInfo::AsCustomSharedPtr<TransactionDBMutexFactory>(
+             0, OptionVerificationType::kByName,
+             OptionTypeFlags::kCompareNever)},
+};
 }  // anonymous namespace
 
 RangeTreeLockManager::RangeTreeLockManager(
-    std::shared_ptr<TransactionDBMutexFactory> mutex_factory)
+    const std::shared_ptr<TransactionDBMutexFactory>& mutex_factory)
     : mutex_factory_(mutex_factory),
       ltree_lookup_cache_(new ThreadLocalPtr(&UnrefLockTreeMapsCache)),
       dlock_buffer_(10) {
-  ltm_.create(on_create, on_destroy, on_escalate, nullptr, mutex_factory_);
+  RegisterOptions("MutexFactory", &mutex_factory_, &mutex_factory_type_info);
+}
+
+void RangeTreeLockManager::Initialize() {
+  std::call_once(initialized_, [this] {
+    if (!mutex_factory_) {
+      mutex_factory_.reset(new TransactionDBMutexFactoryImpl());
+    }
+    ltm_.create(on_create, on_destroy, on_escalate, nullptr, mutex_factory_);
+  });
+}
+
+Status RangeTreeLockManager::PrepareOptions(
+    const ConfigOptions& config_options) {
+  Initialize();
+  return LockManagerHandle::PrepareOptions(config_options);
 }
 
 void RangeTreeLockManager::SetRangeDeadlockInfoBufferSize(

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
@@ -32,6 +33,7 @@ enum TxnDBWritePolicy {
 const uint32_t kInitialMaxDeadlocks = 5;
 
 class LockManager;
+struct ConfigOptions;
 struct RangeLockInfo;
 
 // A lock manager handle
@@ -42,8 +44,16 @@ struct RangeLockInfo;
 //    methods and parameters to control the lock manager
 //  * Pass the handle to RocksDB in TransactionDBOptions::lock_mgr_handle. It
 //    will be used to perform locking.
-class LockManagerHandle {
+class LockManagerHandle : public Customizable {
  public:
+  // Creates and configures a new LockManagerHandle from the input options and
+  // id.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<LockManagerHandle>* result);
+
+  static const char* Type() { return "LockManagerHandle"; }
+
   // PessimisticTransactionDB will call this to get the Lock Manager it's going
   // to use.
   virtual LockManager* getLockManager() = 0;
@@ -117,6 +127,14 @@ class RangeLockManagerHandle : public LockManagerHandle {
   virtual void SetRangeDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
   virtual ~RangeLockManagerHandle() {}
+  static const char* kClassName() { return "RangeLockManagerHandle"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return LockManagerHandle::IsInstanceOf(name);
+    }
+  }
 };
 
 // A factory function to create a Range Lock Manager. The created object should

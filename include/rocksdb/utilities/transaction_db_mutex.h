@@ -8,10 +8,11 @@
 
 #include <memory>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+struct ConfigOptions;
 // TransactionDBMutex and TransactionDBCondVar APIs allows applications to
 // implement custom mutexes and condition variables to be used by a
 // TransactionDB when locking keys.
@@ -76,8 +77,15 @@ class TransactionDBCondVar {
 };
 
 // Factory class that can allocate mutexes and condition variables.
-class TransactionDBMutexFactory {
+class TransactionDBMutexFactory : public Customizable {
  public:
+  // Creates and configures a new TransactionDBMutexFactory from the input
+  // options and id.
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& id,
+      std::shared_ptr<TransactionDBMutexFactory>* result);
+
+  static const char* Type() { return "TransactionDBMutexFactory"; }
   // Create a TransactionDBMutex object.
   virtual std::shared_ptr<TransactionDBMutex> AllocateMutex() = 0;
 
