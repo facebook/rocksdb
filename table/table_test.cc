@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/table.h"
+
+#include <gtest/gtest.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -29,6 +32,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -2191,6 +2195,116 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
     ASSERT_OK(db_iter->status());
     ASSERT_EQ(db_iter->key(), kv.first);
     ASSERT_EQ(db_iter->value(), kv.second);
+  }
+}
+
+TEST_P(BlockBasedTableTest, BadChecksumType) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+
+  Options options;
+  options.comparator = BytewiseComparator();
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  TableConstructor c(options.comparator);
+  InternalKey key("abc", 1, kTypeValue);
+  c.Add(key.Encode().ToString(), "test");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+  // Corrupt checksum type
+  auto& sink = *c.TEST_GetSink();
+  size_t len = sink.contents_.size();
+  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
+
+  sink.contents_[len - Footer::kNewVersionsEncodedLength] = '\x7b';
+
+  // (Re-)Open table file with bad checksum type
+  const ImmutableOptions new_ioptions(options);
+  const MutableCFOptions new_moptions(options);
+  Status s = c.Reopen(new_ioptions, new_moptions);
+  ASSERT_NOK(s);
+  ASSERT_MATCHES_REGEX(s.ToString(), "Corruption: unknown checksum type 123.*");
+}
+
+namespace {
+std::string TrailerAsString(const std::string& contents,
+                            CompressionType compression_type,
+                            ChecksumType checksum_type) {
+  std::array<char, kBlockTrailerSize> trailer;
+  BlockBasedTableBuilder::ComputeBlockTrailer(contents, compression_type,
+                                              checksum_type, &trailer);
+  return Slice(trailer.data(), trailer.size()).ToString(/*hex*/ true);
+}
+}  // namespace
+
+// Make sure that checksum values don't change in later versions, even if
+// consistent within current version. (Other tests check for consistency
+// between written checksums and read-time validation, so here we only
+// have to verify the writer side.)
+TEST_P(BlockBasedTableTest, ChecksumSchemas) {
+  std::string b1 = "This is a short block!";
+  std::string b2;
+  for (int i = 0; i < 100; ++i) {
+    b2.append("This is a long block!");
+  }
+  CompressionType ct1 = kNoCompression;
+  CompressionType ct2 = kSnappyCompression;
+  CompressionType ct3 = kZSTD;
+
+  // Note: first byte of trailer is compression type, last 4 are checksum
+
+  for (ChecksumType t : GetSupportedChecksums()) {
+    switch (t) {
+      case kNoChecksum:
+        EXPECT_EQ(TrailerAsString(b1, ct1, t), "0000000000");
+        EXPECT_EQ(TrailerAsString(b1, ct2, t), "0100000000");
+        EXPECT_EQ(TrailerAsString(b1, ct3, t), "0700000000");
+        EXPECT_EQ(TrailerAsString(b2, ct1, t), "0000000000");
+        EXPECT_EQ(TrailerAsString(b2, ct2, t), "0100000000");
+        EXPECT_EQ(TrailerAsString(b2, ct3, t), "0700000000");
+        break;
+      case kCRC32c:
+        EXPECT_EQ(TrailerAsString(b1, ct1, t), "00583F0355");
+        EXPECT_EQ(TrailerAsString(b1, ct2, t), "012F9B0A57");
+        EXPECT_EQ(TrailerAsString(b1, ct3, t), "07ECE7DA1D");
+        EXPECT_EQ(TrailerAsString(b2, ct1, t), "00943EF0AB");
+        EXPECT_EQ(TrailerAsString(b2, ct2, t), "0143A2EDB1");
+        EXPECT_EQ(TrailerAsString(b2, ct3, t), "0700E53D63");
+        break;
+      case kxxHash:
+        EXPECT_EQ(TrailerAsString(b1, ct1, t), "004A2E5FB0");
+        EXPECT_EQ(TrailerAsString(b1, ct2, t), "010BD9F652");
+        EXPECT_EQ(TrailerAsString(b1, ct3, t), "07B4107E50");
+        EXPECT_EQ(TrailerAsString(b2, ct1, t), "0020F4D4BA");
+        EXPECT_EQ(TrailerAsString(b2, ct2, t), "018F1A1F99");
+        EXPECT_EQ(TrailerAsString(b2, ct3, t), "07A191A338");
+        break;
+      case kxxHash64:
+        EXPECT_EQ(TrailerAsString(b1, ct1, t), "00B74655EF");
+        EXPECT_EQ(TrailerAsString(b1, ct2, t), "01B6C8BBBE");
+        EXPECT_EQ(TrailerAsString(b1, ct3, t), "07AED9E3B4");
+        EXPECT_EQ(TrailerAsString(b2, ct1, t), "000D4999FE");
+        EXPECT_EQ(TrailerAsString(b2, ct2, t), "01F5932423");
+        EXPECT_EQ(TrailerAsString(b2, ct3, t), "076B31BAB1");
+        break;
+      case kXXH3:
+        EXPECT_EQ(TrailerAsString(b1, ct1, t), "00B37FB5E6");
+        EXPECT_EQ(TrailerAsString(b1, ct2, t), "016AFC258D");
+        EXPECT_EQ(TrailerAsString(b1, ct3, t), "075CE54616");
+        EXPECT_EQ(TrailerAsString(b2, ct1, t), "00FA2D482E");
+        EXPECT_EQ(TrailerAsString(b2, ct2, t), "0123AED845");
+        EXPECT_EQ(TrailerAsString(b2, ct3, t), "0715B7BBDE");
+        break;
+      default:
+        // Force this test to be updated on new ChecksumTypes
+        assert(false);
+        break;
+    }
   }
 }
 

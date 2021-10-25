@@ -16,11 +16,13 @@
 #include <string>
 
 #include "logging/logging.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -563,6 +565,14 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
+  }
+  std::string garbage;
+  if (!SerializeEnum<ChecksumType>(checksum_type_string_map,
+                                   table_options_.checksum, &garbage)) {
+    return Status::InvalidArgument(
+        "Unrecognized ChecksumType for checksum: " +
+        ROCKSDB_NAMESPACE::ToString(
+            static_cast<uint32_t>(table_options_.checksum)));
   }
   return TableFactory::ValidateOptions(db_opts, cf_opts);
 }

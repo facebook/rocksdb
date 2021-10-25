@@ -1001,6 +1001,11 @@ TEST_F(DBBasicTest, ChecksumTest) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
   }
+
+  // Now test invalid checksum type
+  table_options.checksum = static_cast<ChecksumType>(123);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
 }
 
 // On Windows you can have either memory mapped file or a file

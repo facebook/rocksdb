@@ -234,7 +234,7 @@ inline uint32_t ModifyChecksumForCompressionType(uint32_t checksum,
   // This strategy bears some resemblance to extending a CRC checksum by one
   // more byte, except we don't need to re-mix the input checksum as long as
   // we do this step only once (per checksum).
-  const uint32_t kRandomPrime = 0x48d9b881;
+  const uint32_t kRandomPrime = 0x6b9083d9;
   return checksum ^ static_cast<uint8_t>(compression_type) * kRandomPrime;
 }
 
