@@ -114,10 +114,12 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   Statistics* kNullStats = nullptr;
 
   CachableEntry<Block> index_block;
-  Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
-                                 &lookup_context, &index_block);
-  if (!s.ok()) {
-    return s;
+  {
+    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
+                                   &lookup_context, &index_block);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // We don't return pinned data from index blocks, so no need
@@ -149,14 +151,19 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
                                 false /*Implicit auto readahead*/);
   IOOptions opts;
-  s = rep->file->PrepareIOOptions(ro, opts);
-  if (s.ok()) {
-    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+  {
+    Status s = rep->file->PrepareIOOptions(ro, opts);
+    if (s.ok()) {
+      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                    static_cast<size_t>(prefetch_len));
+    }
+    if (!s.ok()) {
+      return s;
+    }
   }
-  if (!s.ok()) {
-    return s;
-  }
+
+  // For saving "all or nothing" to partition_map_
+  std::unordered_map<uint64_t, CachableEntry<Block>> map_in_progress;
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
@@ -165,7 +172,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     CachableEntry<Block> block;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
-    s = table()->MaybeReadBlockAndLoadToCache(
+    Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         /*wait=*/true, &block, BlockType::kIndex, /*get_context=*/nullptr,
         &lookup_context, /*contents=*/nullptr);
@@ -176,12 +183,16 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     if (block.GetValue() != nullptr) {
       if (block.IsCached()) {
         if (pin) {
-          partition_map_[handle.offset()] = std::move(block);
+          map_in_progress[handle.offset()] = std::move(block);
         }
       }
     }
   }
-  return biter.status();
+  Status s = biter.status();
+  if (s.ok()) {
+    std::swap(partition_map_, map_in_progress);
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
