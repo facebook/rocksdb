@@ -14,9 +14,12 @@
 #include <string>
 
 #include "file/random_access_file_reader.h"
+#include "file/read_pattern.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+// TODO akanksha: Remove below header.
+#include "table/block_based/block_type.h"
 #include "util/aligned_buffer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -91,7 +94,14 @@ class FilePrefetchBuffer {
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
-  void UpdateReadPattern(const uint64_t& offset, const size_t& len) {
+  void UpdateReadPattern(const uint64_t& offset, const size_t& len,
+                         bool is_adaptive_readahead = false) {
+    if (is_adaptive_readahead) {
+      // Since this block was eligible for prefetch but it was found in
+      // cache, so check and decrease the readahead_size by 8KB (default)
+      // if eligible.
+      DecreaseReadAheadIfEligible(offset, len);
+    }
     prev_offset_ = offset;
     prev_len_ = len;
   }
@@ -105,11 +115,9 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
-  void GetPrefetchBufferReadPattern(size_t* readahead_size,
-                                    uint64_t* prev_offset, size_t* prev_len) {
-    *prev_offset = prev_offset_;
-    *prev_len = prev_len_;
-    *readahead_size = readahead_size_;
+  void GetPrefetchBufferReadPattern(ReadaheadInfo::ReadPattern* read_pattern) {
+    read_pattern->readahead_size = readahead_size_;
+    read_pattern->num_file_reads = num_file_reads_;
   }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
@@ -123,7 +131,6 @@ class FilePrefetchBuffer {
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
     //   kMinNumFileReadsToStartAutoReadahead
-
     if (implicit_auto_readahead_ && readahead_size_ > 0) {
       if ((offset + size > buffer_offset_ + buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
@@ -158,6 +165,6 @@ class FilePrefetchBuffer {
   bool implicit_auto_readahead_;
   uint64_t prev_offset_;
   size_t prev_len_;
-  int num_file_reads_;
+  int64_t num_file_reads_;
 };
 }  // namespace ROCKSDB_NAMESPACE

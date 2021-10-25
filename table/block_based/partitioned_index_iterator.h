@@ -27,16 +27,17 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
       const InternalKeyComparator& icomp,
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       TableReaderCaller caller, size_t compaction_readahead_size = 0)
-      : table_(table),
+      : index_iter_(std::move(index_iter)),
+        table_(table),
         read_options_(read_options),
 #ifndef NDEBUG
         icomp_(icomp),
 #endif
         user_comparator_(icomp.user_comparator()),
-        index_iter_(std::move(index_iter)),
         block_iter_points_to_real_block_(false),
         lookup_context_(caller),
-        block_prefetcher_(compaction_readahead_size) {}
+        block_prefetcher_(compaction_readahead_size) {
+  }
 
   ~PartitionedIndexIterator() override {}
 
@@ -113,6 +114,21 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
     }
   }
 
+  void GetPrefetchBufferReadPattern(ReadaheadInfo* readahead_info) override {
+    if (block_prefetcher_.prefetch_buffer() != nullptr &&
+        read_options_.adaptive_readahead) {
+      block_prefetcher_.prefetch_buffer()->GetPrefetchBufferReadPattern(
+          &(readahead_info->index_block_pattern));
+    }
+  }
+
+  void SetPrefetchBufferReadPattern(ReadaheadInfo* readahead_info) override {
+    block_prefetcher_.SetPrefetchBufferReadPattern(
+        &(readahead_info->index_block_pattern));
+  }
+
+  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
+
  private:
   friend class BlockBasedTableReaderTestVerifyChecksum_ChecksumMismatch_Test;
   const BlockBasedTable* table_;
@@ -121,7 +137,6 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
   const InternalKeyComparator& icomp_;
 #endif
   UserComparatorWrapper user_comparator_;
-  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   IndexBlockIter block_iter_;
 
   // True if block_iter_ is initialized and points to the same block

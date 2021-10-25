@@ -1049,7 +1049,7 @@ DEFINE_bool(io_uring_enabled, true,
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
 
-DEFINE_bool(reuse_internal_auto_readahead_size, false,
+DEFINE_bool(adaptive_readahead, false,
             "carry forward internal auto readahead size from one file to next "
             "file at each level during iteration");
 
@@ -5495,8 +5495,7 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
-    options.reuse_internal_auto_readahead_size =
-        FLAGS_reuse_internal_auto_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -5592,8 +5591,7 @@ class Benchmark {
 
   void ReadReverse(ThreadState* thread, DB* db) {
     ReadOptions options(FLAGS_verify_checksum, true);
-    options.reuse_internal_auto_readahead_size =
-        FLAGS_reuse_internal_auto_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -6384,8 +6382,7 @@ class Benchmark {
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
-    options.reuse_internal_auto_readahead_size =
-        FLAGS_reuse_internal_auto_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6682,8 +6679,7 @@ class Benchmark {
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
     }
-    read_options.reuse_internal_auto_readahead_size =
-        FLAGS_reuse_internal_auto_readahead_size;
+    read_options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -7284,8 +7280,7 @@ class Benchmark {
 
     DB* db = SelectDB(thread);
     ReadOptions read_opts(FLAGS_verify_checksum, true);
-    read_opts.reuse_internal_auto_readahead_size =
-        FLAGS_reuse_internal_auto_readahead_size;
+    read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {

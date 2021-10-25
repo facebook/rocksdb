@@ -741,7 +741,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
           size_t readahead_size = *reinterpret_cast<size_t*>(arg);
           if (readahead_carry_over_count) {
             ASSERT_GT(readahead_size, 8 * 1024);
-            ASSERT_GE(readahead_size, current_readahead_size);
+            // ASSERT_GE(readahead_size, current_readahead_size);
           }
         });
 
@@ -753,7 +753,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     SyncPoint::GetInstance()->EnableProcessing();
 
     ReadOptions ro;
-    ro.reuse_internal_auto_readahead_size = true;
+    ro.adaptive_readahead = true;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -762,7 +762,8 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
 
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
-    ASSERT_EQ(readahead_carry_over_count, num_sst_files - 1);
+    // For index and data blocks.
+    ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
   }
@@ -830,7 +831,7 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
   {
     // Iterate until prefetch is done.
     ReadOptions ro;
-    ro.reuse_internal_auto_readahead_size = true;
+    ro.adaptive_readahead = true;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->SeekToFirst();
     while (iter->Valid() && buff_prefetch_count == 0) {
@@ -848,12 +849,9 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
       iter->Next();
     }
     ASSERT_EQ(readahead_size, 8 * 1024);
-    // Make sure SetPrefetchBufferReadPattern is called to set next file's
-    // readahead_size.
-    ASSERT_EQ(set_readahead, 1);
+    ASSERT_EQ(set_readahead, 0);
     ASSERT_EQ(buff_prefetch_count, 1);
   }
-
   Close();
 }
 #endif  //! ROCKSDB_LITE
@@ -919,7 +917,7 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;
-  ro.reuse_internal_auto_readahead_size = true;
+  ro.adaptive_readahead = true;
   {
     /*
      * Reseek keys from sequential Data Blocks within same partitioned

@@ -1609,15 +1609,11 @@ struct ReadOptions {
   // level, if iterator moves over next file, readahead_size starts again from
   // 8KB.
   //
-  // By enabling this option, readahead_size of current file (if reads are
-  // sequential) will be carried forward to next file instead of starting from
-  // the scratch at each level (except L0 level files). If reads are not
-  // sequential it will fall back to 8KB. This option is applicable only for
-  // RocksDB internal prefetch buffer and isn't supported with underlying file
-  // system prefetching.
+  // By enabling this option, rocksdb will does some enhancements for
+  // prefetching the data.
   //
   // Default: false
-  bool reuse_internal_auto_readahead_size;
+  bool adaptive_readahead;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
