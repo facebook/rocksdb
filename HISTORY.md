@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+* Added new ChecksumType kXXH3 which is faster than kCRC32c on almost all x86_64 hardware.
+
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
