@@ -175,7 +175,8 @@ public class BlobOptionsTest {
             "enable_blob_garbage_collection", "blob_garbage_collection_age_cutoff",
             "blob_garbage_collection_force_threshold", "blob_file_size"});
     assertThat(options.getValues())
-        .isEqualTo(new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "0.91", "2048"});
+        .isEqualTo(
+            new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "0.91", "0.96", "2048"});
   }
 
   /**

@@ -522,7 +522,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public CompressionType blobCompressionType() {
-      return getEnum(BlobOption.blob_compression_type);
+      return (CompressionType) getEnum(BlobOption.blob_compression_type);
     }
 
     @Override
