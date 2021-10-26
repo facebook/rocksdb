@@ -16,14 +16,15 @@
  * Signature: (JJ)J
  */
 jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
-        JNIEnv* /*env*/, jclass /*jclazz*/, jlong jbuffer_size, jlong jcache_handle) {
+    JNIEnv* /*env*/, jclass /*jclazz*/, jlong jbuffer_size, jlong jcache_handle,
+    jboolean allow_stall) {
   auto* cache_ptr =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(
           jcache_handle);
   auto* write_buffer_manager =
       new std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(
-          std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(jbuffer_size,
-                                                                  *cache_ptr));
+          std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(
+              jbuffer_size, *cache_ptr, allow_stall));
   return reinterpret_cast<jlong>(write_buffer_manager);
 }
 
