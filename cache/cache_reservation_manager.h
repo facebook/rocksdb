@@ -26,7 +26,9 @@ namespace ROCKSDB_NAMESPACE {
 
 // CacheReservationManager is for reserving cache space for the memory used
 // through inserting/releasing dummy entries in the cache.
-// This class is NOT thread-safe.
+
+// This class is NOT thread-safe, except that GetTotalReservedCacheSize()
+// can be called without external synchronization.
 class CacheReservationManager {
  public:
   // Construct a CacheReservationManager
