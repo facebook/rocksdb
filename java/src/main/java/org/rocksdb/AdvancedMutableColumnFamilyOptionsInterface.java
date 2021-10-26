@@ -687,6 +687,31 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    */
   double blobGarbageCollectionAgeCutoff();
 
+  /**
+   *  If the ratio of garbage in the oldest blob files exceeds this threshold,
+   *  targeted compactions are scheduled in order to force garbage collecting
+   *  the blob files in question, assuming they are all eligible based on the
+   *  value of {@link #blobGarbageCollectionAgeCutoff} above. This option is
+   *  currently only supported with leveled compactions.
+   *
+   *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
+   *  option to have any effect.
+   *
+   *  Default: 1.0
+   *
+   * Dynamically changeable through the SetOptions() API
+   *
+   * @param blobGarbageCollectionForceThreshold new value for the threshold
+   * @return the reference to the current options
+   */
+  T setBlobGarbageCollectionForceThreshold(double blobGarbageCollectionForceThreshold);
+
+  /**
+   * Get the current value for the {@link #blobGarbageCollectionForceThreshold}
+   * @return the current threshold at which garbage collection of blobs is forced
+   */
+  double blobGarbageCollectionForceThreshold();
+
   //
   // END options for blobs (integrated BlobDB)
   //

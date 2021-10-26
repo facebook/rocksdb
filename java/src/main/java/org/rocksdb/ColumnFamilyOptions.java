@@ -1164,6 +1164,39 @@ public class ColumnFamilyOptions extends RocksObject
     return blobGarbageCollectionAgeCutoff(nativeHandle_);
   }
 
+  /**
+   *  If the ratio of garbage in the oldest blob files exceeds this threshold,
+   *  targeted compactions are scheduled in order to force garbage collecting
+   *  the blob files in question, assuming they are all eligible based on the
+   *  value of {@link #blobGarbageCollectionAgeCutoff} above. This option is
+   *  currently only supported with leveled compactions.
+   *
+   *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
+   *  option to have any effect.
+   *
+   *  Default: 1.0
+   *
+   * Dynamically changeable through the SetOptions() API
+   *
+   * @param blobGarbageCollectionForceThreshold new value for the threshold
+   * @return the reference to the current options
+   */
+  @Override
+  public ColumnFamilyOptions setBlobGarbageCollectionForceThreshold(
+      final double blobGarbageCollectionForceThreshold) {
+    setBlobGarbageCollectionForceThreshold(nativeHandle_, blobGarbageCollectionForceThreshold);
+    return this;
+  }
+
+  /**
+   * Get the current value for the {@link #blobGarbageCollectionForceThreshold}
+   * @return the current threshold at which garbage collection of blobs is forced
+   */
+  @Override
+  public double blobGarbageCollectionForceThreshold() {
+    return blobGarbageCollectionForceThreshold(nativeHandle_);
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -1358,6 +1391,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBlobGarbageCollectionAgeCutoff(
       final long nativeHandle_, final double blobGarbageCollectionAgeCutoff);
   private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
+  private native void setBlobGarbageCollectionForceThreshold(
+      final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
+  private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

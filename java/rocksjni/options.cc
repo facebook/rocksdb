@@ -3837,6 +3837,30 @@ jdouble Java_org_rocksdb_Options_blobGarbageCollectionAgeCutoff(JNIEnv*,
   return static_cast<jdouble>(opts->blob_garbage_collection_age_cutoff);
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setBlobGarbageCollectionForceThreshold
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_Options_setBlobGarbageCollectionForceThreshold(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_force_threshold) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_garbage_collection_force_threshold =
+      static_cast<double>(jblob_garbage_collection_force_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blobGarbageCollectionForceThreshold
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_Options_blobGarbageCollectionForceThreshold(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_force_threshold);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ColumnFamilyOptions
 
@@ -5543,6 +5567,33 @@ jdouble Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionAgeCutoff(
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jdouble>(opts->blob_garbage_collection_age_cutoff);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBlobGarbageCollectionForceThreshold
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobGarbageCollectionForceThreshold(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_force_threshold) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_garbage_collection_force_threshold =
+      static_cast<double>(jblob_garbage_collection_force_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    blobGarbageCollectionAgeCutoff
+ * Signature: (J)D
+ */
+jdouble
+Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionForceThreshold(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_force_threshold);
 }
 
 /////////////////////////////////////////////////////////////////////

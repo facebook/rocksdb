@@ -2087,6 +2087,18 @@ public class Options extends RocksObject
     return blobGarbageCollectionAgeCutoff(nativeHandle_);
   }
 
+  @Override
+  public Options setBlobGarbageCollectionForceThreshold(
+      double blobGarbageCollectionForceThreshold) {
+    setBlobGarbageCollectionForceThreshold(nativeHandle_, blobGarbageCollectionForceThreshold);
+    return this;
+  }
+
+  @Override
+  public double blobGarbageCollectionForceThreshold() {
+    return blobGarbageCollectionForceThreshold(nativeHandle_);
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -2519,6 +2531,9 @@ public class Options extends RocksObject
   private native void setBlobGarbageCollectionAgeCutoff(
       final long nativeHandle_, double blobGarbageCollectionAgeCutoff);
   private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
+  private native void setBlobGarbageCollectionForceThreshold(
+      final long nativeHandle_, double blobGarbageCollectionForceThreshold);
+  private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
