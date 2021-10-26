@@ -73,9 +73,9 @@ class CacheReservationManager {
   //        The most recent new_memoy_used passed in will be returned
   //        in GetTotalMemoryUsed() even when the call return non-ok status.
   //
-  //        Since the class is NOT thread-safe, external synchronization is
-  //        needed in calling UpdateCacheReservation() if you want
-  //        GetTotalMemoryUsed() returns the indeed latest memory used.
+  //        Since the class is NOT thread-safe, external synchronization on the
+  //        order of calling UpdateCacheReservation() is needed if you want
+  //        GetTotalMemoryUsed() indeed returns the latest memory used.
   //
   //        If the new_memoy_used passed in reflects a hypothetical usage
   //        instead of the actual memory usage and this hypothetical usage is
