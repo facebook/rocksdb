@@ -24,7 +24,10 @@ class SliceTransform;
 
 // CompactionFilter allows an application to modify/delete a key-value during
 // table file creation.
-
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class CompactionFilter : public Customizable {
  public:
   enum ValueType {
@@ -219,6 +222,10 @@ class CompactionFilter : public Customizable {
 // `CompactionFilter` according to `ShouldFilterTableFileCreation()`. This
 // allows the application to know about the different ongoing threads of work
 // and makes it unnecessary for `CompactionFilter` to provide thread-safety.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class CompactionFilterFactory : public Customizable {
  public:
   virtual ~CompactionFilterFactory() {}

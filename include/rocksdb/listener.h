@@ -476,6 +476,10 @@ struct ExternalFileIngestionInfo {
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
+//
+// [Exceptions] RocksDB callbacks are NOT exception-safe. A callback
+// completing with an exception can lead to undefined behavior in RocksDB,
+// including data loss, unreported corruption, deadlocks, and more.
 class EventListener : public Customizable {
  public:
   static const char* Type() { return "EventListener"; }

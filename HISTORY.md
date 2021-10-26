@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## Unreleased
+### Public API change
+* Clarified in API comments that RocksDB callback interfaces are not exception safe. A callback completing with an exception can lead to undefined behavior in RocksDB, including data loss, unreported corruption, deadlocks, and more.
+* Marked `WriteBufferManager` as `final` because it is not intended for extension.
+
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.

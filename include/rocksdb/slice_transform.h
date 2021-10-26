@@ -25,12 +25,14 @@ namespace ROCKSDB_NAMESPACE {
 class Slice;
 struct ConfigOptions;
 
-/*
- * A SliceTransform is a generic pluggable way of transforming one string
- * to another. Its primary use-case is in configuring rocksdb
- * to store prefix blooms by setting prefix_extractor in
- * ColumnFamilyOptions.
- */
+// A SliceTransform is a generic pluggable way of transforming one string
+// to another. Its primary use-case is in configuring rocksdb
+// to store prefix blooms by setting prefix_extractor in
+// ColumnFamilyOptions.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class SliceTransform : public Customizable {
  public:
   virtual ~SliceTransform(){};

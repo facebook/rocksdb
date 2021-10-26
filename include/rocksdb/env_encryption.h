@@ -59,6 +59,10 @@ class BlockAccessCipherStream {
 };
 
 // BlockCipher
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
@@ -102,6 +106,10 @@ class BlockCipher : public Customizable {
 // The encryption provider is used to create a cipher stream for a specific
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};

@@ -145,6 +145,9 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class Env {
  public:
   struct FileAttributes {
@@ -1150,6 +1153,10 @@ enum InfoLogLevel : unsigned char {
 };
 
 // An interface for writing log messages.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();

@@ -44,6 +44,9 @@ class Logger;
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class MergeOperator : public Customizable {
  public:
   virtual ~MergeOperator() {}

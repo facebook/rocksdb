@@ -19,6 +19,10 @@ struct ConfigOptions;
 // WALFilter allows an application to inspect write-ahead-log (WAL)
 // records or modify their processing on recovery.
 // Please see the details below.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class WalFilter : public Customizable {
  public:
   static const char* Type() { return "WalFilter"; }

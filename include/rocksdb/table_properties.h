@@ -80,7 +80,14 @@ extern const std::string kRangeDelBlock;
 // a collection of callback functions that will be invoked during table
 // building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
-// TablePropertiesCollector object per table and then call it sequentially
+// TablePropertiesCollector object per table and then call it sequentially.
+//
+// Statuses from these callbacks are currently logged when not OK, but
+// otherwise ignored by RocksDB.
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
   virtual ~TablePropertiesCollector() {}
@@ -133,6 +140,10 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
+//
+// RocksDB callbacks are NOT exception-safe. A callback completing with an
+// exception can lead to undefined behavior in RocksDB, including data loss,
+// unreported corruption, deadlocks, and more.
 class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
