@@ -1594,17 +1594,14 @@ void BlockBasedTableBuilder::WriteFilterBlock(
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
+      // filter_data is used to store the transferred filter data payload from
+      // FilterBlockBuilder and deallocate the payload by going out of scope.
+      // Otherwise, the payload will unnecessarily remain until
+      // BlockBasedTableBuilder is deallocated.
       std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
-      // Deallocate the filter data payload of FilterBlockBuilder when done
-      // using it to release memory.  Otherwise, it will remain until
-      // BlockBasedTableBuilder is deallocated.
-      if (filter_data) {
-        assert(!filter_data);
-        filter_data.reset();
-      }
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
