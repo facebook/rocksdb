@@ -1747,7 +1747,9 @@ Status DBImpl::RunManualCompaction(
     // Does not make sense to `AddManualCompaction()` in this scenario since
     // `DisableManualCompaction()` just waited for the manual compaction queue
     // to drain. So return immediately.
-    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    manual.status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    manual.done = true;
+    return manual.status;
   }
 
   // When a manual compaction arrives, temporarily disable scheduling of
