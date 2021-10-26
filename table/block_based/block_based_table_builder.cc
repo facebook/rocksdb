@@ -1593,9 +1593,10 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     rep_->props.num_filter_entries +=
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
+    std::unique_ptr<const char[]> filter_data = nullptr;
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =
-          rep_->filter_builder->Finish(filter_block_handle, &s);
+          rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,

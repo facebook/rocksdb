@@ -37,7 +37,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   size_t EstimateEntriesAdded() override;
 
   virtual Slice Finish(const BlockHandle& last_partition_block_handle,
-                       Status* status) override;
+                       Status* status,
+                       std::unique_ptr<const char[]>* filter_data) override;
 
  private:
   // Filter data

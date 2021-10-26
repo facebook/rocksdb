@@ -110,7 +110,8 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status) {
+    const BlockHandle& last_partition_block_handle, Status* status,
+    std::unique_ptr<const char[]>* /* filter_data */) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
     FilterEntry& last_entry = filters.front();

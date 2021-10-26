@@ -101,8 +101,9 @@ void FullFilterBlockBuilder::Reset() {
   last_prefix_recorded_ = false;
 }
 
-Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                     Status* status) {
+Slice FullFilterBlockBuilder::Finish(
+    const BlockHandle& /*tmp*/, Status* status,
+    std::unique_ptr<const char[]>* filter_data) {
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
@@ -110,6 +111,7 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
     any_added_ = false;
     return filter_bits_builder_->Finish(&filter_data_);
   }
+  *filter_data = std::move(filter_data_);
   return Slice();
 }
 
