@@ -74,8 +74,9 @@ class FilterBlockBuilder {
     assert(dont_care_status.ok());
     return ret;
   }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status,
-                       std::unique_ptr<const char[]>* filter_data) = 0;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

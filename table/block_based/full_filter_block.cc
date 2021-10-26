@@ -111,7 +111,10 @@ Slice FullFilterBlockBuilder::Finish(
     any_added_ = false;
     return filter_bits_builder_->Finish(&filter_data_);
   }
-  *filter_data = std::move(filter_data_);
+
+  if (filter_data != nullptr) {
+    *filter_data = std::move(filter_data_);
+  }
   return Slice();
 }
 
