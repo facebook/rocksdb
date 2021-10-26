@@ -69,8 +69,7 @@ class FilterBlockBuilder {
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
-    std::unique_ptr<const char[]> dont_care_filter_data = nullptr;
-    auto ret = Finish(empty_handle, &dont_care_status, &dont_care_filter_data);
+    auto ret = Finish(empty_handle, &dont_care_status);
     assert(dont_care_status.ok());
     return ret;
   }

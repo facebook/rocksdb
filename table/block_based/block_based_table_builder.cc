@@ -1593,7 +1593,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     rep_->props.num_filter_entries +=
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
-    std::unique_ptr<const char[]> filter_data = nullptr;
+    std::unique_ptr<const char[]> filter_data;
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
@@ -1602,6 +1602,10 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
     }
+    // Deallocate the filter data payload of FilterBlockBuilder when done using
+    // it to release memory.  Otherwise, it will remain until
+    // BlockBasedTableBuilder is deallocated.
+    filter_data.reset();
   }
   if (ok() && !empty_filter_block) {
     // Add mapping from "<filter_block_prefix>.Name" to location
