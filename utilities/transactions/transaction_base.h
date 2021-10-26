@@ -202,7 +202,8 @@ class TransactionBaseImpl : public Transaction {
   }
 
   const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_.get() : nullptr;
+    // will return nullptr when there is no snapshot
+    return snapshot_.get();
   }
 
   virtual void SetSnapshot() override;
