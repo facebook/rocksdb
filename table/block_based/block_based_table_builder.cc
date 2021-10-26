@@ -1602,6 +1602,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       // using it to release memory.  Otherwise, it will remain until
       // BlockBasedTableBuilder is deallocated.
       if (filter_data) {
+        assert(!filter_data);
         filter_data.reset();
       }
       rep_->props.filter_size += filter_content.size();
