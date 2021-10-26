@@ -66,7 +66,7 @@ class VersionBuilder::Rep {
     enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
     const InternalKeyComparator* internal_comparator;
 
-    FileComparator() : internal_comparator(nullptr) {}
+    FileComparator() : sort_method(kLevel0), internal_comparator(nullptr) {}
 
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
       switch (sort_method) {

@@ -222,7 +222,7 @@ class PinnableSlice : public Slice, public Cleanable {
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
-  std::string* buf_;
+  std::string* buf_ = nullptr;
   bool pinned_ = false;
 };
 

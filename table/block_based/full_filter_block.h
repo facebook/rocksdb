@@ -138,8 +138,8 @@ class FullFilterBlockReader
                           const Comparator* comparator) const;
 
  private:
-  bool full_length_enabled_;
-  size_t prefix_extractor_full_length_;
+  bool full_length_enabled_ = false;
+  size_t prefix_extractor_full_length_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

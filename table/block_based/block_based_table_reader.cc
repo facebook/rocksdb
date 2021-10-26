@@ -1591,7 +1591,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     if (block_entry->GetValue()) {
       // Approximate the number of keys in the block using restarts.
       nkeys =
-          rep_->table_options.block_restart_interval *
+          static_cast<uint64_t>(rep_->table_options.block_restart_interval) *
           BlocklikeTraits<TBlocklike>::GetNumRestarts(*block_entry->GetValue());
       usage = block_entry->GetValue()->ApproximateMemoryUsage();
     }
