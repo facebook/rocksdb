@@ -1598,14 +1598,16 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
+      // Deallocate the filter data payload of FilterBlockBuilder when done
+      // using it to release memory.  Otherwise, it will remain until
+      // BlockBasedTableBuilder is deallocated.
+      if (filter_data) {
+        filter_data.reset();
+      }
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
     }
-    // Deallocate the filter data payload of FilterBlockBuilder when done using
-    // it to release memory.  Otherwise, it will remain until
-    // BlockBasedTableBuilder is deallocated.
-    filter_data.reset();
   }
   if (ok() && !empty_filter_block) {
     // Add mapping from "<filter_block_prefix>.Name" to location
@@ -2034,11 +2036,6 @@ Status BlockBasedTableBuilder::Finish() {
   }
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
-  }
-  if (ok()) {
-    // Dellocate FilterBlockBuilder object when done using it. Otherwise,
-    // it won't get dellocated until BlockBasedTableBuilder is dellocated.
-    r->filter_builder.reset(nullptr);
   }
   r->state = Rep::State::kClosed;
   r->SetStatus(r->CopyIOStatus());
