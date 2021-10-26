@@ -118,7 +118,7 @@ class CacheReservationManager {
   std::shared_ptr<Cache> cache_;
   bool delayed_decrease_;
   std::atomic<std::size_t> cache_allocated_size_;
-  std::atomic<std::size_t> memory_used_;
+  std::size_t memory_used_;
   std::vector<Cache::Handle *> dummy_handles_;
   std::uint64_t next_cache_key_id_ = 0;
   // The non-prefix part will be updated according to the ID to use.

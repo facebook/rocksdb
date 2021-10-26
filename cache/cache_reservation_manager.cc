@@ -41,7 +41,7 @@ CacheReservationManager::~CacheReservationManager() {
 template <CacheEntryRole R>
 Status CacheReservationManager::UpdateCacheReservation(
     std::size_t new_mem_used) {
-  memory_used_.store(new_mem_used);
+  memory_used_ = new_mem_used;
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
   if (new_mem_used == cur_cache_allocated_size) {
@@ -122,7 +122,7 @@ std::size_t CacheReservationManager::GetTotalReservedCacheSize() {
 }
 
 std::size_t CacheReservationManager::GetTotalMemoryUsed() {
-  return memory_used_.load(std::memory_order_relaxed);
+  return memory_used_;
 }
 
 Slice CacheReservationManager::GetNextCacheKey() {
