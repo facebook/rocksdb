@@ -55,7 +55,7 @@
 
 ### Performance Improvements
 * Improved CPU efficiency of building block-based table (SST) files (#9039 and #9040).
-* Reduced memory usage of `BlockBasedTableBuilder` earlier when `FullFilter` is used (#9070)
+* Released some memory related to filter construction earlier in `BlockBasedTableBuilder` for `FullFilter` case (#9070)
 
 ### Java API Changes
 * Add Java API bindings for new integrated BlobDB options
