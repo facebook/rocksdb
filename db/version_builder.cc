@@ -168,7 +168,7 @@ class VersionBuilder::Rep {
           garbage_blob_count_(meta->GetGarbageBlobCount()),
           garbage_blob_bytes_(meta->GetGarbageBlobBytes()) {}
 
-    std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
+    const std::shared_ptr<SharedBlobFileMetaData>& GetSharedMeta() const {
       return shared_meta_;
     }
 
