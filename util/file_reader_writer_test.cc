@@ -691,7 +691,7 @@ std::string GenerateLine(int n) {
 TEST(LineFileReaderTest, LineFileReaderTest) {
   const int nlines = 1000;
 
-  std::unique_ptr<MockEnv> mem_env(new MockEnv(Env::Default()));
+  std::unique_ptr<Env> mem_env(MockEnv::Create(Env::Default()));
   std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
   // Create an input file
   {

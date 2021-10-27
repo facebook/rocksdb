@@ -36,7 +36,7 @@ TEST_F(TimerTest, SingleScheduleOnce) {
   ASSERT_EQ(0, count);
   // Wait for execution to finish
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, count);
 
   ASSERT_TRUE(timer.Shutdown());
@@ -58,13 +58,13 @@ TEST_F(TimerTest, MultipleScheduleOnce) {
   ASSERT_EQ(0, count2);
 
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelay1Us); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelay1Us); });
 
   ASSERT_EQ(1, count1);
   ASSERT_EQ(0, count2);
 
   timer.TEST_WaitForRun([&] {
-    mock_clock_->MockSleepForMicroseconds(kInitDelay2Us - kInitDelay1Us);
+    mock_clock_->SleepForMicroseconds(kInitDelay2Us - kInitDelay1Us);
   });
 
   ASSERT_EQ(1, count1);
@@ -86,14 +86,14 @@ TEST_F(TimerTest, SingleScheduleRepeatedly) {
   ASSERT_EQ(0, count);
 
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
 
   ASSERT_EQ(1, count);
 
   // Wait for execution to finish
   for (int i = 1; i < kIterations; i++) {
     timer.TEST_WaitForRun(
-        [&] { mock_clock_->MockSleepForMicroseconds(kRepeatUs); });
+        [&] { mock_clock_->SleepForMicroseconds(kRepeatUs); });
   }
   ASSERT_EQ(kIterations, count);
 
@@ -126,7 +126,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   // Wait for execution to finish
   for (int i = 1; i < kIterations * (kRepeatUs / kUsPerSec); i++) {
     timer.TEST_WaitForRun(
-        [&] { mock_clock_->MockSleepForMicroseconds(1 * kUsPerSec); });
+        [&] { mock_clock_->SleepForMicroseconds(1 * kUsPerSec); });
     ASSERT_EQ((i + 2) / (kRepeatUs / kUsPerSec), count1);
     ASSERT_EQ((i + 1) / (kRepeatUs / kUsPerSec), count2);
 
@@ -138,7 +138,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
   // Wait for execution to finish
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(1 * kUsPerSec); });
+      [&] { mock_clock_->SleepForMicroseconds(1 * kUsPerSec); });
   ASSERT_EQ(kIterations, count1);
   ASSERT_EQ(kIterations, count2);
   ASSERT_EQ(1, count3);
@@ -150,7 +150,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
   // execute the long interval one
   timer.TEST_WaitForRun([&] {
-    mock_clock_->MockSleepForMicroseconds(
+    mock_clock_->SleepForMicroseconds(
         kLargeRepeatUs - static_cast<int>(mock_clock_->NowMicros()));
   });
   ASSERT_EQ(2, count3);
@@ -178,12 +178,12 @@ TEST_F(TimerTest, AddAfterStartTest) {
   ASSERT_EQ(0, count);
   // Wait for execution to finish
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, count);
 
   for (int i = 1; i < kIterations; i++) {
     timer.TEST_WaitForRun(
-        [&] { mock_clock_->MockSleepForMicroseconds(kRepeatUs); });
+        [&] { mock_clock_->SleepForMicroseconds(kRepeatUs); });
   }
   ASSERT_EQ(kIterations, count);
 
@@ -220,7 +220,7 @@ TEST_F(TimerTest, CancelRunningTask) {
     delete value;
     value = nullptr;
   });
-  mock_clock_->MockSleepForMicroseconds(kRepeatUs);
+  mock_clock_->SleepForMicroseconds(kRepeatUs);
   control_thr.join();
   ASSERT_TRUE(timer.Shutdown());
 }
@@ -258,7 +258,7 @@ TEST_F(TimerTest, ShutdownRunningTask) {
     TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:BeforeShutdown");
     timer.Shutdown();
   });
-  mock_clock_->MockSleepForMicroseconds(kRepeatUs);
+  mock_clock_->SleepForMicroseconds(kRepeatUs);
   control_thr.join();
   delete value;
 }
@@ -288,14 +288,13 @@ TEST_F(TimerTest, AddSameFuncName) {
   ASSERT_EQ(0, func_counter2);
 
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
 
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(1, func2_counter);
   ASSERT_EQ(1, func_counter2);
 
-  timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kRepeat1Us); });
+  timer.TEST_WaitForRun([&] { mock_clock_->SleepForMicroseconds(kRepeat1Us); });
 
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(2, func2_counter);
@@ -315,14 +314,14 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
   int func_counter = 0;
   timer.Add(
       [&] {
-        mock_clock_->MockSleepForMicroseconds(kFuncRunningTimeUs);
+        mock_clock_->SleepForMicroseconds(kFuncRunningTimeUs);
         func_counter++;
       },
       "func", kInitDelayUs, kRepeatUs);
 
   ASSERT_EQ(0, func_counter);
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, func_counter);
   ASSERT_EQ(kInitDelayUs + kFuncRunningTimeUs, mock_clock_->NowMicros());
 
@@ -338,7 +337,7 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
 
   // After the function running time, it's executed again
   timer.TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kFuncRunningTimeUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kFuncRunningTimeUs); });
   ASSERT_EQ(2, func_counter);
 
   ASSERT_TRUE(timer.Shutdown());
@@ -355,7 +354,7 @@ TEST_F(TimerTest, DestroyRunningTimer) {
   ASSERT_TRUE(timer_ptr->Start());
 
   timer_ptr->TEST_WaitForRun(
-      [&] { mock_clock_->MockSleepForMicroseconds(kInitDelayUs); });
+      [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
 
   // delete a running timer should not cause any exception
   delete timer_ptr;
@@ -389,7 +388,7 @@ TEST_F(TimerTest, DestroyTimerWithRunningFunc) {
     TEST_SYNC_POINT("TimerTest::DestroyTimerWithRunningFunc:BeforeDelete");
     delete timer_ptr;
   });
-  mock_clock_->MockSleepForMicroseconds(kRepeatUs);
+  mock_clock_->SleepForMicroseconds(kRepeatUs);
   control_thr.join();
 }
 

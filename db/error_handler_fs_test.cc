@@ -1576,11 +1576,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
@@ -1713,11 +1713,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     if (i == 1) {
       ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
     }
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 

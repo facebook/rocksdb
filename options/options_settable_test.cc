@@ -41,7 +41,7 @@ class OptionsSettableTest : public testing::Test {
 };
 
 const char kSpecialChar = 'z';
-typedef std::vector<std::pair<size_t, size_t>> OffsetGap;
+using OffsetGap = std::vector<std::pair<size_t, size_t>>;
 
 void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& excluded,
@@ -342,6 +342,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_bgerror_resume_count=2;"
                              "bgerror_resume_retry_interval=1000000"
                              "db_host_id=hostname;"
+                             "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false",
                              new_options));
 
@@ -515,6 +516,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_compression_type=kBZip2Compression;"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
+      "blob_garbage_collection_force_threshold=0.75;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};",
       new_options));

@@ -2758,6 +2758,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   ASSERT_OK(ReOpen());
 
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  SequenceNumber put_seq = db->GetLatestSequenceNumber();
   auto* transaction =
       db->BeginTransaction(WriteOptions(), TransactionOptions(), nullptr);
   ASSERT_OK(transaction->SetName("txn"));
@@ -2799,8 +2800,199 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
   // Since the delete tombstone is not visible to snapshot2, we need to keep
   // at least one version of the key, for write-conflict check.
   VerifyInternalKeys({{"key1", "", del_seq, kTypeDeletion},
-                      {"key1", "value1", 0, kTypeValue}});
+                      {"key1", "value1", put_seq, kTypeValue}});
   db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithSD) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
+  ASSERT_OK(txn->SingleDelete("key"));
+  ASSERT_OK(txn->Put("wow", "value"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  const bool two_write_queues = std::get<1>(GetParam());
+  if (two_write_queues) {
+    // In the case of two queues, commit another txn just to bump
+    // last_published_seq so that a subsequent GetSnapshot() call can return
+    // a snapshot with higher sequence.
+    auto* dummy_txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                           /*old_txn=*/nullptr);
+    ASSERT_OK(dummy_txn->Put("haha", "value"));
+    ASSERT_OK(dummy_txn->Commit());
+    delete dummy_txn;
+  }
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
+        if (!arg) {
+          return;
+        }
+        db->ReleaseSnapshot(snapshot);
+
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "bar", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithSD2) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
+  ASSERT_OK(txn->Put("bar", "value"));
+  ASSERT_OK(txn->SingleDelete("key"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(db->Put(WriteOptions(), "haha", "value"));
+
+  // Create a dummy transaction to take a snapshot for ww-conflict detection.
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  auto* dummy_txn =
+      db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:2", [&](void* /*arg*/) {
+        ASSERT_OK(dummy_txn->Rollback());
+        delete dummy_txn;
+
+        ASSERT_OK(db->Put(WriteOptions(), "dontcare", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Put(WriteOptions(), "haha2", "value"));
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  db->ReleaseSnapshot(snapshot);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestSnapshotDuringCompaction_WithDelete) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  auto* txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                   /*old_txn=*/nullptr);
+  ASSERT_OK(txn->Delete("b"));
+  ASSERT_OK(txn->SetName("txn"));
+  ASSERT_OK(txn->Prepare());
+
+  const bool two_write_queues = std::get<1>(GetParam());
+  if (two_write_queues) {
+    // In the case of two queues, commit another txn just to bump
+    // last_published_seq so that a subsequent GetSnapshot() call can return
+    // a snapshot with higher sequence.
+    auto* dummy_txn = db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                           /*old_txn=*/nullptr);
+    ASSERT_OK(dummy_txn->Put("haha", "value"));
+    ASSERT_OK(dummy_txn->Commit());
+    delete dummy_txn;
+  }
+  auto* snapshot1 = db->GetSnapshot();
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  auto* snapshot2 = db->GetSnapshot();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:BottommostDelete:1", [&](void* arg) {
+        if (!arg) {
+          return;
+        }
+        db->ReleaseSnapshot(snapshot1);
+
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "dummy1", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+  db->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest,
+       ReleaseSnapshotBetweenSDAndPutDuringCompaction) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Create a dummy transaction to take a snapshot for ww-conflict detection.
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  auto* dummy_txn =
+      db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr);
+  // Increment seq
+  ASSERT_OK(db->Put(WriteOptions(), "bar", "value"));
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "foo"));
+  auto* snapshot1 = db->GetSnapshot();
+  // Increment seq
+  ASSERT_OK(db->Put(WriteOptions(), "dontcare", "value"));
+  auto* snapshot2 = db->GetSnapshot();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:KeepSDForWW", [&](void* /*arg*/) {
+        db->ReleaseSnapshot(snapshot1);
+
+        ASSERT_OK(db->Put(WriteOptions(), "dontcare2", "value2"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  db->ReleaseSnapshot(snapshot2);
+  ASSERT_OK(dummy_txn->Commit());
+  delete dummy_txn;
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 

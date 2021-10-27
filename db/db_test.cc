@@ -11,11 +11,13 @@
 // in Release build.
 // which is a pity, it is a good test
 #include <fcntl.h>
+
 #include <algorithm>
 #include <set>
 #include <thread>
 #include <unordered_set>
 #include <utility>
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -34,7 +36,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -53,6 +54,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -96,7 +98,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -2075,6 +2077,13 @@ TEST_F(DBTest, OverlapInLevel0) {
     Flush(1);
     ASSERT_EQ("2,1,1", FilesPerLevel(1));
 
+    // BEGIN addition to existing test
+    // Take this opportunity to verify SST unique ids (including Plain table)
+    TablePropertiesCollection tbc;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &tbc));
+    VerifySstUniqueIds(tbc);
+    // END addition to existing test
+
     // Compact away the placeholder files we created initially
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(2, nullptr, nullptr, handles_[1]);
@@ -2301,8 +2310,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t manifest_number = 0;
     uint64_t manifest_size = 0;
     std::vector<std::string> files;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(files, &manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(files, &manifest_size));
 
     // CURRENT, MANIFEST, OPTIONS, *.sst files (one for each CF)
     ASSERT_EQ(files.size(), 5U);
@@ -2331,18 +2340,17 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(files[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > manifest_number) {
-            manifest_number = number;
-            ASSERT_GE(size, manifest_size);
-            size = manifest_size;  // copy only valid MANIFEST data
-          }
+          ASSERT_EQ(manifest_number, 0);
+          manifest_number = number;
+          ASSERT_GE(size, manifest_size);
+          size = manifest_size;  // copy only valid MANIFEST data
         }
       }
       CopyFile(src, dest, size);
     }
 
     // release file snapshot
-    dbfull()->DisableFileDeletions();
+    ASSERT_OK(dbfull()->EnableFileDeletions(/*force*/ false));
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -2379,8 +2387,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t new_manifest_number = 0;
     uint64_t new_manifest_size = 0;
     std::vector<std::string> newfiles;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(newfiles, &new_manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(newfiles, &new_manifest_size));
 
     // find the new manifest file. assert that this manifest file is
     // the same one as in the previous snapshot. But its size should be
@@ -2392,20 +2400,41 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(newfiles[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > new_manifest_number) {
-            uint64_t size;
-            new_manifest_number = number;
-            ASSERT_OK(env_->GetFileSize(src, &size));
-            ASSERT_GE(size, new_manifest_size);
-          }
+          ASSERT_EQ(new_manifest_number, 0);
+          uint64_t size;
+          new_manifest_number = number;
+          ASSERT_OK(env_->GetFileSize(src, &size));
+          ASSERT_GE(size, new_manifest_size);
         }
       }
     }
     ASSERT_EQ(manifest_number, new_manifest_number);
     ASSERT_GT(new_manifest_size, manifest_size);
 
-    // release file snapshot
-    dbfull()->DisableFileDeletions();
+    // Also test GetLiveFilesStorageInfo
+    std::vector<LiveFileStorageInfo> new_infos;
+    ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                                &new_infos));
+
+    // Close DB (while deletions disabled)
+    Close();
+
+    // Validate
+    for (auto& info : new_infos) {
+      std::string path = info.directory + "/" + info.relative_filename;
+      uint64_t size;
+      ASSERT_OK(env_->GetFileSize(path, &size));
+      if (info.trim_to_size) {
+        ASSERT_LE(info.size, size);
+      } else if (!info.replacement_contents.empty()) {
+        ASSERT_EQ(info.size, info.replacement_contents.size());
+      } else {
+        ASSERT_EQ(info.size, size);
+      }
+      if (info.file_type == kDescriptorFile) {
+        ASSERT_EQ(info.file_number, manifest_number);
+      }
+    }
   } while (ChangeCompactOptions());
 }
 
@@ -2812,7 +2841,7 @@ TEST_F(DBTest, GroupCommitTest) {
 #endif  // TRAVIS
 
 namespace {
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 }
 
 class ModelDB : public DB {
@@ -3117,6 +3146,12 @@ class ModelDB : public DB {
 
   Status GetLiveFilesChecksumInfo(
       FileChecksumList* /*checksum_list*/) override {
+    return Status::OK();
+  }
+
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& /*opts*/,
+      std::vector<LiveFileStorageInfo>* /*files*/) override {
     return Status::OK();
   }
 
@@ -3938,6 +3973,56 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
   ASSERT_LT(ratio, 0.6);
 }
 
+// This is a mocked customed rate limiter without implementing optional APIs
+// (e.g, RateLimiter::GetTotalPendingRequests())
+class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
+ public:
+  MockedRateLimiterWithNoOptionalAPIImpl() {}
+
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
+
+  void SetBytesPerSecond(int64_t bytes_per_second) override {
+    (void)bytes_per_second;
+  }
+
+  using RateLimiter::Request;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override {
+    (void)bytes;
+    (void)pri;
+    (void)stats;
+  }
+
+  int64_t GetSingleBurstBytes() const override { return 200; }
+
+  int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetBytesPerSecond() const override { return 0; }
+};
+
+// To test that customed rate limiter not implementing optional APIs (e.g,
+// RateLimiter::GetTotalPendingRequests()) works fine with RocksDB basic
+// operations (e.g, Put, Get, Flush)
+TEST_F(DBTest, CustomedRateLimiterWithNoOptionalAPIImplTest) {
+  Options options = CurrentOptions();
+  options.rate_limiter.reset(new MockedRateLimiterWithNoOptionalAPIImpl());
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("abc", "def"));
+  ASSERT_EQ(Get("abc"), "def");
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("abc"), "def");
+}
+
 TEST_F(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -4097,6 +4182,39 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
       }
     }
   }
+}
+
+// This test failure will be caught with a probability
+TEST_F(DBTest, ManualFlushWalAndWriteRace) {
+  Options options;
+  options.env = env_;
+  options.manual_wal_flush = true;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.sync = true;
+
+  port::Thread writeThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      auto istr = ToString(i);
+      dbfull()->Put(wopts, "key_" + istr, "value_" + istr);
+    }
+  });
+  port::Thread flushThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(dbfull()->FlushWAL(false));
+    }
+  });
+
+  writeThread.join();
+  flushThread.join();
+  ASSERT_OK(dbfull()->Put(wopts, "foo1", "value1"));
+  ASSERT_OK(dbfull()->Put(wopts, "foo2", "value2"));
+  Reopen(options);
+  ASSERT_EQ("value1", Get("foo1"));
+  ASSERT_EQ("value2", Get("foo2"));
 }
 
 #ifndef ROCKSDB_LITE
@@ -4813,7 +4931,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.level0_stop_writes_trigger = 2;
   options.soft_pending_compaction_bytes_limit = 1024 * 1024;
   options.target_file_size_base = 20;
-
+  options.env = env_;
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 200;
   options.max_bytes_for_level_multiplier = 8;
@@ -5732,8 +5850,8 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   };
 
   Options options = CurrentOptions();
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
@@ -6138,7 +6256,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   options.level0_stop_writes_trigger = 999999;
   options.delayed_write_rate = 20000000;  // Start with 200MB/s
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kEntriesPerMemTable));
+      test::NewSpecialSkipListFactory(kEntriesPerMemTable));
 
   SetTimeElapseOnlySleepOnReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -6201,7 +6319,7 @@ TEST_F(DBTest, HardLimit) {
   options.max_bytes_for_level_base = 10000000000u;
   options.max_background_compactions = 1;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
 
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
@@ -6450,7 +6568,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   options.disable_auto_compactions = true;
   int kNumKeysPerMemtable = 3;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
 
   Reopen(options);
   test::SleepingBackgroundTask sleeping_task;

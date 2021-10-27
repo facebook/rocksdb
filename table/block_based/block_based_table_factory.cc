@@ -15,10 +15,11 @@
 #include <memory>
 #include <string>
 
-#include "options/configurable_helper.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"

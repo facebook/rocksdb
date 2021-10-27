@@ -202,9 +202,6 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  // typedef std::function<Status(void* buf, size_t size, void** out_obj,
-  //                             size_t* charge)>
-  //    CreateCallback;
   using CreateCallback = std::function<Status(void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 

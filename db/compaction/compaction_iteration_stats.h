@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "rocksdb/rocksdb_namespace.h"
 
 struct CompactionIterationStats {
@@ -38,4 +40,6 @@ struct CompactionIterationStats {
   // Blob related statistics
   uint64_t num_blobs_read = 0;
   uint64_t total_blob_bytes_read = 0;
+  uint64_t num_blobs_relocated = 0;
+  uint64_t total_blob_bytes_relocated = 0;
 };

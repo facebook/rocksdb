@@ -9,8 +9,11 @@
 
 #pragma once
 
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
+#include <stdint.h>
+
+#include <string>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 

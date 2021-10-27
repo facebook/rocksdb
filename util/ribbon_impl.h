@@ -148,7 +148,7 @@ struct AddInputSelector<Key, ResultRow, true /*IsFilter*/> {
 // they are provided to TypesAndSettings::HashFn in case that function does
 // not provide sufficiently independent hashes when iterating merely
 // sequentially on seeds. (This for example works around a problem with the
-// preview version 0.7.2 of XXH3 used in RocksDB, a.k.a. XXH3p or Hash64, and
+// preview version 0.7.2 of XXH3 used in RocksDB, a.k.a. XXPH3 or Hash64, and
 // MurmurHash1 used in RocksDB, a.k.a. Hash.) We say this pre-mixing step
 // translates "ordinal seeds," which we iterate sequentially to find a
 // solution, into "raw seeds," with many more bits changing for each

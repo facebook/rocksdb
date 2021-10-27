@@ -9,9 +9,12 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
 #include "rocksdb/async_result.h"
+#include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
@@ -20,7 +23,6 @@
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
-
 #include "trace_replay/block_cache_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -41,7 +43,7 @@ struct EnvOptions;
 struct ReadOptions;
 class GetContext;
 
-typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
+using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
 
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to
@@ -101,7 +103,7 @@ class BlockBasedTable : public TableReader {
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr,
                      size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& db_session_id = "",
+                     const std::string& cur_db_session_id = "",
                      uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
@@ -287,12 +289,21 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
 
-  Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+  Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
+                                   Cache* block_cache, const Slice& key,
                                    BlockType block_type, const bool wait,
                                    GetContext* get_context,
                                    const Cache::CacheItemHelper* cache_helper,
                                    const Cache::CreateCallback& create_cb,
                                    Cache::Priority priority) const;
+
+  template <typename TBlocklike>
+  Status InsertEntryToCache(const CacheTier& cache_tier, Cache* block_cache,
+                            const Slice& key,
+                            const Cache::CacheItemHelper* cache_helper,
+                            std::unique_ptr<TBlocklike>& block_holder,
+                            size_t charge, Cache::Handle** cache_handle,
+                            Cache::Priority priority) const;
 
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
@@ -587,11 +598,11 @@ struct BlockBasedTable::Rep {
   Status status;
   std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size = 0;
-  char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t persistent_cache_key_prefix_size = 0;
+  // SIZE_MAX -> assert not used without re-assignment
+  size_t cache_key_prefix_size = SIZE_MAX;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size = 0;
+  // SIZE_MAX -> assert not used without re-assignment
+  size_t compressed_cache_key_prefix_size = SIZE_MAX;
   PersistentCacheOptions persistent_cache_options;
 
   // Footer contains the fixed table information

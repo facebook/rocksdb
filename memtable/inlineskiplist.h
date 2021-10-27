@@ -177,6 +177,9 @@ class InlineSkipList {
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const char* target);
 
+    // Advance to a random entry in the list.
+    void RandomSeek();
+
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToFirst();
@@ -251,6 +254,9 @@ class InlineSkipList {
   // Return the last node in the list.
   // Return head_ if list is empty.
   Node* FindLast() const;
+
+  // Returns a random entry.
+  Node* FindRandomEntry() const;
 
   // Traverses a single level of the list, setting *out_prev to the last
   // node before the key and *out_next to the first node after. Assumes
@@ -413,6 +419,11 @@ inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
 }
 
 template <class Comparator>
+inline void InlineSkipList<Comparator>::Iterator::RandomSeek() {
+  node_ = list_->FindRandomEntry();
+}
+
+template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::SeekToFirst() {
   node_ = list_->head_->Next(0);
 }
@@ -556,6 +567,48 @@ InlineSkipList<Comparator>::FindLast() const {
       x = next;
     }
   }
+}
+
+template <class Comparator>
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::FindRandomEntry() const {
+  // TODO(bjlemaire): consider adding PREFETCH calls.
+  Node *x = head_, *scan_node = nullptr, *limit_node = nullptr;
+
+  // We start at the max level.
+  // FOr each level, we look at all the nodes at the level, and
+  // we randomly pick one of them. Then decrement the level
+  // and reiterate the process.
+  // eg: assume GetMaxHeight()=5, and there are #100 elements (nodes).
+  // level 4 nodes: lvl_nodes={#1, #15, #67, #84}. Randomly pick #15.
+  // We will consider all the nodes between #15 (inclusive) and #67
+  // (exclusive). #67 is called 'limit_node' here.
+  // level 3 nodes: lvl_nodes={#15, #21, #45, #51}. Randomly choose
+  // #51. #67 remains 'limit_node'.
+  // [...]
+  // level 0 nodes: lvl_nodes={#56,#57,#58,#59}. Randomly pick $57.
+  // Return Node #57.
+  std::vector<Node*> lvl_nodes;
+  Random* rnd = Random::GetTLSInstance();
+  int level = GetMaxHeight() - 1;
+
+  while (level >= 0) {
+    lvl_nodes.clear();
+    scan_node = x;
+    while (scan_node != limit_node) {
+      lvl_nodes.push_back(scan_node);
+      scan_node = scan_node->Next(level);
+    }
+    uint32_t rnd_idx = rnd->Next() % lvl_nodes.size();
+    x = lvl_nodes[rnd_idx];
+    if (rnd_idx + 1 < lvl_nodes.size()) {
+      limit_node = lvl_nodes[rnd_idx + 1];
+    }
+    level--;
+  }
+  // There is a special case where x could still be the head_
+  // (note that the head_ contains no key).
+  return x == head_ ? head_->Next(0) : x;
 }
 
 template <class Comparator>

@@ -19,6 +19,7 @@ int main() {
 #include <vector>
 
 #include "memory/arena.h"
+#include "rocksdb/db.h"
 #include "table/cuckoo/cuckoo_table_builder.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/cuckoo/cuckoo_table_reader.h"

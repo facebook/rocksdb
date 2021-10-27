@@ -1117,6 +1117,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_gc_age_cutoff(
 extern ROCKSDB_LIBRARY_API double rocksdb_options_get_blob_gc_age_cutoff(
     rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_gc_force_threshold(
+    rocksdb_options_t* opt, double val);
+extern ROCKSDB_LIBRARY_API double rocksdb_options_get_blob_gc_force_threshold(
+    rocksdb_options_t* opt);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
@@ -1599,11 +1604,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_filterpolicy_destroy(
     rocksdb_filterpolicy_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
-rocksdb_filterpolicy_create_bloom(int bits_per_key);
+rocksdb_filterpolicy_create_bloom(double bits_per_key);
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
-rocksdb_filterpolicy_create_bloom_full(int bits_per_key);
+rocksdb_filterpolicy_create_bloom_full(double bits_per_key);
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
-rocksdb_filterpolicy_create_ribbon(int bloom_equivalent_bits_per_key);
+rocksdb_filterpolicy_create_ribbon(double bloom_equivalent_bits_per_key);
+extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
+rocksdb_filterpolicy_create_ribbon_hybrid(double bloom_equivalent_bits_per_key,
+                                          int bloom_before_level);
 
 /* Merge Operator */
 

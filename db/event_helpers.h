@@ -47,6 +47,30 @@ class EventHelpers {
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       Status bg_error, InstrumentedMutex* db_mutex);
 
+#ifndef ROCKSDB_LITE
+  static void NotifyBlobFileCreationStarted(
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      const std::string& db_name, const std::string& cf_name,
+      const std::string& file_path, int job_id,
+      BlobFileCreationReason creation_reason);
+#endif  // !ROCKSDB_LITE
+
+  static void LogAndNotifyBlobFileCreationFinished(
+      EventLogger* event_logger,
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      const std::string& db_name, const std::string& cf_name,
+      const std::string& file_path, int job_id, uint64_t file_number,
+      BlobFileCreationReason creation_reason, const Status& s,
+      const std::string& file_checksum,
+      const std::string& file_checksum_func_name, uint64_t total_blob_count,
+      uint64_t total_blob_bytes);
+
+  static void LogAndNotifyBlobFileDeletion(
+      EventLogger* event_logger,
+      const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
+      uint64_t file_number, const std::string& file_path, const Status& status,
+      const std::string& db_name);
+
  private:
   static void LogAndNotifyTableFileCreation(
       EventLogger* event_logger,

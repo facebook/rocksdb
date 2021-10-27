@@ -45,6 +45,8 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
+
+  VerifySstUniqueIds(props);
 }
 }  // namespace
 
@@ -92,6 +94,37 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     Get(ToString(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+}
+
+TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  std::string id = CompactOnDeletionCollectorFactory::kClassName();
+  ASSERT_OK(
+      TablePropertiesCollectorFactory::CreateFromString(options, id, &factory));
+  auto del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(0U, del_factory->GetWindowSize());
+  ASSERT_EQ(0U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options, "window_size=100; deletion_trigger=90; id=" + id, &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options,
+      "window_size=100; deletion_trigger=90; deletion_ratio=0.5; id=" + id,
+      &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
 TablePropertiesCollection

@@ -16,6 +16,7 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "util/autovector.h"
 
@@ -318,7 +319,7 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
     return (first.file_path > second.file_path);
   }
 }
-};  // namespace
+}  // namespace
 
 // Delete obsolete files and log status and information of file deletion
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
@@ -329,9 +330,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 
   Status file_deletion_status;
   if (type == kTableFile || type == kBlobFile || type == kWalFile) {
-    file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
-                     /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
+    // Rate limit WAL deletion only if its in the DB dir
+    file_deletion_status = DeleteDBFile(
+        &immutable_db_options_, fname, path_to_sync,
+        /*force_bg=*/false,
+        /*force_fg=*/(type == kWalFile) ? !wal_in_db_path_ : false);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
@@ -359,6 +362,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
         immutable_db_options_.listeners);
+  }
+  if (type == kBlobFile) {
+    EventHelpers::LogAndNotifyBlobFileDeletion(
+        &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
+        file_deletion_status, GetName());
   }
 }
 

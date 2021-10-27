@@ -12,6 +12,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -560,6 +561,84 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, SecondaryTailingBug_ISSUE_8467) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+  }
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  const auto verify_db = [&](const std::string& foo_val,
+                             const std::string& bar_val) {
+    std::string value;
+    ReadOptions ropts;
+    Status s = db_secondary_->Get(ropts, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(foo_val, value);
+
+    s = db_secondary_->Get(ropts, "bar", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(bar_val, value);
+  };
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db("foo_value2", "bar_value2");
+  }
+}
+
+TEST_F(DBSecondaryTest, RefreshIterator) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  std::unique_ptr<Iterator> it(db_secondary_->NewIterator(ReadOptions()));
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    if (0 == i) {
+      it->Seek("foo");
+      ASSERT_FALSE(it->Valid());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value0", it->value());
+    } else {
+      it->Seek("foo");
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i - 1), it->value());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i), it->value());
+    }
+  }
+}
+
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
   Options options;
   options.env = env_;
@@ -859,7 +938,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -914,7 +993,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   CreateAndReopenWithCF({kCFName1}, options);
 
   Options options1;
@@ -978,7 +1057,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;

@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -269,7 +270,7 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
   options.writable_file_max_buffer_size = 128 * 1024;
   options.bytes_per_sync = 128 * 1024;
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(10));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(10));
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -396,7 +397,7 @@ TEST_F(DBIOFailureTest, FlushSstCloseError) {
   options.error_if_exists = false;
   options.paranoid_checks = true;
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(2));
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -492,7 +493,7 @@ TEST_F(DBIOFailureTest, FlushSstSyncError) {
   options.paranoid_checks = true;
   options.use_fsync = false;
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(2));
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);

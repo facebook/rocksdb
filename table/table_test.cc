@@ -7,12 +7,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <stddef.h>
 #include <stdio.h>
+
 #include <algorithm>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "block_fetcher.h"
@@ -29,11 +32,15 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/unique_id.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -47,9 +54,11 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding_lean.h"
 #include "util/compression.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -1361,7 +1370,7 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
                                 {"num.555.3", "3"}, };
 
   // prefixes that exist
-  for (const std::string& prefix : {"num.111", "num.333", "num.555"}) {
+  for (const std::string prefix : {"num.111", "num.333", "num.555"}) {
     int num = 0;
     for (auto pos = props.lower_bound(prefix);
          pos != props.end() &&
@@ -1376,12 +1385,263 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
   }
 
   // prefixes that don't exist
-  for (const std::string& prefix :
+  for (const std::string prefix :
        {"num.000", "num.222", "num.444", "num.666"}) {
     auto pos = props.lower_bound(prefix);
     ASSERT_TRUE(pos == props.end() ||
                 pos->first.compare(0, prefix.size(), prefix) != 0);
   }
+}
+
+namespace {
+struct TestIds {
+  UniqueId64x3 internal_id;
+  UniqueId64x3 external_id;
+};
+
+inline bool operator==(const TestIds& lhs, const TestIds& rhs) {
+  return lhs.internal_id == rhs.internal_id &&
+         lhs.external_id == rhs.external_id;
+}
+
+std::ostream& operator<<(std::ostream& os, const TestIds& ids) {
+  return os << std::hex << "{{{ 0x" << ids.internal_id[0] << "U, 0x"
+            << ids.internal_id[1] << "U, 0x" << ids.internal_id[2]
+            << "U }}, {{ 0x" << ids.external_id[0] << "U, 0x"
+            << ids.external_id[1] << "U, 0x" << ids.external_id[2] << "U }}}";
+}
+
+TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
+                    const std::string& db_id, const std::string& db_session_id,
+                    uint64_t file_number) {
+  // First test session id logic
+  if (db_session_id.size() == 20) {
+    uint64_t upper;
+    uint64_t lower;
+    EXPECT_OK(DecodeSessionId(db_session_id, &upper, &lower));
+    EXPECT_EQ(EncodeSessionId(upper, lower), db_session_id);
+  }
+
+  // Get external using public API
+  tp->db_id = db_id;
+  tp->db_session_id = db_session_id;
+  tp->orig_file_number = file_number;
+  TestIds t;
+  {
+    std::string uid;
+    EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &uid));
+    EXPECT_EQ(uid.size(), 24U);
+    t.external_id[0] = DecodeFixed64(&uid[0]);
+    t.external_id[1] = DecodeFixed64(&uid[8]);
+    t.external_id[2] = DecodeFixed64(&uid[16]);
+  }
+  // All these should be effectively random
+  EXPECT_TRUE(seen->insert(t.external_id[0]).second);
+  EXPECT_TRUE(seen->insert(t.external_id[1]).second);
+  EXPECT_TRUE(seen->insert(t.external_id[2]).second);
+
+  // Get internal with internal API
+  EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number,
+                                   &t.internal_id));
+
+  // Verify relationship
+  UniqueId64x3 tmp = t.internal_id;
+  InternalUniqueIdToExternal(&tmp);
+  EXPECT_EQ(tmp, t.external_id);
+  ExternalUniqueIdToInternal(&tmp);
+  EXPECT_EQ(tmp, t.internal_id);
+  return t;
+}
+}  // namespace
+
+TEST_F(TablePropertyTest, UniqueIdsSchemaAndQuality) {
+  // To ensure the computation only depends on the expected entries, we set
+  // the rest randomly
+  TableProperties tp;
+  TEST_SetRandomTableProperties(&tp);
+
+  // DB id is normally RFC-4122
+  const std::string db_id1 = "7265b6eb-4e42-4aec-86a4-0dc5e73a228d";
+  // Allow other forms of DB id
+  const std::string db_id2 = "1728000184588763620";
+  const std::string db_id3 = "x";
+
+  // DB session id is normally 20 chars in base-36, but 13 to 24 chars
+  // is ok, roughly 64 to 128 bits.
+  const std::string ses_id1 = "ABCDEFGHIJ0123456789";
+  // Same trailing 13 digits
+  const std::string ses_id2 = "HIJ0123456789";
+  const std::string ses_id3 = "0123ABCDEFGHIJ0123456789";
+  // Different trailing 12 digits
+  const std::string ses_id4 = "ABCDEFGH888888888888";
+  // And change length
+  const std::string ses_id5 = "ABCDEFGHIJ012";
+  const std::string ses_id6 = "ABCDEFGHIJ0123456789ABCD";
+
+  using T = TestIds;
+  std::unordered_set<uint64_t> seen;
+  // Establish a stable schema for the unique IDs. These values must not
+  // change for existing table files.
+  // (Note: parens needed for macro parsing, extra braces needed for some
+  // compilers.)
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 1),
+      T({{{0x61d7dcf415d9cf19U, 0x160d77aae90757fdU, 0x907f41dfd90724ffU}},
+         {{0xf0bd230365df7464U, 0xca089303f3648eb4U, 0x4b44f7e7324b2817U}}}));
+  // Only change internal_id[1] with file number
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 2),
+      T({{{0x61d7dcf415d9cf19U, 0x160d77aae90757feU, 0x907f41dfd90724ffU}},
+         {{0xf13fdf7adcfebb6dU, 0x97cd2226cc033ea2U, 0x198c438182091f0eU}}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id1, 123456789),
+      T({{{0x61d7dcf415d9cf19U, 0x160d77aaee5c9ae9U, 0x907f41dfd90724ffU}},
+         {{0x81fbcebe1ac6c4f0U, 0x6b14a64cfdc0f1c4U, 0x7d8fb6eaf18edbb3U}}}));
+  // Change internal_id[1] and internal_id[2] with db_id
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id2, ses_id1, 1),
+      T({{{0x61d7dcf415d9cf19U, 0xf89c471f572f0d25U, 0x1f0f2a5eb0e6257eU}},
+         {{0x7f1d01d453616991U, 0x32ddf2afec804ab2U, 0xd10a1ee2f0c7d9c1U}}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id3, ses_id1, 1),
+      T({{{0x61d7dcf415d9cf19U, 0xfed297a8154a57d0U, 0x8b931b9cdebd9e8U}},
+         {{0x62b2f43183f6894bU, 0x897ff2b460eefad1U, 0xf4ec189fb2d15e04U}}}));
+  // Keeping same last 13 digits of ses_id keeps same internal_id[0]
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id2, 1),
+      T({{{0x61d7dcf415d9cf19U, 0x5f6cc4fa2d528c8U, 0x7b70845d5bfb5446U}},
+         {{0x96d1c83ffcc94266U, 0x82663eac0ec6e14aU, 0x94a88b49678b77f6U}}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id3, 1),
+      T({{{0x61d7dcf415d9cf19U, 0xfc7232879db37ea2U, 0xc0378d74ea4c89cdU}},
+         {{0xdf2ef57e98776905U, 0xda5b31c987da833bU, 0x79c1b4bd0a9e760dU}}}));
+  // Changing last 12 digits of ses_id only changes internal_id[0]
+  // (vs. db_id1, ses_id1, 1)
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id4, 1),
+      T({{{0x4f07cc0d003a83a8U, 0x160d77aae90757fdU, 0x907f41dfd90724ffU}},
+         {{0xbcf85336a9f71f04U, 0x4f2949e2f3adb60dU, 0x9ca0def976abfa10U}}}));
+  // ses_id can change everything.
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id5, 1),
+      T({{{0x94b8768e43f87ce6U, 0xc2559653ac4e7c93U, 0xde6dff6bbb1223U}},
+         {{0x5a9537af681817fbU, 0x1afcd1fecaead5eaU, 0x767077ad9ebe0008U}}}));
+  EXPECT_EQ(
+      GetUniqueId(&tp, &seen, db_id1, ses_id6, 1),
+      T({{{0x43cfb0ffa3b710edU, 0x263c580426406a1bU, 0xfacc91379a80d29dU}},
+         {{0xfa90547d84cb1cdbU, 0x2afe99c641992d4aU, 0x205b7f7b60e51cc2U}}}));
+
+  // Now verify more thoroughly that any small change in inputs completely
+  // changes external unique id.
+  // (Relying on 'seen' checks etc. in GetUniqueId)
+  std::string db_id = "00000000-0000-0000-0000-000000000000";
+  std::string ses_id = "000000000000000000000000";
+  uint64_t file_num = 1;
+  // change db_id
+  for (size_t i = 0; i < db_id.size(); ++i) {
+    if (db_id[i] == '-') {
+      continue;
+    }
+    for (char alt : std::string("123456789abcdef")) {
+      db_id[i] = alt;
+      GetUniqueId(&tp, &seen, db_id, ses_id, file_num);
+    }
+    db_id[i] = '0';
+  }
+  // change ses_id
+  for (size_t i = 0; i < ses_id.size(); ++i) {
+    for (char alt : std::string("123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
+      ses_id[i] = alt;
+      GetUniqueId(&tp, &seen, db_id, ses_id, file_num);
+    }
+    ses_id[i] = '0';
+  }
+  // change file_num
+  for (int i = 1; i < 64; ++i) {
+    GetUniqueId(&tp, &seen, db_id, ses_id, file_num << i);
+  }
+
+  // Verify that "all zeros" in first 128 bits is equivalent for internal and
+  // external IDs. This way, as long as we avoid "all zeros" in internal IDs,
+  // we avoid it in external IDs.
+  {
+    UniqueId64x3 id1{{0, 0, Random::GetTLSInstance()->Next64()}};
+    UniqueId64x3 id2 = id1;
+    InternalUniqueIdToExternal(&id1);
+    EXPECT_EQ(id1, id2);
+    ExternalUniqueIdToInternal(&id2);
+    EXPECT_EQ(id1, id2);
+  }
+}
+
+namespace {
+void SetGoodTableProperties(TableProperties* tp) {
+  // To ensure the computation only depends on the expected entries, we set
+  // the rest randomly
+  TEST_SetRandomTableProperties(tp);
+  tp->db_id = "7265b6eb-4e42-4aec-86a4-0dc5e73a228d";
+  tp->db_session_id = "ABCDEFGHIJ0123456789";
+  tp->orig_file_number = 1;
+}
+}  // namespace
+
+TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
+  TableProperties tp;
+  SetGoodTableProperties(&tp);
+
+  std::string tmp;
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_EQ(tmp,
+            (std::string{{'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
+                          '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
+                          '\x03', '\x93', '\x08', '\xca', '\x17', '\x28',
+                          '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}}));
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
+
+  // including zero padding
+  tmp = std::string(24U, '\0');
+  tmp[15] = '\x12';
+  tmp[23] = '\xAB';
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "0000000000000000-0000000000000012-00000000000000AB");
+
+  // And shortened
+  tmp = std::string(20U, '\0');
+  tmp[5] = '\x12';
+  tmp[10] = '\xAB';
+  tmp[17] = '\xEF';
+  EXPECT_EQ(UniqueIdToHumanString(tmp),
+            "0000000000120000-0000AB0000000000-00EF0000");
+
+  tmp.resize(16);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "0000000000120000-0000AB0000000000");
+
+  tmp.resize(11);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "0000000000120000-0000AB");
+
+  tmp.resize(6);
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "000000000012");
+}
+
+TEST_F(TablePropertyTest, UniqueIdsFailure) {
+  TableProperties tp;
+  std::string tmp;
+
+  // Missing DB id
+  SetGoodTableProperties(&tp);
+  tp.db_id = "";
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+
+  // Missing session id
+  SetGoodTableProperties(&tp);
+  tp.db_session_id = "";
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+
+  // Missing file number
+  SetGoodTableProperties(&tp);
+  tp.orig_file_number = 0;
+  EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 }
 
 // This test include all the basic checks except those for index size and block
@@ -4742,6 +5002,239 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
+}
+
+TEST_P(
+    BlockBasedTableTest,
+    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnBuilderFinish) {
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverhead = 10000;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+  constexpr std::size_t kMaxDictBytes = 1024;
+  constexpr std::size_t kMaxDictBufferBytes = 1024;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  LRUCacheOptions lo;
+  lo.capacity = kCacheCapacity;
+  lo.num_shard_bits = 0;  // 2^0 shard
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache(NewLRUCache(lo));
+  table_options.block_cache = cache;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+
+  Options options;
+  options.compression = kSnappyCompression;
+  options.compression_opts.max_dict_bytes = kMaxDictBytes;
+  options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "test_file_name", FileOptions()));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  std::string key1 = "key1";
+  std::string value1 = "val1";
+  InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
+  // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
+  // therefore won't trigger any data block's buffering
+  builder->Add(ik1.Encode(), value1);
+  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  std::string key2 = "key2";
+  std::string value2 = "val2";
+  InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
+  // Adding the second key will trigger a flush of the last data block (the one
+  // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
+  // buffering of that data block.
+  builder->Add(ik2.Encode(), value2);
+  // Cache reservation will increase for last buffered data block (the one
+  // containing key1 and value1) since the buffer limit is not exceeded after
+  // that buffering and the cache will not be full after this reservation
+  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
+  EXPECT_LT(cache->GetPinnedUsage(),
+            1 * kSizeDummyEntry + kMetaDataChargeOverhead);
+
+  ASSERT_OK(builder->Finish());
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+}
+
+TEST_P(
+    BlockBasedTableTest,
+    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnBufferLimitExceed) {
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverhead = 10000;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+  constexpr std::size_t kMaxDictBytes = 1024;
+  constexpr std::size_t kMaxDictBufferBytes = 2 * kSizeDummyEntry;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  LRUCacheOptions lo;
+  lo.capacity = kCacheCapacity;
+  lo.num_shard_bits = 0;  // 2^0 shard
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache(NewLRUCache(lo));
+  table_options.block_cache = cache;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+
+  Options options;
+  options.compression = kSnappyCompression;
+  options.compression_opts.max_dict_bytes = kMaxDictBytes;
+  options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "test_file_name", FileOptions()));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  std::string key1 = "key1";
+  std::string value1(kSizeDummyEntry, '0');
+  InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
+  // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
+  // therefore won't trigger any data block's buffering
+  builder->Add(ik1.Encode(), value1);
+  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  std::string key2 = "key2";
+  std::string value2(kSizeDummyEntry, '0');
+  InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
+  // Adding the second key will trigger a flush of the last data block (the one
+  // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
+  // buffering of the last data block.
+  builder->Add(ik2.Encode(), value2);
+  // Cache reservation will increase for last buffered data block (the one
+  // containing key1 and value1) since the buffer limit is not exceeded after
+  // the buffering and the cache will not be full after this reservation
+  EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
+  EXPECT_LT(cache->GetPinnedUsage(),
+            2 * kSizeDummyEntry + kMetaDataChargeOverhead);
+
+  std::string key3 = "key3";
+  std::string value3 = "val3";
+  InternalKey ik3(key3, 2 /* sequnce number */, kTypeValue);
+  // Adding the third key will trigger a flush of the last data block (the one
+  // containing key2 and value2) by FlushBlockEveryKeyPolicy and hence trigger
+  // buffering of the last data block.
+  builder->Add(ik3.Encode(), value3);
+  // Cache reservation will decrease since the buffer limit is now exceeded
+  // after the last buffering and EnterUnbuffered() is triggered
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  ASSERT_OK(builder->Finish());
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+}
+
+TEST_P(
+    BlockBasedTableTest,
+    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnCacheFull) {
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverhead = 10000;
+  // A small kCacheCapacity is chosen so that increase cache reservation for
+  // buffering two data blocks, each containing key1/value1, key2/a big
+  // value2, will cause cache full
+  constexpr std::size_t kCacheCapacity =
+      1 * kSizeDummyEntry + kSizeDummyEntry / 2;
+  constexpr std::size_t kMaxDictBytes = 1024;
+  // A big kMaxDictBufferBytes is chosen so that adding a big key value pair
+  // (key2, value2) won't exceed the buffer limit
+  constexpr std::size_t kMaxDictBufferBytes = 1024 * 1024 * 1024;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  LRUCacheOptions lo;
+  lo.capacity = kCacheCapacity;
+  lo.num_shard_bits = 0;  // 2^0 shard
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache(NewLRUCache(lo));
+  table_options.block_cache = cache;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+
+  Options options;
+  options.compression = kSnappyCompression;
+  options.compression_opts.max_dict_bytes = kMaxDictBytes;
+  options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "test_file_name", FileOptions()));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  std::string key1 = "key1";
+  std::string value1 = "val1";
+  InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
+  // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
+  // therefore won't trigger any data block's buffering
+  builder->Add(ik1.Encode(), value1);
+  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  std::string key2 = "key2";
+  std::string value2(kSizeDummyEntry, '0');
+  InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
+  // Adding the second key will trigger a flush of the last data block (the one
+  // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
+  // buffering of the last data block.
+  builder->Add(ik2.Encode(), value2);
+  // Cache reservation will increase for the last buffered data block (the one
+  // containing key1 and value1) since the buffer limit is not exceeded after
+  // the buffering and the cache will not be full after this reservation
+  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
+  EXPECT_LT(cache->GetPinnedUsage(),
+            1 * kSizeDummyEntry + kMetaDataChargeOverhead);
+
+  std::string key3 = "key3";
+  std::string value3 = "value3";
+  InternalKey ik3(key3, 2 /* sequnce number */, kTypeValue);
+  // Adding the third key will trigger a flush of the last data block (the one
+  // containing key2 and value2) by FlushBlockEveryKeyPolicy and hence trigger
+  // buffering of the last data block.
+  builder->Add(ik3.Encode(), value3);
+  // Cache reservation will decrease since the cache is now full after
+  // increasing reservation for the last buffered block and EnterUnbuffered() is
+  // triggered
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  ASSERT_OK(builder->Finish());
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

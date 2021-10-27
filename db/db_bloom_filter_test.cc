@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1819,8 +1820,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:5"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.FixedPrefix.5"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.5");
     {
       // BF changed, [abcdxx00, abce) is a valid bound, will trigger BF read
       Slice upper_bound("abce");
@@ -1939,8 +1940,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 1);
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     read_options.iterate_upper_bound = &upper_bound;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter, "foo"), 2);
@@ -1973,8 +1974,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     }
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.FixedPrefix.2"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.2");
     // third SST with fixed:2 BF
     ASSERT_OK(Put("foo6", "bar6"));
     ASSERT_OK(Put("foo7", "bar7"));
@@ -2021,8 +2022,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     {
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 6);
@@ -2062,9 +2063,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     // create a new CF and set prefix_extractor dynamically
     options.prefix_extractor.reset(NewCappedPrefixTransform(3));
     CreateColumnFamilies({"ramen_dojo_" + std::to_string(iteration)}, options);
-    ASSERT_EQ(0,
-              strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                     "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions(handles_[2]).prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     ASSERT_OK(Put(2, "foo3", "bar3"));
     ASSERT_OK(Put(2, "foo4", "bar4"));
     ASSERT_OK(Put(2, "foo5", "bar5"));
@@ -2080,9 +2080,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     }
     ASSERT_OK(
         dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "fixed:2"}}));
-    ASSERT_EQ(0,
-              strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                     "rocksdb.FixedPrefix.2"));
+    ASSERT_EQ(dbfull()->GetOptions(handles_[2]).prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.2");
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(read_options, handles_[2]));
@@ -2147,8 +2146,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       // "fp*" should be skipped
@@ -2171,7 +2170,8 @@ TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
   Options options = CurrentOptions();
   constexpr size_t kNumKeys = 10000;
   static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeys + 10));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeys + 10));
   options.create_if_missing = true;
   constexpr size_t kPrefixLength = 4;
   options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));

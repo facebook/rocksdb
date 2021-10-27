@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
-#include <regex>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -69,11 +68,10 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_EQ(sid2, sid4);
 
   // Expected compact format for session ids (see notes in implementation)
-  std::regex expected("[0-9A-Z]{20}");
-  const std::string match("match");
-  EXPECT_EQ(match, std::regex_replace(sid1, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid2, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid3, expected, match));
+  TestRegex expected("[0-9A-Z]{20}");
+  EXPECT_MATCHES_REGEX(sid1, expected);
+  EXPECT_MATCHES_REGEX(sid2, expected);
+  EXPECT_MATCHES_REGEX(sid3, expected);
 
 #ifndef ROCKSDB_LITE
   Close();
@@ -1132,9 +1130,15 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   ASSERT_OK(Put("key3", "value3"));
   fault_injection_env->SetFilesystemActive(false);
   Status s = dbfull()->Close();
-  fault_injection_env->SetFilesystemActive(true);
   ASSERT_NE(s, Status::OK());
-
+  // retry should return the same error
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
+  fault_injection_env->SetFilesystemActive(true);
+  // retry close() is no-op even the system is back. Could be improved if
+  // Close() is retry-able: #9029
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
   Destroy(options);
 }
 
@@ -2593,6 +2597,21 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 10; i++) {
+    workers.push_back(std::thread([&]() {
+      auto s = db_->Close();
+      ASSERT_OK(s);
+    }));
+  }
+  for (auto& w : workers) {
+    w.join();
+  }
+}
+
 #ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
@@ -2755,6 +2774,11 @@ class DBBasicTestMultiGet : public DBTestBase {
       } else {
         EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
+    }
+    // Clear compressed cache, which is always pre-populated
+    if (compressed_cache_) {
+      compressed_cache_->SetCapacity(0);
+      compressed_cache_->SetCapacity(1048576);
     }
   }
 
@@ -3232,13 +3256,11 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
 // Forward declaration
 class DeadlineFS;
 
-class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+class DeadlineRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   DeadlineRandomAccessFile(DeadlineFS& fs,
                            std::unique_ptr<FSRandomAccessFile>& file)
-      : FSRandomAccessFileWrapper(file.get()),
-        fs_(fs),
-        file_(std::move(file)) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
                 Slice* result, char* scratch,

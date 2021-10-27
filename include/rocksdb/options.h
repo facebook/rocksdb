@@ -369,15 +369,31 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
-enum class MemPurgePolicy : char {
-  kAlternate = 0x00,
-  kAlways = 0x01,
-};
-
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
-  kUseLocal,  // TODO: Add support for use local compaction
+  kUseLocal,
+};
+
+struct CompactionServiceJobInfo {
+  std::string db_name;
+  std::string db_id;
+  std::string db_session_id;
+  uint64_t job_id;  // job_id is only unique within the current DB and session,
+                    // restart DB will reset the job_id. `db_id` and
+                    // `db_session_id` could help you build unique id across
+                    // different DBs and sessions.
+
+  Env::Priority priority;
+
+  CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
+                           std::string db_session_id_, uint64_t job_id_,
+                           Env::Priority priority_)
+      : db_name(std::move(db_name_)),
+        db_id(std::move(db_id_)),
+        db_session_id(std::move(db_session_id_)),
+        job_id(job_id_),
+        priority(priority_) {}
 };
 
 class CompactionService : public Customizable {
@@ -385,22 +401,47 @@ class CompactionService : public Customizable {
   static const char* Type() { return "CompactionService"; }
 
   // Returns the name of this compaction service.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Start the compaction with input information, which can be passed to
   // `DB::OpenAndCompact()`.
   // job_id is pre-assigned, it will be reset after DB re-open.
-  // TODO: sub-compaction is not supported, as they will have the same job_id, a
-  // sub-compaction id might be added
+  // Warning: deprecated, please use the new interface
+  // `StartV2(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus Start(
-      const std::string& compaction_service_input, uint64_t job_id) = 0;
+      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // Start the remote compaction with `compaction_service_input`, which can be
+  // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
+  // information the user might want to know, which includes `job_id`.
+  virtual CompactionServiceJobStatus StartV2(
+      const CompactionServiceJobInfo& info,
+      const std::string& compaction_service_input) {
+    // Default implementation to call legacy interface, please override and
+    // replace the legacy implementation
+    return Start(compaction_service_input, info.job_id);
+  }
 
   // Wait compaction to be finish.
-  // TODO: Add output path override
+  // Warning: deprecated, please use the new interface
+  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
   virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t job_id, std::string* compaction_service_result) = 0;
+      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
 
-  virtual ~CompactionService() {}
+  // Wait for remote compaction to finish.
+  virtual CompactionServiceJobStatus WaitForCompleteV2(
+      const CompactionServiceJobInfo& info,
+      std::string* compaction_service_result) {
+    // Default implementation to call legacy interface, please override and
+    // replace the legacy implementation
+    return WaitForComplete(info.job_id, compaction_service_result);
+  }
+
+  ~CompactionService() override = default;
 };
 
 struct DBOptions {
@@ -745,7 +786,15 @@ struct DBOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
 
-  // If false, fallocate() calls are bypassed
+  // If false, fallocate() calls are bypassed, which disables file
+  // preallocation. The file space preallocation is used to increase the file
+  // write/append performance. By default, RocksDB preallocates space for WAL,
+  // SST, Manifest files, the extra space is truncated when the file is written.
+  // Warning: if you're using btrfs, we would recommend setting
+  // `allow_fallocate=false` to disable preallocation. As on btrfs, the extra
+  // allocated space cannot be freed, which could be significant if you have
+  // lots of files. More details about this limitation:
+  // https://github.com/btrfs/btrfs-dev-docs/blob/471c5699336e043114d4bca02adcd57d9dab9c44/data-extent-reference-counts.md
   bool allow_fallocate = true;
 
   // Disable child process inherit open files. Default: true
@@ -787,14 +836,22 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
-  // If true, allows for memtable purge instead of flush to storage.
-  // (experimental).
-  bool experimental_allow_mempurge = false;
-  // If experimental_allow_mempurge is true, will dictate MemPurge
-  // policy.
-  // Default: kAlternate
-  // (experimental).
-  MemPurgePolicy experimental_mempurge_policy = MemPurgePolicy::kAlternate;
+  // [experimental]
+  // Used to activate or deactive the Mempurge feature (memtable garbage
+  // collection). (deactivated by default). At every flush, the total useful
+  // payload (total entries minus garbage entries) is estimated as a ratio
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
+  // compared to this `threshold` value:
+  //     - if ratio<threshold: the flush is replaced by a mempurge operation
+  //     - else: a regular flush operation takes place.
+  // Threshold values:
+  //   0.0: mempurge deactivated (default).
+  //   1.0: recommended threshold value.
+  //   >1.0 : aggressive mempurge.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
+  //   ratios.
+  // [experimental]
+  double experimental_mempurge_threshold = 0.0;
 
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
@@ -1279,6 +1336,18 @@ struct DBOptions {
   // backward/forward compatibility support for now. Some known issues are still
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
+
+  // It indicates, which lowest cache tier we want to
+  // use for a certain DB. Currently we support volatile_tier and
+  // non_volatile_tier. They are layered. By setting it to kVolatileTier, only
+  // the block cache (current implemented volatile_tier) is used. So
+  // cache entries will not spill to secondary cache (current
+  // implemented non_volatile_tier), and block cache lookup misses will not
+  // lookup in the secondary cache. When kNonVolatileBlockTier is used, we use
+  // both block cache and secondary cache.
+  //
+  // Default: kNonVolatileBlockTier
+  CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1459,9 +1528,11 @@ struct ReadOptions {
   // Default: false
   bool background_purge_on_iterator_cleanup;
 
-  // If true, keys deleted using the DeleteRange() API will be visible to
-  // readers until they are naturally deleted during compaction. This improves
-  // read performance in DBs with many range deletions.
+  // If true, range tombstones handling will be skipped in key lookup paths.
+  // For DB instances that don't use DeleteRange() calls, this setting can
+  // be used to optimize the read performance.
+  // Note that, if this assumption (of no previous DeleteRange() calls) is
+  // broken, stale keys could be served in read paths.
   // Default: false
   bool ignore_range_deletions;
 
@@ -1682,6 +1753,9 @@ struct CompactRangeOptions {
   Slice* full_history_ts_low = nullptr;
 
   // Allows cancellation of an in-progress manual compaction.
+  //
+  // Cancellation can be delayed waiting on automatic compactions when used
+  // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
 };
 
@@ -1821,5 +1895,15 @@ struct CompactionServiceOptionsOverride {
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
 };
+
+#ifndef ROCKSDB_LITE
+struct LiveFilesStorageInfoOptions {
+  // Whether to populate FileStorageInfo::file_checksum* or leave blank
+  bool include_checksum_info = false;
+  // Flushes memtables if total size in bytes of live WAL files is >= this
+  // number. Default: always force a flush without checking sizes.
+  uint64_t wal_size_for_flush = 0;
+};
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -25,6 +25,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "rocksdb/async_result.h"
@@ -90,6 +91,14 @@ struct IOOptions {
 
   // Type of data being read/written
   IOType type;
+
+  // EXPERIMENTAL
+  // An option map that's opaque to RocksDB. It can be used to implement a
+  // custom contract between a FileSystem user and the provider. This is only
+  // useful in cases where a RocksDB user directly uses the FileSystem or file
+  // object for their own purposes, and wants to pass extra options to APIs
+  // such as NewRandomAccessFile and NewWritableFile.
+  std::unordered_map<std::string, std::string> property_bag;
 
   IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
@@ -197,6 +206,8 @@ struct IODebugContext {
 // of the APIs is of type IOStatus, which can indicate an error code/sub-code,
 // as well as metadata about the error such as its scope and whether its
 // retryable.
+// NewCompositeEnv can be used to create an Env with a custom FileSystem for
+// DBOptions::env.
 class FileSystem {
  public:
   FileSystem();
@@ -229,11 +240,8 @@ class FileSystem {
                                  const std::string& value,
                                  std::shared_ptr<FileSystem>* result);
 
-  // Return a default fie_system suitable for the current operating
-  // system.  Sophisticated users may wish to provide their own Env
-  // implementation instead of relying on this default file_system
-  //
-  // The result of Default() belongs to rocksdb and must never be deleted.
+  // Return a default FileSystem suitable for the current operating
+  // system.
   static std::shared_ptr<FileSystem> Default();
 
   // Handles the event when a new DB or a new ColumnFamily starts using the
@@ -310,11 +318,12 @@ class FileSystem {
                                    std::unique_ptr<FSWritableFile>* result,
                                    IODebugContext* dbg) = 0;
 
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
+  // Create an object that writes to a file with the specified name.
+  // `FSWritableFile::Append()`s will append after any existing content.  If the
+  // file does not already exist, creates it.
+  //
+  // On success, stores a pointer to the file in *result and returns OK.  On
+  // failure stores nullptr in *result and returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
   virtual IOStatus ReopenWritableFile(
@@ -1393,6 +1402,8 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
 
   FSSequentialFile* target() const { return target_; }
@@ -1419,8 +1430,21 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   FSSequentialFile* target_;
 };
 
+class FSSequentialFileOwnerWrapper : public FSSequentialFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSSequentialFileOwnerWrapper(std::unique_ptr<FSSequentialFile>&& t)
+      : FSSequentialFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSSequentialFile> guard_;
+};
+
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
 
   FSRandomAccessFile* target() const { return target_; }
@@ -1458,11 +1482,26 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
 
  private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
   FSRandomAccessFile* target_;
+};
+
+class FSRandomAccessFileOwnerWrapper : public FSRandomAccessFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSRandomAccessFileOwnerWrapper(
+      std::unique_ptr<FSRandomAccessFile>&& t)
+      : FSRandomAccessFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
 };
 
 class FSWritableFileWrapper : public FSWritableFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
 
   FSWritableFile* target() const { return target_; }
@@ -1573,8 +1612,21 @@ class FSWritableFileWrapper : public FSWritableFile {
   FSWritableFile* target_;
 };
 
+class FSWritableFileOwnerWrapper : public FSWritableFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSWritableFileOwnerWrapper(std::unique_ptr<FSWritableFile>&& t)
+      : FSWritableFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSWritableFile> guard_;
+};
+
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
 
   FSRandomRWFile* target() const { return target_; }
@@ -1609,8 +1661,28 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   FSRandomRWFile* target_;
 };
 
+class FSRandomRWFileOwnerWrapper : public FSRandomRWFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSRandomRWFileOwnerWrapper(std::unique_ptr<FSRandomRWFile>&& t)
+      : FSRandomRWFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSRandomRWFile> guard_;
+};
+
 class FSDirectoryWrapper : public FSDirectory {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSDirectoryWrapper(std::unique_ptr<FSDirectory>&& t)
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
+
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
@@ -1621,6 +1693,7 @@ class FSDirectoryWrapper : public FSDirectory {
   }
 
  private:
+  std::unique_ptr<FSDirectory> guard_;
   FSDirectory* target_;
 };
 

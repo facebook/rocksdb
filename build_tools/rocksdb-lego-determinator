@@ -113,7 +113,7 @@ NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
 SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
-PARSER="'parser':'python build_tools/error_filter.py $1'"
+PARSER="'parser':'/usr/bin/env python3 build_tools/error_filter.py $1'"
 
 CONTRUN_NAME="ROCKSDB_CONTRUN_NAME"
 SKIP_FORMAT_CHECKS="SKIP_FORMAT_BUCK_CHECKS=1"
@@ -380,23 +380,6 @@ LITE_BUILD_COMMANDS="[
 ]"
 
 #
-# Report RocksDB lite binary size to scuba
-REPORT_LITE_BINARY_SIZE_COMMANDS="[
-    {
-        'name':'Rocksdb Lite Binary Size',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Report RocksDB Lite binary size to scuba',
-                'shell':'cd $WORKING_DIR; tools/report_lite_binary_size.sh',
-                'user':'root',
-            },
-        ],
-]"
-
-#
 # RocksDB stress/crash test
 #
 STRESS_CRASH_TEST_COMMANDS="[
@@ -588,7 +571,7 @@ WRITE_STRESS_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and run RocksDB write stress tests',
-                'shell':'cd $WORKING_DIR; make write_stress && python tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL',
+                'shell':'cd $WORKING_DIR; make write_stress && /usr/bin/env python3 tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }
@@ -611,7 +594,7 @@ ASAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Test RocksDB debug under ASAN',
-'shell':'cd $WORKING_DIR; set -o pipefail && ($SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL) |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
+'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }
@@ -1120,7 +1103,7 @@ NO_COMPRESSION_COMMANDS="[
 #
 run_regression()
 {
-  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKSPACE/leveldb.XXXX) $(mktemp leveldb_test_stats.XXXX)
+  time bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKING_DIR/rocksdb.XXXX) $(mktemp rocksdb_test_stats.XXXX)
 
   # ======= report size to ODS ========
 
@@ -1161,6 +1144,7 @@ REGRESSION_COMMANDS="[
     {
         'name':'Rocksdb regression commands',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -1207,7 +1191,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Copy RocksDB code to fbcode repo',
-                'shell':'cd internal_repo_rocksdb/repo && git init && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo master || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
+                'shell':'cd internal_repo_rocksdb/repo && git init -b main && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo main || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -1220,7 +1204,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
             {
                 'name':'Run RocksDB whitebox crash tests',
                 'timeout': 86400,
-                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_whitebox_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_whitebox_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI -checkpoint_one_in=0 -backup_one_in=0 -cache_size=134217728 -cache_numshardbits=4 $EXTRA_DB_STRESS_ARGS -logtostderr=false whitebox || $CONTRUN_NAME=whitebox_crash_test $TASK_CREATION_TOOL',
+                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_fbcode_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -1263,9 +1247,6 @@ case $1 in
     ;;
   lite)
     echo $LITE_BUILD_COMMANDS
-    ;;
-  report_lite_binary_size)
-    echo $REPORT_LITE_BINARY_SIZE_COMMANDS
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
@@ -1361,7 +1342,9 @@ case $1 in
     echo $REGRESSION_COMMANDS
     ;;
   run_regression)
+    set -e
     run_regression
+    set +e
     ;;
   java_build)
     echo $JAVA_BUILD_TEST_COMMANDS

@@ -10,6 +10,7 @@
 #include "block_fetcher.h"
 #include "db/table_properties_collector.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"
@@ -71,6 +72,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   TEST_SYNC_POINT_CALLBACK("PropertyBlockBuilder::AddTableProperty:Start",
                            const_cast<TableProperties*>(&props));
 
+  Add(TablePropertiesNames::kOriginalFileNumber, props.orig_file_number);
   Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);
   Add(TablePropertiesNames::kRawValueSize, props.raw_value_size);
   Add(TablePropertiesNames::kDataSize, props.data_size);
@@ -228,6 +230,8 @@ Status ReadProperties(const ReadOptions& read_options,
 
   BlockContents block_contents;
   Status s;
+  // FIXME: should be a parameter for reading table properties to use persistent
+  // cache
   PersistentCacheOptions cache_options;
   ReadOptions ro = read_options;
   ro.verify_checksums = verify_checksum;
@@ -253,6 +257,8 @@ Status ReadProperties(const ReadOptions& read_options,
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
+      {TablePropertiesNames::kOriginalFileNumber,
+       &new_table_properties->orig_file_number},
       {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
       {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
       {TablePropertiesNames::kIndexPartitions,

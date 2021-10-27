@@ -185,6 +185,14 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeBottommostFilesMarkedForCompaction();
 
+  // This computes files_marked_for_forced_blob_gc_ and is called by
+  // ComputeCompactionScore()
+  //
+  // REQUIRES: DB mutex held
+  void ComputeFilesMarkedForForcedBlobGC(
+      double blob_garbage_collection_age_cutoff,
+      double blob_garbage_collection_force_threshold);
+
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
@@ -353,7 +361,7 @@ class VersionStorageInfo {
       const auto& meta = pair.second;
       assert(meta);
 
-      total_blob_bytes += meta->GetTotalBlobBytes();
+      total_blob_bytes += meta->GetBlobFileSize();
     }
 
     return total_blob_bytes;
@@ -403,6 +411,14 @@ class VersionStorageInfo {
   BottommostFilesMarkedForCompaction() const {
     assert(finalized_);
     return bottommost_files_marked_for_compaction_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForForcedBlobGC()
+      const {
+    assert(finalized_);
+    return files_marked_for_forced_blob_gc_;
   }
 
   int base_level() const { return base_level_; }
@@ -587,6 +603,8 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>>
       bottommost_files_marked_for_compaction_;
 
+  autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
+
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files
   // became eligible for compaction. It's defined as the min of the max nonzero
@@ -720,6 +738,12 @@ class Version {
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  const BlobIndex& blob_index, PinnableSlice* value,
                  uint64_t* bytes_read) const;
+
+  using BlobReadRequest =
+      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
+  using BlobReadRequests = std::vector<BlobReadRequest>;
+  void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
+                    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -1263,6 +1287,8 @@ class VersionSet {
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
+  static uint64_t GetTotalBlobFileSize(Version* dummy_versions);
+
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
@@ -1356,6 +1382,7 @@ class VersionSet {
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
+  uint64_t options_file_size_;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the

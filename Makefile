@@ -518,6 +518,29 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
 endif
 
+# `make check-headers` to very that each header file includes its own
+# dependencies
+ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
+# TODO: add/support JNI headers
+	DEV_HEADER_DIRS := $(sort include/ hdfs/ $(dir $(ALL_SOURCES)))
+# Some headers like in port/ are platform-specific
+	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/|tools/rdb/db_wrapper.h|include/rocksdb/utilities/env_librados.h')
+else
+	DEV_HEADERS :=
+endif
+HEADER_OK_FILES = $(patsubst %.h, %.h.ok, $(DEV_HEADERS))
+
+AM_V_CCH = $(am__v_CCH_$(V))
+am__v_CCH_ = $(am__v_CCH_$(AM_DEFAULT_VERBOSITY))
+am__v_CCH_0 = @echo "  CC.h    " $<;
+am__v_CCH_1 =
+
+%.h.ok: %.h # .h.ok not actually created, so re-checked on each invocation
+# -DROCKSDB_NAMESPACE=42 ensures the namespace header is included
+	$(AM_V_CCH) echo '#include "$<"' | $(CXX) $(CXXFLAGS) -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+
+check-headers: $(HEADER_OK_FILES)
+
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
         TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
@@ -527,7 +550,6 @@ ifdef ASSERT_STATUS_CHECKED
 	TESTS_FAILING_ASC = \
 		c_test \
 		db_test \
-		db_test2 \
 		env_test \
 		range_locking_test \
 		testutil_test \
@@ -719,7 +741,7 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib \
+	analyze tools tools_lib check-headers \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
@@ -946,6 +968,7 @@ endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
+	$(MAKE) check-sources
 endif
 
 # TODO add ldb_tests
@@ -1222,6 +1245,9 @@ check-format:
 
 check-buck-targets:
 	buckifier/check_buck_targets.sh
+
+check-sources:
+	build_tools/check-sources.sh
 
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
@@ -1901,6 +1927,8 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
+cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -1971,7 +1999,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter amd64 ppc64 ppc64le arm64 aarch64 sparc64, $(MACHINE)))
+	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 sparc64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1991,7 +2019,7 @@ ifneq ($(origin JNI_LIBC), undefined)
   JNI_LIBC_POSTFIX = -$(JNI_LIBC)
 endif
 
-ifneq (,$(filter ppc% arm64 aarch64 sparc64, $(MACHINE)))
+ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
@@ -2008,7 +2036,7 @@ ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
-BZIP2_DOWNLOAD_BASE ?= https://sourceware.org/pub/bzip2
+BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
 SNAPPY_VER ?= 1.1.8
 SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
@@ -2365,7 +2393,7 @@ build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

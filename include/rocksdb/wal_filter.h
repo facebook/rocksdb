@@ -8,17 +8,22 @@
 #include <map>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class WriteBatch;
+struct ConfigOptions;
 
 // WALFilter allows an application to inspect write-ahead-log (WAL)
 // records or modify their processing on recovery.
 // Please see the details below.
-class WalFilter {
+class WalFilter : public Customizable {
  public:
+  static const char* Type() { return "WalFilter"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value, WalFilter** result);
   enum class WalProcessingOption {
     // Continue processing as usual
     kContinueProcessing = 0,

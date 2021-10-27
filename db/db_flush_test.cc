@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <limits>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -17,6 +18,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/fault_injection_env.h"
@@ -138,7 +140,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // scheduled in the low-pri (compaction) thread pool.
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
   Reopen(options);
   env_->SetBackgroundThreads(0, Env::HIGH);
 
@@ -662,6 +664,87 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
+// This simple Listener can only handle one flush at a time.
+class TestFlushListener : public EventListener {
+ public:
+  TestFlushListener(Env* env, DBFlushTest* test)
+      : slowdown_count(0), stop_count(0), db_closed(), env_(env), test_(test) {
+    db_closed = false;
+  }
+
+  ~TestFlushListener() override {
+    prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
+  }
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    ASSERT_GT(info.table_properties.data_size, 0U);
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
+  }
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    flushed_dbs_.push_back(db);
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
+      slowdown_count++;
+    }
+    if (info.triggered_writes_stop) {
+      stop_count++;
+    }
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
+    ASSERT_EQ(TableFileNameToNumber(info.file_path), info.file_number);
+
+    // Note: the following chunk relies on the notification pertaining to the
+    // database pointed to by DBTestBase::db_, and is thus bypassed when
+    // that assumption does not hold (see the test case MultiDBMultiListeners
+    // below).
+    ASSERT_TRUE(test_);
+    if (db == test_->db_) {
+      std::vector<std::vector<FileMetaData>> files_by_level;
+      test_->dbfull()->TEST_GetFilesMetaData(db->DefaultColumnFamily(),
+                                             &files_by_level);
+
+      ASSERT_FALSE(files_by_level.empty());
+      auto it = std::find_if(files_by_level[0].begin(), files_by_level[0].end(),
+                             [&](const FileMetaData& meta) {
+                               return meta.fd.GetNumber() == info.file_number;
+                             });
+      ASSERT_NE(it, files_by_level[0].end());
+      ASSERT_EQ(info.oldest_blob_file_number, it->oldest_blob_file_number);
+    }
+
+    ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
+    ASSERT_GT(info.thread_id, 0U);
+  }
+
+  std::vector<std::string> flushed_column_family_names_;
+  std::vector<DB*> flushed_dbs_;
+  int slowdown_count;
+  int stop_count;
+  bool db_closing;
+  std::atomic_bool db_closed;
+  TableFileCreationInfo prev_fc_info_;
+
+ protected:
+  Env* env_;
+  DBFlushTest* test_;
+};
+#endif  // !ROCKSDB_LITE
+
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
 
@@ -694,8 +777,11 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
+  options.experimental_mempurge_threshold = 1.0;
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
   uint32_t mempurge_count = 0;
   uint32_t sst_count = 0;
@@ -838,12 +924,15 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1036,7 +1125,10 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-
+#ifndef ROCKSDB_LITE
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
+  options.listeners.emplace_back(listener);
+#endif  // !ROCKSDB_LITE
   // Create a ConditionalUpdate compaction filter
   // that will update all the values of the KV pairs
   // where the keys are "lower" than KEY4.
@@ -1046,8 +1138,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   uint32_t mempurge_count = 0;
@@ -1122,8 +1214,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
   // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
   // Activate the MemPurge prototype.
-  options.experimental_allow_mempurge = true;
-  options.experimental_mempurge_policy = MemPurgePolicy::kAlways;
+  options.experimental_mempurge_threshold = 1.0;
+
   ASSERT_OK(TryReopen(options));
 
   const size_t KVSIZE = 10;
@@ -1239,7 +1331,8 @@ TEST_F(DBFlushTest, MemPurgeWALSupport) {
     const uint32_t EXPECTED_SST_COUNT = 0;
 
     EXPECT_GE(mempurge_count, EXPECTED_MIN_MEMPURGE_COUNT);
-    if (options.experimental_mempurge_policy == MemPurgePolicy::kAlways) {
+    if (options.experimental_mempurge_threshold ==
+        std::numeric_limits<double>::max()) {
       EXPECT_EQ(sst_count, EXPECTED_SST_COUNT);
     }
 
@@ -1288,7 +1381,7 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   options.disable_auto_compactions = true;
   options.max_background_flushes = 2;
   options.use_direct_io_for_flush_and_compaction = GetParam();
-  options.env = new MockEnv(Env::Default());
+  options.env = MockEnv::Create(Env::Default());
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:create_file", [&](void* arg) {
         bool* use_direct_writes = static_cast<bool*>(arg);
@@ -2228,7 +2321,7 @@ TEST_P(DBAtomicFlushTest, TriggerFlushAndClose) {
   options.create_if_missing = true;
   options.atomic_flush = atomic_flush;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysTriggerFlush));
+      test::NewSpecialSkipListFactory(kNumKeysTriggerFlush));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   for (int i = 0; i != kNumKeysTriggerFlush; ++i) {
@@ -2344,6 +2437,122 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   ASSERT_NOK(s);
   fault_injection_env->SetFilesystemActive(true);
   Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// In atomic flush, concurrent bg flush threads commit to the MANIFEST in
+// serial, in the order of their picked memtables for each column family.
+// Only when a bg flush thread finds out that its memtables are the earliest
+// unflushed ones for all the included column families will this bg flush
+// thread continue to commit to MANIFEST.
+// This unit test uses sync point to coordinate the execution of two bg threads
+// executing the same sequence of functions. The interleaving are as follows.
+// time            bg1                            bg2
+//  |   pick memtables to flush
+//  |   flush memtables cf1_m1, cf2_m1
+//  |   join MANIFEST write queue
+//  |                                     pick memtabls to flush
+//  |                                     flush memtables cf1_(m1+1)
+//  |                                     join MANIFEST write queue
+//  |                                     wait to write MANIFEST
+//  |   write MANIFEST
+//  |   IO error
+//  |                                     detect IO error and stop waiting
+//  V
+TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  options.env = fault_injection_env.get();
+  // Set a larger value than default so that RocksDB can schedule concurrent
+  // background flush threads.
+  options.max_background_jobs = 8;
+  options.max_write_buffer_number = 8;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  assert(2 == handles_.size());
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+
+  ASSERT_OK(Put(0, "a", "v_0_a", write_opts));
+  ASSERT_OK(Put(1, "a", "v_1_a", write_opts));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"BgFlushThr2:WaitToCommit", "BgFlushThr1:BeforeWriteManifest"},
+  });
+
+  std::thread::id bg_flush_thr1, bg_flush_thr2;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void*) {
+        if (bg_flush_thr1 == std::thread::id()) {
+          bg_flush_thr1 = std::this_thread::get_id();
+        } else if (bg_flush_thr2 == std::thread::id()) {
+          bg_flush_thr2 = std::this_thread::get_id();
+        }
+      });
+
+  int called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void* arg) {
+        if (std::this_thread::get_id() == bg_flush_thr2) {
+          const auto* ptr = reinterpret_cast<std::pair<Status, bool>*>(arg);
+          assert(ptr);
+          if (0 == called) {
+            // When bg flush thread 2 reaches here for the first time.
+            ASSERT_OK(ptr->first);
+            ASSERT_TRUE(ptr->second);
+          } else if (1 == called) {
+            // When bg flush thread 2 reaches here for the second time.
+            ASSERT_TRUE(ptr->first.IsIOError());
+            ASSERT_FALSE(ptr->second);
+          }
+          ++called;
+          TEST_SYNC_POINT("BgFlushThr2:WaitToCommit");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+      [&](void*) {
+        if (std::this_thread::get_id() == bg_flush_thr1) {
+          TEST_SYNC_POINT("BgFlushThr1:BeforeWriteManifest");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (std::this_thread::get_id() != bg_flush_thr1) {
+          return;
+        }
+        ASSERT_OK(db_->Put(write_opts, "b", "v_1_b"));
+
+        FlushOptions flush_opts;
+        flush_opts.wait = false;
+        std::vector<ColumnFamilyHandle*> cfhs(1, db_->DefaultColumnFamily());
+        ASSERT_OK(dbfull()->Flush(flush_opts, cfhs));
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        auto* ptr = reinterpret_cast<IOStatus*>(arg);
+        assert(ptr);
+        *ptr = IOStatus::IOError("Injected failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(dbfull()->Flush(FlushOptions(), handles_).IsIOError());
+
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 

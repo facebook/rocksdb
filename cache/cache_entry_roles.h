@@ -14,6 +14,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Classifications of block cache entries, for reporting statistics
+// Adding new enum to this class requires corresponding updates to
+// kCacheEntryRoleToCamelString and kCacheEntryRoleToHyphenString
 enum class CacheEntryRole {
   // Block-based table data block
   kDataBlock,
@@ -29,6 +31,9 @@ enum class CacheEntryRole {
   kOtherBlock,
   // WriteBufferManager reservations to account for memtable usage
   kWriteBuffer,
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
+  kCompressionDictionaryBuildingBuffer,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

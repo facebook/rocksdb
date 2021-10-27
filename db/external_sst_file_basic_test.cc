@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -23,9 +24,25 @@ class ExternalSSTFileBasicTest
  public:
   ExternalSSTFileBasicTest()
       : DBTestBase("external_sst_file_basic_test", /*env_do_fsync=*/true) {
-    sst_files_dir_ = dbname_ + "/sst_files/";
+    sst_files_dir_ = dbname_ + "_sst_files/";
     fault_injection_test_env_.reset(new FaultInjectionTestEnv(env_));
     DestroyAndRecreateExternalSSTFilesDir();
+
+    // Check if the Env supports RandomRWFile
+    std::string file_path = sst_files_dir_ + "test_random_rw_file";
+    std::unique_ptr<WritableFile> wfile;
+    assert(env_->NewWritableFile(file_path, &wfile, EnvOptions()).ok());
+    wfile.reset();
+    std::unique_ptr<RandomRWFile> rwfile;
+    Status s = env_->NewRandomRWFile(file_path, &rwfile, EnvOptions());
+    if (s.IsNotSupported()) {
+      random_rwfile_supported_ = false;
+    } else {
+      EXPECT_OK(s);
+      random_rwfile_supported_ = true;
+    }
+    rwfile.reset();
+    EXPECT_OK(env_->DeleteFile(file_path));
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
@@ -169,6 +186,17 @@ class ExternalSSTFileBasicTest
  protected:
   std::string sst_files_dir_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
+  bool random_rwfile_supported_;
+#ifndef ROCKSDB_LITE
+  uint64_t GetSstSizeHelper(Temperature temperature) {
+    std::string prop;
+    EXPECT_TRUE(
+        dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
+                                  ToString(static_cast<uint8_t>(temperature)),
+                              &prop));
+    return static_cast<uint64_t>(std::atoi(prop.c_str()));
+  }
+#endif  // ROCKSDB_LITE
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -460,6 +488,20 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     ASSERT_EQ(f.file_checksum_func_name, kUnknownFileChecksumFuncName);
   }
 
+  // check the temperature of the file being ingested
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[6].files[0].temperature);
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+
   // Reopen Db with checksum enabled
   Reopen(options);
   // Enable verify_file_checksum option
@@ -580,6 +622,15 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   }
   ASSERT_OK(s) << s.ToString();
   ASSERT_OK(env_->FileExists(file6));
+  db_->GetColumnFamilyMetaData(&metadata);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
 }
 
 TEST_F(ExternalSSTFileBasicTest, NoCopy) {
@@ -1096,12 +1147,31 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
        "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
 
   for (size_t i = 0; i < test_cases.size(); i++) {
+    bool no_sync = false;
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].first, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(false);
     });
     SyncPoint::GetInstance()->SetCallBack(test_cases[i].second, [&](void*) {
       fault_injection_test_env_->SetFilesystemActive(true);
     });
+    if (i == 0) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
+    if (i == 2) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::NewRandomRWFile", [&](void* s) {
+            Status* status = static_cast<Status*>(s);
+            if (status->IsNotSupported()) {
+              no_sync = true;
+            }
+          });
+    }
     SyncPoint::GetInstance()->EnableProcessing();
 
     DestroyAndReopen(options);
@@ -1110,7 +1180,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     }
 
     Options sst_file_writer_options;
-    sst_file_writer_options.env = env_;
+    sst_file_writer_options.env = fault_injection_test_env_.get();
     std::unique_ptr<SstFileWriter> sst_file_writer(
         new SstFileWriter(EnvOptions(), sst_file_writer_options));
     std::string file_name =
@@ -1127,7 +1197,12 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     if (i == 2) {
       ingest_opt.write_global_seqno = true;
     }
-    ASSERT_NOK(db_->IngestExternalFile({file_name}, ingest_opt));
+    Status s = db_->IngestExternalFile({file_name}, ingest_opt);
+    if (no_sync) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_NOK(s);
+    }
     db_->ReleaseSnapshot(snapshot);
 
     SyncPoint::GetInstance()->DisableProcessing();
@@ -1430,6 +1505,10 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+  if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
+    return;
+  }
   SyncPoint::GetInstance()->DisableProcessing();
   int file_id = 0;
   EnvOptions env_options;
@@ -1479,6 +1558,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   if (!verify_checksums_before_ingest) {
+    ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
+    return;
+  }
+  if (!random_rwfile_supported_) {
+    ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
   }
   uint64_t props_block_offset = 0;
@@ -1615,6 +1699,103 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
   ASSERT_EQ(Get("k"), "b");
 }
 
+TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
+  Options options = CurrentOptions();
+  const ImmutableCFOptions ioptions(options);
+  options.bottommost_temperature = Temperature::kWarm;
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  auto size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+
+  // create file01.sst (1000 => 1099) and ingest it
+  std::string file1 = sst_files_dir_ + "file01.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  for (int k = 1000; k < 1100; k++) {
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file1_info;
+  Status s = sst_file_writer.Finish(&file1_info);
+  ASSERT_OK(s);
+  ASSERT_EQ(file1_info.file_path, file1);
+  ASSERT_EQ(file1_info.num_entries, 100);
+  ASSERT_EQ(file1_info.smallest_key, Key(1000));
+  ASSERT_EQ(file1_info.largest_key, Key(1099));
+
+  std::vector<std::string> files;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
+  Temperature file_temperature = Temperature::kWarm;
+
+  files.push_back(file1);
+  IngestExternalFileOptions in_opts;
+  in_opts.move_files = false;
+  in_opts.snapshot_consistency = true;
+  in_opts.allow_global_seqno = false;
+  in_opts.allow_blocking_flush = false;
+  in_opts.write_global_seqno = true;
+  in_opts.verify_file_checksum = false;
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = files;
+  arg.options = in_opts;
+  arg.files_checksums = files_checksums;
+  arg.files_checksum_func_names = files_checksum_func_names;
+  arg.file_temperature = file_temperature;
+  s = db_->IngestExternalFiles({arg});
+  ASSERT_OK(s);
+
+  // check the temperature of the file being ingested
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[6].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 1);
+
+  // non-bottommost file still has unknown temperature
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // reopen and check the information is persisted
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[6].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  // check other non-exist temperatures
+  size = GetSstSizeHelper(Temperature::kHot);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+      &prop));
+  ASSERT_EQ(std::atoi(prop.c_str()), 0);
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
@@ -1625,8 +1806,17 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

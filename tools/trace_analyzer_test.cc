@@ -367,7 +367,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -515,7 +515,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-single_delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -587,7 +587,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000", "0 0 1 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000", "0 10 1 1 1.000000"};
   file_path = output_path + "/test-range_delete-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -662,7 +662,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
 
   // Check the output of Seek
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 1 1.000000"};
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000"};
   file_path = output_path + "/test-iterator_Seek-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -719,7 +719,7 @@ TEST_F(TraceAnalyzerTest, Iterator) {
 
   // Check the output of SeekForPrev
   // check the key_stats file
-  k_stats = {"0 0 0 1 1.000000"};
+  k_stats = {"0 10 0 1 1.000000"};
   file_path =
       output_path + "/test-iterator_SeekForPrev-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
@@ -781,9 +781,9 @@ TEST_F(TraceAnalyzerTest, MultiGet) {
   AnalyzeTrace(paras, output_path, trace_path);
 
   // check the key_stats file
-  std::vector<std::string> k_stats = {"0 0 0 2 0.500000", "0 0 1 2 0.500000",
-                                      "0 0 2 1 0.000000", "0 0 3 2 0.500000",
-                                      "0 0 4 2 0.500000"};
+  std::vector<std::string> k_stats = {"0 10 0 2 1.000000", "0 10 1 2 1.000000",
+                                      "0 10 2 1 1.000000", "0 10 3 2 1.000000",
+                                      "0 10 4 2 1.000000"};
   file_path = output_path + "/test-multiget-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -803,9 +803,9 @@ TEST_F(TraceAnalyzerTest, MultiGet) {
 
   // Check the prefix
   std::vector<std::string> k_prefix = {
-      "0 0 0 0.000000 0.000000 0x30", "1 2 1 2.000000 0.500000 0x61",
-      "2 2 1 2.000000 0.500000 0x62", "3 1 1 1.000000 0.000000 0x64",
-      "4 2 1 2.000000 0.500000 0x67"};
+      "0 0 0 0.000000 0.000000 0x30", "1 2 1 2.000000 1.000000 0x61",
+      "2 2 1 2.000000 1.000000 0x62", "3 1 1 1.000000 1.000000 0x64",
+      "4 2 1 2.000000 1.000000 0x67"};
   file_path = output_path + "/test-multiget-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
 

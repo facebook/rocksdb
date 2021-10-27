@@ -6,10 +6,9 @@
 #pragma once
 
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-class DB;
 
 class PreReleaseCallback {
  public:

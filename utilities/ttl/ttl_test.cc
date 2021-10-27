@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 
 enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 }

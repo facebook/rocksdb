@@ -19,7 +19,10 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
-DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+DEFINE_uint64(seed, 2341234,
+              "Seed for PRNG. When --nooverwritepercent is "
+              "nonzero and --expected_values_dir is nonempty, this value "
+              "must be fixed across invocations.");
 static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
@@ -326,11 +329,9 @@ DEFINE_uint64(compaction_ttl, 1000,
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
-DEFINE_bool(experimental_allow_mempurge, false,
-            "Allow mempurge process to collect memtable garbage bytes.");
-
-DEFINE_string(experimental_mempurge_policy, "kAlternate",
-              "Set mempurge (MemTable Garbage Collection) policy.");
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum estimated useful payload that triggers a "
+              "mempurge process to collect memtable garbage bytes.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
@@ -398,6 +399,12 @@ DEFINE_double(blob_garbage_collection_age_cutoff,
               "[Integrated BlobDB] The cutoff in terms of blob file age for "
               "garbage collection.");
 
+DEFINE_double(blob_garbage_collection_force_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_force_threshold,
+              "[Integrated BlobDB] The threshold for the ratio of garbage in "
+              "the oldest blob files for forcing garbage collection.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
@@ -421,8 +428,11 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
-DEFINE_bool(use_ribbon_filter, false,
-            "Use Ribbon filter instead of Bloom filter");
+DEFINE_int32(
+    ribbon_starting_level, 999,
+    "Use Bloom filter on levels below specified and Ribbon beginning on level "
+    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
+    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -447,12 +457,13 @@ DEFINE_string(secondaries_base, "",
 DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
-    expected_values_path, "",
-    "File where the array of expected uint32_t values will be stored. If "
+    expected_values_dir, "",
+    "Dir where file with array of expected uint32_t values will be stored. If "
     "provided and non-empty, the DB state will be verified against these "
     "values after recovery. --max_key and --column_family must be kept the "
     "same across invocations of this program that use the same "
-    "--expected_values_path.");
+    "--expected_values_dir. See --seed and --nooverwritepercent for further "
+    "requirements.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -643,7 +654,8 @@ static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(nooverwritepercent, 60,
              "Ratio of keys without overwrite to total workload (expressed as "
-             " a percentage)");
+             "a percentage). When --expected_values_dir is nonempty, must "
+             "keep this value constant across invocations.");
 static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
 

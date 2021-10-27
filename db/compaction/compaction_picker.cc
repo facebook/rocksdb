@@ -15,9 +15,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/column_family.h"
 #include "file/filename.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
@@ -552,10 +554,14 @@ void CompactionPicker::GetGrandparents(
   InternalKey start, limit;
   GetRange(inputs, output_level_inputs, &start, &limit);
   // Compute the set of grandparent files that overlap this compaction
-  // (parent == level+1; grandparent == level+2)
-  if (output_level_inputs.level + 1 < NumberLevels()) {
-    vstorage->GetOverlappingInputs(output_level_inputs.level + 1, &start,
-                                   &limit, grandparents);
+  // (parent == level+1; grandparent == level+2 or the first
+  // level after that has overlapping files)
+  for (int level = output_level_inputs.level + 1; level < NumberLevels();
+       level++) {
+    vstorage->GetOverlappingInputs(level, &start, &limit, grandparents);
+    if (!grandparents->empty()) {
+      break;
+    }
   }
 }
 

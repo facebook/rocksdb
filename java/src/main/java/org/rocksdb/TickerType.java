@@ -764,6 +764,28 @@ public enum TickerType {
      */
     MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
 
+    /**
+     * Number of secondary cache hits
+     */
+    SECONDARY_CACHE_HITS((byte) -0x1E),
+
+    /**
+     * Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
+     */
+    VERIFY_CHECKSUM_READ_BYTES((byte) -0x1F),
+
+    /**
+     * Bytes read/written while creating backups
+     */
+    BACKUP_READ_BYTES((byte) -0x20),
+    BACKUP_WRITE_BYTES((byte) -0x21),
+
+    /**
+     * Remote compaction read/write statistics
+     */
+    REMOTE_COMPACT_READ_BYTES((byte) -0x22),
+    REMOTE_COMPACT_WRITE_BYTES((byte) -0x23),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

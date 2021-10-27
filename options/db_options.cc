@@ -18,6 +18,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
@@ -40,6 +41,10 @@ static std::unordered_map<std::string, DBOptions::AccessHint>
                               {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
                               {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
 
+static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
+    {"kVolatileTier", CacheTier::kVolatileTier},
+    {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
+
 static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
     {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
      {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
@@ -47,11 +52,6 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
-
-static std::unordered_map<std::string, MemPurgePolicy>
-    experimental_mempurge_policy_string_map = {
-        {"kAlternate", MemPurgePolicy::kAlternate},
-        {"kAlways", MemPurgePolicy::kAlways}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     db_mutable_options_type_info = {
@@ -175,6 +175,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"wal_filter",
+         OptionTypeInfo::AsCustomRawPtr<WalFilter>(
+             offsetof(struct ImmutableDBOptions, wal_filter),
+             OptionVerificationType::kByName,
+             (OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever))},
         {"create_if_missing",
          {offsetof(struct ImmutableDBOptions, create_if_missing),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -198,13 +203,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"experimental_allow_mempurge",
-         {offsetof(struct ImmutableDBOptions, experimental_allow_mempurge),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"experimental_mempurge_policy",
-         OptionTypeInfo::Enum<MemPurgePolicy>(
-             offsetof(struct ImmutableDBOptions, experimental_mempurge_policy),
-             &experimental_mempurge_policy_string_map)},
+         {0, OptionType::kString, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone}},
+        {"experimental_mempurge_threshold",
+         {offsetof(struct ImmutableDBOptions, experimental_mempurge_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"is_fd_close_on_exec",
          {offsetof(struct ImmutableDBOptions, is_fd_close_on_exec),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -446,6 +453,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"file_checksum_gen_factory",
+         OptionTypeInfo::AsCustomSharedPtr<FileChecksumGenFactory>(
+             offsetof(struct ImmutableDBOptions, file_checksum_gen_factory),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kAllowNull)},
+        {"statistics",
+         OptionTypeInfo::AsCustomSharedPtr<Statistics>(
+             // Statistics should not be compared and can be null
+             // Statistics are maked "don't serialize" until they can be shared
+             // between DBs
+             offsetof(struct ImmutableDBOptions, statistics),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
+                 OptionTypeFlags::kAllowNull)},
         // Allow EventListeners that have a non-empty Name() to be read/written
         // as options Each listener will either be
         // - A simple name (e.g. "MyEventListener")
@@ -507,25 +528,73 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           },
           nullptr}},
+        {"lowest_used_cache_tier",
+         OptionTypeInfo::Enum<CacheTier>(
+             offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
+             &cache_tier_string_map, OptionTypeFlags::kNone)},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 
 class MutableDBConfigurable : public Configurable {
  public:
-  explicit MutableDBConfigurable(const MutableDBOptions& mdb) {
-    mutable_ = mdb;
+  explicit MutableDBConfigurable(
+      const MutableDBOptions& mdb,
+      const std::unordered_map<std::string, std::string>* map = nullptr)
+      : mutable_(mdb), opt_map_(map) {
     RegisterOptions(&mutable_, &db_mutable_options_type_info);
+  }
+
+  bool OptionsAreEqual(const ConfigOptions& config_options,
+                       const OptionTypeInfo& opt_info,
+                       const std::string& opt_name, const void* const this_ptr,
+                       const void* const that_ptr,
+                       std::string* mismatch) const override {
+    bool equals = opt_info.AreEqual(config_options, opt_name, this_ptr,
+                                    that_ptr, mismatch);
+    if (!equals && opt_info.IsByName()) {
+      if (opt_map_ == nullptr) {
+        equals = true;
+      } else {
+        const auto& iter = opt_map_->find(opt_name);
+        if (iter == opt_map_->end()) {
+          equals = true;
+        } else {
+          equals = opt_info.AreEqualByName(config_options, opt_name, this_ptr,
+                                           iter->second);
+        }
+      }
+      if (equals) {  // False alarm, clear mismatch
+        *mismatch = "";
+      }
+    }
+    if (equals && opt_info.IsConfigurable() && opt_map_ != nullptr) {
+      const auto* this_config = opt_info.AsRawPointer<Configurable>(this_ptr);
+      if (this_config == nullptr) {
+        const auto& iter = opt_map_->find(opt_name);
+        // If the name exists in the map and is not empty/null,
+        // then the this_config should be set.
+        if (iter != opt_map_->end() && !iter->second.empty() &&
+            iter->second != kNullptrString) {
+          *mismatch = opt_name;
+          equals = false;
+        }
+      }
+    }
+    return equals;
   }
 
  protected:
   MutableDBOptions mutable_;
+  const std::unordered_map<std::string, std::string>* opt_map_;
 };
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  explicit DBOptionsConfigurable(const DBOptions& opts)
-      : MutableDBConfigurable(MutableDBOptions(opts)), db_options_(opts) {
+  explicit DBOptionsConfigurable(
+      const DBOptions& opts,
+      const std::unordered_map<std::string, std::string>* map = nullptr)
+      : MutableDBConfigurable(MutableDBOptions(opts), map), db_options_(opts) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is
     if (opts.env != nullptr) {
@@ -569,8 +638,10 @@ std::unique_ptr<Configurable> DBOptionsAsConfigurable(
   std::unique_ptr<Configurable> ptr(new MutableDBConfigurable(opts));
   return ptr;
 }
-std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts) {
-  std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts));
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const DBOptions& opts,
+    const std::unordered_map<std::string, std::string>* opt_map) {
+  std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts, opt_map));
   return ptr;
 }
 #endif  // ROCKSDB_LITE
@@ -615,8 +686,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
-      experimental_allow_mempurge(options.experimental_allow_mempurge),
-      experimental_mempurge_policy(options.experimental_mempurge_policy),
+      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
@@ -661,6 +731,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types),
+      lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service) {
   stats = statistics.get();
   fs = env->GetFileSystem();
@@ -750,12 +821,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    is_fd_close_on_exec);
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
-  ROCKS_LOG_HEADER(log,
-                   "                  Options.experimental_allow_mempurge: %d",
-                   experimental_allow_mempurge);
-  ROCKS_LOG_HEADER(log,
-                   "                  Options.experimental_mempurge_policy: %d",
-                   static_cast<int>(experimental_mempurge_policy));
+  ROCKS_LOG_HEADER(
+      log, "                  Options.experimental_mempurge_threshold: %f",
+      experimental_mempurge_threshold);
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);

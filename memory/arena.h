@@ -86,7 +86,7 @@ class Arena : public Allocator {
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Array of new[] allocated memory blocks
-  typedef std::vector<char*> Blocks;
+  using Blocks = std::vector<char*>;
   Blocks blocks_;
 
   struct MmapInfo {

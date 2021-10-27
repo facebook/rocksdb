@@ -49,7 +49,8 @@ class MockTableFactory : public TableFactory {
   };
 
   MockTableFactory();
-  const char* Name() const override { return "MockTable"; }
+  static const char* kClassName() { return "MockTable"; }
+  const char* Name() const override { return kClassName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& ro, const TableReaderOptions& table_reader_options,

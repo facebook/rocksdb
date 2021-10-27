@@ -132,4 +132,4 @@ class BloomBlockBuilder {
   PlainTableBloomV1 bloom_;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
