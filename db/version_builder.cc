@@ -157,7 +157,7 @@ class VersionBuilder::Rep {
    public:
     // To be used for brand new blob files
     explicit MutableBlobFileMetaData(
-        std::shared_ptr<SharedBlobFileMetaData> shared_meta)
+        std::shared_ptr<SharedBlobFileMetaData>&& shared_meta)
         : shared_meta_(std::move(shared_meta)) {}
 
     // To be used for pre-existing blob files
