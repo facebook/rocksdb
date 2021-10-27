@@ -167,9 +167,11 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
+  size_t partition_count = 0;
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
     CachableEntry<Block> block;
+    ++partition_count;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
@@ -181,7 +183,10 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       return s;
     }
     if (block.GetValue() != nullptr) {
-      if (block.IsCached()) {
+      // Might need to "pin" some mmap-read blocks (GetOwnValue) if some
+      // partitions are successfully compressed (cached) and some are not
+      // compressed (mmap eligible)
+      if (block.IsCached() || block.GetOwnValue()) {
         if (pin) {
           map_in_progress[handle.offset()] = std::move(block);
         }
@@ -189,7 +194,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     }
   }
   Status s = biter.status();
-  if (s.ok()) {
+  // Save (pin) them only if everything checks out
+  if (map_in_progress.size() == partition_count && s.ok()) {
     std::swap(partition_map_, map_in_progress);
   }
   return s;
