@@ -149,6 +149,12 @@ class DBImpl : public DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) override;
+
+  virtual async_result AsyncPut(const WriteOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    const Slice& value) override;
+
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
@@ -164,6 +170,9 @@ class DBImpl : public DB {
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
+
+  virtual async_result AsyncWrite(const WriteOptions& options,
+                                      WriteBatch* updates) override;
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -347,8 +356,10 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
+  virtual async_result AsyncFlushWAL(bool sync) override;
   bool TEST_WALBufferIsEmpty(bool lock = true);
   virtual Status SyncWAL() override;
+  virtual async_result AsSyncWAL() override;
   virtual Status LockWAL() override;
   virtual Status UnlockWAL() override;
 
@@ -1255,11 +1266,26 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr);
 
+  async_result AsyncWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                                  WriteCallback* callback = nullptr,
+                                  uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                                  bool disable_memtable = false, uint64_t* seq_used = nullptr,
+                                  size_t batch_cnt = 0,
+                                  PreReleaseCallback* pre_release_callback = nullptr);
+
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
+
+  async_result AsyncPipelinedWriteImpl(const WriteOptions& options,
+                                       WriteBatch* updates,
+                                       WriteCallback* callback = nullptr,
+                                       uint64_t* log_used = nullptr,
+                                       uint64_t log_ref = 0,
+                                       bool disable_memtable = false,
+                                       uint64_t* seq_used = nullptr);
 
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
@@ -1282,6 +1308,13 @@ class DBImpl : public DB {
   // not set, each key is a separate sub_batch. Otherwise each duplicate key
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
+      WriteThread* write_thread, const WriteOptions& options,
+      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
+      PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
+      const PublishLastSeq publish_last_seq, const bool disable_memtable);
+
+  async_result AsyncWriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
       WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
@@ -1695,14 +1728,26 @@ class DBImpl : public DB {
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size);
 
+  async_result AsyncWriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                                   uint64_t* log_used, uint64_t* log_size);
+
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
                       bool need_log_sync, bool need_log_dir_sync,
                       SequenceNumber sequence);
 
+  async_result AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
+                                   log::Writer* log_writer, uint64_t* log_used,
+                                   bool need_log_sync, bool need_log_dir_sync,
+                                   SequenceNumber sequence);
+
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,
                                 SequenceNumber* last_sequence, size_t seq_inc);
+
+  async_result AsyncConcurrentWriteToWAL(
+      const WriteThread::WriteGroup& write_group, uint64_t* log_used,
+      SequenceNumber* last_sequence, size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   // Caller must hold mutex_.

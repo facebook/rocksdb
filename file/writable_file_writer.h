@@ -21,6 +21,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -223,14 +224,20 @@ class WritableFileWriter {
 
   IOStatus Flush();
 
+  async_result AsyncFlush();
+
   IOStatus Close();
 
   IOStatus Sync(bool use_fsync);
+
+  async_result AsSync(bool use_fsync);
 
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(bool use_fsync);
+
+  async_result AsSyncWithoutFlush(bool use_fsync);
 
   uint64_t GetFileSize() const { return filesize_; }
 
@@ -258,12 +265,18 @@ class WritableFileWriter {
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
   IOStatus WriteDirect();
+  async_result AsyncWriteDirect();
   IOStatus WriteDirectWithChecksum();
+  async_result AsyncWriteDirectWithChecksum();
 #endif  // !ROCKSDB_LITE
   // Normal write
   IOStatus WriteBuffered(const char* data, size_t size);
+  async_result AsyncWriteBuffered(const char* data, size_t size);
   IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
+  async_result AsyncWriteBufferedWithChecksum(const char* data, size_t size);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
+  async_result AsRangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
+  async_result AsSyncInternal(bool use_fsync);
 };
 }  // namespace ROCKSDB_NAMESPACE

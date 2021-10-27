@@ -1322,6 +1322,41 @@ Status DBImpl::FlushWAL(bool sync) {
   return SyncWAL();
 }
 
+async_result DBImpl::AsyncFlushWAL(bool sync) {
+  if (manual_wal_flush_) {
+    IOStatus io_s;
+    {
+      // We need to lock log_write_mutex_ since logs_ might change concurrently
+      InstrumentedMutexLock wl(&log_write_mutex_);
+      log::Writer* cur_log_writer = logs_.back().writer;
+      auto result = cur_log_writer->AsyncWriteBuffer();
+      co_await result;
+      io_s = result.io_result();
+    }
+    if (!io_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
+                      io_s.ToString().c_str());
+      // In case there is a fs error we should set it globally to prevent the
+      // future writes
+      IOStatusCheck(io_s);
+      // whether sync or not, we should abort the rest of function upon error
+      co_return std::move(io_s);
+    }
+    if (!sync) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
+      co_return std::move(io_s);
+    }
+  }
+  if (!sync) {
+    co_return Status::OK();
+  }
+  // sync = true
+  ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");
+  auto result = AsSyncWAL();
+  co_await result;
+  co_return result.result();
+}
+
 Status DBImpl::SyncWAL() {
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
@@ -1395,6 +1430,83 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
   return status;
+}
+
+async_result DBImpl::AsSyncWAL() {
+  autovector<log::Writer*, 1> logs_to_sync;
+  bool need_log_dir_sync;
+  uint64_t current_log_number;
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(!logs_.empty());
+
+    // This SyncWAL() call only cares about logs up to this number.
+    current_log_number = logfile_number_;
+
+    while (logs_.front().number <= current_log_number &&
+           logs_.front().getting_synced) {
+      log_sync_cv_.Wait();
+    }
+    // First check that logs are safe to sync in background.
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      if (!it->writer->file()->writable_file()->IsSyncThreadSafe()) {
+        co_return Status::NotSupported(
+            "SyncWAL() is not supported for this implementation of WAL file",
+            immutable_db_options_.allow_mmap_writes
+                ? "try setting Options::allow_mmap_writes to false"
+                : Slice());
+      }
+    }
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      auto& log = *it;
+      assert(!log.getting_synced);
+      log.getting_synced = true;
+      logs_to_sync.push_back(log.writer);
+    }
+
+    need_log_dir_sync = !log_dir_synced_;
+  }
+
+  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
+  RecordTick(stats_, WAL_FILE_SYNCED);
+  Status status;
+  IOStatus io_s;
+  for (log::Writer* log : logs_to_sync) {
+    auto result = log->file()->AsSyncWithoutFlush(immutable_db_options_.use_fsync);
+    co_await result;
+    io_s = result.io_result();
+    if (!io_s.ok()) {
+      status = io_s;
+      break;
+    }
+  }
+  if (!io_s.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL Sync error %s",
+                    io_s.ToString().c_str());
+    // In case there is a fs error we should set it globally to prevent the
+    // future writes
+    IOStatusCheck(io_s);
+  }
+  if (status.ok() && need_log_dir_sync) {
+    status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+  }
+  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
+
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (status.ok()) {
+      status = MarkLogsSynced(current_log_number, need_log_dir_sync);
+    } else {
+      MarkLogsNotSynced(current_log_number);
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
+
+  co_return status;
 }
 
 Status DBImpl::LockWAL() {
@@ -1707,8 +1819,14 @@ async_result DBImpl::AsyncGet(const ReadOptions& read_options,
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
+  if (debug_mode) {
+    std::cout << "before AsyncGetImpl call" << std::endl;
+  }
   auto result = AsyncGetImpl(read_options, key, get_impl_options);
   co_await result;
+  if (debug_mode) {
+    std::cout << "resume from AsyncGetImpl" << std::endl;
+  }
   co_return result.result();
 }
 
@@ -2078,6 +2196,9 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    if (debug_mode) {
+      std::cout << "before AsyncGet 2 call" << std::endl;
+    }
     co_await sv->current->AsyncGet(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,
@@ -2086,6 +2207,9 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
         get_impl_options.get_value);
+    if (debug_mode) {
+      std::cout << "resume from AsyncGet 2" << std::endl;
+    }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 

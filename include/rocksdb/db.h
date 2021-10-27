@@ -353,6 +353,16 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, value);
   }
 
+  virtual async_result AsyncPut(const WriteOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key, const Slice& value) {
+      (void)options;
+      (void)column_family;
+      (void)key;
+      (void)value;
+      co_return Status::NotSupported("AsyncPut() not implemented.");
+  }
+
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
   // did not exist in the database.
@@ -423,6 +433,12 @@ class DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+
+  virtual async_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
+      (void)options;
+      (void)updates;
+      co_return Status::NotSupported("AsyncWrite() not implemented.");
+  }
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
@@ -1300,12 +1316,18 @@ class DB {
   virtual Status FlushWAL(bool /*sync*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
+  virtual async_result AsyncFlushWAL(bool /*sync*/) {
+    co_return Status::NotSupported("FlushWAL not implemented");
+  }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
   // same as Write() with sync=true: in the latter case the changes won't be
   // visible until the sync is done.
   // Currently only works if allow_mmap_writes = false in Options.
   virtual Status SyncWAL() = 0;
 
+  virtual async_result AsSyncWAL() {
+    co_return Status::NotSupported("AsSyncWAL not implemented");
+  }
   // Lock the WAL. Also flushes the WAL after locking.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");

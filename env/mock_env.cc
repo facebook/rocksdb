@@ -344,6 +344,21 @@ class MockWritableFile : public FSWritableFile {
     }
     return IOStatus::OK();
   }
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
+                               IODebugContext* dbg) override {
+    (void)data;
+    (void)options;
+    (void)dbg;
+    throw "Not implemented";
+  }
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
+                           const DataVerificationInfo& /* verification_info */,
+                           IODebugContext* dbg) override {
+    (void)data;
+    (void)options;
+    (void)dbg;
+    throw "Not implemented";
+  }
 
   using FSWritableFile::PositionedAppend;
   IOStatus PositionedAppend(const Slice& data, uint64_t /*offset*/,

@@ -217,6 +217,17 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Append(data));
   }
+  async_result AsyncAppend(const Slice& data, const IOOptions& /*options*/,
+                               IODebugContext* /*dbg*/) override {
+    (void)data;
+    throw "Not implemented";
+  }
+  async_result AsyncAppend(const Slice& data, const IOOptions& /*options*/,
+                           const DataVerificationInfo& /*verification_info*/,
+                           IODebugContext* /*dbg*/) override {
+    (void)data;
+    throw "Not implemented";
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) override {

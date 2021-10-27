@@ -224,6 +224,19 @@ class StringSink : public FSWritableFile {
     contents_.append(slice.data(), slice.size());
     return IOStatus::OK();
   }
+  async_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
+                               IODebugContext* /*dbg*/) override {
+    (void)slice;
+    throw "Not implemented";
+  }
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
+                           const DataVerificationInfo& /* verification_info */,
+                           IODebugContext* dbg) override {
+    (void)data;
+    (void)options;
+    (void)dbg;
+    throw "Not implemented";
+  }
   void Drop(size_t bytes) {
     if (reader_contents_ != nullptr) {
       contents_.resize(contents_.size() - bytes);
@@ -323,6 +336,19 @@ class OverwritingStringSink : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     contents_.append(slice.data(), slice.size());
     return IOStatus::OK();
+  }
+  async_result AsyncAppend(const Slice& slice, const IOOptions& /*opts*/,
+                  IODebugContext* /*dbg*/) override {
+    (void)slice;
+    throw "Not implemented";
+  }
+  async_result AsyncAppend(const Slice& data, const IOOptions& options,
+                           const DataVerificationInfo& /* verification_info */,
+                           IODebugContext* dbg) override {
+    (void)data;
+    (void)options;
+    (void)dbg;
+    throw "Not implemented";
   }
   void Drop(size_t bytes) {
     contents_.resize(contents_.size() - bytes);
