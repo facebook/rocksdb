@@ -7,6 +7,8 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -21,13 +23,39 @@ public class RocksIteratorTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
+  private void validateByteBufferResult(final int fetched, final ByteBuffer byteBuffer, final String expected) {
+    assertThat(fetched).isEqualTo(expected.length());
+    assertThat(byteBuffer.position()).isEqualTo(0);
+    assertThat(byteBuffer.limit()).isEqualTo(Math.min(byteBuffer.remaining(), expected.length()));
+    final int bufferSpace = byteBuffer.remaining();
+    final byte[] contents = new byte[bufferSpace];
+    byteBuffer.get(contents, 0, bufferSpace);
+    assertThat(contents).isEqualTo(expected.substring(0, bufferSpace).getBytes(StandardCharsets.UTF_8));
+  }
+
+  private void validateKey(final RocksIterator iterator, final ByteBuffer byteBuffer, final String key) {
+    validateByteBufferResult(iterator.key(byteBuffer), byteBuffer, key);
+  }
+
+  private void validateValue(final RocksIterator iterator, final ByteBuffer byteBuffer, final String value) {
+    validateByteBufferResult(iterator.value(byteBuffer), byteBuffer, value);
+  }
+
+  private ByteBuffer byteBufferKey(final ByteBuffer byteBuffer, final String key) {
+    byteBuffer.clear();
+    byteBuffer.put(key.getBytes(StandardCharsets.UTF_8));
+    byteBuffer.flip();
+
+    return byteBuffer;
+  }
+
   @Test
   public void rocksIterator() throws RocksDBException {
     try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+            .setCreateIfMissing(true)
+            .setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+                 dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
       db.put("key2".getBytes(), "value2".getBytes());
 
@@ -37,37 +65,19 @@ public class RocksIteratorTest {
         assertThat(iterator.key()).isEqualTo("key1".getBytes());
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-        ByteBuffer key = ByteBuffer.allocateDirect(2);
-        ByteBuffer value = ByteBuffer.allocateDirect(2);
-        assertThat(iterator.key(key)).isEqualTo(4);
-        assertThat(iterator.value(value)).isEqualTo(6);
+        validateKey(iterator, ByteBuffer.allocateDirect(2), "key1");
+        validateKey(iterator, ByteBuffer.allocateDirect(2), "key0");
+        validateKey(iterator, ByteBuffer.allocateDirect(4), "key1");
+        validateKey(iterator, ByteBuffer.allocateDirect(5), "key1");
+        validateValue(iterator, ByteBuffer.allocateDirect(2), "value1");
+        validateValue(iterator, ByteBuffer.allocateDirect(8), "value1");
 
-        assertThat(key.position()).isEqualTo(0);
-        assertThat(key.limit()).isEqualTo(2);
-        assertThat(value.position()).isEqualTo(0);
-        assertThat(value.limit()).isEqualTo(2);
-
-        byte[] tmp = new byte[2];
-        key.get(tmp);
-        assertThat(tmp).isEqualTo("ke".getBytes());
-        value.get(tmp);
-        assertThat(tmp).isEqualTo("va".getBytes());
-
-        key = ByteBuffer.allocateDirect(12);
-        value = ByteBuffer.allocateDirect(12);
-        assertThat(iterator.key(key)).isEqualTo(4);
-        assertThat(iterator.value(value)).isEqualTo(6);
-        assertThat(key.position()).isEqualTo(0);
-        assertThat(key.limit()).isEqualTo(4);
-        assertThat(value.position()).isEqualTo(0);
-        assertThat(value.limit()).isEqualTo(6);
-
-        tmp = new byte[4];
-        key.get(tmp);
-        assertThat(tmp).isEqualTo("key1".getBytes());
-        tmp = new byte[6];
-        value.get(tmp);
-        assertThat(tmp).isEqualTo("value1".getBytes());
+        validateKey(iterator, ByteBuffer.allocate(2), "key1");
+        validateKey(iterator, ByteBuffer.allocate(2), "key0");
+        validateKey(iterator, ByteBuffer.allocate(4), "key1");
+        validateKey(iterator, ByteBuffer.allocate(5), "key1");
+        validateValue(iterator, ByteBuffer.allocate(2), "value1");
+        validateValue(iterator, ByteBuffer.allocate(8), "value1");
 
         iterator.next();
         assertThat(iterator.isValid()).isTrue();
@@ -87,24 +97,57 @@ public class RocksIteratorTest {
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
         iterator.status();
 
-        key.clear();
-        key.put("key1".getBytes());
-        key.flip();
-        iterator.seek(key);
-        assertThat(iterator.isValid()).isTrue();
-        assertThat(iterator.value()).isEqualTo("value1".getBytes());
-        assertThat(key.position()).isEqualTo(4);
-        assertThat(key.limit()).isEqualTo(4);
+        {
+          final ByteBuffer key = byteBufferKey(ByteBuffer.allocateDirect(12), "key1");
+          iterator.seek(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value1".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
 
-        key.clear();
-        key.put("key2".getBytes());
-        key.flip();
-        iterator.seekForPrev(key);
-        assertThat(iterator.isValid()).isTrue();
-        assertThat(iterator.value()).isEqualTo("value2".getBytes());
-        assertThat(key.position()).isEqualTo(4);
-        assertThat(key.limit()).isEqualTo(4);
+          validateValue(iterator, ByteBuffer.allocateDirect(12), "value1");
+          validateValue(iterator, ByteBuffer.allocateDirect(4), "valu56");
+        }
+
+        {
+          final ByteBuffer key = byteBufferKey(ByteBuffer.allocateDirect(12), "key2");
+          iterator.seekForPrev(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value2".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
+        }
+
+        {
+          final ByteBuffer key = byteBufferKey(ByteBuffer.allocate(12), "key1");
+          iterator.seek(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value1".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
+        }
+
+        {
+          final ByteBuffer key = byteBufferKey(ByteBuffer.allocate(12), "key2");
+          iterator.seekForPrev(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value2".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
+        }
       }
+    }
+  }
+
+  @Test
+  public void rocksIteratorSeekAndInsert() throws RocksDBException {
+    try (final Options options = new Options()
+            .setCreateIfMissing(true)
+            .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+                 dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key1".getBytes(), "value1".getBytes());
+      db.put("key2".getBytes(), "value2".getBytes());
 
       try (final RocksIterator iterator = db.newIterator()) {
         iterator.seek("key0".getBytes());
@@ -192,8 +235,8 @@ public class RocksIteratorTest {
       }
 
       // Test case: release iterator after custom CF close
-      ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes());
-      ColumnFamilyHandle cfHandle1 = db.createColumnFamily(cfd1);
+      final ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes());
+      final ColumnFamilyHandle cfHandle1 = db.createColumnFamily(cfd1);
       db.put(cfHandle1, "key1".getBytes(), "value1".getBytes());
 
       try (final RocksIterator iterator = db.newIterator(cfHandle1)) {
@@ -206,8 +249,8 @@ public class RocksIteratorTest {
       }
 
       // Test case: release iterator after custom CF drop & close
-      ColumnFamilyDescriptor cfd2 = new ColumnFamilyDescriptor("cf2".getBytes());
-      ColumnFamilyHandle cfHandle2 = db.createColumnFamily(cfd2);
+      final ColumnFamilyDescriptor cfd2 = new ColumnFamilyDescriptor("cf2".getBytes());
+      final ColumnFamilyHandle cfHandle2 = db.createColumnFamily(cfd2);
       db.put(cfHandle2, "key2".getBytes(), "value2".getBytes());
 
       try (final RocksIterator iterator = db.newIterator(cfHandle2)) {

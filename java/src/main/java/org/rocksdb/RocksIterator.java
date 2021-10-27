@@ -21,7 +21,7 @@ import java.nio.ByteBuffer;
  * @see org.rocksdb.RocksObject
  */
 public class RocksIterator extends AbstractRocksIterator<RocksDB> {
-  protected RocksIterator(RocksDB rocksDB, long nativeHandle) {
+  protected RocksIterator(final RocksDB rocksDB, final long nativeHandle) {
     super(rocksDB, nativeHandle);
   }
 
@@ -54,9 +54,15 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
    *     input buffer {@code key} is insufficient and partial result will
    *     be returned.
    */
-  public int key(ByteBuffer key) {
-    assert (isOwningHandle() && key.isDirect());
-    int result = keyDirect0(nativeHandle_, key, key.position(), key.remaining());
+  public int key(final ByteBuffer key) {
+    assert isOwningHandle();
+    int result;
+    if (key.isDirect()) {
+      result = keyDirect0(nativeHandle_, key, key.position(), key.remaining());
+    } else {
+      assert key.hasArray();
+      result = keyByteArray0(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
+    }
     key.limit(Math.min(key.position() + result, key.limit()));
     return result;
   }
@@ -89,9 +95,9 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
    *     input buffer {@code value} is insufficient and partial result will
    *     be returned.
    */
-  public int value(ByteBuffer value) {
+  public int value(final ByteBuffer value) {
     assert (isOwningHandle() && value.isDirect());
-    int result = valueDirect0(nativeHandle_, value, value.position(), value.remaining());
+    final int result = valueDirect0(nativeHandle_, value, value.position(), value.remaining());
     value.limit(Math.min(value.position() + result, value.limit()));
     return result;
   }
@@ -115,5 +121,6 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
   private native byte[] key0(long handle);
   private native byte[] value0(long handle);
   private native int keyDirect0(long handle, ByteBuffer buffer, int bufferOffset, int bufferLen);
+  private native int keyByteArray0(long handle, byte[] array, int arrayOffset, int arrayLen);
   private native int valueDirect0(long handle, ByteBuffer buffer, int bufferOffset, int bufferLen);
 }

@@ -232,6 +232,29 @@ jint Java_org_rocksdb_RocksIterator_keyDirect0(JNIEnv* env, jobject /*jobj*/,
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    keyByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_RocksIterator_keyByteArray0(JNIEnv* env, jobject /*jobj*/,
+                                                  jlong handle, jbyteArray jkey,
+                                                  jint jkey_off,
+                                                  jint jkey_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice key_slice = it->key();
+  jsize copy_size = std::min(static_cast<uint32_t>(key_slice.size()),
+                             static_cast<uint32_t>(jkey_len));
+  env->SetByteArrayRegion(
+      jkey, jkey_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
+
+  return static_cast<jsize>(key_slice.size());
+}
+
+/*
  * Class:     org_rocksdb_RocksIterator
  * Method:    value0
  * Signature: (J)[B
