@@ -86,53 +86,131 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
+  class BlobFileMetaDataDelta {
+   public:
+    bool IsEmpty() const {
+      return !additional_garbage_count_ && !additional_garbage_bytes_ &&
+             newly_linked_ssts_.empty() && newly_unlinked_ssts_.empty();
+    }
+
+    uint64_t GetAdditionalGarbageCount() const {
+      return additional_garbage_count_;
+    }
+
+    uint64_t GetAdditionalGarbageBytes() const {
+      return additional_garbage_bytes_;
+    }
+
+    const std::unordered_set<uint64_t>& GetNewlyLinkedSsts() const {
+      return newly_linked_ssts_;
+    }
+
+    const std::unordered_set<uint64_t>& GetNewlyUnlinkedSsts() const {
+      return newly_unlinked_ssts_;
+    }
+
+    void AddGarbage(uint64_t count, uint64_t bytes) {
+      additional_garbage_count_ += count;
+      additional_garbage_bytes_ += bytes;
+    }
+
+    void LinkSst(uint64_t sst_file_number) {
+      assert(newly_linked_ssts_.find(sst_file_number) ==
+             newly_linked_ssts_.end());
+
+      // Reconcile with newly unlinked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_unlinked_ssts_.find(sst_file_number);
+
+      if (it != newly_unlinked_ssts_.end()) {
+        newly_unlinked_ssts_.erase(it);
+      } else {
+        newly_linked_ssts_.emplace(sst_file_number);
+      }
+    }
+
+    void UnlinkSst(uint64_t sst_file_number) {
+      assert(newly_unlinked_ssts_.find(sst_file_number) ==
+             newly_unlinked_ssts_.end());
+
+      // Reconcile with newly linked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_linked_ssts_.find(sst_file_number);
+
+      if (it != newly_linked_ssts_.end()) {
+        newly_linked_ssts_.erase(it);
+      } else {
+        newly_unlinked_ssts_.emplace(sst_file_number);
+      }
+    }
+
+   private:
+    uint64_t additional_garbage_count_ = 0;
+    uint64_t additional_garbage_bytes_ = 0;
+    std::unordered_set<uint64_t> newly_linked_ssts_;
+    std::unordered_set<uint64_t> newly_unlinked_ssts_;
+  };
+
   class MutableBlobFileMetaData {
    public:
+    // To be used for brand new blob files
     explicit MutableBlobFileMetaData(
         std::shared_ptr<SharedBlobFileMetaData> shared_meta)
         : shared_meta_(std::move(shared_meta)) {}
 
+    // To be used for pre-existing blob files
     explicit MutableBlobFileMetaData(
         const std::shared_ptr<BlobFileMetaData>& meta)
         : shared_meta_(meta->GetSharedMeta()),
           linked_ssts_(meta->GetLinkedSsts()),
-          garbage_count_(meta->GetGarbageBlobCount()),
-          garbage_bytes_(meta->GetGarbageBlobBytes()) {}
+          garbage_blob_count_(meta->GetGarbageBlobCount()),
+          garbage_blob_bytes_(meta->GetGarbageBlobBytes()) {}
 
     std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
       return shared_meta_;
     }
 
+    bool HasDelta() const { return !delta_.IsEmpty(); }
+
     const std::unordered_set<uint64_t>& GetLinkedSsts() const {
       return linked_ssts_;
     }
 
-    uint64_t GetGarbageCount() const { return garbage_count_; }
+    uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
 
-    uint64_t GetGarbageBytes() const { return garbage_bytes_; }
+    uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
     void AddGarbage(uint64_t count, uint64_t bytes) {
-      garbage_count_ += count;
-      garbage_bytes_ += bytes;
+      delta_.AddGarbage(count, bytes);
+
+      garbage_blob_count_ += count;
+      garbage_blob_bytes_ += bytes;
     }
 
     void LinkSst(uint64_t sst_file_number) {
-      assert(linked_ssts_.find(sst_file_number) == linked_ssts_.end());
+      delta_.LinkSst(sst_file_number);
 
+      assert(linked_ssts_.find(sst_file_number) == linked_ssts_.end());
       linked_ssts_.emplace(sst_file_number);
     }
 
     void UnlinkSst(uint64_t sst_file_number) {
-      assert(linked_ssts_.find(sst_file_number) != linked_ssts_.end());
+      delta_.UnlinkSst(sst_file_number);
 
+      assert(linked_ssts_.find(sst_file_number) != linked_ssts_.end());
       linked_ssts_.erase(sst_file_number);
     }
 
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
+    // Delta
+    BlobFileMetaDataDelta delta_;
+    // Accumulated values
     BlobFileMetaData::LinkedSsts linked_ssts_;
-    uint64_t garbage_count_ = 0;
-    uint64_t garbage_bytes_ = 0;
+    uint64_t garbage_blob_count_ = 0;
+    uint64_t garbage_blob_bytes_ = 0;
   };
 
   const FileOptions& file_options_;
@@ -704,7 +782,7 @@ class VersionBuilder::Rep {
       const MutableBlobFileMetaData& mutable_meta) {
     return BlobFileMetaData::Create(
         mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
-        mutable_meta.GetGarbageCount(), mutable_meta.GetGarbageBytes());
+        mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
   }
 
   // Add the blob file specified by meta to *vstorage if it is determined to
@@ -771,11 +849,13 @@ class VersionBuilder::Rep {
         assert(base_meta);
         assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
 
-        if (base_meta->GetGarbageBlobCount() ==
-                mutable_meta.GetGarbageCount() &&
-            base_meta->GetGarbageBlobBytes() ==
-                mutable_meta.GetGarbageBytes() &&
-            base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts()) {
+        if (!mutable_meta.HasDelta()) {
+          assert(base_meta->GetGarbageBlobCount() ==
+                 mutable_meta.GetGarbageBlobCount());
+          assert(base_meta->GetGarbageBlobBytes() ==
+                 mutable_meta.GetGarbageBlobBytes());
+          assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
+
           AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
         } else {
           auto meta = CreateBlobFileMetaData(mutable_meta);
