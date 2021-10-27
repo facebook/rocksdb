@@ -1110,6 +1110,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       assert(temp_s.ok());
     }
     EnableManualCompaction();
+    TEST_SYNC_POINT(
+        "DBImpl::CompactRange:PostRefitLevel:ManualCompactionEnabled");
   }
   LogFlush(immutable_db_options_.info_log);
 
@@ -1747,6 +1749,7 @@ Status DBImpl::RunManualCompaction(
     // Does not make sense to `AddManualCompaction()` in this scenario since
     // `DisableManualCompaction()` just waited for the manual compaction queue
     // to drain. So return immediately.
+    TEST_SYNC_POINT("DBImpl::RunManualCompaction:PausedAtStart");
     manual.status =
         Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     manual.done = true;

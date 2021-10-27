@@ -6885,8 +6885,7 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
   // ensure the background manual compaction's refitting phase disables manual
   // compaction immediately before the foreground manual compaction can register
   // itself. Manual compaction is kept disabled until the foreground manual
-  // compaction returns `Status::Incomplete` as it must not have executed
-  // anything.
+  // checks for the failure once.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       // Only do Put()s for foreground CompactRange() once the background
       // CompactRange() has reached the refitting phase.
@@ -6897,8 +6896,8 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
       },
       // Right before we register the manual compaction, proceed with
       // the refitting phase so manual compactions are disabled. Stay in
-      // the refitting phase with manual compactions disabled for the
-      // remainder.
+      // the refitting phase with manual compactions disabled until it is
+      // noticed.
       {
           "DBImpl::RunManualCompaction:0",
           "DBImpl::CompactRange:BeforeRefit:2",
@@ -6908,9 +6907,15 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
           "DBImpl::RunManualCompaction:1",
       },
       {
-          "DBCompactionTest::ChangeLevelConflictsWithManual:"
-          "PostForegroundCompactRange",
+          "DBImpl::RunManualCompaction:PausedAtStart",
           "DBImpl::CompactRange:PostRefitLevel",
+      },
+      // If compaction somehow were scheduled, let's let it run after reenabling
+      // manual compactions. This dependency is not expected to be hit but is
+      // here for speculatively coercing future bugs.
+      {
+          "DBImpl::CompactRange:PostRefitLevel:ManualCompactionEnabled",
+          "BackgroundCallCompaction:0",
       },
   });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -6930,9 +6935,6 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
                   .IsIncomplete());
-  TEST_SYNC_POINT(
-      "DBCompactionTest::ChangeLevelConflictsWithManual:"
-      "PostForegroundCompactRange");
 
   refit_level_thread.join();
 }
