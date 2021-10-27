@@ -1534,7 +1534,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCallFlush:start",
+      {{"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
        {"DBImpl::FlushMemTableToOutputFile:Finish",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
