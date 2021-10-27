@@ -638,12 +638,18 @@ if test "0$PORTABLE" -eq 0; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
-  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
-    COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep -e^arm -e^aarch64`"; then
     # TODO: Handle this with approprite options.
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^aarch64`"; then
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ \
+      -fsyntax-only -march=native - -o /dev/null 2>/dev/null; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=native "
+    else
+      COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+    fi
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
@@ -659,6 +665,10 @@ else
   # PORTABLE=1
   if test "$USE_SSE"; then
     TRY_SSE_ETC="1"
+  fi
+
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
