@@ -86,6 +86,9 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
+  // A class that represents the accumulated changes (like additional garbage or
+  // newly linked/unliked SST files) for a given blob file after applying a
+  // series of VersionEdits.
   class BlobFileMetaDataDelta {
    public:
     bool IsEmpty() const {
@@ -153,6 +156,11 @@ class VersionBuilder::Rep {
     std::unordered_set<uint64_t> newly_unlinked_ssts_;
   };
 
+  // A class that represents the state of a blob file after applying a series of
+  // VersionEdits. In addition to the resulting state, it also contains the
+  // delta (see BlobFileMetaDataDelta above). The resulting state can be used to
+  // identify obsolete blob files, while the delta makes it possible to
+  // efficiently detect trivial moves.
   class MutableBlobFileMetaData {
    public:
     // To be used for brand new blob files
