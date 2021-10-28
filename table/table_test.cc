@@ -2216,12 +2216,11 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
 
-  // Corrupt checksum type
+  // Corrupt checksum type (123 is invalid)
   auto& sink = *c.TEST_GetSink();
   size_t len = sink.contents_.size();
   ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
-
-  sink.contents_[len - Footer::kNewVersionsEncodedLength] = '\x7b';
+  sink.contents_[len - Footer::kNewVersionsEncodedLength] = char{123};
 
   // (Re-)Open table file with bad checksum type
   const ImmutableOptions new_ioptions(options);
