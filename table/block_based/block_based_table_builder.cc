@@ -1598,6 +1598,10 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       // FilterBlockBuilder and deallocate the payload by going out of scope.
       // Otherwise, the payload will unnecessarily remain until
       // BlockBasedTableBuilder is deallocated.
+      //
+      // See FilterBlockBuilder::Finish() for more on the difference in
+      // transferred filter data payload among different FilterBlockBuilder
+      // subtypes.
       std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);

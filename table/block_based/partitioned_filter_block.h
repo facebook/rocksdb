@@ -51,7 +51,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   };
   std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
   std::unique_ptr<IndexBuilder> value;
-  std::vector<std::unique_ptr<const char[]>> filter_gc;
+  std::list<std::unique_ptr<const char[]>> filter_gc;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it

@@ -111,7 +111,7 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
 
 Slice PartitionedFilterBlockBuilder::Finish(
     const BlockHandle& last_partition_block_handle, Status* status,
-    std::unique_ptr<const char[]>* /* filter_data */) {
+    std::unique_ptr<const char[]>* filter_data) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
     FilterEntry& last_entry = filters.front();
@@ -131,6 +131,11 @@ Slice PartitionedFilterBlockBuilder::Finish(
           &handle_delta_encoding_slice);
     }
     filters.pop_front();
+    if (filter_data != nullptr) {
+      *filter_data = std::move(filter_gc.front());
+      filter_gc.pop_front();
+    }
+
   } else {
     MaybeCutAFilterBlock(nullptr);
   }
