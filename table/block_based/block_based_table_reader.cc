@@ -2063,24 +2063,23 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     const BlockHandle& handle) {
   // Return a block iterator on the index partition
   auto block = block_map_->find(handle.offset());
-  // This is a possible scenario since block cache might not have had space
-  // for the partition
-  if (block != block_map_->end()) {
-    const Rep* rep = table_->get_rep();
-    assert(rep);
-
-    Statistics* kNullStats = nullptr;
-    // We don't return pinned data from index blocks, so no need
-    // to set `block_contents_pinned`.
-    return block->second.GetValue()->NewIndexIterator(
-        rep->internal_comparator.user_comparator(),
-        rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
-        rep->index_has_first_key, rep->index_key_includes_seq,
-        rep->index_value_is_full);
+  // block_map_ must be exhaustive
+  if (block == block_map_->end()) {
+    assert(false);
+    // Signal problem to caller
+    return nullptr;
   }
-  // Create an empty iterator
-  // TODO(ajkr): this is not the right way to handle an unpinned partition.
-  return new IndexBlockIter();
+  const Rep* rep = table_->get_rep();
+  assert(rep);
+
+  Statistics* kNullStats = nullptr;
+  // We don't return pinned data from index blocks, so no need
+  // to set `block_contents_pinned`.
+  return block->second.GetValue()->NewIndexIterator(
+      rep->internal_comparator.user_comparator(),
+      rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
+      rep->index_has_first_key, rep->index_key_includes_seq,
+      rep->index_value_is_full);
 }
 
 // This will be broken if the user specifies an unusual implementation

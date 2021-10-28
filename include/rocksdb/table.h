@@ -117,9 +117,10 @@ struct BlockBasedTableOptions {
   // caching as they should now apply to range tombstone and compression
   // dictionary meta-blocks, in addition to index and filter meta-blocks.
   //
-  // Indicating if we'd put index/filter blocks to the block cache.
-  // If not specified, each "table reader" object will pre-load index/filter
-  // block during table initialization.
+  // Whether to put index/filter blocks in the block cache. When false,
+  // each "table reader" object will pre-load index/filter blocks during
+  // table initialization. Index and filter partition blocks always use
+  // block cache regardless of this option.
   bool cache_index_and_filter_blocks = false;
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
@@ -190,6 +191,8 @@ struct BlockBasedTableOptions {
     kHashSearch = 0x01,
 
     // A two-level index implementation. Both levels are binary search indexes.
+    // Second level index blocks ("partitions") use block cache even when
+    // cache_index_and_filter_blocks=false.
     kTwoLevelIndexSearch = 0x02,
 
     // Like kBinarySearch, but index also contains first key of each block.
@@ -285,7 +288,8 @@ struct BlockBasedTableOptions {
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
   // Use partitioned full filters for each SST file. This option is
-  // incompatible with block-based filters.
+  // incompatible with block-based filters. Filter partition blocks use
+  // block cache even when cache_index_and_filter_blocks=false.
   bool partition_filters = false;
 
   // Option to generate Bloom/Ribbon filters that minimize memory
