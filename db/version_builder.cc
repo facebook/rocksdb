@@ -359,29 +359,35 @@ class VersionBuilder::Rep {
           assert(rhs);
 
           if (!level_zero_cmp_(lhs, rhs)) {
-            return Status::Corruption("L0 files are not sorted properly");
+            std::ostringstream oss;
+            oss << "L0 files are not sorted properly: files #"
+                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
           if (rhs->fd.smallest_seqno == rhs->fd.largest_seqno) {
             // This is an external file that we ingested
-            SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
+            const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
+
             if (!(external_file_seqno < lhs->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              return Status::Corruption(
-                  "L0 file with seqno " + ToString(lhs->fd.smallest_seqno) +
-                  " " + ToString(lhs->fd.largest_seqno) +
-                  " vs. file with global_seqno" +
-                  ToString(external_file_seqno) + " with fileNumber " +
-                  ToString(lhs->fd.GetNumber()));
+              std::ostringstream oss;
+              oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
+                  << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
+                  << " vs. file #" << rhs->fd.GetNumber()
+                  << " with global_seqno " << external_file_seqno;
+
+              return Status::Corruption("VersionBuilder", oss.str());
             }
           } else if (lhs->fd.smallest_seqno <= rhs->fd.smallest_seqno) {
-            return Status::Corruption("L0 files seqno " +
-                                      ToString(lhs->fd.smallest_seqno) + " " +
-                                      ToString(lhs->fd.largest_seqno) + " " +
-                                      ToString(lhs->fd.GetNumber()) + " vs. " +
-                                      ToString(rhs->fd.smallest_seqno) + " " +
-                                      ToString(rhs->fd.largest_seqno) + " " +
-                                      ToString(rhs->fd.GetNumber()));
+            std::ostringstream oss;
+            oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
+                << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
+                << " vs. file #" << rhs->fd.GetNumber() << " with seqno "
+                << rhs->fd.smallest_seqno << ' ' << rhs->fd.largest_seqno;
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
           return Status::OK();
@@ -406,21 +412,23 @@ class VersionBuilder::Rep {
           assert(rhs);
 
           if (!level_nonzero_cmp_(lhs, rhs)) {
-            return Status::Corruption(
-                "L" + ToString(level) +
-                " files are not sorted properly: files #" +
-                ToString(lhs->fd.GetNumber()) + ", #" +
-                ToString(rhs->fd.GetNumber()));
+            std::ostringstream oss;
+            oss << 'L' << level << " files are not sorted properly: files #"
+                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
           // Make sure there is no overlap in level
           if (icmp->Compare(lhs->largest, rhs->smallest) >= 0) {
-            return Status::Corruption(
-                "L" + ToString(level) + " have overlapping ranges: file #" +
-                ToString(lhs->fd.GetNumber()) +
-                " largest key: " + (lhs->largest).DebugString(true) +
-                " vs. file #" + ToString(rhs->fd.GetNumber()) +
-                " smallest key: " + (rhs->smallest).DebugString(true));
+            std::ostringstream oss;
+            oss << 'L' << level << " has overlapping ranges: file #"
+                << lhs->fd.GetNumber()
+                << " largest key: " << lhs->largest.DebugString(true)
+                << " vs. file #" << rhs->fd.GetNumber()
+                << " smallest key: " << rhs->smallest.DebugString(true);
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
           return Status::OK();
