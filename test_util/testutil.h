@@ -27,7 +27,7 @@
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 extern "C" {
-  void RegisterCustomObjects(int argc, char** argv);
+void RegisterCustomObjects(int argc, char** argv);
 }
 #else
 void RegisterCustomObjects(int argc, char** argv);

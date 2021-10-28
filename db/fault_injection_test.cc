@@ -83,10 +83,10 @@ class FaultInjectionTest
         base_env_(nullptr),
         env_(nullptr),
         db_(nullptr) {
-          EXPECT_OK(test::CreateEnvFromSystem(
-                ConfigOptions(), &system_env_, &env_guard_));
-          EXPECT_NE(system_env_, nullptr);
-        }
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &system_env_, &env_guard_));
+    EXPECT_NE(system_env_, nullptr);
+  }
 
   ~FaultInjectionTest() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -151,8 +151,7 @@ class FaultInjectionTest
     assert(tiny_cache_ == nullptr);
     assert(env_ == nullptr);
 
-    env_ =
-        new FaultInjectionTestEnv(base_env_ ? base_env_.get() : system_env_);
+    env_ = new FaultInjectionTestEnv(base_env_ ? base_env_.get() : system_env_);
 
     options_ = CurrentOptions();
     options_.env = env_;

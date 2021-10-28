@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
+
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
