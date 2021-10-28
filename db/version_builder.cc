@@ -190,11 +190,20 @@ class VersionBuilder::Rep {
 
     uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
-    void AddGarbage(uint64_t count, uint64_t bytes) {
+    bool AddGarbage(uint64_t count, uint64_t bytes) {
+      assert(shared_meta_);
+
+      if (garbage_blob_count_ + count > shared_meta_->GetTotalBlobCount() ||
+          garbage_blob_bytes_ + bytes > shared_meta_->GetTotalBlobBytes()) {
+        return false;
+      }
+
       delta_.AddGarbage(count, bytes);
 
       garbage_blob_count_ += count;
       garbage_blob_bytes_ += bytes;
+
+      return true;
     }
 
     void LinkSst(uint64_t sst_file_number) {
@@ -555,8 +564,12 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    mutable_meta->AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
-                             blob_file_garbage.GetGarbageBlobBytes());
+    if (!mutable_meta->AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
+                                  blob_file_garbage.GetGarbageBlobBytes())) {
+      std::ostringstream oss;
+      oss << "Garbage overflow for blob file #" << blob_file_number;
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
 
     return Status::OK();
   }
