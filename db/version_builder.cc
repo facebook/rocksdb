@@ -306,7 +306,7 @@ class VersionBuilder::Rep {
     assert(level >= 0 && level < num_levels_);
     assert(expected_linked_ssts);
 
-    auto& level_files = vstorage->LevelFiles(level);
+    const auto& level_files = vstorage->LevelFiles(level);
 
     if (level_files.empty()) {
       return Status::OK();
