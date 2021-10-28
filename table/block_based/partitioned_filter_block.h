@@ -142,6 +142,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   bool index_value_is_full() const;
 
  protected:
+  // For partition blocks pinned in cache. Can be a subset of blocks
+  // in case some fail insertion on attempt to pin.
   std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
       filter_map_;
 };
