@@ -11,9 +11,6 @@
 #include "rocksdb/status.h"
 #include "io_status.h"
 
-// when using debug mode, print some debug info
-extern bool debug_mode;
-
 namespace ROCKSDB_NAMESPACE {
 
 struct file_page;
@@ -32,9 +29,6 @@ struct async_result {
   struct promise_type {
     async_result get_return_object() {
       auto h = std::coroutine_handle<promise_type>::from_promise(*this);
-      if (debug_mode) {
-        std::cout << "Send back a return_type with handle:" << h.address() << std::endl;
-      }
       ret_back_promise = new ret_back{};
       return async_result(h, *ret_back_promise);
     }
@@ -42,9 +36,6 @@ struct async_result {
     auto initial_suspend() { return std::suspend_never{};}
 
     auto final_suspend() noexcept {
-      if (debug_mode) {
-        std::cout << " prev:" << prev_ << std::endl;
-      }
       if (prev_ != nullptr) {
         auto h = std::coroutine_handle<promise_type>::from_promise(*prev_);
         h.resume();
@@ -83,14 +74,10 @@ struct async_result {
   }
 
   bool await_ready() const noexcept {
-    if (async_) {
+    if (async_) 
       return false;
-    } else {
-      if (debug_mode) {
-        std::cout << "result_set_:" << ret_back_->result_set_ << std::endl;
-      }
+    else 
       return ret_back_->result_set_;
-    }
   }
 
   void await_suspend(std::coroutine_handle<promise_type> h);

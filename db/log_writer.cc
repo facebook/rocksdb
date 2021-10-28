@@ -40,14 +40,8 @@ Writer::~Writer() {
 IOStatus Writer::WriteBuffer() { return dest_->Flush(); }
 
 async_result Writer::AsyncWriteBuffer() {
-  if (debug_mode) {
-    std::cout << "before AsyncFlush call" << std::endl;
-  }
   auto result = dest_->AsyncFlush();
   co_await result;
-  if (debug_mode) {
-    std::cout << "resume from AsyncFlush" << std::endl;
-  }
   co_return result.io_result();
 }
 

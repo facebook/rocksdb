@@ -151,16 +151,10 @@ async_result BlockBasedTable::AsyncNewDataBlockIterator(
                                       : UncompressionDict::GetEmptyDict();
 
   CachableEntry<Block> block;
-  if (debug_mode) {
-    std::cout << "before AsyncRetrieveBlock call" << std::endl;
-  }
   auto result = AsyncRetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
                     get_context, lookup_context, for_compaction,
                     /* use_cache */ true, /* wait_for_cache */ true);
   co_await result;
-  if (debug_mode) {
-    std::cout << "resume from AsyncRetrieveBlock" << std::endl;
-  }
   s = result.result();
 
   if (!s.ok()) {

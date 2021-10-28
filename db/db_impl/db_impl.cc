@@ -1829,14 +1829,8 @@ async_result DBImpl::AsyncGet(const ReadOptions& read_options,
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
-  if (debug_mode) {
-    std::cout << "before AsyncGetImpl call" << std::endl;
-  }
   auto result = AsyncGetImpl(read_options, key, get_impl_options);
   co_await result;
-  if (debug_mode) {
-    std::cout << "resume from AsyncGetImpl" << std::endl;
-  }
   co_return result.result();
 }
 
@@ -2206,9 +2200,6 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    if (debug_mode) {
-      std::cout << "before AsyncGet 2 call" << std::endl;
-    }
     co_await sv->current->AsyncGet(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,
@@ -2217,9 +2208,6 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
         get_impl_options.get_value);
-    if (debug_mode) {
-      std::cout << "resume from AsyncGet 2" << std::endl;
-    }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 

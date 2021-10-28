@@ -48,7 +48,7 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # `make install`
 
 # Set the default DEBUG_LEVEL to 1
-DEBUG_LEVEL?=2
+DEBUG_LEVEL?=1
 
 # LIB_MODE says whether or not to use/build "shared" or "static" libraries.
 # Mode "static" means to link against static libraries (.a)
