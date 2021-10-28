@@ -297,6 +297,49 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
+  template <class Checker>
+  Status CheckConsistencyLevelDetails(
+      const VersionStorageInfo* vstorage, int level, Checker checker,
+      const std::string& sync_point,
+      ExpectedLinkedSsts* expected_linked_ssts) const {
+    assert(vstorage);
+    assert(level >= 0 && level < num_levels_);
+    assert(expected_linked_ssts);
+
+    auto& level_files = vstorage->LevelFiles(level);
+
+    if (level_files.empty()) {
+      return Status::OK();
+    }
+
+    assert(level_files[0]);
+    UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
+                             level_files[0]->oldest_blob_file_number,
+                             expected_linked_ssts);
+
+    for (size_t i = 1; i < level_files.size(); i++) {
+      assert(level_files[i]);
+      UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
+                               level_files[i]->oldest_blob_file_number,
+                               expected_linked_ssts);
+
+      auto lhs = level_files[i - 1];
+      auto rhs = level_files[i];
+
+#ifndef NDEBUG
+      auto pair = std::make_pair(&lhs, &rhs);
+      TEST_SYNC_POINT_CALLBACK(sync_point, &pair);
+#endif
+
+      const Status s = checker(lhs, rhs);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    return Status::OK();
+  }
+
   Status CheckConsistencyDetails(const VersionStorageInfo* vstorage) const {
     assert(vstorage);
 
@@ -307,78 +350,87 @@ class VersionBuilder::Rep {
     // mapping stored in the BlobFileMetaData objects.
     ExpectedLinkedSsts expected_linked_ssts;
 
-    for (int level = 0; level < num_levels_; level++) {
-      auto& level_files = vstorage->LevelFiles(level);
+    if (num_levels_ > 0) {
+      // Check L0
+      {
+        auto l0_checker = [this](const FileMetaData* lhs,
+                                 const FileMetaData* rhs) {
+          assert(lhs);
+          assert(rhs);
 
-      if (level_files.empty()) {
-        continue;
-      }
-
-      assert(level_files[0]);
-      UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
-                               level_files[0]->oldest_blob_file_number,
-                               &expected_linked_ssts);
-      for (size_t i = 1; i < level_files.size(); i++) {
-        assert(level_files[i]);
-        UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
-                                 level_files[i]->oldest_blob_file_number,
-                                 &expected_linked_ssts);
-
-        auto f1 = level_files[i - 1];
-        auto f2 = level_files[i];
-        if (level == 0) {
-#ifndef NDEBUG
-          auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
-#endif
-          if (!level_zero_cmp_(f1, f2)) {
+          if (!level_zero_cmp_(lhs, rhs)) {
             return Status::Corruption("L0 files are not sorted properly");
           }
 
-          if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
+          if (rhs->fd.smallest_seqno == rhs->fd.largest_seqno) {
             // This is an external file that we ingested
-            SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
-            if (!(external_file_seqno < f1->fd.largest_seqno ||
+            SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
+            if (!(external_file_seqno < lhs->fd.largest_seqno ||
                   external_file_seqno == 0)) {
               return Status::Corruption(
-                  "L0 file with seqno " + ToString(f1->fd.smallest_seqno) +
-                  " " + ToString(f1->fd.largest_seqno) +
+                  "L0 file with seqno " + ToString(lhs->fd.smallest_seqno) +
+                  " " + ToString(lhs->fd.largest_seqno) +
                   " vs. file with global_seqno" +
                   ToString(external_file_seqno) + " with fileNumber " +
-                  ToString(f1->fd.GetNumber()));
+                  ToString(lhs->fd.GetNumber()));
             }
-          } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
+          } else if (lhs->fd.smallest_seqno <= rhs->fd.smallest_seqno) {
             return Status::Corruption("L0 files seqno " +
-                                      ToString(f1->fd.smallest_seqno) + " " +
-                                      ToString(f1->fd.largest_seqno) + " " +
-                                      ToString(f1->fd.GetNumber()) + " vs. " +
-                                      ToString(f2->fd.smallest_seqno) + " " +
-                                      ToString(f2->fd.largest_seqno) + " " +
-                                      ToString(f2->fd.GetNumber()));
+                                      ToString(lhs->fd.smallest_seqno) + " " +
+                                      ToString(lhs->fd.largest_seqno) + " " +
+                                      ToString(lhs->fd.GetNumber()) + " vs. " +
+                                      ToString(rhs->fd.smallest_seqno) + " " +
+                                      ToString(rhs->fd.largest_seqno) + " " +
+                                      ToString(rhs->fd.GetNumber()));
           }
-        } else {
-#ifndef NDEBUG
-          auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
-#endif
-          if (!level_nonzero_cmp_(f1, f2)) {
+
+          return Status::OK();
+        };
+
+        const Status s = CheckConsistencyLevelDetails(
+            vstorage, /* level */ 0, l0_checker,
+            "VersionBuilder::CheckConsistency0", &expected_linked_ssts);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+
+      // Check L1 and up
+      const InternalKeyComparator* const icmp = vstorage->InternalComparator();
+      assert(icmp);
+
+      for (int level = 1; level < num_levels_; ++level) {
+        auto checker = [this, level, icmp](const FileMetaData* lhs,
+                                           const FileMetaData* rhs) {
+          assert(lhs);
+          assert(rhs);
+
+          if (!level_nonzero_cmp_(lhs, rhs)) {
             return Status::Corruption(
                 "L" + ToString(level) +
                 " files are not sorted properly: files #" +
-                ToString(f1->fd.GetNumber()) + ", #" +
-                ToString(f2->fd.GetNumber()));
+                ToString(lhs->fd.GetNumber()) + ", #" +
+                ToString(rhs->fd.GetNumber()));
           }
 
-          // Make sure there is no overlap in levels > 0
-          if (vstorage->InternalComparator()->Compare(f1->largest,
-                                                      f2->smallest) >= 0) {
+          // Make sure there is no overlap in level
+          if (icmp->Compare(lhs->largest, rhs->smallest) >= 0) {
             return Status::Corruption(
                 "L" + ToString(level) + " have overlapping ranges: file #" +
-                ToString(f1->fd.GetNumber()) +
-                " largest key: " + (f1->largest).DebugString(true) +
-                " vs. file #" + ToString(f2->fd.GetNumber()) +
-                " smallest key: " + (f2->smallest).DebugString(true));
+                ToString(lhs->fd.GetNumber()) +
+                " largest key: " + (lhs->largest).DebugString(true) +
+                " vs. file #" + ToString(rhs->fd.GetNumber()) +
+                " smallest key: " + (rhs->smallest).DebugString(true));
           }
+
+          return Status::OK();
+        };
+
+        const Status s = CheckConsistencyLevelDetails(
+            vstorage, level, checker, "VersionBuilder::CheckConsistency1",
+            &expected_linked_ssts);
+        if (!s.ok()) {
+          return s;
         }
       }
     }
@@ -960,7 +1012,7 @@ class VersionBuilder::Rep {
 
     SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_);
 
-    for (int level = 1; level < num_levels_; level++) {
+    for (int level = 1; level < num_levels_; ++level) {
       SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
     }
   }
