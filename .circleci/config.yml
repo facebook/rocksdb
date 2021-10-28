@@ -716,9 +716,9 @@ workflows:
     jobs:
       - build-linux-cmake
       - build-linux-cmake-ubuntu-20
-  build-linux-mem-env:
+  build-linux-mem-env-librados:
     jobs:
-      - build-linux-mem-env
+      - build-linux-mem-env-librados
   build-linux-encrypted-env:
     jobs:
       - build-linux-encrypted-env
