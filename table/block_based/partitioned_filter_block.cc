@@ -135,7 +135,6 @@ Slice PartitionedFilterBlockBuilder::Finish(
       *filter_data = std::move(filter_gc.front());
       filter_gc.pop_front();
     }
-
   } else {
     MaybeCutAFilterBlock(nullptr);
   }

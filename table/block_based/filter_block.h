@@ -78,9 +78,10 @@ class FilterBlockBuilder {
   // possible.
   //
   // For FullFilterBlockBuilder, the transferred filter data payload belongs to
-  // the CURRENT returned filter content. For PartitionedFilterBlockBuilder, the
-  // transferred filter data payload belongs to the PREVIOUS returned filter
-  // content. For BlockBasedFilterBlockBuilder, it does not transfer.
+  // the CURRENT returned filter content.
+  // For PartitionedFilterBlockBuilder, the transferred filter data payload
+  // belongs to the PREVIOUS returned filter content.
+  // For BlockBasedFilterBlockBuilder, it does not transfer.
   virtual Slice Finish(
       const BlockHandle& tmp /* only used in PartitionedFilterBlock as
                                 last_partition_block_handle */
