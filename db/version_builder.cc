@@ -34,52 +34,49 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->fd.largest_seqno != b->fd.largest_seqno) {
-    return a->fd.largest_seqno > b->fd.largest_seqno;
-  }
-  if (a->fd.smallest_seqno != b->fd.smallest_seqno) {
-    return a->fd.smallest_seqno > b->fd.smallest_seqno;
-  }
-  // Break ties by file number
-  return a->fd.GetNumber() > b->fd.GetNumber();
-}
-
 namespace {
-bool BySmallestKey(FileMetaData* a, FileMetaData* b,
-                   const InternalKeyComparator* cmp) {
-  int r = cmp->Compare(a->smallest, b->smallest);
-  if (r != 0) {
-    return (r < 0);
+struct NewestFirstBySeqNo {
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+    }
+
+    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
   }
-  // Break ties by file number
-  return (a->fd.GetNumber() < b->fd.GetNumber());
-}
+};
+
+struct BySmallestKey {
+  explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
+
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+    assert(cmp_);
+
+    const int r = cmp_->Compare(lhs->smallest, rhs->smallest);
+    if (r != 0) {
+      return (r < 0);
+    }
+
+    // Break ties by file number
+    return (lhs->fd.GetNumber() < rhs->fd.GetNumber());
+  }
+
+ private:
+  const InternalKeyComparator* cmp_;
+};
 }  // namespace
 
 class VersionBuilder::Rep {
  private:
-  // Helper to sort files_ in v
-  // kLevel0 -- NewestFirstBySeqNo
-  // kLevelNon0 -- BySmallestKey
-  struct FileComparator {
-    enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
-    const InternalKeyComparator* internal_comparator;
-
-    FileComparator() : internal_comparator(nullptr) {}
-
-    bool operator()(FileMetaData* f1, FileMetaData* f2) const {
-      switch (sort_method) {
-        case kLevel0:
-          return NewestFirstBySeqNo(f1, f2);
-        case kLevelNon0:
-          return BySmallestKey(f1, f2, internal_comparator);
-      }
-      assert(false);
-      return false;
-    }
-  };
-
   struct LevelState {
     std::unordered_set<uint64_t> deleted_files;
     // Map from file number to file meta data.
@@ -238,8 +235,8 @@ class VersionBuilder::Rep {
   bool has_invalid_levels_;
   // Current levels of table files affected by additions/deletions.
   std::unordered_map<uint64_t, int> table_file_levels_;
-  FileComparator level_zero_cmp_;
-  FileComparator level_nonzero_cmp_;
+  NewestFirstBySeqNo level_zero_cmp_;
+  BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
   // version edits.
@@ -255,14 +252,11 @@ class VersionBuilder::Rep {
         base_vstorage_(base_vstorage),
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
-        has_invalid_levels_(false) {
+        has_invalid_levels_(false),
+        level_nonzero_cmp_(base_vstorage_->InternalComparator()) {
     assert(ioptions_);
 
     levels_ = new LevelState[num_levels_];
-    level_zero_cmp_.sort_method = FileComparator::kLevel0;
-    level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
-    level_nonzero_cmp_.internal_comparator =
-        base_vstorage_->InternalComparator();
   }
 
   ~Rep() {
@@ -303,7 +297,9 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  Status CheckConsistencyDetails(VersionStorageInfo* vstorage) {
+  Status CheckConsistencyDetails(const VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
     // Make sure the files are sorted correctly and that the links between
     // table files and blob files are consistent. The latter is checked using
     // the following mapping, which is built using the forward links
@@ -419,7 +415,9 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  Status CheckConsistency(VersionStorageInfo* vstorage) {
+  Status CheckConsistency(const VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
     // Always run consistency checks in debug build
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
@@ -735,7 +733,7 @@ class VersionBuilder::Rep {
   }
 
   // Apply all of the edits in *edit to the current state.
-  Status Apply(VersionEdit* edit) {
+  Status Apply(const VersionEdit* edit) {
     {
       const Status s = CheckConsistency(base_vstorage_);
       if (!s.ok()) {
@@ -897,7 +895,8 @@ class VersionBuilder::Rep {
     }
   }
 
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level,
+                    FileMetaData* f) const {
     const uint64_t file_number = f->fd.GetNumber();
 
     const auto& level_state = levels_[level];
@@ -922,52 +921,52 @@ class VersionBuilder::Rep {
     }
   }
 
-  void SaveSSTFilesTo(VersionStorageInfo* vstorage) {
-    for (int level = 0; level < num_levels_; level++) {
-      const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
-      // Merge the set of added files with the set of pre-existing files.
-      // Drop any deleted files.  Store the result in *v.
-      const auto& base_files = base_vstorage_->LevelFiles(level);
-      const auto& unordered_added_files = levels_[level].added_files;
-      vstorage->Reserve(level,
-                        base_files.size() + unordered_added_files.size());
+  template <class Cmp>
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage, int level, Cmp cmp) const {
+    // Merge the set of added files with the set of pre-existing files.
+    // Drop any deleted files.  Store the result in *vstorage.
+    const auto& base_files = base_vstorage_->LevelFiles(level);
+    const auto& unordered_added_files = levels_[level].added_files;
+    vstorage->Reserve(level, base_files.size() + unordered_added_files.size());
 
-      // Sort added files for the level.
-      std::vector<FileMetaData*> added_files;
-      added_files.reserve(unordered_added_files.size());
-      for (const auto& pair : unordered_added_files) {
-        added_files.push_back(pair.second);
-      }
-      std::sort(added_files.begin(), added_files.end(), cmp);
+    // Sort added files for the level.
+    std::vector<FileMetaData*> added_files;
+    added_files.reserve(unordered_added_files.size());
+    for (const auto& pair : unordered_added_files) {
+      added_files.push_back(pair.second);
+    }
+    std::sort(added_files.begin(), added_files.end(), cmp);
 
-#ifndef NDEBUG
-      FileMetaData* prev_added_file = nullptr;
-      for (const auto& added : added_files) {
-        if (level > 0 && prev_added_file != nullptr) {
-          assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_added_file->smallest, added->smallest) <= 0);
-        }
-        prev_added_file = added;
-      }
-#endif
-
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
-      auto added_iter = added_files.begin();
-      auto added_end = added_files.end();
-      while (added_iter != added_end || base_iter != base_end) {
-        if (base_iter == base_end ||
-                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
-          MaybeAddFile(vstorage, level, *added_iter++);
-        } else {
-          MaybeAddFile(vstorage, level, *base_iter++);
-        }
+    auto base_iter = base_files.begin();
+    auto base_end = base_files.end();
+    auto added_iter = added_files.begin();
+    auto added_end = added_files.end();
+    while (added_iter != added_end || base_iter != base_end) {
+      if (base_iter == base_end ||
+          (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+        MaybeAddFile(vstorage, level, *added_iter++);
+      } else {
+        MaybeAddFile(vstorage, level, *base_iter++);
       }
     }
   }
 
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
+    if (!num_levels_) {
+      return;
+    }
+
+    SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_);
+
+    for (int level = 1; level < num_levels_; level++) {
+      SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
+    }
+  }
+
   // Save the current state in *vstorage.
-  Status SaveTo(VersionStorageInfo* vstorage) {
+  Status SaveTo(VersionStorageInfo* vstorage) const {
     Status s = CheckConsistency(base_vstorage_);
     if (!s.ok()) {
       return s;
@@ -1104,9 +1103,11 @@ bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
 }
 
-Status VersionBuilder::Apply(VersionEdit* edit) { return rep_->Apply(edit); }
+Status VersionBuilder::Apply(const VersionEdit* edit) {
+  return rep_->Apply(edit);
+}
 
-Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
+Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) const {
   return rep_->SaveTo(vstorage);
 }
 

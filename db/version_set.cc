@@ -224,8 +224,6 @@ class FilePicker {
             // level == 0, the current file cannot be newer than the previous
             // one. Use compressed data structure, has no attribute seqNo
             assert(curr_index_in_curr_level_ > 0);
-            assert(!NewestFirstBySeqNo(files_[0][curr_index_in_curr_level_],
-                  files_[0][curr_index_in_curr_level_-1]));
           }
         }
         prev_file_ = f;
