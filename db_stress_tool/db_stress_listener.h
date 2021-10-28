@@ -263,6 +263,27 @@ class DbStressListener : public EventListener {
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
 };
+
+class DBStressCompactionListener : public EventListener {
+ public:
+  DBStressCompactionListener() : num_compaction_jobs_(0) {}
+
+  ~DBStressCompactionListener() override {}
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) override {
+    num_compaction_jobs_++;
+  }
+
+  void OnCompactionCompleted(DB* /*db*/,
+                             const CompactionJobInfo& /*ci*/) override {
+    num_compaction_jobs_--;
+  }
+
+  void CheckCompactionJobsNum() { assert(num_compaction_jobs_ == 0); }
+
+ private:
+  std::atomic<int> num_compaction_jobs_;
+};
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

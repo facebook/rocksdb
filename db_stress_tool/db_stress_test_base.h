@@ -238,6 +238,7 @@ class StressTest {
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
   bool is_db_stopped_;
+  DBStressCompactionListener* db_stress_listener_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
