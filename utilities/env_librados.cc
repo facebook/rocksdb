@@ -237,7 +237,8 @@ public:
   };
 
   //enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
-  void Hint(AccessPattern /*pattern*/) { /* Do nothing */ }
+  void Hint(AccessPattern /*pattern*/) { /* Do nothing */
+  }
 
   /**
    * @brief noop
@@ -507,7 +508,7 @@ class LibradosWritableFile : public WritableFile {
     return Sync();
   }
 
-protected:
+ protected:
   /**
    * @brief noop
    * @details [long description]
@@ -517,9 +518,9 @@ protected:
    *
    * @return [description]
    */
- Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
-   return Status::OK();
- }
+  Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
+    return Status::OK();
+  }
 };
 
 
@@ -527,12 +528,13 @@ protected:
 // filesystem operations that can be executed on directories.
 class LibradosDirectory : public Directory {
   std::string _fid;
-public:
- explicit LibradosDirectory(librados::IoCtx* /*io_ctx*/, std::string fid)
-     : _fid(fid) {}
 
- // Fsync directory. Can be called concurrently from multiple threads.
- Status Fsync() { return Status::OK(); }
+ public:
+  explicit LibradosDirectory(librados::IoCtx* /*io_ctx*/, std::string fid)
+      : _fid(fid) {}
+
+  // Fsync directory. Can be called concurrently from multiple threads.
+  Status Fsync() { return Status::OK(); }
 };
 
 // Identifies a locked file.
@@ -542,7 +544,8 @@ class LibradosFileLock : public FileLock {
   const std::string _obj_name;
   const std::string _lock_name;
   const std::string _cookie;
-public:
+
+ public:
   LibradosFileLock(
     librados::IoCtx * io_ctx,
     const std::string obj_name):
