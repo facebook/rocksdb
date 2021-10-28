@@ -6863,6 +6863,82 @@ TEST_F(DBCompactionTest,
   ASSERT_TRUE(callback_completed);
 }
 
+TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  Reopen(options);
+
+  // Setup an LSM with L2 populated.
+  Random rnd(301);
+  ASSERT_OK(Put(Key(0), rnd.RandomString(990)));
+  ASSERT_OK(Put(Key(1), rnd.RandomString(990)));
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // The background thread will refit L2->L1 while the foreground thread will
+  // attempt to run a compaction on new data. The following dependencies
+  // ensure the background manual compaction's refitting phase disables manual
+  // compaction immediately before the foreground manual compaction can register
+  // itself. Manual compaction is kept disabled until the foreground manual
+  // checks for the failure once.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      // Only do Put()s for foreground CompactRange() once the background
+      // CompactRange() has reached the refitting phase.
+      {
+          "DBImpl::CompactRange:BeforeRefit:1",
+          "DBCompactionTest::ChangeLevelConflictsWithManual:"
+          "PreForegroundCompactRange",
+      },
+      // Right before we register the manual compaction, proceed with
+      // the refitting phase so manual compactions are disabled. Stay in
+      // the refitting phase with manual compactions disabled until it is
+      // noticed.
+      {
+          "DBImpl::RunManualCompaction:0",
+          "DBImpl::CompactRange:BeforeRefit:2",
+      },
+      {
+          "DBImpl::CompactRange:PreRefitLevel",
+          "DBImpl::RunManualCompaction:1",
+      },
+      {
+          "DBImpl::RunManualCompaction:PausedAtStart",
+          "DBImpl::CompactRange:PostRefitLevel",
+      },
+      // If compaction somehow were scheduled, let's let it run after reenabling
+      // manual compactions. This dependency is not expected to be hit but is
+      // here for speculatively coercing future bugs.
+      {
+          "DBImpl::CompactRange:PostRefitLevel:ManualCompactionEnabled",
+          "BackgroundCallCompaction:0",
+      },
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread refit_level_thread([&] {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelConflictsWithManual:"
+      "PreForegroundCompactRange");
+  ASSERT_OK(Put(Key(0), rnd.RandomString(990)));
+  ASSERT_OK(Put(Key(1), rnd.RandomString(990)));
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsIncomplete());
+
+  refit_level_thread.join();
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
