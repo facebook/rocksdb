@@ -492,9 +492,10 @@ class VersionBuilder::Rep {
     if (base_it != base_blob_files.end()) {
       assert(base_it->second);
 
-      mutable_it =
-          mutable_blob_file_metas_.emplace(blob_file_number, base_it->second)
-              .first;
+      mutable_it = mutable_blob_file_metas_
+                       .emplace(blob_file_number,
+                                MutableBlobFileMetaData(base_it->second))
+                       .first;
       return &mutable_it->second;
     }
 
@@ -535,7 +536,8 @@ class VersionBuilder::Rep {
         blob_file_addition.GetChecksumMethod(),
         blob_file_addition.GetChecksumValue(), deleter);
 
-    mutable_blob_file_metas_.emplace(blob_file_number, std::move(shared_meta));
+    mutable_blob_file_metas_.emplace(
+        blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
 
     return Status::OK();
   }
