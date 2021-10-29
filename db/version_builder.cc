@@ -282,6 +282,10 @@ class VersionBuilder::Rep {
     }
   }
 
+  // Mapping used for checking the consistency of links between SST files and
+  // blob files. It is built using the forward links (table file -> blob file),
+  // and is subsequently compared with the inverse mapping stored in the
+  // BlobFileMetaData objects.
   using ExpectedLinkedSsts =
       std::unordered_map<uint64_t, BlobFileMetaData::LinkedSsts>;
 
@@ -344,14 +348,11 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  // Make sure table files are sorted correctly and that the links between
+  // table files and blob files are consistent.
   Status CheckConsistencyDetails(const VersionStorageInfo* vstorage) const {
     assert(vstorage);
 
-    // Make sure the files are sorted correctly and that the links between
-    // table files and blob files are consistent. The latter is checked using
-    // the following mapping, which is built using the forward links
-    // (table file -> blob file), and is subsequently compared with the inverse
-    // mapping stored in the BlobFileMetaData objects.
     ExpectedLinkedSsts expected_linked_ssts;
 
     if (num_levels_ > 0) {
@@ -447,7 +448,8 @@ class VersionBuilder::Rep {
       }
     }
 
-    // Make sure that all blob files in the version have non-garbage data.
+    // Make sure that all blob files in the version have non-garbage data and
+    // the links between them and the table files are consistent.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
       const uint64_t blob_file_number = pair.first;
