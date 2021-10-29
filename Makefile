@@ -222,6 +222,7 @@ am__v_AR_1 =
 
 ifdef ROCKSDB_USE_LIBRADOS
 LIB_SOURCES += utilities/env_librados.cc
+TEST_MAIN_SOURCES += utilities/env_librados_test.cc
 LDFLAGS += -lrados
 endif
 
