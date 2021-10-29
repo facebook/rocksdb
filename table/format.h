@@ -134,6 +134,7 @@ class Footer {
 
   // Use this constructor when you plan to write out the footer using
   // EncodeTo(). Never use this constructor with DecodeFrom().
+  // `version` is same as `format_version` for block-based table.
   Footer(uint64_t table_magic_number, uint32_t version);
 
   // The version of the footer in this file
@@ -223,6 +224,18 @@ inline uint64_t block_size(const BlockHandle& handle) {
 inline CompressionType get_block_compression_type(const char* block_data,
                                                   size_t block_size) {
   return static_cast<CompressionType>(block_data[block_size]);
+}
+
+// Custom handling for the last byte of a block, to avoid invoking streaming
+// API to get an effective block checksum. This function is its own inverse
+// because it uses xor.
+inline uint32_t ModifyChecksumForCompressionType(uint32_t checksum,
+                                                 char compression_type) {
+  // This strategy bears some resemblance to extending a CRC checksum by one
+  // more byte, except we don't need to re-mix the input checksum as long as
+  // we do this step only once (per checksum).
+  const uint32_t kRandomPrime = 0x6b9083d9;
+  return checksum ^ static_cast<uint8_t>(compression_type) * kRandomPrime;
 }
 
 // Represents the contents of a block read from an SST file. Depending on how
