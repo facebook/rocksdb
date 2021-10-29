@@ -213,9 +213,9 @@ class VersionBuilder::Rep {
 
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
-    // Delta
+    // Accumulated changes
     BlobFileMetaDataDelta delta_;
-    // Accumulated values
+    // Resulting state after applying the changes
     BlobFileMetaData::LinkedSsts linked_ssts_;
     uint64_t garbage_blob_count_ = 0;
     uint64_t garbage_blob_bytes_ = 0;
