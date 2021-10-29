@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <list>
 #include <deque>
+#include <list>
 #include <string>
 #include <unordered_map>
 
@@ -51,7 +51,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
     Slice filter;
     std::unique_ptr<const char[]> filter_data;
   };
-  std::deque <FilterEntry> filters;  // list of partitioned filters and keys used in building the index
+  std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
+                                    // in building the index
   std::string last_filter_entry_key;
   std::unique_ptr<IndexBuilder> value;
   bool finishing_filters =

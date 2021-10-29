@@ -123,7 +123,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
-                                      &handle_delta_encoding_slice);
+                                       &handle_delta_encoding_slice);
     if (!p_index_builder_->seperator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
           ExtractUserKey(last_filter_entry_key), handle_encoding,
