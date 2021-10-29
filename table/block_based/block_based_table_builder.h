@@ -10,6 +10,7 @@
 #pragma once
 #include <stdint.h>
 
+#include <array>
 #include <limits>
 #include <string>
 #include <utility>
@@ -20,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
@@ -98,6 +100,12 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  // Computes and populates block trailer for a block
+  static void ComputeBlockTrailer(const Slice& block_contents,
+                                  CompressionType compression_type,
+                                  ChecksumType checksum_type,
+                                  std::array<char, kBlockTrailerSize>* trailer);
+
  private:
   bool ok() const { return status().ok(); }
 
@@ -117,7 +125,6 @@ class BlockBasedTableBuilder : public TableBuilder {
                   BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-
                      BlockType block_type, const Slice* raw_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);

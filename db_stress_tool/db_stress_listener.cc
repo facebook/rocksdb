@@ -123,10 +123,15 @@ void UniqueIdVerifier::Verify(const std::string& id) {
 }
 
 void DbStressListener::VerifyTableFileUniqueId(
-    const TableProperties& new_file_properties) {
+    const TableProperties& new_file_properties, const std::string& file_path) {
   // Verify unique ID
   std::string id;
-  GetUniqueIdFromTableProperties(new_file_properties, &id);
+  Status s = GetUniqueIdFromTableProperties(new_file_properties, &id);
+  if (!s.ok()) {
+    fprintf(stderr, "Error getting SST unique id for %s: %s\n",
+            file_path.c_str(), s.ToString().c_str());
+    assert(false);
+  }
   unique_ids_.Verify(id);
 }
 

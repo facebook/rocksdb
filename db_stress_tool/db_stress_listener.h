@@ -101,19 +101,17 @@ class DbStressListener : public EventListener {
   void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
-    if (info.file_size) {
-      VerifyFilePath(info.file_path);
-    }
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
-    if (info.status.ok() && info.file_size > 0) {
+    if (info.status.ok()) {
+      assert(info.file_size > 0);
+      VerifyFilePath(info.file_path);
       assert(info.table_properties.data_size > 0 ||
              info.table_properties.num_range_deletions > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
+      VerifyTableFileUniqueId(info.table_properties, info.file_path);
     }
     --num_pending_file_creations_;
-
-    VerifyTableFileUniqueId(info.table_properties);
   }
 
   void OnMemTableSealed(const MemTableInfo& /*info*/) override {
@@ -130,7 +128,7 @@ class DbStressListener : public EventListener {
     RandomSleep();
     // Here we assume that each generated external file is ingested
     // exactly once (or thrown away in case of crash)
-    VerifyTableFileUniqueId(info.table_properties);
+    VerifyTableFileUniqueId(info.table_properties, info.internal_file_path);
   }
 
   void OnBackgroundError(BackgroundErrorReason /* reason */,
@@ -248,7 +246,10 @@ class DbStressListener : public EventListener {
 #endif  // !NDEBUG
   }
 
-  void VerifyTableFileUniqueId(const TableProperties& new_file_properties);
+  // Unique id is verified using the TableProperties. file_path is only used
+  // for reporting.
+  void VerifyTableFileUniqueId(const TableProperties& new_file_properties,
+                               const std::string& file_path);
 
   void RandomSleep() {
     std::this_thread::sleep_for(

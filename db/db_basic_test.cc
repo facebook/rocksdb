@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
@@ -974,13 +975,14 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 TEST_F(DBBasicTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
-  // change when new checksum type added
-  int max_checksum = static_cast<int>(kxxHash64);
   const int kNumPerFile = 2;
 
+  const auto algs = GetSupportedChecksums();
+  const int algs_size = static_cast<int>(algs.size());
+
   // generate one table with each type of checksum
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     for (int j = 0; j < kNumPerFile; ++j) {
@@ -990,15 +992,20 @@ TEST_F(DBBasicTest, ChecksumTest) {
   }
 
   // with each valid checksum type setting...
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     // verify every type of checksum (should be regardless of that setting)
-    for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
+    for (int j = 0; j < algs_size * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
   }
+
+  // Now test invalid checksum type
+  table_options.checksum = static_cast<ChecksumType>(123);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
 }
 
 // On Windows you can have either memory mapped file or a file

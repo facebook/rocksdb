@@ -789,9 +789,11 @@ class DB {
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
 
-    //  "rocksdb.dbstats" - returns a multi-line string with general database
-    //      stats, both cumulative (over the db's lifetime) and interval (since
-    //      the last retrieval of kDBStats).
+    //  "rocksdb.dbstats" - As a string property, returns a multi-line string
+    //      with general database stats, both cumulative (over the db's
+    //      lifetime) and interval (since the last retrieval of kDBStats).
+    //      As a map property, returns cumulative stats only and does not
+    //      update the baseline for the interval stats.
     static const std::string kDBStats;
 
     //  "rocksdb.levelstats" - returns multi-line string containing the number

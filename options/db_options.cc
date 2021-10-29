@@ -41,6 +41,10 @@ static std::unordered_map<std::string, DBOptions::AccessHint>
                               {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
                               {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
 
+static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
+    {"kVolatileTier", CacheTier::kVolatileTier},
+    {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
+
 static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
     {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
      {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
@@ -524,6 +528,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           },
           nullptr}},
+        {"lowest_used_cache_tier",
+         OptionTypeInfo::Enum<CacheTier>(
+             offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
+             &cache_tier_string_map, OptionTypeFlags::kNone)},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -723,6 +731,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types),
+      lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service) {
   stats = statistics.get();
   fs = env->GetFileSystem();
