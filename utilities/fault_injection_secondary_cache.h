@@ -24,7 +24,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
   }
 
-  virtual ~FaultInjectionSecondaryCache() {}
+  virtual ~FaultInjectionSecondaryCache() override {}
 
   const char* Name() const override { return "FaultInjectionSecondaryCache"; }
 
@@ -84,7 +84,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
   struct ErrorContext {
     Random rand;
 
-    ErrorContext(uint32_t seed) : rand(seed) {}
+    explicit ErrorContext(uint32_t seed) : rand(seed) {}
   };
   std::unique_ptr<ThreadLocalPtr> thread_local_error_;
 
