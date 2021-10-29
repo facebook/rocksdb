@@ -34,47 +34,46 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct NewestFirstBySeqNo {
-  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
-    assert(lhs);
-    assert(rhs);
-
-    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
-      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
-    }
-
-    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
-      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
-    }
-
-    // Break ties by file number
-    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
-  }
-};
-
-struct BySmallestKey {
-  explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
-
-  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
-    assert(lhs);
-    assert(rhs);
-    assert(cmp_);
-
-    const int r = cmp_->Compare(lhs->smallest, rhs->smallest);
-    if (r != 0) {
-      return (r < 0);
-    }
-
-    // Break ties by file number
-    return (lhs->fd.GetNumber() < rhs->fd.GetNumber());
-  }
-
- private:
-  const InternalKeyComparator* cmp_;
-};
-
 class VersionBuilder::Rep {
- private:
+  struct NewestFirstBySeqNo {
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
+
+      if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+        return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+      }
+
+      if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+        return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+      }
+
+      // Break ties by file number
+      return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+    }
+  };
+
+  struct BySmallestKey {
+    explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
+
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
+      assert(cmp_);
+
+      const int r = cmp_->Compare(lhs->smallest, rhs->smallest);
+      if (r != 0) {
+        return (r < 0);
+      }
+
+      // Break ties by file number
+      return (lhs->fd.GetNumber() < rhs->fd.GetNumber());
+    }
+
+   private:
+    const InternalKeyComparator* cmp_;
+  };
+
   struct LevelState {
     std::unordered_set<uint64_t> deleted_files;
     // Map from file number to file meta data.
