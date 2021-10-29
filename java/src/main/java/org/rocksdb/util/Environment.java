@@ -19,7 +19,8 @@ public class Environment {
   }
 
   public static boolean isAarch64() {
-    return ARCH.contains("aarch64");
+    return ARCH.contains("aarch64") ||
+        ARCH.contains("arm");
   }
 
   public static boolean isPowerPC() {
