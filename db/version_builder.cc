@@ -34,7 +34,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
 struct NewestFirstBySeqNo {
   bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
     assert(lhs);
@@ -73,7 +72,6 @@ struct BySmallestKey {
  private:
   const InternalKeyComparator* cmp_;
 };
-}  // namespace
 
 class VersionBuilder::Rep {
  private:
