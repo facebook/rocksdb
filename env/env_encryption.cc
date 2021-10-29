@@ -438,10 +438,12 @@ IOStatus EncryptedRandomRWFile::Close(const IOOptions& options,
 }
 
 namespace {
-static std::unordered_map<std::string, OptionTypeInfo> efs_type_info = {
-    {"provider", OptionTypeInfo::AsCustomSharedPtr<EncryptionProvider>(
-                     0 /* No offset, whole struct*/,
-                     OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+static std::unordered_map<std::string, OptionTypeInfo> encrypted_fs_type_info =
+    {
+        {"provider",
+         OptionTypeInfo::AsCustomSharedPtr<EncryptionProvider>(
+             0 /* No offset, whole struct*/, OptionVerificationType::kByName,
+             OptionTypeFlags::kNone)},
 };
 // EncryptedFileSystemImpl implements an FileSystemWrapper that adds encryption
 // to files stored on disk.
@@ -671,7 +673,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                           const std::shared_ptr<EncryptionProvider>& provider)
       : EncryptedFileSystem(base) {
     provider_ = provider;
-    RegisterOptions("EncryptionProvider", &provider_, &efs_type_info);
+    RegisterOptions("EncryptionProvider", &provider_, &encrypted_fs_type_info);
   }
 
   Status AddCipher(const std::string& descriptor, const char* cipher,
