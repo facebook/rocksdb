@@ -6,6 +6,7 @@
 #pragma once
 
 #include <list>
+#include <deque>
 #include <string>
 #include <unordered_map>
 
@@ -48,10 +49,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   struct FilterEntry {
     std::string key;
     Slice filter;
+    std::unique_ptr<const char[]> filter_data;
   };
-  std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
+  std::deque <FilterEntry> filters;  // list of partitioned filters and keys used in building the index
+  std::string last_filter_entry_key;
   std::unique_ptr<IndexBuilder> value;
-  std::list<std::unique_ptr<const char[]>> filter_gc;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it

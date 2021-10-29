@@ -73,7 +73,6 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
   }
-  filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
   // Add the prefix of the next key before finishing the partition without
   // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
@@ -88,9 +87,10 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
-  Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
+  std::unique_ptr<const char[]> filter_data;
+  Slice filter = filter_bits_builder_->Finish(&filter_data);
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter});
+  filters.push_back({index_key, filter, std::move(filter_data)});
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -114,7 +114,6 @@ Slice PartitionedFilterBlockBuilder::Finish(
     std::unique_ptr<const char[]>* filter_data) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
-    FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
@@ -123,17 +122,12 @@ Slice PartitionedFilterBlockBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_on_filter_block_builder_.Add(last_entry.key, handle_encoding,
-                                       &handle_delta_encoding_slice);
+    index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
+                                      &handle_delta_encoding_slice);
     if (!p_index_builder_->seperator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(last_entry.key), handle_encoding,
+          ExtractUserKey(last_filter_entry_key), handle_encoding,
           &handle_delta_encoding_slice);
-    }
-    filters.pop_front();
-    if (filter_data != nullptr) {
-      *filter_data = std::move(filter_gc.front());
-      filter_gc.pop_front();
     }
   } else {
     MaybeCutAFilterBlock(nullptr);
@@ -159,7 +153,14 @@ Slice PartitionedFilterBlockBuilder::Finish(
     // indicate we expect more calls to Finish
     *status = Status::Incomplete();
     finishing_filters = true;
-    return filters.front().filter;
+
+    last_filter_entry_key = filters.front().key;
+    Slice filter = filters.front().filter;
+    if (filter_data != nullptr) {
+      *filter_data = std::move(filters.front().filter_data);
+    }
+    filters.pop_front();
+    return filter;
   }
 }
 
