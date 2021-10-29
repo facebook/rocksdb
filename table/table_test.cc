@@ -23,7 +23,6 @@
 
 #include "block_fetcher.h"
 #include "cache/lru_cache.h"
-#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -53,7 +52,6 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -5332,6 +5330,7 @@ TEST_P(
   ASSERT_OK(builder->Finish());
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
