@@ -177,7 +177,7 @@ class VersionStorageInfoTestBase : public testing::Test {
   void Finalize() {
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_.UpdateFilesByCompactionPri(ioptions_.compaction_pri);
+    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();
     vstorage_.GenerateLevel0NonOverlapping();

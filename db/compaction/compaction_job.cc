@@ -1855,8 +1855,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     Slice new_largest = meta->largest.user_key();
     if (!new_largest.empty() && !new_smallest.empty()) {
       refined_oldest_ancester_time =
-          sub_compact->compaction->MinInputFileOldestAncesterTime(&new_smallest,
-                                                                  &new_largest);
+          sub_compact->compaction->MinInputFileOldestAncesterTime(
+              meta->smallest, meta->largest);
       if (refined_oldest_ancester_time != port::kMaxUint64) {
         meta->oldest_ancester_time = refined_oldest_ancester_time;
       }
@@ -2131,9 +2131,12 @@ Status CompactionJob::OpenCompactionOutputFile(
                    get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  InternalKey tmp_start, tmp_end;
+  tmp_start.SetMinPossibleForUserKey(*(sub_compact->start));
+  tmp_end.SetMinPossibleForUserKey(*(sub_compact->end));
   uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime(
-          sub_compact->start, sub_compact->end);
+      sub_compact->compaction->MinInputFileOldestAncesterTime(tmp_start,
+                                                              tmp_end);
   if (oldest_ancester_time == port::kMaxUint64) {
     oldest_ancester_time = current_time;
   }

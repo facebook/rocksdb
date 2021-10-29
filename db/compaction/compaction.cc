@@ -612,18 +612,17 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
   return false;
 }
 
-uint64_t Compaction::MinInputFileOldestAncesterTime(const Slice* start,
-                                                    const Slice* end) const {
+uint64_t Compaction::MinInputFileOldestAncesterTime(
+    const InternalKey& start, const InternalKey& end) const {
   uint64_t min_oldest_ancester_time = port::kMaxUint64;
-  const Comparator* ucmp = column_family_data()->user_comparator();
+  const InternalKeyComparator& icmp =
+      column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {
     for (const auto& file : level_files.files) {
-      if (start != nullptr &&
-          ucmp->Compare(file->largest.user_key(), *start) < 0) {
+      if (icmp.Compare(file->largest, start) < 0) {
         continue;
       }
-      if (end != nullptr &&
-          ucmp->Compare(file->smallest.user_key(), *end) > 0) {
+      if (icmp.Compare(file->smallest, end) > 0) {
         continue;
       }
       uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
