@@ -302,6 +302,10 @@ class VersionBuilder::Rep {
       const VersionStorageInfo* vstorage, int level, Checker checker,
       const std::string& sync_point,
       ExpectedLinkedSsts* expected_linked_ssts) const {
+#ifdef NDEBUG
+    (void)sync_point;
+#endif
+
     assert(vstorage);
     assert(level >= 0 && level < num_levels_);
     assert(expected_linked_ssts);
