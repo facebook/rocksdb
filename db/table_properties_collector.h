@@ -6,6 +6,8 @@
 // This file defines a collection of statistics collectors.
 #pragma once
 
+#include "db/dbformat.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/table_properties.h"
 
 #include <memory>
@@ -106,6 +108,66 @@ class UserKeyTablePropertiesCollectorFactory
 
  private:
   std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;
+};
+
+class TimestampTablePropertiesCollector : public IntTblPropCollector {
+ public:
+  explicit TimestampTablePropertiesCollector(const Comparator* cmp)
+      : cmp_(cmp) {}
+
+  virtual ~TimestampTablePropertiesCollector() {}
+
+  Status InternalAdd(const Slice& key, const Slice& /* value */,
+                     uint64_t /* file_size */) override {
+    auto uKey = ExtractUserKey(key);
+    assert(cmp_ && cmp_->timestamp_size() > 0);
+    if (uKey.size() < cmp_->timestamp_size()) {
+      return Status::NotSupported(
+          "Not supported to extract timestamp from user key.");
+    }
+    auto timestampInKey =
+        ExtractTimestampFromUserKey(uKey, cmp_->timestamp_size());
+    if (timestampInKey == kDisableUserTimestamp) {
+      return Status::OK();
+    }
+    if (max_timestamp_ == kDisableUserTimestamp ||
+        cmp_->CompareTimestamp(timestampInKey, max_timestamp_) > 0) {
+      max_timestamp_ = timestampInKey.ToString();
+    }
+    if (min_timestamp_ == kDisableUserTimestamp ||
+        cmp_->CompareTimestamp(min_timestamp_, timestampInKey) > 0) {
+      min_timestamp_ = timestampInKey.ToString();
+    }
+    return Status::OK();
+  }
+
+  void BlockAdd(uint64_t /* block_raw_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
+    // left blank
+    return;
+  }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    assert(min_timestamp_.size() == max_timestamp_.size()
+        && max_timestamp_.size() == cmp_->timestamp_size());
+    properties->insert({"min_timestamp", min_timestamp_});
+    properties->insert({"max_timestamp", max_timestamp_});
+    return Status::OK();
+  }
+
+  const char* Name() const override {
+    return "TimestampTablePropertiesCollector";
+  }
+
+  UserCollectedProperties GetReadableProperties() const override {
+    return UserCollectedProperties();
+  }
+
+ protected:
+  const Comparator* const cmp_;
+  std::string max_timestamp_;
+  std::string min_timestamp_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
