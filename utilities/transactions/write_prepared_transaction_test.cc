@@ -2996,6 +2996,77 @@ TEST_P(WritePreparedTransactionTest,
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestWriteConflictSnapshot_SingleDelete) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  std::unique_ptr<Transaction> txn;
+  txn.reset(db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                 /*old_txn=*/nullptr));
+  ASSERT_OK(txn->SetName("txn1"));
+  ASSERT_OK(txn->SingleDelete("b"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+
+  auto* snapshot1 = db->GetSnapshot();
+
+  // Bump seq of the db by performing writes so that
+  // earliest_snapshot_ < earliest_write_conflict_snapshot_ in
+  // CompactionIterator.
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+
+  // Create another snapshot for write conflict checking
+  std::unique_ptr<Transaction> txn2;
+  {
+    TransactionOptions txn_opts;
+    txn_opts.set_snapshot = true;
+    txn2.reset(
+        db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr));
+  }
+
+  // Bump seq so that the subsequent bg flush won't create a snapshot with the
+  // same seq as the previous snapshot for conflict checking.
+  ASSERT_OK(db->Put(WriteOptions(), "y", "dont"));
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* /*arg*/) {
+        // Rolling back txn2 should release its snapshot(for ww checking).
+        ASSERT_OK(txn2->Rollback());
+        txn2.reset();
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "x", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  db->ReleaseSnapshot(snapshot1);
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
