@@ -36,13 +36,9 @@ void FaultInjectionSecondaryCache::ResultHandle::Wait() {
   UpdateHandleValue(this);
 }
 
-void* FaultInjectionSecondaryCache::ResultHandle::Value() {
-  return value_;
-}
+void* FaultInjectionSecondaryCache::ResultHandle::Value() { return value_; }
 
-size_t FaultInjectionSecondaryCache::ResultHandle::Size() {
-  return size_;
-}
+size_t FaultInjectionSecondaryCache::ResultHandle::Size() { return size_; }
 
 void FaultInjectionSecondaryCache::ResultHandle::WaitAll(
     FaultInjectionSecondaryCache* cache,
@@ -50,7 +46,7 @@ void FaultInjectionSecondaryCache::ResultHandle::WaitAll(
   std::vector<SecondaryCacheResultHandle*> base_handles;
   for (SecondaryCacheResultHandle* hdl : handles) {
     FaultInjectionSecondaryCache::ResultHandle* handle =
-      static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
     if (!handle->base_) {
       continue;
     }
@@ -60,7 +56,7 @@ void FaultInjectionSecondaryCache::ResultHandle::WaitAll(
   cache->base_->WaitAll(base_handles);
   for (SecondaryCacheResultHandle* hdl : handles) {
     FaultInjectionSecondaryCache::ResultHandle* handle =
-      static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
     if (handle->base_) {
       UpdateHandleValue(handle);
     }
@@ -78,8 +74,8 @@ FaultInjectionSecondaryCache::GetErrorContext() {
   return ctx;
 }
 
-Status FaultInjectionSecondaryCache::Insert(const Slice& key, void* value,
-          const Cache::CacheItemHelper* helper) {
+Status FaultInjectionSecondaryCache::Insert(
+    const Slice& key, void* value, const Cache::CacheItemHelper* helper) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
     return Status::IOError();
@@ -88,9 +84,12 @@ Status FaultInjectionSecondaryCache::Insert(const Slice& key, void* value,
   return base_->Insert(key, value, helper);
 }
 
-std::unique_ptr<SecondaryCacheResultHandle> FaultInjectionSecondaryCache::Lookup(
-    const Slice& key, const Cache::CreateCallback& create_cb, bool wait) {
-  std::unique_ptr<SecondaryCacheResultHandle> hdl = base_->Lookup(key, create_cb, wait);
+std::unique_ptr<SecondaryCacheResultHandle>
+FaultInjectionSecondaryCache::Lookup(const Slice& key,
+                                     const Cache::CreateCallback& create_cb,
+                                     bool wait) {
+  std::unique_ptr<SecondaryCacheResultHandle> hdl =
+      base_->Lookup(key, create_cb, wait);
   ErrorContext* ctx = GetErrorContext();
   if (wait && ctx->rand.OneIn(prob_)) {
     hdl.reset();
@@ -103,7 +102,8 @@ void FaultInjectionSecondaryCache::Erase(const Slice& key) {
   base_->Erase(key);
 }
 
-void FaultInjectionSecondaryCache::WaitAll(std::vector<SecondaryCacheResultHandle*> handles) {
+void FaultInjectionSecondaryCache::WaitAll(
+    std::vector<SecondaryCacheResultHandle*> handles) {
   FaultInjectionSecondaryCache::ResultHandle::WaitAll(this, handles);
 }
 

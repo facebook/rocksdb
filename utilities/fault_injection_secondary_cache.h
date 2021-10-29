@@ -17,10 +17,12 @@ namespace ROCKSDB_NAMESPACE {
 class FaultInjectionSecondaryCache : public SecondaryCache {
  public:
   explicit FaultInjectionSecondaryCache(
-      const std::shared_ptr<SecondaryCache>& base, uint32_t seed,
-      int prob)
-    : base_(base), seed_(seed), prob_(prob),
-      thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
+      const std::shared_ptr<SecondaryCache>& base, uint32_t seed, int prob)
+      : base_(base),
+        seed_(seed),
+        prob_(prob),
+        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
+  }
 
   virtual ~FaultInjectionSecondaryCache() {}
 
@@ -45,8 +47,8 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
   class ResultHandle : public SecondaryCacheResultHandle {
    public:
     ResultHandle(FaultInjectionSecondaryCache* cache,
-        std::unique_ptr<SecondaryCacheResultHandle>&& base)
-      : cache_(cache), base_(std::move(base)), value_(nullptr), size_(0) {}
+                 std::unique_ptr<SecondaryCacheResultHandle>&& base)
+        : cache_(cache), base_(std::move(base)), value_(nullptr), size_(0) {}
 
     ~ResultHandle() override {}
 
@@ -59,7 +61,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     size_t Size() override;
 
     static void WaitAll(FaultInjectionSecondaryCache* cache,
-        std::vector<SecondaryCacheResultHandle*> handles);
+                        std::vector<SecondaryCacheResultHandle*> handles);
 
    private:
     static void UpdateHandleValue(ResultHandle* handle);
@@ -70,7 +72,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     size_t size_;
   };
 
-  static void DeleteThreadLocalErrorContext(void *p) {
+  static void DeleteThreadLocalErrorContext(void* p) {
     ErrorContext* ctx = static_cast<ErrorContext*>(p);
     delete ctx;
   }
@@ -89,4 +91,4 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
   ErrorContext* GetErrorContext();
 };
 
-} // ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
