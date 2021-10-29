@@ -317,7 +317,7 @@ class VersionBuilder::Rep {
                              level_files[0]->oldest_blob_file_number,
                              expected_linked_ssts);
 
-    for (size_t i = 1; i < level_files.size(); i++) {
+    for (size_t i = 1; i < level_files.size(); ++i) {
       assert(level_files[i]);
       UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
                                level_files[i]->oldest_blob_file_number,
