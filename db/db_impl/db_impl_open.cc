@@ -200,6 +200,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                    "file size check will be skipped during open.");
   }
 
+  if (result.preserve_deletes) {
+    ROCKS_LOG_WARN(
+        result.info_log,
+        "preserve_deletes is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
+
   return result;
 }
 
