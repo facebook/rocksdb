@@ -87,7 +87,7 @@ class VersionBuilder::Rep {
   };
 
   // A class that represents the accumulated changes (like additional garbage or
-  // newly linked/unliked SST files) for a given blob file after applying a
+  // newly linked/unlinked SST files) for a given blob file after applying a
   // series of VersionEdits.
   class BlobFileMetaDataDelta {
    public:
