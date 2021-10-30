@@ -76,12 +76,6 @@ class FilterBlockBuilder {
   // If filter_data is not nullptr, Finish() may transfer ownership of
   // underlying filter data to the caller,  so that it can be freed as soon as
   // possible.
-  //
-  // For FullFilterBlockBuilder, the transferred filter data payload belongs to
-  // the CURRENT returned filter content.
-  // For PartitionedFilterBlockBuilder, the transferred filter data payload
-  // belongs to the PREVIOUS returned filter content.
-  // For BlockBasedFilterBlockBuilder, it does not transfer.
   virtual Slice Finish(
       const BlockHandle& tmp /* only used in PartitionedFilterBlock as
                                 last_partition_block_handle */
