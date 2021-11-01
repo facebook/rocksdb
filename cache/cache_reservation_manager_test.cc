@@ -25,7 +25,8 @@ class CacheReservationManagerTest : public ::testing::Test {
   static constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
   static constexpr int kNumShardBits = 0;  // 2^0 shard
 
-  static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  static constexpr std::size_t kSizeDummyEntry =
+      CacheReservationManager::GetDummyEntrySize();
   static const std::size_t kCacheKeyPrefixSize =
       BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length;
   static constexpr std::size_t kMetaDataChargeOverhead = 10000;
@@ -143,7 +144,8 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
      IncreaseCacheReservationOnFullCache) {
   constexpr std::size_t kOneMegabyte = 1024 * 1024;
   constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
-  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kSizeDummyEntry =
+      CacheReservationManager::GetDummyEntrySize();
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
@@ -307,7 +309,8 @@ TEST_F(CacheReservationManagerTest,
 TEST(CacheReservationManagerWithDelayedDecreaseTest,
      DecreaseCacheReservationWithDelayedDecrease) {
   constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
-  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kSizeDummyEntry =
+      CacheReservationManager::GetDummyEntrySize();
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
@@ -379,7 +382,8 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
 TEST(CacheReservationManagerDestructorTest,
      ReleaseRemainingDummyEntriesOnDestruction) {
   constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
-  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kSizeDummyEntry =
+      CacheReservationManager::GetDummyEntrySize();
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
