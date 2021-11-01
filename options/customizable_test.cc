@@ -1303,7 +1303,7 @@ class MockCipher : public BlockCipher {
 
 class DummyFileSystem : public FileSystemWrapper {
  public:
-  DummyFileSystem(const std::shared_ptr<FileSystem>& t)
+  explicit DummyFileSystem(const std::shared_ptr<FileSystem>& t)
       : FileSystemWrapper(t) {}
   static const char* kClassName() { return "DummyFileSystem"; }
   const char* Name() const override { return kClassName(); }

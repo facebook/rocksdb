@@ -2235,14 +2235,17 @@ INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
 #endif  // !defined(ROCKSDB_LITE)
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
-static std::unique_ptr<Env> chroot_env(
-    NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
-INSTANTIATE_TEST_CASE_P(
-    ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
-    ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), false)));
-INSTANTIATE_TEST_CASE_P(
-    ChrootEnvWithDirectIO, EnvPosixTestWithParam,
-    ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
+static Env* GetChrootEnv() {
+  static std::unique_ptr<Env> chroot_env(
+      NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
+  return chroot_env.get();
+}
+INSTANTIATE_TEST_CASE_P(ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
+                        ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
+                                                                false)));
+INSTANTIATE_TEST_CASE_P(ChrootEnvWithDirectIO, EnvPosixTestWithParam,
+                        ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
+                                                                true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 class EnvFSTestWithParam
