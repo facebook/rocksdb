@@ -695,7 +695,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
@@ -789,7 +789,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Thefore, block_1 is evicted from block
@@ -883,7 +883,7 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. Now, block cache is large enough, it cache
   // both block_1 and block_2. When first time read block_1 and block_2
@@ -985,7 +985,7 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   }
 
   ASSERT_OK(Flush());
-  // After Flush is successful, RocksDB do the paranoid check for the new
+  // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
   // inserted to the block cache. Note that, block_1 is never successfully
@@ -1535,6 +1535,307 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   // blocks are from the secondary cache.
   ASSERT_EQ(0, static_cast<int>(block_insert));
   ASSERT_EQ(256, static_cast<int>(block_lookup));
+  fault_fs_->SetFailGetUniqueId(false);
+  fault_fs_->SetFilesystemActive(true);
+  delete db1;
+  delete db2;
+  ASSERT_OK(DestroyDB(dbname1, options));
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+// Test the option not to use the secondary cache in a certain DB.
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
+  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+
+  // Set the file paranoid check, so after flush, the file will be read
+  // all the blocks will be accessed.
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i + 70), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  // Flush will trigger the paranoid check and read blocks. But only block cache
+  // will be read. No operations for secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  Compact("a", "z");
+
+  // Compaction will also insert and evict blocks, no operations to the block
+  // cache. No operations for secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the data in first block. Cache miss, direclty read from SST file.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the second block.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+
+  // block cache hit
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(70));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the first block in the second SST file. Cache miss and trigger SST
+  // file read. No operations for secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(75));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the second block in the second SST file. Cache miss and trigger SST
+  // file read. No operations for secondary cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  Destroy(options);
+}
+
+// We disable the secondary cache in DBOptions at first. Close and reopen the DB
+// with new options, which set the lowest_used_cache_tier to
+// kNonVolatileBlockTier. So secondary cache will be used.
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  fault_fs_->SetFailGetUniqueId(true);
+  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+
+  // Set the file paranoid check, so after flush, the file will be read
+  // all the blocks will be accessed.
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  std::string session_id;
+  ASSERT_OK(db_->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(Put(Key(i + 70), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  // Flush will trigger the paranoid check and read blocks. But only block cache
+  // will be read.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  Compact("a", "z");
+
+  // Compaction will also insert and evict blocks, no operations to the block
+  // cache.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the data in first block. Cache miss, direclty read from SST file.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+
+  // Check the second block.
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+
+  // block cache hit
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+
+  // Change the option to enable secondary cache after we Reopen the DB
+  options.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
+  Reopen(options);
+
+  v = Get(Key(70));
+  ASSERT_EQ(1007, v.size());
+
+  // Enable the secondary cache, trigger lookup of the first block in second SST
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  v = Get(Key(75));
+  ASSERT_EQ(1007, v.size());
+
+  // trigger lookup of the second block in second SST
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+  Destroy(options);
+}
+
+// Two DB test. We create 2 DBs sharing the same block cache and secondary
+// cache. We diable the secondary cache option for DB2.
+TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.block_size = 4 * 1024;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.env = fault_env_.get();
+  options.paranoid_file_checks = true;
+  std::string dbname1 = test::PerThreadDBPath("db_t_1");
+  ASSERT_OK(DestroyDB(dbname1, options));
+  DB* db1 = nullptr;
+  ASSERT_OK(DB::Open(options, dbname1, &db1));
+  std::string dbname2 = test::PerThreadDBPath("db_t_2");
+  ASSERT_OK(DestroyDB(dbname2, options));
+  DB* db2 = nullptr;
+  Options options2 = options;
+  options2.lowest_used_cache_tier = CacheTier::kVolatileTier;
+  ASSERT_OK(DB::Open(options2, dbname2, &db2));
+  fault_fs_->SetFailGetUniqueId(true);
+
+  // Set the file paranoid check, so after flush, the file will be read
+  // all the blocks will be accessed.
+  std::string session_id;
+  ASSERT_OK(db1->GetDbSessionId(session_id));
+  secondary_cache->SetDbSessionId(session_id);
+
+  WriteOptions wo;
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(db1->Put(wo, Key(i), p_v));
+  }
+
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 0u);
+  ASSERT_OK(db1->Flush(FlushOptions()));
+
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  for (int i = 0; i < N; i++) {
+    std::string p_v = rnd.RandomString(1007);
+    ASSERT_OK(db2->Put(wo, Key(i), p_v));
+  }
+
+  // No change in the secondary cache, since it is disabled in DB2
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+  ASSERT_OK(db2->Flush(FlushOptions()));
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  Slice bg("a");
+  Slice ed("b");
+  ASSERT_OK(db1->CompactRange(CompactRangeOptions(), &bg, &ed));
+  ASSERT_OK(db2->CompactRange(CompactRangeOptions(), &bg, &ed));
+
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
+
+  ReadOptions ro;
+  std::string v;
+  ASSERT_OK(db1->Get(ro, Key(0), &v));
+  ASSERT_EQ(1007, v.size());
+
+  // DB 1 has lookup block 1 and it is miss in block cache, trigger secondary
+  // cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+
+  ASSERT_OK(db1->Get(ro, Key(5), &v));
+  ASSERT_EQ(1007, v.size());
+
+  // DB 1 lookup the second block and it is miss in block cache, trigger
+  // secondary cache lookup
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  ASSERT_OK(db2->Get(ro, Key(0), &v));
+  ASSERT_EQ(1007, v.size());
+
+  // For db2, it is not enabled with secondary cache, so no search in the
+  // secondary cache
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
+  ASSERT_OK(db2->Get(ro, Key(5), &v));
+  ASSERT_EQ(1007, v.size());
+
+  // For db2, it is not enabled with secondary cache, so no search in the
+  // secondary cache
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
   delete db1;

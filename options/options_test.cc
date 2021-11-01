@@ -3710,37 +3710,86 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ASSERT_EQ(5000, small_opts.max_open_files);
 }
 
-class OptionsSanityCheckTest : public OptionsParserTest {
+class OptionsSanityCheckTest : public OptionsParserTest,
+                               public ::testing::WithParamInterface<bool> {
+ protected:
+  ConfigOptions config_options_;
+
  public:
-  OptionsSanityCheckTest() {}
+  OptionsSanityCheckTest() {
+    config_options_.ignore_unknown_options = false;
+    config_options_.ignore_unsupported_options = GetParam();
+    config_options_.input_strings_escaped = true;
+  }
 
  protected:
-  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
-                              ConfigOptions::SanityLevel level,
-                              bool input_strings_escaped = true) {
-    ConfigOptions config_options;
-    config_options.sanity_level = level;
-    config_options.ignore_unknown_options = false;
-    config_options.input_strings_escaped = input_strings_escaped;
-
+  Status SanityCheckOptions(const DBOptions& db_opts,
+                            const ColumnFamilyOptions& cf_opts,
+                            ConfigOptions::SanityLevel level) {
+    config_options_.sanity_level = level;
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-        config_options, DBOptions(), {"default"}, {cf_opts}, kOptionsFileName,
+        config_options_, db_opts, {"default"}, {cf_opts}, kOptionsFileName,
         fs_.get());
   }
 
-  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
+                              ConfigOptions::SanityLevel level) {
+    return SanityCheckOptions(DBOptions(), cf_opts, level);
+  }
+
+  void SanityCheckCFOptions(const ColumnFamilyOptions& opts, bool exact) {
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
+    if (exact) {
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    } else {
+      ASSERT_NOK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    }
+  }
+
+  Status SanityCheckDBOptions(const DBOptions& db_opts,
+                              ConfigOptions::SanityLevel level) {
+    return SanityCheckOptions(db_opts, ColumnFamilyOptions(), level);
+  }
+
+  void SanityCheckDBOptions(const DBOptions& opts, bool exact) {
+    ASSERT_OK(SanityCheckDBOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelNone));
+    if (exact) {
+      ASSERT_OK(
+          SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    } else {
+      ASSERT_NOK(
+          SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    }
+  }
+
+  Status PersistOptions(const DBOptions& db_opts,
+                        const ColumnFamilyOptions& cf_opts) {
     Status s = fs_->DeleteFile(kOptionsFileName, IOOptions(), nullptr);
     if (!s.ok()) {
       return s;
     }
-    return PersistRocksDBOptions(DBOptions(), {"default"}, {cf_opts},
+    return PersistRocksDBOptions(db_opts, {"default"}, {cf_opts},
                                  kOptionsFileName, fs_.get());
+  }
+
+  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+    return PersistOptions(DBOptions(), cf_opts);
+  }
+
+  Status PersistDBOptions(const DBOptions& db_opts) {
+    return PersistOptions(db_opts, ColumnFamilyOptions());
   }
 
   const std::string kOptionsFileName = "OPTIONS";
 };
 
-TEST_F(OptionsSanityCheckTest, SanityCheck) {
+TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;
   Random rnd(301);
 
@@ -3792,11 +3841,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
     // expect pass only in
     // ConfigOptions::kSanityLevelLooselyCompatible
-    ASSERT_NOK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-    ASSERT_OK(SanityCheckCFOptions(
-        opts, ConfigOptions::kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
+    SanityCheckCFOptions(opts, false);
 
     // Change prefix extractor from non-nullptr to nullptr
     opts.prefix_extractor.reset();
@@ -3836,8 +3881,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
 
     for (int test = 0; test < 5; ++test) {
       // change the merge operator
@@ -3848,8 +3892,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
 
     // Test when going from merge operator -> nullptr
@@ -3860,8 +3903,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    SanityCheckCFOptions(opts, true);
   }
 
   // compaction_filter
@@ -3869,15 +3911,11 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     for (int test = 0; test < 5; ++test) {
       // change the compaction filter
       opts.compaction_filter = test::RandomCompactionFilter(&rnd);
-      ASSERT_NOK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(
-          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      SanityCheckCFOptions(opts, false);
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
       delete opts.compaction_filter;
       opts.compaction_filter = nullptr;
     }
@@ -3889,17 +3927,55 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
       // change the compaction filter factory
       opts.compaction_filter_factory.reset(
           test::RandomCompactionFilterFactory(&rnd));
-      ASSERT_NOK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(
-          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      SanityCheckCFOptions(opts, false);
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
   }
+}
+
+TEST_P(OptionsSanityCheckTest, DBOptionsSanityCheck) {
+  DBOptions opts;
+  Random rnd(301);
+
+  // default DBOptions
+  {
+    ASSERT_OK(PersistDBOptions(opts));
+    ASSERT_OK(
+        SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+  }
+
+  // File checksum generator
+  {
+    class MockFileChecksumGenFactory : public FileChecksumGenFactory {
+     public:
+      static const char* kClassName() { return "Mock"; }
+      const char* Name() const override { return kClassName(); }
+      std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+          const FileChecksumGenContext& /*context*/) override {
+        return nullptr;
+      }
+    };
+
+    // Okay to change file_checksum_gen_factory form nullptr to non-nullptr
+    ASSERT_EQ(opts.file_checksum_gen_factory.get(), nullptr);
+    opts.file_checksum_gen_factory.reset(new MockFileChecksumGenFactory());
+
+    // persist the change
+    ASSERT_OK(PersistDBOptions(opts));
+    SanityCheckDBOptions(opts, config_options_.ignore_unsupported_options);
+
+    // Change file_checksum_gen_factory from non-nullptr to nullptr
+    opts.file_checksum_gen_factory.reset();
+    // expect pass as it's safe to change file_checksum_gen_factory
+    // from non-null to null
+    SanityCheckDBOptions(opts, false);
+  }
+  // persist the change
+  ASSERT_OK(PersistDBOptions(opts));
+  ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 }
 
 namespace {
@@ -4612,7 +4688,11 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
 }
+
+INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
+                        ::testing::Bool());
 #endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

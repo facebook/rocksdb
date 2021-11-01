@@ -1812,6 +1812,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
+  if (cf_meta_data.levels.empty()) {
+    return;
+  }
+
   // Randomly compact up to three consecutive files from a level
   const int kMaxRetry = 3;
   for (int attempt = 0; attempt < kMaxRetry; ++attempt) {
@@ -2486,8 +2490,10 @@ void StressTest::Open() {
       column_family_names_.push_back(name);
     }
     options_.listeners.clear();
+#ifndef ROCKSDB_LITE
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+#endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef NDEBUG

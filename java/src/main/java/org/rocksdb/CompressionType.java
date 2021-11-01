@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Optional;
+
 /**
  * Enum CompressionType
  *
@@ -14,16 +16,15 @@ package org.rocksdb;
  * compression method (if any) is used to compress a block.</p>
  */
 public enum CompressionType {
-
-  NO_COMPRESSION((byte) 0x0, null),
-  SNAPPY_COMPRESSION((byte) 0x1, "snappy"),
-  ZLIB_COMPRESSION((byte) 0x2, "z"),
-  BZLIB2_COMPRESSION((byte) 0x3, "bzip2"),
-  LZ4_COMPRESSION((byte) 0x4, "lz4"),
-  LZ4HC_COMPRESSION((byte) 0x5, "lz4hc"),
-  XPRESS_COMPRESSION((byte) 0x6, "xpress"),
-  ZSTD_COMPRESSION((byte)0x7, "zstd"),
-  DISABLE_COMPRESSION_OPTION((byte)0x7F, null);
+  NO_COMPRESSION((byte) 0x0, null, "kNoCompression"),
+  SNAPPY_COMPRESSION((byte) 0x1, "snappy", "kSnappyCompression"),
+  ZLIB_COMPRESSION((byte) 0x2, "z", "kZlibCompression"),
+  BZLIB2_COMPRESSION((byte) 0x3, "bzip2", "kBZip2Compression"),
+  LZ4_COMPRESSION((byte) 0x4, "lz4", "kLZ4Compression"),
+  LZ4HC_COMPRESSION((byte) 0x5, "lz4hc", "kLZ4HCCompression"),
+  XPRESS_COMPRESSION((byte) 0x6, "xpress", "kXpressCompression"),
+  ZSTD_COMPRESSION((byte) 0x7, "zstd", "kZSTD"),
+  DISABLE_COMPRESSION_OPTION((byte) 0x7F, null, "kDisableCompressionOption");
 
   /**
    * <p>Get the CompressionType enumeration value by
@@ -71,6 +72,25 @@ public enum CompressionType {
   }
 
   /**
+   * <p>Get a CompressionType value based on the string key in the C++ options output.
+   * This gets used in support of getting options into Java from an options string,
+   * which is generated at the C++ level.
+   * </p>
+   *
+   * @param internalName the internal (C++) name by which the option is known.
+   *
+   * @return CompressionType instance (optional)
+   */
+  public static Optional<CompressionType> getFromInternal(final String internalName) {
+    for (final CompressionType compressionType : CompressionType.values()) {
+      if (compressionType.internalName_.equals(internalName)) {
+        return Optional.of(compressionType);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
    * <p>Returns the byte value of the enumerations value.</p>
    *
    * @return byte representation
@@ -89,11 +109,13 @@ public enum CompressionType {
     return libraryName_;
   }
 
-  CompressionType(final byte value, final String libraryName) {
+  CompressionType(final byte value, final String libraryName, final String internalName) {
     value_ = value;
     libraryName_ = libraryName;
+    internalName_ = internalName;
   }
 
   private final byte value_;
   private final String libraryName_;
+  private final String internalName_;
 }

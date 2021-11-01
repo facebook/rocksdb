@@ -2083,7 +2083,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
         });
     SyncPoint::GetInstance()->SetCallBack(
         "VersionEditHandlerBase::Iterate:Finish", [&](void* arg) {
-          num_recovered_edits_ = *reinterpret_cast<int*>(arg);
+          num_recovered_edits_ = *reinterpret_cast<size_t*>(arg);
         });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:AtomicGroup",
@@ -2123,7 +2123,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   bool first_in_atomic_group_ = false;
   bool last_in_atomic_group_ = false;
   int num_edits_in_atomic_group_ = 0;
-  int num_recovered_edits_ = 0;
+  size_t num_recovered_edits_ = 0;
   VersionEdit corrupted_edit_;
   VersionEdit edit_with_incorrect_group_size_;
   std::unique_ptr<log::Writer> log_writer_;

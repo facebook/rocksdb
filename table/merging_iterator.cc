@@ -40,11 +40,11 @@ class MergingIterator : public InternalIterator {
                   InternalIterator** children, int n, bool is_arena_mode,
                   bool prefix_seek_mode)
       : is_arena_mode_(is_arena_mode),
+        prefix_seek_mode_(prefix_seek_mode),
+        direction_(kForward),
         comparator_(comparator),
         current_(nullptr),
-        direction_(kForward),
         minHeap_(comparator_),
-        prefix_seek_mode_(prefix_seek_mode),
         pinned_iters_mgr_(nullptr) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
@@ -287,6 +287,10 @@ class MergingIterator : public InternalIterator {
   void InitMaxHeap();
 
   bool is_arena_mode_;
+  bool prefix_seek_mode_;
+  // Which direction is the iterator moving?
+  enum Direction : uint8_t { kForward, kReverse };
+  Direction direction_;
   const InternalKeyComparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
 
@@ -296,14 +300,7 @@ class MergingIterator : public InternalIterator {
   IteratorWrapper* current_;
   // If any of the children have non-ok status, this is one of them.
   Status status_;
-  // Which direction is the iterator moving?
-  enum Direction {
-    kForward,
-    kReverse
-  };
-  Direction direction_;
   MergerMinIterHeap minHeap_;
-  bool prefix_seek_mode_;
 
   // Max heap is used for reverse iteration, which is way less common than
   // forward.  Lazily initialize it to save memory.

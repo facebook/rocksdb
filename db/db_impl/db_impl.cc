@@ -53,7 +53,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -92,6 +92,7 @@
 #include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
@@ -718,9 +719,11 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
-    CloseHelper().PermitUncheckedError();
+    closing_status_ = CloseHelper();
+    closing_status_.PermitUncheckedError();
   }
 }
 
@@ -3945,23 +3948,18 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
 }
 
 std::string DBImpl::GenerateDbSessionId(Env*) {
-  // GenerateRawUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated. It should have full 128 bits of entropy.
-  uint64_t a, b;
-  GenerateRawUniqueId(&a, &b);
+  // See SemiStructuredUniqueIdGen for its desirable properties.
+  static SemiStructuredUniqueIdGen gen;
 
-  // Hash and reformat that down to a more compact format, 20 characters
-  // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
-  // to expect no collisions across a billion servers each opening DBs
-  // a million times (~2^50). Benefits vs. raw unique id:
-  // * Save ~ dozen bytes per SST file
-  // * Shorter shared backup file names (some platforms have low limits)
-  // * Visually distinct from DB id format
-  std::string db_session_id(20U, '\0');
-  char* buf = &db_session_id[0];
-  PutBaseChars<36>(&buf, 10, a, /*uppercase*/ true);
-  PutBaseChars<36>(&buf, 10, b, /*uppercase*/ true);
-  return db_session_id;
+  uint64_t lo, hi;
+  gen.GenerateNext(&hi, &lo);
+  if (lo == 0) {
+    // Avoid emitting session ID with lo==0, so that SST unique
+    // IDs can be more easily ensured non-zero
+    gen.GenerateNext(&hi, &lo);
+    assert(lo != 0);
+  }
+  return EncodeSessionId(hi, lo);
 }
 
 void DBImpl::SetDbSessionId() {
@@ -4006,19 +4004,20 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() {}
 
 Status DBImpl::Close() {
-  if (!closed_) {
-    {
-      InstrumentedMutexLock l(&mutex_);
-      // If there is unreleased snapshot, fail the close call
-      if (!snapshots_.empty()) {
-        return Status::Aborted("Cannot close DB with unreleased snapshot.");
-      }
-    }
-
-    closed_ = true;
-    return CloseImpl();
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
+  if (closed_) {
+    return closing_status_;
   }
-  return Status::OK();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If there is unreleased snapshot, fail the close call
+    if (!snapshots_.empty()) {
+      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    }
+  }
+  closing_status_ = CloseImpl();
+  closed_ = true;
+  return closing_status_;
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
@@ -4284,11 +4283,16 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   uint64_t options_file_number = versions_->NewFileNumber();
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  // Retry if the file name happen to conflict with an existing one.
-  s = GetEnv()->RenameFile(file_name, options_file_name);
+  uint64_t options_file_size = 0;
+  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  if (s.ok()) {
+    // Retry if the file name happen to conflict with an existing one.
+    s = GetEnv()->RenameFile(file_name, options_file_name);
+  }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
     versions_->options_file_number_ = options_file_number;
+    versions_->options_file_size_ = options_file_size;
   }
 
   if (0 == disable_delete_obsolete_files_) {

@@ -1338,8 +1338,8 @@ public class Options extends RocksObject
     assert (isOwningHandle());
 
     final int len = cfPaths.size();
-    final String paths[] = new String[len];
-    final long targetSizes[] = new long[len];
+    final String[] paths = new String[len];
+    final long[] targetSizes = new long[len];
 
     int i = 0;
     for (final DbPath dbPath : cfPaths) {
@@ -1359,8 +1359,8 @@ public class Options extends RocksObject
       return Collections.emptyList();
     }
 
-    final String paths[] = new String[len];
-    final long targetSizes[] = new long[len];
+    final String[] paths = new String[len];
+    final long[] targetSizes = new long[len];
 
     cfPaths(nativeHandle_, paths, targetSizes);
 
@@ -2017,6 +2017,80 @@ public class Options extends RocksObject
     return this.compactionThreadLimiter_;
   }
 
+  //
+  // BEGIN options for blobs (integrated BlobDB)
+  //
+
+  @Override
+  public Options setEnableBlobFiles(final boolean enableBlobFiles) {
+    setEnableBlobFiles(nativeHandle_, enableBlobFiles);
+    return this;
+  }
+
+  @Override
+  public boolean enableBlobFiles() {
+    return enableBlobFiles(nativeHandle_);
+  }
+
+  @Override
+  public Options setMinBlobSize(final long minBlobSize) {
+    setMinBlobSize(nativeHandle_, minBlobSize);
+    return this;
+  }
+
+  @Override
+  public long minBlobSize() {
+    return minBlobSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setBlobFileSize(final long blobFileSize) {
+    setBlobFileSize(nativeHandle_, blobFileSize);
+    return this;
+  }
+
+  @Override
+  public long blobFileSize() {
+    return blobFileSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setBlobCompressionType(CompressionType compressionType) {
+    setBlobCompressionType(nativeHandle_, compressionType.getValue());
+    return this;
+  }
+
+  @Override
+  public CompressionType blobCompressionType() {
+    return CompressionType.values()[blobCompressionType(nativeHandle_)];
+  }
+
+  @Override
+  public Options setEnableBlobGarbageCollection(final boolean enableBlobGarbageCollection) {
+    setEnableBlobGarbageCollection(nativeHandle_, enableBlobGarbageCollection);
+    return this;
+  }
+
+  @Override
+  public boolean enableBlobGarbageCollection() {
+    return enableBlobGarbageCollection(nativeHandle_);
+  }
+
+  @Override
+  public Options setBlobGarbageCollectionAgeCutoff(double blobGarbageCollectionAgeCutoff) {
+    setBlobGarbageCollectionAgeCutoff(nativeHandle_, blobGarbageCollectionAgeCutoff);
+    return this;
+  }
+
+  @Override
+  public double blobGarbageCollectionAgeCutoff() {
+    return blobGarbageCollectionAgeCutoff(nativeHandle_);
+  }
+
+  //
+  // END options for blobs (integrated BlobDB)
+  //
+
   private native static long newOptions();
   private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
@@ -2430,6 +2504,21 @@ public class Options extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
+
+  private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
+  private native boolean enableBlobFiles(final long nativeHandle_);
+  private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);
+  private native long minBlobSize(final long nativeHandle_);
+  private native void setBlobFileSize(final long nativeHandle_, final long blobFileSize);
+  private native long blobFileSize(final long nativeHandle_);
+  private native void setBlobCompressionType(final long nativeHandle_, final byte compressionType);
+  private native byte blobCompressionType(final long nativeHandle_);
+  private native void setEnableBlobGarbageCollection(
+      final long nativeHandle_, final boolean enableBlobGarbageCollection);
+  private native boolean enableBlobGarbageCollection(final long nativeHandle_);
+  private native void setBlobGarbageCollectionAgeCutoff(
+      final long nativeHandle_, double blobGarbageCollectionAgeCutoff);
+  private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

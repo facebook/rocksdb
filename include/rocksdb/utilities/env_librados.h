@@ -76,7 +76,8 @@ class EnvLibrados : public EnvWrapper {
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
   // Original contents of *results are dropped.
-  Status GetChildren(const std::string& dir, std::vector<std::string>* result);
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* result) override;
 
   // Delete the named file.
   Status DeleteFile(const std::string& fname) override;
@@ -116,18 +117,16 @@ class EnvLibrados : public EnvWrapper {
   // to go away.
   //
   // May create the named file if it does not already exist.
-  Status LockFile(const std::string& fname, FileLock** lock);
+  Status LockFile(const std::string& fname, FileLock** lock) override;
 
   // Release the lock acquired by a previous successful call to LockFile.
   // REQUIRES: lock was returned by a successful LockFile() call
   // REQUIRES: lock has not already been unlocked.
-  Status UnlockFile(FileLock* lock);
+  Status UnlockFile(FileLock* lock) override;
 
   // Get full directory name for this db.
-  Status GetAbsolutePath(const std::string& db_path, std::string* output_path);
-
-  // Generate unique id
-  std::string GenerateUniqueId();
+  Status GetAbsolutePath(const std::string& db_path,
+                         std::string* output_path) override;
 
   // Get default EnvLibrados
   static EnvLibrados* Default();
