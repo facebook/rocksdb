@@ -2077,7 +2077,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBlobGarbageCollectionAgeCutoff(double blobGarbageCollectionAgeCutoff) {
+  public Options setBlobGarbageCollectionAgeCutoff(final double blobGarbageCollectionAgeCutoff) {
     setBlobGarbageCollectionAgeCutoff(nativeHandle_, blobGarbageCollectionAgeCutoff);
     return this;
   }
@@ -2089,7 +2089,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setBlobGarbageCollectionForceThreshold(
-      double blobGarbageCollectionForceThreshold) {
+      final double blobGarbageCollectionForceThreshold) {
     setBlobGarbageCollectionForceThreshold(nativeHandle_, blobGarbageCollectionForceThreshold);
     return this;
   }
@@ -2529,10 +2529,10 @@ public class Options extends RocksObject
       final long nativeHandle_, final boolean enableBlobGarbageCollection);
   private native boolean enableBlobGarbageCollection(final long nativeHandle_);
   private native void setBlobGarbageCollectionAgeCutoff(
-      final long nativeHandle_, double blobGarbageCollectionAgeCutoff);
+      final long nativeHandle_, final double blobGarbageCollectionAgeCutoff);
   private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
   private native void setBlobGarbageCollectionForceThreshold(
-      final long nativeHandle_, double blobGarbageCollectionForceThreshold);
+      final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
 
   // instance variables
