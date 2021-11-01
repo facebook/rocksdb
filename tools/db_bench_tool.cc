@@ -59,6 +59,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
@@ -147,6 +148,8 @@ IF_ROCKSDB_LITE("",
     "fill100K,"
     "crc32c,"
     "xxhash,"
+    "xxhash64,"
+    "xxh3,"
     "compress,"
     "uncompress,"
     "acquireload,"
@@ -205,8 +208,10 @@ IF_ROCKSDB_LITE("",
     "overwrite\n"
     "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
     "merge\n"
-    "\tcrc32c        -- repeated crc32c of 4K of data\n"
-    "\txxhash        -- repeated xxHash of 4K of data\n"
+    "\tcrc32c        -- repeated crc32c of <block size> data\n"
+    "\txxhash        -- repeated xxHash of <block size> data\n"
+    "\txxhash64      -- repeated xxHash64 of <block size> data\n"
+    "\txxh3          -- repeated XXH3 of <block size> data\n"
     "\tacquireload   -- load N*1000 times\n"
     "\tfillseekseq   -- write N values in sequential key, then read "
     "them by seeking to each key\n"
@@ -732,6 +737,10 @@ static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
 DEFINE_bool(verify_checksum, true,
             "Verify checksum for every block read"
             " from storage");
+
+DEFINE_int32(checksum_type,
+             ROCKSDB_NAMESPACE::BlockBasedTableOptions().checksum,
+             "ChecksumType as an int");
 
 DEFINE_bool(statistics, false, "Database statistics");
 DEFINE_int32(stats_level, ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers,
@@ -3434,6 +3443,10 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
         method = &Benchmark::xxHash;
+      } else if (name == "xxhash64") {
+        method = &Benchmark::xxHash64;
+      } else if (name == "xxh3") {
+        method = &Benchmark::xxh3;
       } else if (name == "acquireload") {
         method = &Benchmark::AcquireLoad;
       } else if (name == "compress") {
@@ -3778,44 +3791,42 @@ class Benchmark {
     return merge_stats;
   }
 
-  void Crc32c(ThreadState* thread) {
-    // Checksum about 500MB of data total
+  template <OperationType kOpType, typename FnType, typename... Args>
+  static inline void ChecksumBenchmark(FnType fn, ThreadState* thread,
+                                       Args... args) {
     const int size = FLAGS_block_size; // use --block_size option for db_bench
     std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
     const char* label = labels.c_str();
 
     std::string data(size, 'x');
-    int64_t bytes = 0;
-    uint32_t crc = 0;
-    while (bytes < 500 * 1048576) {
-      crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedOps(nullptr, nullptr, 1, kCrc);
+    uint64_t bytes = 0;
+    uint32_t val = 0;
+    while (bytes < 5000U * uint64_t{1048576}) {  // ~5GB
+      val += static_cast<uint32_t>(fn(data.data(), size, args...));
+      thread->stats.FinishedOps(nullptr, nullptr, 1, kOpType);
       bytes += size;
     }
     // Print so result is not dead
-    fprintf(stderr, "... crc=0x%x\r", static_cast<unsigned int>(crc));
+    fprintf(stderr, "... val=0x%x\r", static_cast<unsigned int>(val));
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(label);
   }
 
-  void xxHash(ThreadState* thread) {
-    // Checksum about 500MB of data total
-    const int size = 4096;
-    const char* label = "(4K per op)";
-    std::string data(size, 'x');
-    int64_t bytes = 0;
-    unsigned int xxh32 = 0;
-    while (bytes < 500 * 1048576) {
-      xxh32 = XXH32(data.data(), size, 0);
-      thread->stats.FinishedOps(nullptr, nullptr, 1, kHash);
-      bytes += size;
-    }
-    // Print so result is not dead
-    fprintf(stderr, "... xxh32=0x%x\r", static_cast<unsigned int>(xxh32));
+  void Crc32c(ThreadState* thread) {
+    ChecksumBenchmark<kCrc>(crc32c::Value, thread);
+  }
 
-    thread->stats.AddBytes(bytes);
-    thread->stats.AddMessage(label);
+  void xxHash(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH32, thread, /*seed*/ 0);
+  }
+
+  void xxHash64(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH64, thread, /*seed*/ 0);
+  }
+
+  void xxh3(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH3_64bits, thread);
   }
 
   void AcquireLoad(ThreadState* thread) {
@@ -4067,6 +4078,8 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
     } else {
       BlockBasedTableOptions block_based_options;
+      block_based_options.checksum =
+          static_cast<ChecksumType>(FLAGS_checksum_type);
       if (FLAGS_use_hash_search) {
         if (FLAGS_prefix_size == 0) {
           fprintf(stderr,

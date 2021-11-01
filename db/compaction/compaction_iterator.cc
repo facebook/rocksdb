@@ -520,6 +520,25 @@ void CompactionIterator::NextFromInput() {
       // 2) We've already returned a record in this snapshot -OR-
       //    there are no earlier earliest_write_conflict_snapshot.
       //
+      // A note about 2) above:
+      // we try to determine whether there is any earlier write conflict
+      // checking snapshot by calling DefinitelyInSnapshot() with seq and
+      // earliest_write_conflict_snapshot as arguments. For write-prepared
+      // and write-unprepared transactions, if earliest_write_conflict_snapshot
+      // is evicted from WritePreparedTxnDB::commit_cache, then
+      // DefinitelyInSnapshot(seq, earliest_write_conflict_snapshot) returns
+      // false, even if the seq is actually visible within
+      // earliest_write_conflict_snapshot. Consequently, CompactionIterator
+      // may try to zero out its sequence number, thus hitting assertion error
+      // in debug mode or cause incorrect DBIter return result.
+      // We observe that earliest_write_conflict_snapshot >= earliest_snapshot,
+      // and the seq zeroing logic depends on
+      // DefinitelyInSnapshot(seq, earliest_snapshot). Therefore, if we cannot
+      // determine whether seq is **definitely** in
+      // earliest_write_conflict_snapshot, then we can additionally check if
+      // seq is definitely in earliest_snapshot. If the latter holds, then the
+      // former holds too.
+      //
       // Rule 1 is needed for SingleDelete correctness.  Rule 2 is needed to
       // allow Transactions to do write-conflict checking (if we compacted away
       // all keys, then we wouldn't know that a write happened in this
@@ -598,7 +617,10 @@ void CompactionIterator::NextFromInput() {
             valid_ = true;
           } else if (has_outputted_key_ ||
                      DefinitelyInSnapshot(ikey_.sequence,
-                                          earliest_write_conflict_snapshot_)) {
+                                          earliest_write_conflict_snapshot_) ||
+                     (earliest_snapshot_ < earliest_write_conflict_snapshot_ &&
+                      DefinitelyInSnapshot(ikey_.sequence,
+                                           earliest_snapshot_))) {
             // Found a matching value, we can drop the single delete and the
             // value.  It is safe to drop both records since we've already
             // outputted a key in this snapshot, or there is no earlier
@@ -1082,41 +1104,6 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
 inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
   return (!compaction_->preserve_deletes()) ||
          (ikey_.sequence < preserve_deletes_seqnum_);
-}
-
-bool CompactionIterator::IsInCurrentEarliestSnapshot(SequenceNumber sequence) {
-  assert(snapshot_checker_ != nullptr);
-  bool pre_condition = (earliest_snapshot_ == kMaxSequenceNumber ||
-                        (earliest_snapshot_iter_ != snapshots_->end() &&
-                         *earliest_snapshot_iter_ == earliest_snapshot_));
-  assert(pre_condition);
-  if (!pre_condition) {
-    ROCKS_LOG_FATAL(info_log_,
-                    "Pre-Condition is not hold in IsInEarliestSnapshot");
-  }
-  auto in_snapshot =
-      snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
-  while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
-    // Avoid the the current earliest_snapshot_ being return as
-    // earliest visible snapshot for the next value. So if a value's sequence
-    // is zero-ed out by PrepareOutput(), the next value will be compact out.
-    released_snapshots_.insert(earliest_snapshot_);
-    earliest_snapshot_iter_++;
-
-    if (earliest_snapshot_iter_ == snapshots_->end()) {
-      earliest_snapshot_ = kMaxSequenceNumber;
-    } else {
-      earliest_snapshot_ = *earliest_snapshot_iter_;
-    }
-    in_snapshot =
-        snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
-  }
-  assert(in_snapshot != SnapshotCheckerResult::kSnapshotReleased);
-  if (in_snapshot == SnapshotCheckerResult::kSnapshotReleased) {
-    ROCKS_LOG_FATAL(info_log_,
-                    "Unexpected released snapshot in IsInEarliestSnapshot");
-  }
-  return in_snapshot == SnapshotCheckerResult::kInSnapshot;
 }
 
 uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(

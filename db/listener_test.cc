@@ -377,6 +377,7 @@ TEST_F(EventListenerTest, MultiCF) {
     ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
     for (int i = 1; i < 8; ++i) {
       ASSERT_OK(Flush(i));
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       ASSERT_EQ(listener->flushed_dbs_.size(), i);
       ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
     }
