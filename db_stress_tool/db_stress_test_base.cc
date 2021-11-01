@@ -262,6 +262,8 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace(
         "blob_garbage_collection_age_cutoff",
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_garbage_collection_force_threshold",
+                        std::vector<std::string>{"0.5", "0.75", "1.0"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -1810,6 +1812,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
+  if (cf_meta_data.levels.empty()) {
+    return;
+  }
+
   // Randomly compact up to three consecutive files from a level
   const int kMaxRetry = 3;
   for (int attempt = 0; attempt < kMaxRetry; ++attempt) {
@@ -2310,6 +2316,8 @@ void StressTest::Open() {
         FLAGS_enable_blob_garbage_collection;
     options_.blob_garbage_collection_age_cutoff =
         FLAGS_blob_garbage_collection_age_cutoff;
+    options_.blob_garbage_collection_force_threshold =
+        FLAGS_blob_garbage_collection_force_threshold;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2418,8 +2426,11 @@ void StressTest::Open() {
   }
 
   if (options_.enable_blob_garbage_collection) {
-    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
-            options_.blob_garbage_collection_age_cutoff);
+    fprintf(
+        stdout,
+        "Integrated BlobDB: blob GC enabled, cutoff %f, force threshold %f\n",
+        options_.blob_garbage_collection_age_cutoff,
+        options_.blob_garbage_collection_force_threshold);
   }
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
@@ -2479,8 +2490,10 @@ void StressTest::Open() {
       column_family_names_.push_back(name);
     }
     options_.listeners.clear();
+#ifndef ROCKSDB_LITE
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+#endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef NDEBUG

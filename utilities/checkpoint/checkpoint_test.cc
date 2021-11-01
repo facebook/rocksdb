@@ -902,6 +902,19 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   delete snapshot_db;
 }
 
+TEST_F(CheckpointTest, CheckpointWithDbPath) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_ + "_2", 0);
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  Flush();
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  // Currently not supported
+  ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
+  delete checkpoint;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

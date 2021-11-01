@@ -46,10 +46,39 @@ inline void PutBaseChars(char** buf, size_t n, uint64_t v, bool uppercase) {
   const char* digitChars = uppercase ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                      : "0123456789abcdefghijklmnopqrstuvwxyz";
   for (size_t i = n; i > 0; --i) {
-    (*buf)[i - 1] = digitChars[v % kBase];
+    (*buf)[i - 1] = digitChars[static_cast<size_t>(v % kBase)];
     v /= kBase;
   }
   *buf += n;
+}
+
+// Parse n digits from *buf in base kBase to *v and advance *buf to the
+// position after what was read. On success, true is returned. On failure,
+// false is returned, *buf is placed at the first bad character, and *v
+// contains the partial parsed data. Overflow is not checked but the
+// result is accurate mod 2^64. Requires the starting value of *v to be
+// zero or previously accumulated parsed digits, i.e.
+//   ParseBaseChars(&b, n, &v);
+// is equivalent to n calls to
+//   ParseBaseChars(&b, 1, &v);
+template <int kBase>
+inline bool ParseBaseChars(const char** buf, size_t n, uint64_t* v) {
+  while (n) {
+    char c = **buf;
+    *v *= static_cast<uint64_t>(kBase);
+    if (c >= '0' && (kBase >= 10 ? c <= '9' : c < '0' + kBase)) {
+      *v += static_cast<uint64_t>(c - '0');
+    } else if (kBase > 10 && c >= 'A' && c < 'A' + kBase - 10) {
+      *v += static_cast<uint64_t>(c - 'A' + 10);
+    } else if (kBase > 10 && c >= 'a' && c < 'a' + kBase - 10) {
+      *v += static_cast<uint64_t>(c - 'a' + 10);
+    } else {
+      return false;
+    }
+    --n;
+    ++*buf;
+  }
+  return true;
 }
 
 // Return a human-readable version of num.

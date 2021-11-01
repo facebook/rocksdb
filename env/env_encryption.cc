@@ -255,10 +255,16 @@ IOStatus EncryptedWritableFile::PositionedAppend(const Slice& data,
   return file_->PositionedAppend(dataToAppend, offset, options, dbg);
 }
 
-  // Indicates the upper layers if the current WritableFile implementation
-  // uses direct IO.
+// Indicates the upper layers if the current WritableFile implementation
+// uses direct IO.
 bool EncryptedWritableFile::use_direct_io() const {
   return file_->use_direct_io();
+}
+
+// true if Sync() and Fsync() are safe to call concurrently with Append()
+// and Flush().
+bool EncryptedWritableFile::IsSyncThreadSafe() const {
+  return file_->IsSyncThreadSafe();
 }
 
   // Use the returned alignment value to allocate

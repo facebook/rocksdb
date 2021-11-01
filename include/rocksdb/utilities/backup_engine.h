@@ -18,6 +18,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -284,15 +285,9 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
-struct BackupFileInfo {
-  // File name and path relative to the backup_dir directory.
-  std::string relative_filename;
-
-  // Size of the file in bytes, not including filesystem overheads.
-  uint64_t size;
-};
-
 using BackupID = uint32_t;
+
+using BackupFileInfo = FileStorageInfo;
 
 struct BackupInfo {
   BackupID backup_id = 0U;
@@ -475,6 +470,9 @@ class BackupEngineAppendOnlyBase {
   // Captures the state of the database by creating a new (latest) backup.
   // On success (OK status), the BackupID of the new backup is saved to
   // *new_backup_id when not nullptr.
+  // NOTE: db_paths and cf_paths are not supported for creating backups,
+  // and NotSupported will be returned when the DB (without WALs) uses more
+  // than one directory.
   virtual IOStatus CreateNewBackup(const CreateBackupOptions& options, DB* db,
                                    BackupID* new_backup_id = nullptr) {
     return CreateNewBackupWithMetadata(options, db, "", new_backup_id);

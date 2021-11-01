@@ -450,7 +450,7 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // The new file could overwrite an old one. Here we simplify
@@ -483,19 +483,50 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       return in_s;
     }
   }
-  IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+
+  bool exists;
+  IOStatus io_s,
+      exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+  if (exists_s.IsNotFound()) {
+    exists = false;
+  } else if (exists_s.ok()) {
+    exists = true;
+  } else {
+    io_s = exists_s;
+    exists = false;
+  }
+
   if (io_s.ok()) {
-    result->reset(
-        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
-    // WritableFileWriter* file is opened
-    // again then it will be truncated - so forget our saved state.
-    UntrackFile(fname);
+    io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  }
+
+  // Only track files we created. Files created outside of this
+  // `FaultInjectionTestFS` are not eligible for tracking/data dropping
+  // (for example, they may contain data a previous db_stress run expects to
+  // be recovered). This could be extended to track/drop data appended once
+  // the file is under `FaultInjectionTestFS`'s control.
+  if (io_s.ok()) {
+    bool should_track;
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
-      auto dir_and_name = TestFSGetDirAndName(fname);
-      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list[dir_and_name.second] = kNewFileNoOverwrite;
+      if (db_file_state_.find(fname) != db_file_state_.end()) {
+        // It was written by this `FileSystem` earlier.
+        assert(exists);
+        should_track = true;
+      } else if (!exists) {
+        // It was created by this `FileSystem` just now.
+        should_track = true;
+        open_managed_files_.insert(fname);
+        auto dir_and_name = TestFSGetDirAndName(fname);
+        auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+        list[dir_and_name.second] = kNewFileNoOverwrite;
+      } else {
+        should_track = false;
+      }
+    }
+    if (should_track) {
+      result->reset(
+          new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -530,7 +561,7 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // It could be overwriting an old file, but we simplify the
@@ -664,17 +695,62 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   return io_s;
 }
 
+IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
+                                        const std::string& t,
+                                        const IOOptions& options,
+                                        IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  // Using the value in `dir_to_new_files_since_last_sync_` for the source file
+  // may be a more reasonable choice.
+  std::string previous_contents = kNewFileNoOverwrite;
+
+  IOStatus io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
+
+  if (io_s.ok()) {
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(s) != db_file_state_.end()) {
+        db_file_state_[t] = db_file_state_[s];
+      }
+
+      auto sdn = TestFSGetDirAndName(s);
+      auto tdn = TestFSGetDirAndName(t);
+      if (dir_to_new_files_since_last_sync_[sdn.first].find(sdn.second) !=
+          dir_to_new_files_since_last_sync_[sdn.first].end()) {
+        auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+        assert(tlist.find(tdn.second) == tlist.end());
+        tlist[tdn.second] = previous_contents;
+      }
+    }
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  return io_s;
+}
+
 void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     db_file_state_[state.filename_] = state;
-    open_files_.erase(state.filename_);
+    open_managed_files_.erase(state.filename_);
   }
 }
 
 void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -685,7 +761,7 @@ void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
 
 void FaultInjectionTestFS::WritableFileAppended(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -764,7 +840,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
       dir_and_name.second);
   db_file_state_.erase(f);
-  open_files_.erase(f);
+  open_managed_files_.erase(f);
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(

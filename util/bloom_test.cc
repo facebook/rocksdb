@@ -552,7 +552,8 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-      EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+      EXPECT_GE(total_fp_rate / double{nfilters},
+                CACHE_LINE_SIZE >= 256 ? 0.007 : 0.008);
     }
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;

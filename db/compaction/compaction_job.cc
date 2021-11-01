@@ -109,6 +109,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "PeriodicCompaction";
     case CompactionReason::kChangeTemperature:
       return "ChangeTemperature";
+    case CompactionReason::kForcedBlobGC:
+      return "ForcedBlobGC";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -217,6 +219,7 @@ struct CompactionJob::SubcompactionState {
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
+    bool grandparant_file_switched = false;
     // Scan to find earliest grandparent file that contains key.
     while (grandparent_index < grandparents.size() &&
            icmp->Compare(internal_key,
@@ -224,6 +227,7 @@ struct CompactionJob::SubcompactionState {
                0) {
       if (seen_key) {
         overlapped_bytes += grandparents[grandparent_index]->fd.GetFileSize();
+        grandparant_file_switched = true;
       }
       assert(grandparent_index + 1 >= grandparents.size() ||
              icmp->Compare(
@@ -233,8 +237,8 @@ struct CompactionJob::SubcompactionState {
     }
     seen_key = true;
 
-    if (overlapped_bytes + curr_file_size >
-        compaction->max_compaction_bytes()) {
+    if (grandparant_file_switched && overlapped_bytes + curr_file_size >
+                                         compaction->max_compaction_bytes()) {
       // Too much overlap for current output; start new output
       overlapped_bytes = 0;
       return true;

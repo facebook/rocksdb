@@ -15,6 +15,7 @@
 #include <cinttypes>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <vector>
 
 #include "db/wal_manager.h"
@@ -25,7 +26,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
+#include "rocksdb/options.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -118,28 +121,28 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
     if (s.ok() || s.IsNotSupported()) {
       s = CreateCustomCheckpoint(
-          db_options,
           [&](const std::string& src_dirname, const std::string& fname,
               FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
                            fname.c_str());
-            return db_->GetFileSystem()->LinkFile(src_dirname + fname,
-                                                  full_private_path + fname,
-                                                  IOOptions(), nullptr);
+            return db_->GetFileSystem()->LinkFile(
+                src_dirname + "/" + fname, full_private_path + "/" + fname,
+                IOOptions(), nullptr);
           } /* link_file_cb */,
           [&](const std::string& src_dirname, const std::string& fname,
               uint64_t size_limit_bytes, FileType,
               const std::string& /* checksum_func_name */,
               const std::string& /* checksum_val */) {
             ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
-                            full_private_path + fname, size_limit_bytes,
+            return CopyFile(db_->GetFileSystem(), src_dirname + "/" + fname,
+                            full_private_path + "/" + fname, size_limit_bytes,
                             db_options.use_fsync);
           } /* copy_file_cb */,
           [&](const std::string& fname, const std::string& contents, FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-            return CreateFile(db_->GetFileSystem(), full_private_path + fname,
-                              contents, db_options.use_fsync);
+            return CreateFile(db_->GetFileSystem(),
+                              full_private_path + "/" + fname, contents,
+                              db_options.use_fsync);
           } /* create_file_cb */,
           &sequence_number, log_size_for_flush);
 
@@ -182,7 +185,6 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 }
 
 Status CheckpointImpl::CreateCustomCheckpoint(
-    const DBOptions& db_options,
     std::function<Status(const std::string& src_dirname,
                          const std::string& src_fname, FileType type)>
         link_file_cb,
@@ -196,214 +198,80 @@ Status CheckpointImpl::CreateCustomCheckpoint(
         create_file_cb,
     uint64_t* sequence_number, uint64_t log_size_for_flush,
     bool get_live_table_checksum) {
-  Status s;
-  std::vector<std::string> live_files;
-  uint64_t manifest_file_size = 0;
-  uint64_t min_log_num = port::kMaxUint64;
   *sequence_number = db_->GetLatestSequenceNumber();
+
+  LiveFilesStorageInfoOptions opts;
+  opts.include_checksum_info = get_live_table_checksum;
+  opts.wal_size_for_flush = log_size_for_flush;
+
+  std::vector<LiveFileStorageInfo> infos;
+  {
+    Status s = db_->GetLiveFilesStorageInfo(opts, &infos);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  // Verify that everything except WAL files are in same directory
+  // (db_paths / cf_paths not supported)
+  std::unordered_set<std::string> dirs;
+  for (auto& info : infos) {
+    if (info.file_type != kWalFile) {
+      dirs.insert(info.directory);
+    }
+  }
+  if (dirs.size() > 1) {
+    return Status::NotSupported(
+        "db_paths / cf_paths not supported for Checkpoint nor BackupEngine");
+  }
+
   bool same_fs = true;
-  VectorLogPtr live_wal_files;
 
-  bool flush_memtable = true;
-  if (!db_options.allow_2pc) {
-    if (log_size_for_flush == port::kMaxUint64) {
-      flush_memtable = false;
-    } else if (log_size_for_flush > 0) {
-      // If out standing log files are small, we skip the flush.
-      s = db_->GetSortedWalFiles(live_wal_files);
+  for (auto& info : infos) {
+    Status s;
+    if (!info.replacement_contents.empty()) {
+      // Currently should only be used for CURRENT file.
+      assert(info.file_type == kCurrentFile);
 
-      if (!s.ok()) {
-        return s;
+      if (info.size != info.replacement_contents.size()) {
+        s = Status::Corruption("Inconsistent size metadata for " +
+                               info.relative_filename);
+      } else {
+        s = create_file_cb(info.relative_filename, info.replacement_contents,
+                           info.file_type);
       }
-
-      // Don't flush column families if total log size is smaller than
-      // log_size_for_flush. We copy the log files instead.
-      // We may be able to cover 2PC case too.
-      uint64_t total_wal_size = 0;
-      for (auto& wal : live_wal_files) {
-        total_wal_size += wal->SizeFileBytes();
-      }
-      if (total_wal_size < log_size_for_flush) {
-        flush_memtable = false;
-      }
-      live_wal_files.clear();
-    }
-  }
-
-  // this will return live_files prefixed with "/"
-  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-
-  if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
-    return Status::InvalidArgument("cannot get the min log number to keep.");
-  }
-  // Between GetLiveFiles and getting min_log_num, flush might happen
-  // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
-  // not get the new MANIFEST size, the deleted WALs might not be reflected in
-  // the checkpoint's MANIFEST.
-  //
-  // If we get min_log_num before the above GetLiveFiles, then there might
-  // be too many unnecessary WALs to be included in the checkpoint.
-  //
-  // Ideally, min_log_num should be got together with manifest_file_size in
-  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
-  // which is a public API.
-  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
-
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
-
-  if (s.ok()) {
-    s = db_->FlushWAL(false /* sync */);
-  }
-
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
-
-  // if we have more than one column family, we need to also get WAL files
-  if (s.ok()) {
-    s = db_->GetSortedWalFiles(live_wal_files);
-  }
-  if (!s.ok()) {
-    return s;
-  }
-
-  size_t wal_size = live_wal_files.size();
-
-  // process live files, non-table, non-blob files first
-  std::string manifest_fname, current_fname;
-  // record table and blob files for processing next
-  std::vector<std::tuple<std::string, uint64_t, FileType>>
-      live_table_and_blob_files;
-  for (auto& live_file : live_files) {
-    if (!s.ok()) {
-      break;
-    }
-    uint64_t number;
-    FileType type;
-    bool ok = ParseFileName(live_file, &number, &type);
-    if (!ok) {
-      s = Status::Corruption("Can't parse file name. This is very bad");
-      break;
-    }
-    // we should only get sst, blob, options, manifest and current files here
-    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
-           type == kCurrentFile || type == kOptionsFile);
-    assert(live_file.size() > 0 && live_file[0] == '/');
-    if (type == kCurrentFile) {
-      // We will craft the current file manually to ensure it's consistent with
-      // the manifest number. This is necessary because current's file contents
-      // can change during checkpoint creation.
-      current_fname = live_file;
-      continue;
-    } else if (type == kDescriptorFile) {
-      manifest_fname = live_file;
-    }
-
-    if (type != kTableFile && type != kBlobFile) {
-      // copy non-table, non-blob files here
-      // * if it's kDescriptorFile, limit the size to manifest_file_size
-      s = copy_file_cb(db_->GetName(), live_file,
-                       (type == kDescriptorFile) ? manifest_file_size : 0, type,
-                       kUnknownFileChecksumFuncName, kUnknownFileChecksum);
     } else {
-      // process table and blob files below
-      live_table_and_blob_files.emplace_back(live_file, number, type);
-    }
-  }
-
-  // get checksum info for table and blob files.
-  // get table and blob file checksums if get_live_table_checksum is true
-  std::unique_ptr<FileChecksumList> checksum_list;
-
-  if (s.ok() && get_live_table_checksum) {
-    checksum_list.reset(NewFileChecksumList());
-    // should succeed even without checksum info present, else manifest
-    // is corrupt
-    s = GetFileChecksumsFromManifest(db_->GetEnv(),
-                                     db_->GetName() + manifest_fname,
-                                     manifest_file_size, checksum_list.get());
-  }
-
-  // copy/hard link live table and blob files
-  for (const auto& file : live_table_and_blob_files) {
-    if (!s.ok()) {
-      break;
-    }
-
-    const std::string& src_fname = std::get<0>(file);
-    const uint64_t number = std::get<1>(file);
-    const FileType type = std::get<2>(file);
-
-    // rules:
-    // * for kTableFile/kBlobFile, attempt hard link instead of copy.
-    // * but can't hard link across filesystems.
-    if (same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, type);
-      if (s.IsNotSupported()) {
-        same_fs = false;
-        s = Status::OK();
-      }
-    }
-    if (!same_fs) {
-      std::string checksum_name = kUnknownFileChecksumFuncName;
-      std::string checksum_value = kUnknownFileChecksum;
-
-      // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum list for old table files that have no file
-      // checksums
-      if (get_live_table_checksum) {
-        // find checksum info for table files
-        Status search = checksum_list->SearchOneFileChecksum(
-            number, &checksum_value, &checksum_name);
-
-        // could be a legacy file lacking checksum info. overall OK if
-        // not found
-        if (!search.ok()) {
-          assert(checksum_name == kUnknownFileChecksumFuncName);
-          assert(checksum_value == kUnknownFileChecksum);
-        }
-      }
-      s = copy_file_cb(db_->GetName(), src_fname, 0, type, checksum_name,
-                       checksum_value);
-    }
-  }
-  if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
-    s = create_file_cb(current_fname, manifest_fname.substr(1) + "\n",
-                       kCurrentFile);
-  }
-  ROCKS_LOG_INFO(db_options.info_log, "Number of log files %" ROCKSDB_PRIszt,
-                 live_wal_files.size());
-
-  // Link WAL files. Copy exact size of last one because it is the only one
-  // that has changes after the last flush.
-  ImmutableDBOptions ioptions(db_options);
-  auto wal_dir = ioptions.GetWalDir();
-  for (size_t i = 0; s.ok() && i < wal_size; ++i) {
-    if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
-      if (i + 1 == wal_size) {
-        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(),
-                         live_wal_files[i]->SizeFileBytes(), kWalFile,
-                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
-        break;
-      }
-      if (same_fs) {
-        // we only care about live log files
-        s = link_file_cb(wal_dir, live_wal_files[i]->PathName(), kWalFile);
+      if (same_fs && !info.trim_to_size) {
+        s = link_file_cb(info.directory, info.relative_filename,
+                         info.file_type);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
         }
+        s.MustCheck();
       }
-      if (!same_fs) {
-        s = copy_file_cb(wal_dir, live_wal_files[i]->PathName(), 0, kWalFile,
-                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
+      if (!same_fs || info.trim_to_size) {
+        assert(info.file_checksum_func_name.empty() ==
+               !opts.include_checksum_info);
+        // no assertion on file_checksum because empty is used for both "not
+        // set" and "unknown"
+        if (opts.include_checksum_info) {
+          s = copy_file_cb(info.directory, info.relative_filename, info.size,
+                           info.file_type, info.file_checksum_func_name,
+                           info.file_checksum);
+        } else {
+          s = copy_file_cb(info.directory, info.relative_filename, info.size,
+                           info.file_type, kUnknownFileChecksumFuncName,
+                           kUnknownFileChecksum);
+        }
       }
+    }
+    if (!s.ok()) {
+      return s;
     }
   }
 
-  return s;
+  return Status::OK();
 }
 
 // Exports all live SST files of a specified Column Family onto export_dir,

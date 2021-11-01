@@ -128,58 +128,6 @@ class SimpleSuffixReverseComparator : public Comparator {
 // endian machines.
 extern const Comparator* Uint64Comparator();
 
-// Iterator over a vector of keys/values
-class VectorIterator : public InternalIterator {
- public:
-  explicit VectorIterator(const std::vector<std::string>& keys)
-      : keys_(keys), current_(keys.size()) {
-    std::sort(keys_.begin(), keys_.end());
-    values_.resize(keys.size());
-  }
-
-  VectorIterator(const std::vector<std::string>& keys,
-      const std::vector<std::string>& values)
-    : keys_(keys), values_(values), current_(keys.size()) {
-    assert(keys_.size() == values_.size());
-  }
-
-  virtual bool Valid() const override { return current_ < keys_.size(); }
-
-  virtual void SeekToFirst() override { current_ = 0; }
-  virtual void SeekToLast() override { current_ = keys_.size() - 1; }
-
-  virtual void Seek(const Slice& target) override {
-    current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
-               keys_.begin();
-  }
-
-  virtual void SeekForPrev(const Slice& target) override {
-    current_ = std::upper_bound(keys_.begin(), keys_.end(), target.ToString()) -
-               keys_.begin();
-    if (!Valid()) {
-      SeekToLast();
-    } else {
-      Prev();
-    }
-  }
-
-  virtual void Next() override { current_++; }
-  virtual void Prev() override { current_--; }
-
-  virtual Slice key() const override { return Slice(keys_[current_]); }
-  virtual Slice value() const override { return Slice(values_[current_]); }
-
-  virtual Status status() const override { return Status::OK(); }
-
-  virtual bool IsKeyPinned() const override { return true; }
-  virtual bool IsValuePinned() const override { return true; }
-
- private:
-  std::vector<std::string> keys_;
-  std::vector<std::string> values_;
-  size_t current_;
-};
-
 class StringSink : public FSWritableFile {
  public:
   std::string contents_;

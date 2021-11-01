@@ -8,9 +8,11 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/unique_id.h"
 #include "table/block_based/block.h"
 #include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -183,6 +185,13 @@ std::string TableProperties::ToString(
   AppendProperty(result, "original file number", orig_file_number, prop_delim,
                  kv_delim);
 
+  // Unique ID, when available
+  std::string id;
+  Status s = GetUniqueIdFromTableProperties(*this, &id);
+  AppendProperty(result, "unique ID",
+                 s.ok() ? UniqueIdToHumanString(id) : "N/A", prop_delim,
+                 kv_delim);
+
   return result;
 }
 
@@ -302,6 +311,29 @@ extern const std::string kPropertiesBlock = "rocksdb.properties";
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
 extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
 extern const std::string kRangeDelBlock = "rocksdb.range_del";
+
+#ifndef NDEBUG
+void TEST_SetRandomTableProperties(TableProperties* props) {
+  Random* r = Random::GetTLSInstance();
+  // For now, TableProperties is composed of a number of uint64_t followed by
+  // a number of std::string, followed by some extras starting with
+  // user_collected_properties.
+  uint64_t* pu = &props->orig_file_number;
+  assert(static_cast<void*>(pu) == static_cast<void*>(props));
+  std::string* ps = &props->db_id;
+  const uint64_t* const pu_end = reinterpret_cast<const uint64_t*>(ps);
+  const std::string* const ps_end =
+      reinterpret_cast<const std::string*>(&props->user_collected_properties);
+
+  for (; pu < pu_end; ++pu) {
+    *pu = r->Next64();
+  }
+  assert(static_cast<void*>(pu) == static_cast<void*>(ps));
+  for (; ps < ps_end; ++ps) {
+    *ps = r->RandomBinaryString(13);
+  }
+}
+#endif
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
