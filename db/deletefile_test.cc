@@ -313,7 +313,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   options.avoid_unnecessary_blocking_io = true;
   options.create_if_missing = false;
   Reopen(options);
-  dbfull()->TEST_WaitForPurge();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
