@@ -310,6 +310,11 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     do_test(false);
   }
 
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  Reopen(options);
+  dbfull()->TEST_WaitForPurge();
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency(
@@ -317,9 +322,6 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
         "DBImpl::BGWorkPurge:start"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  options.avoid_unnecessary_blocking_io = true;
-  options.create_if_missing = false;
-  Reopen(options);
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");
     do_test(true);
