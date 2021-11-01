@@ -176,6 +176,11 @@ class VersionBuilder::Rep {
       return shared_meta_;
     }
 
+    uint64_t GetBlobFileNumber() const {
+      assert(shared_meta_);
+      return shared_meta_->GetBlobFileNumber();
+    }
+
     bool HasDelta() const { return !delta_.IsEmpty(); }
 
     const std::unordered_set<uint64_t>& GetLinkedSsts() const {
@@ -669,25 +674,119 @@ class VersionBuilder::Rep {
     return meta->oldest_blob_file_number;
   }
 
+  template <class ProcessBase, class ProcessMutable, class ProcessBoth>
+  void MergeBlobFileMetas(ProcessBase process_base,
+                          ProcessMutable process_mutable,
+                          ProcessBoth process_both) const {
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+    auto base_it = base_blob_files.begin();
+    const auto base_it_end = base_blob_files.end();
+
+    auto mutable_it = mutable_blob_file_metas_.begin();
+    const auto mutable_it_end = mutable_blob_file_metas_.end();
+
+    while (base_it != base_it_end && mutable_it != mutable_it_end) {
+      const uint64_t base_blob_file_number = base_it->first;
+      const uint64_t mutable_blob_file_number = mutable_it->first;
+
+      if (base_blob_file_number < mutable_blob_file_number) {
+        const auto& base_meta = base_it->second;
+
+        if (!process_base(base_meta)) {
+          return;
+        }
+
+        ++base_it;
+      } else if (mutable_blob_file_number < base_blob_file_number) {
+        const auto& mutable_meta = mutable_it->second;
+
+        if (!process_mutable(mutable_meta)) {
+          return;
+        }
+
+        ++mutable_it;
+      } else {
+        assert(base_blob_file_number == mutable_blob_file_number);
+
+        const auto& base_meta = base_it->second;
+        const auto& mutable_meta = mutable_it->second;
+
+        if (!process_both(base_meta, mutable_meta)) {
+          return;
+        }
+
+        ++base_it;
+        ++mutable_it;
+      }
+    }
+
+    while (base_it != base_it_end) {
+      const auto& base_meta = base_it->second;
+
+      if (!process_base(base_meta)) {
+        return;
+      }
+
+      ++base_it;
+    }
+
+    while (mutable_it != mutable_it_end) {
+      const auto& mutable_meta = mutable_it->second;
+
+      if (!process_mutable(mutable_meta)) {
+        return;
+      }
+
+      ++mutable_it;
+    }
+  }
+
+  template <class Meta>
+  static bool ProcessMeta(const Meta& meta,
+                          uint64_t* min_oldest_blob_file_num) {
+    assert(min_oldest_blob_file_num);
+
+    if (!meta.GetLinkedSsts().empty()) {
+      assert(*min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max());
+
+      *min_oldest_blob_file_num = meta.GetBlobFileNumber();
+
+      return false;
+    }
+
+    return true;
+  };
+
   uint64_t GetMinOldestBlobFileNumber() const {
     uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
-    for (int level = 0; level < num_levels_; ++level) {
-      const auto& base_files = base_vstorage_->LevelFiles(level);
-      for (const auto* fmeta : base_files) {
-        assert(fmeta);
-        min_oldest_blob_file_num =
-            std::min(min_oldest_blob_file_num, fmeta->oldest_blob_file_number);
-      }
-      const auto& added_files = levels_[level].added_files;
-      for (const auto& elem : added_files) {
-        assert(elem.second);
-        min_oldest_blob_file_num = std::min(
-            min_oldest_blob_file_num, elem.second->oldest_blob_file_number);
-      }
-    }
-    if (min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max()) {
-      min_oldest_blob_file_num = kInvalidBlobFileNumber;
-    }
+
+    auto process_base =
+        [&min_oldest_blob_file_num](
+            const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+
+          return ProcessMeta(*base_meta, &min_oldest_blob_file_num);
+        };
+
+    auto process_mutable = [&min_oldest_blob_file_num](
+                               const MutableBlobFileMetaData& mutable_meta) {
+      return ProcessMeta(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    auto process_both = [&min_oldest_blob_file_num](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+
+      // Look at mutable_meta since that's the up-to-date state
+      return ProcessMeta(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    MergeBlobFileMetas(process_base, process_mutable, process_both);
+
     return min_oldest_blob_file_num;
   }
 
