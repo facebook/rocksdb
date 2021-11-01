@@ -1643,6 +1643,9 @@ TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
   std::unique_ptr<Iterator> iter(
       batch_->NewIteratorWithBase(&cf1, new KVIter(&map)));
   ASSERT_NE(nullptr, iter);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
