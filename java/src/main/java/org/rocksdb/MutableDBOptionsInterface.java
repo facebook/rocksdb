@@ -202,9 +202,9 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   long delayedWriteRate();
 
   /**
-   * <p>Set the max total write-ahead log size. Once write-ahead logs exceed this size, we will start forcing the
-   * flush of column families whose memtables are backed by the oldest live
-   * WAL file
+   * <p>Set the max total write-ahead log size. Once write-ahead logs exceed this size, we will
+   * start forcing the flush of column families whose memtables are backed by the oldest live WAL
+   * file
    * </p>
    * <p>The oldest WAL files are the ones that are causing all the space amplification.
    * </p>
