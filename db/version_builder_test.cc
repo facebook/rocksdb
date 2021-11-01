@@ -149,7 +149,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.UpdateFilesByCompactionPri(ioptions_.compaction_pri);
+    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();
