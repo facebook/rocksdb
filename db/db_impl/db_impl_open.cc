@@ -1696,10 +1696,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
 
       impl->DeleteObsoleteFiles();
-      s = impl->directories_.GetDbDir()->FsyncWithDirOptions(
-          IOOptions(), nullptr,
-          DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
-      TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFilesAndSyncDir");
+
+      TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
