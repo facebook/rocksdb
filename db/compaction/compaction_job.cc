@@ -1850,15 +1850,17 @@ Status CompactionJob::FinishCompactionOutputFile(
     // accurate oldest ancester time.
     // This makes oldest ancester time in manifest more accurate than in
     // table properties. Not sure how to resolve it.
-    uint64_t refined_oldest_ancester_time;
-    Slice new_smallest = meta->smallest.user_key();
-    Slice new_largest = meta->largest.user_key();
-    if (!new_largest.empty() && !new_smallest.empty()) {
-      refined_oldest_ancester_time =
-          sub_compact->compaction->MinInputFileOldestAncesterTime(
-              &(meta->smallest), &(meta->largest));
-      if (refined_oldest_ancester_time != port::kMaxUint64) {
-        meta->oldest_ancester_time = refined_oldest_ancester_time;
+    if (meta->smallest.size() > 0 && meta->largest.size() > 0) {
+      uint64_t refined_oldest_ancester_time;
+      Slice new_smallest = meta->smallest.user_key();
+      Slice new_largest = meta->largest.user_key();
+      if (!new_largest.empty() && !new_smallest.empty()) {
+        refined_oldest_ancester_time =
+            sub_compact->compaction->MinInputFileOldestAncesterTime(
+                &(meta->smallest), &(meta->largest));
+        if (refined_oldest_ancester_time != port::kMaxUint64) {
+          meta->oldest_ancester_time = refined_oldest_ancester_time;
+        }
       }
     }
   }
