@@ -86,7 +86,8 @@ public enum CompressionType {
       }
     }
 
-    throw new IllegalArgumentException("Illegal internalName provided for CompressionType.");
+    throw new IllegalArgumentException(
+        "Illegal internalName '" + internalName + " ' provided for CompressionType.");
   }
 
   /**
