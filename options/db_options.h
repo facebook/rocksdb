@@ -116,7 +116,7 @@ struct ImmutableDBOptions {
 struct MutableDBOptions {
   static const char* kName() { return "MutableDBOptions"; }
   MutableDBOptions();
-  explicit MutableDBOptions(const MutableDBOptions& options) = default;
+//  explicit MutableDBOptions(const MutableDBOptions& options) = default;
   explicit MutableDBOptions(const DBOptions& options);
 
   void Dump(Logger* log) const;
