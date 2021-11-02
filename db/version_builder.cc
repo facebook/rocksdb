@@ -847,7 +847,7 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  template <class ProcessBase, class ProcessMutable, class ProcessBoth>
+  template <typename ProcessBase, typename ProcessMutable, typename ProcessBoth>
   void MergeBlobFileMetas(uint64_t first_blob_file, ProcessBase process_base,
                           ProcessMutable process_mutable,
                           ProcessBoth process_both) const {
@@ -916,7 +916,7 @@ class VersionBuilder::Rep {
     }
   }
 
-  template <class Meta>
+  template <typename Meta>
   static bool CheckLinkedSsts(const Meta& meta,
                               uint64_t* min_oldest_blob_file_num) {
     assert(min_oldest_blob_file_num);
