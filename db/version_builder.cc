@@ -973,9 +973,8 @@ class VersionBuilder::Rep {
 
   // Add the blob file specified by meta to *vstorage if it is determined to
   // contain valid data (blobs).
-  static void AddBlobFileIfNeeded(
-      VersionStorageInfo* vstorage,
-      const std::shared_ptr<BlobFileMetaData>& meta) {
+  static void AddBlobFileIfNeeded(VersionStorageInfo* vstorage,
+                                  std::shared_ptr<BlobFileMetaData> meta) {
     assert(vstorage);
     assert(meta);
 
@@ -984,7 +983,7 @@ class VersionBuilder::Rep {
       return;
     }
 
-    vstorage->AddBlobFile(meta);
+    vstorage->AddBlobFile(std::move(meta));
   }
 
   // Merge the blob file metadata from the base version with the changes (edits)
