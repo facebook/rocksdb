@@ -1214,53 +1214,9 @@ void BlockBasedTableBuilder::ComputeBlockTrailer(
     const Slice& block_contents, CompressionType compression_type,
     ChecksumType checksum_type, std::array<char, kBlockTrailerSize>* trailer) {
   (*trailer)[0] = compression_type;
-  uint32_t checksum = 0;
-  switch (checksum_type) {
-    case kNoChecksum:
-      break;
-    case kCRC32c: {
-      uint32_t crc =
-          crc32c::Value(block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      crc = crc32c::Extend(crc, trailer->data(), 1);
-      checksum = crc32c::Mask(crc);
-      break;
-    }
-    case kxxHash: {
-      XXH32_state_t* const state = XXH32_createState();
-      XXH32_reset(state, 0);
-      XXH32_update(state, block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      XXH32_update(state, trailer->data(), 1);
-      checksum = XXH32_digest(state);
-      XXH32_freeState(state);
-      break;
-    }
-    case kxxHash64: {
-      XXH64_state_t* const state = XXH64_createState();
-      XXH64_reset(state, 0);
-      XXH64_update(state, block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      XXH64_update(state, trailer->data(), 1);
-      checksum = Lower32of64(XXH64_digest(state));
-      XXH64_freeState(state);
-      break;
-    }
-    case kXXH3: {
-      // XXH3 is a complicated hash function that is extremely fast on
-      // contiguous input, but that makes its streaming support rather
-      // complex. It is worth custom handling of the last byte (`type`)
-      // in order to avoid allocating a large state object and bringing
-      // that code complexity into CPU working set.
-      checksum = Lower32of64(
-          XXH3_64bits(block_contents.data(), block_contents.size()));
-      checksum = ModifyChecksumForCompressionType(checksum, compression_type);
-      break;
-    }
-    default:
-      assert(false);
-      break;
-  }
+  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+      checksum_type, block_contents.data(), block_contents.size(),
+      /*last_byte*/ compression_type);
   EncodeFixed32(trailer->data() + 1, checksum);
 }
 
