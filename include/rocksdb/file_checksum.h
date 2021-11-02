@@ -44,9 +44,9 @@ struct FileChecksumGenContext {
 // * All calls to Update come before Finalize
 // * All calls to GetChecksum come after Finalize
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumGenerator {
  public:
   virtual ~FileChecksumGenerator() {}
@@ -69,9 +69,9 @@ class FileChecksumGenerator {
 
 // Create the FileChecksumGenerator object for each SST file.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumGenFactory : public Customizable {
  public:
   virtual ~FileChecksumGenFactory() {}
@@ -95,9 +95,9 @@ class FileChecksumGenFactory : public Customizable {
 // also be used to store the checksum information of a list of SST files to
 // be ingested.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumList {
  public:
   virtual ~FileChecksumList() {}

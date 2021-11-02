@@ -17,7 +17,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// This is NOT a callback interface but a public interface for result of
+// This is NOT an extensible interface but a public interface for result of
 // NewConcurrentTaskLimiter. Any derived classes must be RocksDB internal.
 class ConcurrentTaskLimiter {
  public:

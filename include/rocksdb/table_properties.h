@@ -85,9 +85,9 @@ extern const std::string kRangeDelBlock;
 // Statuses from these callbacks are currently logged when not OK, but
 // otherwise ignored by RocksDB.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
   virtual ~TablePropertiesCollector() {}
@@ -141,9 +141,9 @@ class TablePropertiesCollector {
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {

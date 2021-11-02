@@ -30,9 +30,9 @@ struct ConfigOptions;
 // to store prefix blooms by setting prefix_extractor in
 // ColumnFamilyOptions.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class SliceTransform : public Customizable {
  public:
   virtual ~SliceTransform(){};

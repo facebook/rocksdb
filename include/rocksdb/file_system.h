@@ -209,9 +209,9 @@ struct IODebugContext {
 // NewCompositeEnv can be used to create an Env with a custom FileSystem for
 // DBOptions::env.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileSystem : public Customizable {
  public:
   FileSystem();

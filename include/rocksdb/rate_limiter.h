@@ -15,9 +15,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class RateLimiter {
  public:
   enum class OpType {

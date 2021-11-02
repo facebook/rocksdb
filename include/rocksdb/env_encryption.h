@@ -63,9 +63,9 @@ class BlockAccessCipherStream {
 
 // BlockCipher
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
@@ -110,9 +110,9 @@ class BlockCipher : public Customizable {
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};

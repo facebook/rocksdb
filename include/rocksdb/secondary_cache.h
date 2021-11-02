@@ -44,9 +44,9 @@ class SecondaryCacheResultHandle {
 // Cache interface for caching blocks on a secondary tier (which can include
 // non-volatile media, or alternate forms of caching such as compressed data)
 //
-// RocksDB callbacks are NOT exception-safe. A callback completing with an
-// exception can lead to undefined behavior in RocksDB, including data loss,
-// unreported corruption, deadlocks, and more.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class SecondaryCache : public Customizable {
  public:
   virtual ~SecondaryCache() {}
