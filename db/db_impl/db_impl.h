@@ -1544,6 +1544,22 @@ class DBImpl : public DB {
     Env::Priority compaction_pri_;
   };
 
+std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> GetSnapshot(
+    const ReadOptions& read_options, 
+    const Slice& key, 
+    GetImplOptions& get_impl_options);
+
+enum class MemtableLookupStatus { NotFound, Failed, Found };
+std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(
+  const ReadOptions& read_options,
+  const LookupKey& lkey, 
+  std::string* timestamp,
+  SuperVersion* sv,
+  ColumnFamilyData* cfd,
+  MergeContext& merge_context,
+  SequenceNumber& max_covering_tombstone_seq,
+  GetImplOptions& get_impl_options);
+
   // Initialize the built-in column family for persistent stats. Depending on
   // whether on-disk persistent stats have been enabled before, it may either
   // create a new column family and column family handle or just a column family

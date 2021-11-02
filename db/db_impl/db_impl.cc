@@ -1814,21 +1814,14 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
-  GetImplOptions get_impl_options;
-  get_impl_options.column_family = column_family;
-  get_impl_options.value = value;
-  get_impl_options.timestamp = timestamp;
-  Status s = GetImpl(read_options, key, get_impl_options);
-  return s;
+  GetImplOptions get_impl_options = { .column_family = column_family, .value = value, .timestamp = timestamp };
+  return GetImpl(read_options, key, get_impl_options);
 }
 
 async_result DBImpl::AsyncGet(const ReadOptions& read_options,
                 ColumnFamilyHandle* column_family, const Slice& key,
                 PinnableSlice* value, std::string* timestamp) {
-  GetImplOptions get_impl_options;
-  get_impl_options.column_family = column_family;
-  get_impl_options.value = value;
-  get_impl_options.timestamp = timestamp;
+  GetImplOptions get_impl_options = { .column_family = column_family, .value = value, .timestamp = timestamp };
   auto result = AsyncGetImpl(read_options, key, get_impl_options);
   co_await result;
   co_return result.result();
@@ -1845,29 +1838,18 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 }  // namespace
 
-Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
-                       GetImplOptions& get_impl_options) {
+inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> DBImpl::GetSnapshot(
+  const ReadOptions& read_options,
+  const Slice& key, 
+  GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
-
   assert(get_impl_options.column_family);
+
+  PERF_TIMER_GUARD(get_snapshot_time);
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
   size_t ts_sz = ucmp->timestamp_size();
-  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
-
-#ifndef NDEBUG
-  if (ts_sz > 0) {
-    assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ts_sz);
-  } else {
-    assert(!read_options.timestamp);
-  }
-#endif  // NDEBUG
-
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-  PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
@@ -1928,34 +1910,27 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
-  // If timestamp is used, we use read callback to ensure <key,t,s> is returned
-  // only if t <= read_opts.timestamp and s <= snapshot.
-  // HACK: temporarily overwrite input struct field but restore
-  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  if (ts_sz > 0) {
-    assert(!get_impl_options
-                .callback);  // timestamp with callback is not supported
-    read_cb.Refresh(snapshot);
-    get_impl_options.callback = &read_cb;
-  }
-  TEST_SYNC_POINT("DBImpl::GetImpl:3");
-  TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
-  // Prepare to store a list of merge operations if merge occurs.
-  MergeContext merge_context;
-  SequenceNumber max_covering_tombstone_seq = 0;
+  PERF_TIMER_STOP(get_snapshot_time);
+  return std::make_tuple(snapshot, sv, ts_sz, cfd);
+}
 
-  Status s;
+inline std::tuple<DBImpl::MemtableLookupStatus, Status> DBImpl::LookupMemtable(
+  const ReadOptions& read_options,
+  const LookupKey& lkey, 
+  std::string* timestamp,
+  SuperVersion* sv,
+  ColumnFamilyData* cfd,
+  MergeContext& merge_context,
+  SequenceNumber& max_covering_tombstone_seq,
+  GetImplOptions& get_impl_options) {
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key, snapshot, read_options.timestamp);
-  PERF_TIMER_STOP(get_snapshot_time);
-
+  Status s;
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
-  bool done = false;
-  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+  DBImpl::MemtableLookupStatus lookup_status = DBImpl::MemtableLookupStatus::NotFound;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -1963,7 +1938,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        &merge_context, &max_covering_tombstone_seq,
                        read_options, get_impl_options.callback,
                        get_impl_options.is_blob_index)) {
-        done = true;
+        lookup_status = DBImpl::MemtableLookupStatus::Found;
         get_impl_options.value->PinSelf();
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -1972,7 +1947,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                               &max_covering_tombstone_seq, read_options,
                               get_impl_options.callback,
                               get_impl_options.is_blob_index)) {
-        done = true;
+        lookup_status = MemtableLookupStatus::Found;
         get_impl_options.value->PinSelf();
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -1982,22 +1957,68 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
                        &merge_context, &max_covering_tombstone_seq,
                        read_options, nullptr, nullptr, false)) {
-        done = true;
+        lookup_status = MemtableLookupStatus::Found;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->GetMergeOperands(lkey, &s, &merge_context,
                                            &max_covering_tombstone_seq,
                                            read_options)) {
-        done = true;
+        lookup_status = MemtableLookupStatus::Found;
         RecordTick(stats_, MEMTABLE_HIT);
       }
     }
-    if (!done && !s.ok() && !s.IsMergeInProgress()) {
+
+    if (lookup_status == MemtableLookupStatus::NotFound && !s.ok() && !s.IsMergeInProgress()) {
       ReturnAndCleanupSuperVersion(cfd, sv);
-      return s;
+      return std::make_tuple(MemtableLookupStatus::Failed, s);
     }
   }
-  if (!done) {
+
+  return std::make_tuple(lookup_status, s);
+}
+
+Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
+                       GetImplOptions& get_impl_options) {
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
+  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
+
+  SequenceNumber snapshot;
+  SuperVersion* sv;
+  size_t ts_sz;
+  ColumnFamilyData* cfd;
+  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options);
+
+  // If timestamp is used, we use read callback to ensure <key,t,s> is returned
+  // only if t <= read_opts.timestamp and s <= snapshot.
+  // HACK: temporarily overwrite input struct field but restore
+  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback); 
+  if (ts_sz > 0) {
+    assert(!get_impl_options.callback);  // timestamp with callback is not supported
+    read_cb.Refresh(snapshot);
+    get_impl_options.callback = &read_cb;
+  }
+
+  TEST_SYNC_POINT("DBImpl::GetImpl:3");
+  TEST_SYNC_POINT("DBImpl::GetImpl:4");
+  
+  // Prepare to store a list of merge operations if merge occurs.
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0;
+
+  auto lookup_status = MemtableLookupStatus::NotFound;
+  Status s;
+  LookupKey lkey(key, snapshot, read_options.timestamp);
+  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+
+  std::tie(lookup_status, s) = LookupMemtable(
+    read_options, lkey, timestamp, sv, cfd, 
+    merge_context, max_covering_tombstone_seq, get_impl_options);
+
+  if (lookup_status == DBImpl::MemtableLookupStatus::Failed)
+    return s;
+
+  if (lookup_status == DBImpl::MemtableLookupStatus::NotFound) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
@@ -2047,159 +2068,43 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
 async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
-  assert(get_impl_options.value != nullptr ||
-         get_impl_options.merge_operands != nullptr);
-
-  assert(get_impl_options.column_family);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
-
-#ifndef NDEBUG
-  if (ts_sz > 0) {
-    assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ts_sz);
-  } else {
-    assert(!read_options.timestamp);
-  }
-#endif  // NDEBUG
-
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-  PERF_TIMER_GUARD(get_snapshot_time);
-
-  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
-      get_impl_options.column_family);
-  auto cfd = cfh->cfd();
-
-  if (tracer_) {
-    // TODO: This mutex should be removed later, to improve performance when
-    // tracing is enabled.
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      // TODO: maybe handle the tracing status?
-      tracer_->Get(get_impl_options.column_family, key).PermitUncheckedError();
-    }
-  }
-
-  // Acquire SuperVersion
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
-
-  TEST_SYNC_POINT("DBImpl::GetImpl:1");
-  TEST_SYNC_POINT("DBImpl::GetImpl:2");
-
   SequenceNumber snapshot;
-  if (read_options.snapshot != nullptr) {
-    if (get_impl_options.callback) {
-      // Already calculated based on read_options.snapshot
-      snapshot = get_impl_options.callback->max_visible_seq();
-    } else {
-      snapshot =
-          reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
-    }
-  } else {
-    // Note that the snapshot is assigned AFTER referencing the super
-    // version because otherwise a flush happening in between may compact away
-    // data for the snapshot, so the reader would see neither data that was be
-    // visible to the snapshot before compaction nor the newer data inserted
-    // afterwards.
-    if (last_seq_same_as_publish_seq_) {
-      snapshot = versions_->LastSequence();
-    } else {
-      snapshot = versions_->LastPublishedSequence();
-    }
-    if (get_impl_options.callback) {
-      // The unprep_seqs are not published for write unprepared, so it could be
-      // that max_visible_seq is larger. Seek to the std::max of the two.
-      // However, we still want our callback to contain the actual snapshot so
-      // that it can do the correct visibility filtering.
-      get_impl_options.callback->Refresh(snapshot);
+  SuperVersion* sv;
+  size_t ts_sz;
+  ColumnFamilyData* cfd;
+  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options);
 
-      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
-      // max_visible_seq = max(max_visible_seq, snapshot)
-      //
-      // Currently, the commented out assert is broken by
-      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
-      // the regular transaction flow, then this special read callback would not
-      // be needed.
-      //
-      // assert(callback->max_visible_seq() >= snapshot);
-      snapshot = get_impl_options.callback->max_visible_seq();
-    }
-  }
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
-  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
+  // BUGBUG: in coroutine, RAII may not work?
+  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback); 
   if (ts_sz > 0) {
-    assert(!get_impl_options
-                .callback);  // timestamp with callback is not supported
+    assert(!get_impl_options.callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
     get_impl_options.callback = &read_cb;
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
-  // Prepare to store a list of merge operations if merge occurs.
+   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
 
+  auto lookup_status = MemtableLookupStatus::NotFound;
   Status s;
-  // First look in the memtable, then in the immutable memtable (if any).
-  // s is both in/out. When in, s could either be OK or MergeInProgress.
-  // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot, read_options.timestamp);
-  PERF_TIMER_STOP(get_snapshot_time);
-
-  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
-                        has_unpersisted_data_.load(std::memory_order_relaxed));
-  bool done = false;
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
-  skip_memtable = true;
-  if (!skip_memtable) {
-    // Get value associated with key
-    if (get_impl_options.get_value) {
-      if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), timestamp, &s,
-                       &merge_context, &max_covering_tombstone_seq,
-                       read_options, get_impl_options.callback,
-                       get_impl_options.is_blob_index)) {
-        done = true;
-        get_impl_options.value->PinSelf();
-        RecordTick(stats_, MEMTABLE_HIT);
-      } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey, get_impl_options.value->GetSelf(),
-                              timestamp, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options,
-                              get_impl_options.callback,
-                              get_impl_options.is_blob_index)) {
-        done = true;
-        get_impl_options.value->PinSelf();
-        RecordTick(stats_, MEMTABLE_HIT);
-      }
-    } else {
-      // Get Merge Operands associated with key, Merge Operands should not be
-      // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
-                       &merge_context, &max_covering_tombstone_seq,
-                       read_options, nullptr, nullptr, false)) {
-        done = true;
-        RecordTick(stats_, MEMTABLE_HIT);
-      } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                           &max_covering_tombstone_seq,
-                                           read_options)) {
-        done = true;
-        RecordTick(stats_, MEMTABLE_HIT);
-      }
-    }
-    if (!done && !s.ok() && !s.IsMergeInProgress()) {
-      ReturnAndCleanupSuperVersion(cfd, sv);
-      co_return s;
-    }
-  }
-  if (!done) {
-    PERF_TIMER_GUARD(get_from_output_files_time);
+
+  std::tie(lookup_status, s) = LookupMemtable(
+    read_options, lkey, timestamp, sv, cfd, 
+    merge_context, max_covering_tombstone_seq, get_impl_options);
+
+  if (lookup_status == DBImpl::MemtableLookupStatus::Failed)
+    co_return s;
+
+  if (lookup_status == DBImpl::MemtableLookupStatus::NotFound) {
     co_await sv->current->AsyncGet(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,
@@ -2212,8 +2117,6 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   }
 
   {
-    PERF_TIMER_GUARD(get_post_process_time);
-
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
