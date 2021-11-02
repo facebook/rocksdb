@@ -7,13 +7,13 @@
 // for more comprehensive, please check the dedicate util/filter_bench.
 #include <benchmark/benchmark.h>
 
-#include "rocksdb/options.h"
 #include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static void DBOpen(benchmark::State &state) {
+static void DBOpen(benchmark::State& state) {
   // create DB
   DB* db;
   Options options;
@@ -68,9 +68,10 @@ static void DBOpen(benchmark::State &state) {
   DestroyDB(db_name, options);
 }
 
-BENCHMARK(DBOpen)->Iterations(200); // specify iteration number as the db size is impacted by iteration number
+BENCHMARK(DBOpen)->Iterations(200);  // specify iteration number as the db size
+                                     // is impacted by iteration number
 
-static void DBClose(benchmark::State &state) {
+static void DBClose(benchmark::State& state) {
   // create DB
   DB* db;
   Options options;
@@ -125,7 +126,8 @@ static void DBClose(benchmark::State &state) {
   DestroyDB(db_name, options);
 }
 
-BENCHMARK(DBClose)->Iterations(200); // specify iteration number as the db size is impacted by iteration number
+BENCHMARK(DBClose)->Iterations(200);  // specify iteration number as the db size
+                                      // is impacted by iteration number
 
 }  // namespace ROCKSDB_NAMESPACE
 
