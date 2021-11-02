@@ -118,4 +118,10 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
   @Override
   final native void seekForPrevDirect0(
       long handle, ByteBuffer target, int targetOffset, int targetLen);
+
+  @Override
+  final native void seekByteArray0(final long handle, final byte[] target, final int targetOffset, final int targetLen);
+
+  @Override
+  final native void seekForPrevByteArray0(final long handle, final byte[] target, final int targetOffset, final int targetLen);
 }

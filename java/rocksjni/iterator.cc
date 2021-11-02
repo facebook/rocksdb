@@ -6,13 +6,15 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Iterator methods from Java side.
 
+#include "rocksdb/iterator.h"
+
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 
 #include "include/org_rocksdb_RocksIterator.h"
-#include "rocksdb/iterator.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -87,7 +89,7 @@ void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
-                                            jlong handle) {
+                                             jlong handle) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
 
@@ -119,6 +121,30 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
   it->Seek(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    seek0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_RocksIterator_seekByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  it->Seek(target_slice);
 }
 
 /*
@@ -176,6 +202,30 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
   it->SeekForPrev(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    seek0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_RocksIterator_seekForPrevByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  it->SeekForPrev(target_slice);
 }
 
 /*
@@ -289,4 +339,26 @@ jint Java_org_rocksdb_RocksIterator_valueDirect0(JNIEnv* env, jobject /*jobj*/,
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, value_slice, jtarget,
                                                   jtarget_off, jtarget_len);
+}
+
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    valueByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_RocksIterator_valueByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue,
+    jint jvalue_off, jint jvalue_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice value_slice = it->value();
+  jsize copy_size = std::min(static_cast<uint32_t>(value_slice.size()),
+                             static_cast<uint32_t>(jvalue_len));
+  env->SetByteArrayRegion(
+      jvalue, jvalue_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
+
+  return static_cast<jsize>(value_slice.size());
 }

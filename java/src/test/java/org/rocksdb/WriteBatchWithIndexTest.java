@@ -220,10 +220,10 @@ public class WriteBatchWithIndexTest {
   public void write_writeBatchWithIndexDirect() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
-      ByteBuffer k1 = ByteBuffer.allocateDirect(16);
-      ByteBuffer v1 = ByteBuffer.allocateDirect(16);
-      ByteBuffer k2 = ByteBuffer.allocateDirect(16);
-      ByteBuffer v2 = ByteBuffer.allocateDirect(16);
+      final ByteBuffer k1 = ByteBuffer.allocateDirect(16);
+      final ByteBuffer v1 = ByteBuffer.allocateDirect(16);
+      final ByteBuffer k2 = ByteBuffer.allocateDirect(16);
+      final ByteBuffer v2 = ByteBuffer.allocateDirect(16);
       k1.put("key1".getBytes()).flip();
       v1.put("value1".getBytes()).flip();
       k2.put("key2".getBytes()).flip();
@@ -304,8 +304,7 @@ public class WriteBatchWithIndexTest {
         //direct access - seek to key offsets
         final int[] testOffsets = {2, 0, 3, 4, 1};
 
-        for (int i = 0; i < testOffsets.length; i++) {
-          final int testOffset = testOffsets[i];
+        for (final int testOffset : testOffsets) {
           final byte[] key = toArray(expected[testOffset].getKey().data());
 
           it.seek(key);
@@ -316,7 +315,7 @@ public class WriteBatchWithIndexTest {
 
           // Direct buffer seek
           expected[testOffset].getKey().data().mark();
-          ByteBuffer db = expected[testOffset].getKey().data();
+          final ByteBuffer db = expected[testOffset].getKey().data();
           it.seek(db);
           assertThat(db.position()).isEqualTo(key.length);
           assertThat(it.isValid()).isTrue();

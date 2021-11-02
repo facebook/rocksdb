@@ -68,15 +68,25 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
 
  @Override
  public void seek(final ByteBuffer target) {
-   assert (isOwningHandle() && target.isDirect());
-   seekDirect0(nativeHandle_, target, target.position(), target.remaining());
+   assert (isOwningHandle());
+   if (target.isDirect()) {
+     seekDirect0(nativeHandle_, target, target.position(), target.remaining());
+   } else {
+     seekByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+         target.remaining());
+   }
    target.position(target.limit());
  }
 
  @Override
  public void seekForPrev(final ByteBuffer target) {
-   assert (isOwningHandle() && target.isDirect());
-   seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
+   assert (isOwningHandle());
+   if (target.isDirect()) {
+     seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
+   } else {
+     seekForPrevByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+         target.remaining());
+   }
    target.position(target.limit());
  }
 
@@ -129,5 +139,8 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   abstract void seekForPrev0(long handle, byte[] target, int targetLen);
   abstract void seekDirect0(long handle, ByteBuffer target, int targetOffset, int targetLen);
   abstract void seekForPrevDirect0(long handle, ByteBuffer target, int targetOffset, int targetLen);
+  abstract void seekByteArray0(long handle, byte[] target, int targetOffset, int targetLen);
+  abstract void seekForPrevByteArray0(long handle, byte[] target, int targetOffset, int targetLen);
+
   abstract void status0(long handle) throws RocksDBException;
 }

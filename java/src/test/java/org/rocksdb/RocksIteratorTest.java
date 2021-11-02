@@ -41,13 +41,6 @@ public class RocksIteratorTest {
     validateByteBufferResult(iterator.value(byteBuffer), byteBuffer, value);
   }
 
-  private ByteBuffer byteBufferKey(final ByteBuffer byteBuffer, final String key) {
-    byteBuffer.clear();
-    byteBuffer.put(key.getBytes(StandardCharsets.UTF_8));
-    byteBuffer.flip();
-
-    return byteBuffer;
-  }
 
   @Test
   public void rocksIterator() throws RocksDBException {
@@ -69,7 +62,8 @@ public class RocksIteratorTest {
         validateKey(iterator, ByteBuffer.allocateDirect(2), "key0");
         validateKey(iterator, ByteBuffer.allocateDirect(4), "key1");
         validateKey(iterator, ByteBuffer.allocateDirect(5), "key1");
-        validateValue(iterator, ByteBuffer.allocateDirect(2), "value1");
+        validateValue(iterator, ByteBuffer.allocateDirect(2), "value2");
+        validateValue(iterator, ByteBuffer.allocateDirect(2), "vasicu");
         validateValue(iterator, ByteBuffer.allocateDirect(8), "value1");
 
         validateKey(iterator, ByteBuffer.allocate(2), "key1");
@@ -98,7 +92,7 @@ public class RocksIteratorTest {
         iterator.status();
 
         {
-          final ByteBuffer key = byteBufferKey(ByteBuffer.allocateDirect(12), "key1");
+          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key1".getBytes()).flip();
           iterator.seek(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value1".getBytes());
@@ -110,7 +104,7 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = byteBufferKey(ByteBuffer.allocateDirect(12), "key2");
+          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key2".getBytes()).flip();
           iterator.seekForPrev(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value2".getBytes());
@@ -119,7 +113,7 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = byteBufferKey(ByteBuffer.allocate(12), "key1");
+          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key1".getBytes()).flip();
           iterator.seek(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value1".getBytes());
@@ -128,7 +122,18 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = byteBufferKey(ByteBuffer.allocate(12), "key2");
+          // Check offsets of slice byte buffers
+          final ByteBuffer key0 = ByteBuffer.allocate(24).clear().put("123456789012".getBytes());
+          final ByteBuffer key = key0.slice().put("key1".getBytes()).flip();
+          iterator.seek(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value1".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
+        }
+
+        {
+          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key2".getBytes()).flip();
           iterator.seekForPrev(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value2".getBytes());
