@@ -1398,6 +1398,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("a", 0, ValueType::kTypeValue, 0), "a3"},
                           {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
