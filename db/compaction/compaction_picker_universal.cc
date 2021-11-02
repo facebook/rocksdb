@@ -639,8 +639,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   }
 
   return PickCompactionToReduceSortedRunsIncremental(
-      ratio, mutable_cf_options_.max_compaction_bytes,
-      /*num_initial_pick=*/4);
+      ratio, /*max_compaction_bytes=*/
+      port::kMaxUint64 /*mutable_cf_options_.max_compaction_bytes*/,
+      /*num_initial_pick=*/1);
 }
 
 namespace {
@@ -918,15 +919,14 @@ UniversalCompactionBuilder::PickCompactionToReduceSortedRunsFromNewest(
                        cf_name_.c_str(), file_num_buf, loop);
     }
 
+    bool over_max_bytes = false;
+
     // Check if the succeeding files need compaction.
     for (size_t i = loop + 1;
          candidate_count < max_files_to_compact && i < sorted_runs_.size();
          i++) {
       const SortedRun* succeeding_sr = &sorted_runs_[i];
       if (succeeding_sr->being_compacted) {
-        break;
-      }
-      if (succeeding_sr->size + candidate_size > max_compaction_bytes) {
         break;
       }
 
@@ -940,6 +940,13 @@ UniversalCompactionBuilder::PickCompactionToReduceSortedRunsFromNewest(
       if (sz < static_cast<double>(succeeding_sr->size)) {
         break;
       }
+      if (succeeding_sr->level > 0 &&
+          succeeding_sr->size + candidate_size > max_compaction_bytes) {
+        over_max_bytes = true;
+        // Organic sorted run compaction would excceed size limit.
+        break;
+      }
+
       if (mutable_cf_options_.compaction_options_universal.stop_style ==
           kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
@@ -957,6 +964,22 @@ UniversalCompactionBuilder::PickCompactionToReduceSortedRunsFromNewest(
         candidate_size += succeeding_sr->compensated_file_size;
       }
       candidate_count++;
+    }
+
+    if (over_max_bytes) {
+      // Only compact L0 files. Since follow up compactions would be
+      // needed, we compact the minimal compactions to reduce repeats.
+      size_t last_idx;
+      for (last_idx = loop + 1; last_idx + 1 < loop + candidate_count;
+           last_idx++) {
+        const SortedRun* my_sr = &sorted_runs_[last_idx + 1];
+        if (my_sr->level > 0) {
+          break;
+        }
+      }
+      candidate_count = static_cast<unsigned int>(last_idx - loop + 1);
+      done = true;
+      break;
     }
 
     // Found a series of consecutive files that need compaction.
@@ -1063,11 +1086,28 @@ UniversalCompactionBuilder::PickCompactionToReduceSortedRunsFromNewest(
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
+  uint64_t max_file_size_for_level = MaxFileSizeForLevel(
+      mutable_cf_options_, output_level, kCompactionStyleUniversal);
+  if (mutable_cf_options_.compaction_options_universal.incremental &&
+      inputs[0].level == 0) {
+    // This is first non-L0 compaction. We need to partition appropriately
+    // so that picking one file to compact to the end is less likely to
+    // violate max_compaction_bytes
+    uint64_t estimated_db_size = 0;
+    for (auto& my_sr : sorted_runs_) {
+      estimated_db_size += my_sr.size;
+    }
+    uint64_t num_parts_needed = estimated_db_size / estimated_total_size + 1;
+    max_file_size_for_level = std::min(max_file_size_for_level,
+                                       estimated_total_size / num_parts_needed);
+    fprintf(stderr, " total size %ld compact size %ld max_file size %ld\n",
+            (long)estimated_db_size, (long)estimated_total_size,
+            (long)max_file_size_for_level);
+  }
+
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
-      std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
+      std::move(inputs), output_level, max_file_size_for_level,
       GetMaxOverlappingBytes(), path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, enable_compression),
@@ -1248,6 +1288,14 @@ std::vector<CompactionInputFiles> UniversalCompactionBuilder::PickFilesUp(
 Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
     double fanout_threshold) {
   compaction_reason_ = CompactionReason::kUniversalSizeRatio;
+
+  // // Try to pick one file and compact all the way to the last level,
+  // // ignoring max compaction bytes.
+  // return PickCompactionToReduceSortedRunsIncremental(
+  //     /*ratio=*/1000,
+  //     /*max_compaction_bytes=*/port::kMaxUint64,
+  //     /*num_initial_pick=*/1);
+
   // Try find all potential compactions with total size just over
   // options.max_compaction_size / 2, and take the one with the lowest
   // fanout (defined in declaration of the function).
