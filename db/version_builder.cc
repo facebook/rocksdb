@@ -1005,8 +1005,7 @@ class VersionBuilder::Rep {
 
     auto process_mutable =
         [vstorage](const MutableBlobFileMetaData& mutable_meta) {
-          auto meta = CreateBlobFileMetaData(mutable_meta);
-          AddBlobFileIfNeeded(vstorage, meta);
+          AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
 
           return true;
         };
@@ -1029,9 +1028,7 @@ class VersionBuilder::Rep {
         return true;
       }
 
-      auto meta = CreateBlobFileMetaData(mutable_meta);
-
-      AddBlobFileIfNeeded(vstorage, meta);
+      AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
 
       return true;
     };
