@@ -3044,8 +3044,7 @@ void VersionStorageInfo::AddBlobFile(
   auto it = blob_files_.lower_bound(blob_file_number);
   assert(it == blob_files_.end() || it->first != blob_file_number);
 
-  blob_files_.insert(
-      it, BlobFiles::value_type(blob_file_number, std::move(blob_file_meta)));
+  blob_files_.emplace_hint(it, blob_file_number, std::move(blob_file_meta));
 }
 
 // Version::PrepareApply() need to be called before calling the function, or
