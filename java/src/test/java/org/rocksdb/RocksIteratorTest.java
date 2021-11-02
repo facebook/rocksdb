@@ -8,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -23,32 +22,33 @@ public class RocksIteratorTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  private void validateByteBufferResult(final int fetched, final ByteBuffer byteBuffer, final String expected) {
+  private void validateByteBufferResult(
+      final int fetched, final ByteBuffer byteBuffer, final String expected) {
     assertThat(fetched).isEqualTo(expected.length());
     assertThat(byteBuffer.position()).isEqualTo(0);
     assertThat(byteBuffer.limit()).isEqualTo(Math.min(byteBuffer.remaining(), expected.length()));
     final int bufferSpace = byteBuffer.remaining();
     final byte[] contents = new byte[bufferSpace];
     byteBuffer.get(contents, 0, bufferSpace);
-    assertThat(contents).isEqualTo(expected.substring(0, bufferSpace).getBytes(StandardCharsets.UTF_8));
+    assertThat(contents).isEqualTo(
+        expected.substring(0, bufferSpace).getBytes(StandardCharsets.UTF_8));
   }
 
-  private void validateKey(final RocksIterator iterator, final ByteBuffer byteBuffer, final String key) {
+  private void validateKey(
+      final RocksIterator iterator, final ByteBuffer byteBuffer, final String key) {
     validateByteBufferResult(iterator.key(byteBuffer), byteBuffer, key);
   }
 
-  private void validateValue(final RocksIterator iterator, final ByteBuffer byteBuffer, final String value) {
+  private void validateValue(
+      final RocksIterator iterator, final ByteBuffer byteBuffer, final String value) {
     validateByteBufferResult(iterator.value(byteBuffer), byteBuffer, value);
   }
 
-
   @Test
   public void rocksIterator() throws RocksDBException {
-    try (final Options options = new Options()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-                 dbFolder.getRoot().getAbsolutePath())) {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
       db.put("key2".getBytes(), "value2".getBytes());
 
@@ -146,11 +146,9 @@ public class RocksIteratorTest {
 
   @Test
   public void rocksIteratorSeekAndInsert() throws RocksDBException {
-    try (final Options options = new Options()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-                 dbFolder.getRoot().getAbsolutePath())) {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
       db.put("key2".getBytes(), "value2".getBytes());
 

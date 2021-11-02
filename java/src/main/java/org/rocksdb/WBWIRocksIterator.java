@@ -192,17 +192,20 @@ public class WBWIRocksIterator
   }
 
   @Override
-  void seekForPrevDirect0(final long handle, final ByteBuffer target, final int targetOffset, final int targetLen) {
+  void seekForPrevDirect0(
+      final long handle, final ByteBuffer target, final int targetOffset, final int targetLen) {
     throw new IllegalAccessError("Not implemented");
   }
 
   @Override
-  void seekByteArray0(final long handle, final byte[] target, final int targetOffset, final int targetLen) {
+  void seekByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen) {
     throw new IllegalAccessError("Not implemented");
   }
 
   @Override
-  void seekForPrevByteArray0(final long handle, final byte[] target, final int targetOffset, final int targetLen) {
+  void seekForPrevByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen) {
     throw new IllegalAccessError("Not implemented");
   }
 }

@@ -61,7 +61,8 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
       result = keyDirect0(nativeHandle_, key, key.position(), key.remaining());
     } else {
       assert key.hasArray();
-      result = keyByteArray0(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
+      result = keyByteArray0(
+          nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
     }
     key.limit(Math.min(key.position() + result, key.limit()));
     return result;

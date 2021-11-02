@@ -60,35 +60,35 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     seek0(nativeHandle_, target, target.length);
   }
 
- @Override
- public void seekForPrev(final byte[] target) {
-   assert (isOwningHandle());
-   seekForPrev0(nativeHandle_, target, target.length);
- }
+  @Override
+  public void seekForPrev(final byte[] target) {
+    assert (isOwningHandle());
+    seekForPrev0(nativeHandle_, target, target.length);
+  }
 
- @Override
- public void seek(final ByteBuffer target) {
-   assert (isOwningHandle());
-   if (target.isDirect()) {
-     seekDirect0(nativeHandle_, target, target.position(), target.remaining());
-   } else {
-     seekByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
-         target.remaining());
-   }
-   target.position(target.limit());
- }
+  @Override
+  public void seek(final ByteBuffer target) {
+    assert (isOwningHandle());
+    if (target.isDirect()) {
+      seekDirect0(nativeHandle_, target, target.position(), target.remaining());
+    } else {
+      seekByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+          target.remaining());
+    }
+    target.position(target.limit());
+  }
 
- @Override
- public void seekForPrev(final ByteBuffer target) {
-   assert (isOwningHandle());
-   if (target.isDirect()) {
-     seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
-   } else {
-     seekForPrevByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
-         target.remaining());
-   }
-   target.position(target.limit());
- }
+  @Override
+  public void seekForPrev(final ByteBuffer target) {
+    assert (isOwningHandle());
+    if (target.isDirect()) {
+      seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
+    } else {
+      seekForPrevByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+          target.remaining());
+    }
+    target.position(target.limit());
+  }
 
   @Override
   public void next() {
