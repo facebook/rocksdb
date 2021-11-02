@@ -506,7 +506,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
     }
   }
   stats_iter.reset();
-  ASSERT_EQ(num_write_wal, 2);
+  ASSERT_EQ(num_write_wal, 1);
 
   options.persist_stats_to_disk = false;
   ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
@@ -542,7 +542,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
       }
     }
   }
-  ASSERT_EQ(num_write_wal, 2);
+  ASSERT_EQ(num_write_wal, 1);
 
   Close();
   Destroy(options);

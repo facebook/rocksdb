@@ -555,6 +555,9 @@ class StringFS : public FileSystemWrapper {
       : FileSystemWrapper(t) {}
   ~StringFS() override {}
 
+  static const char* kClassName() { return "StringFS"; }
+  const char* Name() const override { return kClassName(); }
+
   const std::string& GetContent(const std::string& f) { return files_[f]; }
 
   const IOStatus WriteToNewFile(const std::string& file_name,

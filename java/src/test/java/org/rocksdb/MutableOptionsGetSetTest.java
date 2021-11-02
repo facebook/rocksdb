@@ -44,6 +44,8 @@ public class MutableOptionsGetSetTest {
                new ColumnFamilyOptions()
                    .setMinBlobSize(minBlobSize)
                    .setEnableBlobFiles(true)
+                   .setBlobGarbageCollectionAgeCutoff(0.25)
+                   .setBlobGarbageCollectionForceThreshold(0.80)
                    .setArenaBlockSize(42)
                    .setMemtablePrefixBloomSizeRatio(0.17)
                    .setMemtableHugePageSize(3)
@@ -98,6 +100,8 @@ public class MutableOptionsGetSetTest {
         final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
             db.getOptions(columnFamilyHandle1);
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
+        assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
+        assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder1.arenaBlockSize()).isEqualTo(42);
         assertThat(builder1.memtableHugePageSize()).isEqualTo(3);
@@ -184,6 +188,8 @@ public class MutableOptionsGetSetTest {
             MutableColumnFamilyOptions.builder()
                 .setMinBlobSize(minBlobSize)
                 .setEnableBlobFiles(true)
+                .setBlobGarbageCollectionAgeCutoff(0.25)
+                .setBlobGarbageCollectionForceThreshold(0.80)
                 .setArenaBlockSize(42)
                 .setMemtablePrefixBloomSizeRatio(0.17)
                 .setMemtableHugePageSize(3)
@@ -205,6 +211,8 @@ public class MutableOptionsGetSetTest {
         final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
             db.getOptions(columnFamilyHandle1);
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
+        assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
+        assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder1.arenaBlockSize()).isEqualTo(42);
         assertThat(builder1.memtableHugePageSize()).isEqualTo(3);
@@ -294,6 +302,8 @@ public class MutableOptionsGetSetTest {
           MutableColumnFamilyOptions.builder()
               .setMinBlobSize(minBlobSize)
               .setEnableBlobFiles(true)
+              .setBlobGarbageCollectionAgeCutoff(0.25)
+              .setBlobGarbageCollectionForceThreshold(0.80)
               .setArenaBlockSize(42)
               .setMemtablePrefixBloomSizeRatio(0.17)
               .setMemtableHugePageSize(3)
@@ -314,6 +324,8 @@ public class MutableOptionsGetSetTest {
       // Check the getOptions() brings back the creation options for CF1
       final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 = db.getOptions();
       assertThat(builder1.enableBlobFiles()).isEqualTo(true);
+      assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
+      assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
       assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
       assertThat(builder1.arenaBlockSize()).isEqualTo(42);
       assertThat(builder1.memtableHugePageSize()).isEqualTo(3);

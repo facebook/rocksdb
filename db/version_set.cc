@@ -20,12 +20,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "compaction/compaction.h"
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/compaction/compaction.h"
+#include "db/compaction/file_pri.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -2426,7 +2427,8 @@ void Version::PrepareApply(
   UpdateAccumulatedStats(update_stats);
   storage_info_.UpdateNumNonEmptyLevels();
   storage_info_.CalculateBaseBytes(*cfd_->ioptions(), mutable_cf_options);
-  storage_info_.UpdateFilesByCompactionPri(cfd_->ioptions()->compaction_pri);
+  storage_info_.UpdateFilesByCompactionPri(*cfd_->ioptions(),
+                                           mutable_cf_options);
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
   storage_info_.GenerateLevel0NonOverlapping();
@@ -3138,10 +3140,21 @@ namespace {
 // Sort `temp` based on ratio of overlapping size over file size
 void SortFileByOverlappingRatio(
     const InternalKeyComparator& icmp, const std::vector<FileMetaData*>& files,
-    const std::vector<FileMetaData*>& next_level_files,
+    const std::vector<FileMetaData*>& next_level_files, SystemClock* clock,
+    int level, int num_non_empty_levels, uint64_t ttl,
     std::vector<Fsize>* temp) {
   std::unordered_map<uint64_t, uint64_t> file_to_order;
   auto next_level_it = next_level_files.begin();
+
+  int64_t curr_time;
+  Status status = clock->GetCurrentTime(&curr_time);
+  if (!status.ok()) {
+    // If we can't get time, disable TTL.
+    ttl = 0;
+  }
+
+  FileTtlBooster ttl_booster(static_cast<uint64_t>(curr_time), ttl,
+                             num_non_empty_levels, level);
 
   for (auto& file : files) {
     uint64_t overlapping_bytes = 0;
@@ -3162,9 +3175,12 @@ void SortFileByOverlappingRatio(
       next_level_it++;
     }
 
+    uint64_t ttl_boost_score = (ttl > 0) ? ttl_booster.GetBoostScore(file) : 1;
+    assert(ttl_boost_score > 0);
     assert(file->compensated_file_size != 0);
-    file_to_order[file->fd.GetNumber()] =
-        overlapping_bytes * 1024u / file->compensated_file_size;
+    file_to_order[file->fd.GetNumber()] = overlapping_bytes * 1024U /
+                                          file->compensated_file_size /
+                                          ttl_boost_score;
   }
 
   std::sort(temp->begin(), temp->end(),
@@ -3176,7 +3192,7 @@ void SortFileByOverlappingRatio(
 }  // namespace
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
-    CompactionPri compaction_pri) {
+    const ImmutableOptions& ioptions, const MutableCFOptions& options) {
   if (compaction_style_ == kCompactionStyleNone ||
       compaction_style_ == kCompactionStyleFIFO ||
       compaction_style_ == kCompactionStyleUniversal) {
@@ -3201,7 +3217,7 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     if (num > temp.size()) {
       num = temp.size();
     }
-    switch (compaction_pri) {
+    switch (ioptions.compaction_pri) {
       case kByCompensatedSize:
         std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
@@ -3222,7 +3238,8 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
         break;
       case kMinOverlappingRatio:
         SortFileByOverlappingRatio(*internal_comparator_, files_[level],
-                                   files_[level + 1], &temp);
+                                   files_[level + 1], ioptions.clock, level,
+                                   num_non_empty_levels_, options.ttl, &temp);
         break;
       default:
         assert(false);

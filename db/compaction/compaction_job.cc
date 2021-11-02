@@ -170,6 +170,13 @@ struct CompactionJob::SubcompactionState {
     }
   }
 
+  // Some identified files with old oldest ancester time and the range should be
+  // isolated out so that the output file(s) in that range can be merged down
+  // for TTL and clear the timestamps for the range.
+  std::vector<FileMetaData*> files_to_cut_for_ttl;
+  int cur_files_to_cut_for_ttl = -1;
+  int next_files_to_cut_for_ttl = 0;
+
   uint64_t current_output_file_size = 0;
 
   // State during the subcompaction
@@ -212,6 +219,8 @@ struct CompactionJob::SubcompactionState {
     return Status::OK();
   }
 
+  void FillFilesToCutForTtl();
+
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& internal_key, uint64_t curr_file_size) {
@@ -244,6 +253,40 @@ struct CompactionJob::SubcompactionState {
       return true;
     }
 
+    if (!files_to_cut_for_ttl.empty()) {
+      if (cur_files_to_cut_for_ttl != -1) {
+        // Previous key is inside the range of a file
+        if (icmp->Compare(internal_key,
+                          files_to_cut_for_ttl[cur_files_to_cut_for_ttl]
+                              ->largest.Encode()) > 0) {
+          next_files_to_cut_for_ttl = cur_files_to_cut_for_ttl + 1;
+          cur_files_to_cut_for_ttl = -1;
+          return true;
+        }
+      } else {
+        // Look for the key position
+        while (next_files_to_cut_for_ttl <
+               static_cast<int>(files_to_cut_for_ttl.size())) {
+          if (icmp->Compare(internal_key,
+                            files_to_cut_for_ttl[next_files_to_cut_for_ttl]
+                                ->smallest.Encode()) >= 0) {
+            if (icmp->Compare(internal_key,
+                              files_to_cut_for_ttl[next_files_to_cut_for_ttl]
+                                  ->largest.Encode()) <= 0) {
+              // With in the current file
+              cur_files_to_cut_for_ttl = next_files_to_cut_for_ttl;
+              return true;
+            }
+            // Beyond the current file
+            next_files_to_cut_for_ttl++;
+          } else {
+            // Still fall into the gap
+            break;
+          }
+        }
+      }
+    }
+
     return false;
   }
 
@@ -255,6 +298,46 @@ struct CompactionJob::SubcompactionState {
     return blob_garbage_meter->ProcessOutFlow(key, value);
   }
 };
+
+void CompactionJob::SubcompactionState::FillFilesToCutForTtl() {
+  if (compaction->immutable_options()->compaction_style !=
+          CompactionStyle::kCompactionStyleLevel ||
+      compaction->immutable_options()->compaction_pri !=
+          CompactionPri::kMinOverlappingRatio ||
+      compaction->mutable_cf_options()->ttl == 0 ||
+      compaction->num_input_levels() < 2 || compaction->bottommost_level()) {
+    return;
+  }
+
+  // We define new file with oldest ancestor time to be younger than 1/4 TTL,
+  // and an old one to be older than 1/2 TTL time.
+  int64_t temp_current_time;
+  auto get_time_status = compaction->immutable_options()->clock->GetCurrentTime(
+      &temp_current_time);
+  if (!get_time_status.ok()) {
+    return;
+  }
+  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  if (current_time < compaction->mutable_cf_options()->ttl) {
+    return;
+  }
+  uint64_t old_age_thres =
+      current_time - compaction->mutable_cf_options()->ttl / 2;
+
+  const std::vector<FileMetaData*>& olevel =
+      *(compaction->inputs(compaction->num_input_levels() - 1));
+  for (FileMetaData* file : olevel) {
+    // Worth filtering out by start and end?
+    uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+    // We put old files if they are not too small to prevent a flood
+    // of small files.
+    if (oldest_ancester_time < old_age_thres &&
+        file->fd.GetFileSize() >
+            compaction->mutable_cf_options()->target_file_size_base / 2) {
+      files_to_cut_for_ttl.push_back(file);
+    }
+  }
+}
 
 // Maintains state for the entire compaction
 struct CompactionJob::CompactionState {
@@ -1291,6 +1374,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
+    sub_compact->FillFilesToCutForTtl();
     // ShouldStopBefore() maintains state based on keys processed so far. The
     // compaction loop always calls it on the "next" key, thus won't tell it the
     // first key. So we do that here.
@@ -1739,7 +1823,6 @@ Status CompactionJob::FinishCompactionOutputFile(
       meta->UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                      tombstone.seq_,
                                      cfd->internal_comparator());
-
       // The smallest key in a file is used for range tombstone truncation, so
       // it cannot have a seqnum of 0 (unless the smallest data key in a file
       // has a seqnum of 0). Otherwise, the truncated tombstone may expose
@@ -1763,6 +1846,23 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
     meta->marked_for_compaction = sub_compact->builder->NeedCompact();
+    // With accurate smallest and largest key, we can get a slightly more
+    // accurate oldest ancester time.
+    // This makes oldest ancester time in manifest more accurate than in
+    // table properties. Not sure how to resolve it.
+    if (meta->smallest.size() > 0 && meta->largest.size() > 0) {
+      uint64_t refined_oldest_ancester_time;
+      Slice new_smallest = meta->smallest.user_key();
+      Slice new_largest = meta->largest.user_key();
+      if (!new_largest.empty() && !new_smallest.empty()) {
+        refined_oldest_ancester_time =
+            sub_compact->compaction->MinInputFileOldestAncesterTime(
+                &(meta->smallest), &(meta->largest));
+        if (refined_oldest_ancester_time != port::kMaxUint64) {
+          meta->oldest_ancester_time = refined_oldest_ancester_time;
+        }
+      }
+    }
   }
   sub_compact->current_output()->finished = true;
   sub_compact->total_bytes += current_bytes;
@@ -2033,8 +2133,17 @@ Status CompactionJob::OpenCompactionOutputFile(
                    get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  InternalKey tmp_start, tmp_end;
+  if (sub_compact->start != nullptr) {
+    tmp_start.SetMinPossibleForUserKey(*(sub_compact->start));
+  }
+  if (sub_compact->end != nullptr) {
+    tmp_end.SetMinPossibleForUserKey(*(sub_compact->end));
+  }
   uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime();
+      sub_compact->compaction->MinInputFileOldestAncesterTime(
+          (sub_compact->start != nullptr) ? &tmp_start : nullptr,
+          (sub_compact->end != nullptr) ? &tmp_end : nullptr);
   if (oldest_ancester_time == port::kMaxUint64) {
     oldest_ancester_time = current_time;
   }

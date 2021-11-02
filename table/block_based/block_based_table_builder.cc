@@ -316,7 +316,8 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-  std::unique_ptr<CacheReservationManager> cache_rev_mng;
+  std::unique_ptr<CacheReservationManager>
+      compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
@@ -450,10 +451,10 @@ struct BlockBasedTableBuilder::Rep {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
     }
-    if (table_options.no_block_cache) {
-      cache_rev_mng.reset(nullptr);
+    if (table_options.no_block_cache || table_options.block_cache == nullptr) {
+      compression_dict_buffer_cache_res_mgr.reset(nullptr);
     } else {
-      cache_rev_mng.reset(
+      compression_dict_buffer_cache_res_mgr.reset(
           new CacheReservationManager(table_options.block_cache));
     }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
@@ -912,19 +913,21 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       if (r->state == Rep::State::kBuffered) {
         bool exceeds_buffer_limit =
             (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
-        bool is_cache_full = false;
+        bool exceeds_global_block_cache_limit = false;
 
         // Increase cache reservation for the last buffered data block
         // only if the block is not going to be unbuffered immediately
         // and there exists a cache reservation manager
-        if (!exceeds_buffer_limit && r->cache_rev_mng != nullptr) {
-          Status s = r->cache_rev_mng->UpdateCacheReservation<
-              CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
-              r->data_begin_offset);
-          is_cache_full = s.IsIncomplete();
+        if (!exceeds_buffer_limit &&
+            r->compression_dict_buffer_cache_res_mgr != nullptr) {
+          Status s =
+              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
+                  CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+                  r->data_begin_offset);
+          exceeds_global_block_cache_limit = s.IsIncomplete();
         }
 
-        if (exceeds_buffer_limit || is_cache_full) {
+        if (exceeds_buffer_limit || exceeds_global_block_cache_limit) {
           EnterUnbuffered();
         }
       }
@@ -1207,6 +1210,60 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   }
 }
 
+void BlockBasedTableBuilder::ComputeBlockTrailer(
+    const Slice& block_contents, CompressionType compression_type,
+    ChecksumType checksum_type, std::array<char, kBlockTrailerSize>* trailer) {
+  (*trailer)[0] = compression_type;
+  uint32_t checksum = 0;
+  switch (checksum_type) {
+    case kNoChecksum:
+      break;
+    case kCRC32c: {
+      uint32_t crc =
+          crc32c::Value(block_contents.data(), block_contents.size());
+      // Extend to cover compression type
+      crc = crc32c::Extend(crc, trailer->data(), 1);
+      checksum = crc32c::Mask(crc);
+      break;
+    }
+    case kxxHash: {
+      XXH32_state_t* const state = XXH32_createState();
+      XXH32_reset(state, 0);
+      XXH32_update(state, block_contents.data(), block_contents.size());
+      // Extend to cover compression type
+      XXH32_update(state, trailer->data(), 1);
+      checksum = XXH32_digest(state);
+      XXH32_freeState(state);
+      break;
+    }
+    case kxxHash64: {
+      XXH64_state_t* const state = XXH64_createState();
+      XXH64_reset(state, 0);
+      XXH64_update(state, block_contents.data(), block_contents.size());
+      // Extend to cover compression type
+      XXH64_update(state, trailer->data(), 1);
+      checksum = Lower32of64(XXH64_digest(state));
+      XXH64_freeState(state);
+      break;
+    }
+    case kXXH3: {
+      // XXH3 is a complicated hash function that is extremely fast on
+      // contiguous input, but that makes its streaming support rather
+      // complex. It is worth custom handling of the last byte (`type`)
+      // in order to avoid allocating a large state object and bringing
+      // that code complexity into CPU working set.
+      checksum = Lower32of64(
+          XXH3_64bits(block_contents.data(), block_contents.size()));
+      checksum = ModifyChecksumForCompressionType(checksum, compression_type);
+      break;
+    }
+    default:
+      assert(false);
+      break;
+  }
+  EncodeFixed32(trailer->data() + 1, checksum);
+}
+
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
@@ -1223,50 +1280,14 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   assert(io_status().ok());
   io_s = r->file->Append(block_contents);
   if (io_s.ok()) {
-    char trailer[kBlockTrailerSize];
-    trailer[0] = type;
-    uint32_t checksum = 0;
-    switch (r->table_options.checksum) {
-      case kNoChecksum:
-        break;
-      case kCRC32c: {
-        uint32_t crc =
-            crc32c::Value(block_contents.data(), block_contents.size());
-        // Extend to cover compression type
-        crc = crc32c::Extend(crc, trailer, 1);
-        checksum = crc32c::Mask(crc);
-        break;
-      }
-      case kxxHash: {
-        XXH32_state_t* const state = XXH32_createState();
-        XXH32_reset(state, 0);
-        XXH32_update(state, block_contents.data(), block_contents.size());
-        // Extend to cover compression type
-        XXH32_update(state, trailer, 1);
-        checksum = XXH32_digest(state);
-        XXH32_freeState(state);
-        break;
-      }
-      case kxxHash64: {
-        XXH64_state_t* const state = XXH64_createState();
-        XXH64_reset(state, 0);
-        XXH64_update(state, block_contents.data(), block_contents.size());
-        // Extend to cover compression type
-        XXH64_update(state, trailer, 1);
-        checksum = Lower32of64(XXH64_digest(state));
-        XXH64_freeState(state);
-        break;
-      }
-      default:
-        assert(false);
-        break;
-    }
-    EncodeFixed32(trailer + 1, checksum);
+    std::array<char, kBlockTrailerSize> trailer;
+    ComputeBlockTrailer(block_contents, type, r->table_options.checksum,
+                        &trailer);
     assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
-        static_cast<char*>(trailer));
-    io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
+        trailer.data());
+    io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
     if (io_s.ok()) {
       assert(s.ok());
       bool warm_cache;
@@ -1953,8 +1974,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   }
   r->data_block_buffers.clear();
   r->data_begin_offset = 0;
-  if (r->cache_rev_mng != nullptr) {
-    Status s = r->cache_rev_mng->UpdateCacheReservation<
+  if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
+    Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
         CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
         r->data_begin_offset);
     s.PermitUncheckedError();

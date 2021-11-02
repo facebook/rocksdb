@@ -77,6 +77,7 @@ public class BlobOptionsTest {
       assertThat(options.enableBlobGarbageCollection()).isEqualTo(false);
       assertThat(options.blobFileSize()).isEqualTo(268435456L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
+      assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
 
       assertThat(options.setEnableBlobFiles(true)).isEqualTo(options);
       assertThat(options.setMinBlobSize(132768L)).isEqualTo(options);
@@ -85,6 +86,7 @@ public class BlobOptionsTest {
       assertThat(options.setEnableBlobGarbageCollection(true)).isEqualTo(options);
       assertThat(options.setBlobFileSize(132768L)).isEqualTo(options);
       assertThat(options.setBlobGarbageCollectionAgeCutoff(0.89)).isEqualTo(options);
+      assertThat(options.setBlobGarbageCollectionForceThreshold(0.80)).isEqualTo(options);
 
       assertThat(options.enableBlobFiles()).isEqualTo(true);
       assertThat(options.minBlobSize()).isEqualTo(132768L);
@@ -92,6 +94,7 @@ public class BlobOptionsTest {
       assertThat(options.enableBlobGarbageCollection()).isEqualTo(true);
       assertThat(options.blobFileSize()).isEqualTo(132768L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
+      assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
     }
   }
 
@@ -105,6 +108,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.enableBlobGarbageCollection()).isEqualTo(false);
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(268435456L);
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
+      assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
 
       assertThat(columnFamilyOptions.setEnableBlobFiles(true)).isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setMinBlobSize(132768L)).isEqualTo(columnFamilyOptions);
@@ -115,6 +119,8 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.setBlobFileSize(132768L)).isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setBlobGarbageCollectionAgeCutoff(0.89))
           .isEqualTo(columnFamilyOptions);
+      assertThat(columnFamilyOptions.setBlobGarbageCollectionForceThreshold(0.80))
+          .isEqualTo(columnFamilyOptions);
 
       assertThat(columnFamilyOptions.enableBlobFiles()).isEqualTo(true);
       assertThat(columnFamilyOptions.minBlobSize()).isEqualTo(132768L);
@@ -123,6 +129,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.enableBlobGarbageCollection()).isEqualTo(true);
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(132768L);
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
+      assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
     }
   }
 
@@ -135,6 +142,7 @@ public class BlobOptionsTest {
         .setBlobCompressionType(CompressionType.BZLIB2_COMPRESSION)
         .setEnableBlobGarbageCollection(true)
         .setBlobGarbageCollectionAgeCutoff(0.89)
+        .setBlobGarbageCollectionForceThreshold(0.80)
         .setBlobFileSize(132768);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(true);
@@ -142,6 +150,7 @@ public class BlobOptionsTest {
     assertThat(builder.blobCompressionType()).isEqualTo(CompressionType.BZLIB2_COMPRESSION);
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(true);
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
+    assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
     assertThat(builder.blobFileSize()).isEqualTo(132768);
 
     builder.setEnableBlobFiles(false)
@@ -149,6 +158,7 @@ public class BlobOptionsTest {
         .setBlobCompressionType(CompressionType.LZ4_COMPRESSION)
         .setEnableBlobGarbageCollection(false)
         .setBlobGarbageCollectionAgeCutoff(0.91)
+        .setBlobGarbageCollectionForceThreshold(0.96)
         .setBlobFileSize(2048);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(false);
@@ -156,15 +166,17 @@ public class BlobOptionsTest {
     assertThat(builder.blobCompressionType()).isEqualTo(CompressionType.LZ4_COMPRESSION);
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(false);
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.91);
+    assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.96);
     assertThat(builder.blobFileSize()).isEqualTo(2048);
 
     final MutableColumnFamilyOptions options = builder.build();
     assertThat(options.getKeys())
         .isEqualTo(new String[] {"enable_blob_files", "min_blob_size", "blob_compression_type",
             "enable_blob_garbage_collection", "blob_garbage_collection_age_cutoff",
-            "blob_file_size"});
+            "blob_garbage_collection_force_threshold", "blob_file_size"});
     assertThat(options.getValues())
-        .isEqualTo(new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "0.91", "2048"});
+        .isEqualTo(
+            new String[] {"false", "4096", "LZ4_COMPRESSION", "false", "0.91", "0.96", "2048"});
   }
 
   /**
