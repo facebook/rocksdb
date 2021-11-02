@@ -367,9 +367,6 @@ inline uint32_t ModifyChecksumForLastByte(uint32_t checksum, char last_byte) {
 
 uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
                                 size_t data_size) {
-  if (data_size == 0) {
-    return 0;
-  }
   switch (type) {
     case kCRC32c:
       return crc32c::Mask(crc32c::Value(data, data_size));
@@ -378,9 +375,16 @@ uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
     case kxxHash64:
       return Lower32of64(XXH64(data, data_size, /*seed*/ 0));
     case kXXH3: {
-      // See corresponding code in ComputeBuiltinChecksumWithLastByte
-      uint32_t v = Lower32of64(XXH3_64bits(data, data_size - 1));
-      return ModifyChecksumForLastByte(v, data[data_size - 1]);
+      if (data_size == 0) {
+        // Special case because of special handling for last byte, not
+        // present in this case. Can be any value different from other
+        // small input size checksums.
+        return 0;
+      } else {
+        // See corresponding code in ComputeBuiltinChecksumWithLastByte
+        uint32_t v = Lower32of64(XXH3_64bits(data, data_size - 1));
+        return ModifyChecksumForLastByte(v, data[data_size - 1]);
+      }
     }
     default:  // including kNoChecksum
       return 0;

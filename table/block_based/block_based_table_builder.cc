@@ -49,11 +49,9 @@
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/compression.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/work_queue.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1210,16 +1208,6 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   }
 }
 
-void BlockBasedTableBuilder::ComputeBlockTrailer(
-    const Slice& block_contents, CompressionType compression_type,
-    ChecksumType checksum_type, std::array<char, kBlockTrailerSize>* trailer) {
-  (*trailer)[0] = compression_type;
-  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
-      checksum_type, block_contents.data(), block_contents.size(),
-      /*last_byte*/ compression_type);
-  EncodeFixed32(trailer->data() + 1, checksum);
-}
-
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
@@ -1237,8 +1225,12 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   io_s = r->file->Append(block_contents);
   if (io_s.ok()) {
     std::array<char, kBlockTrailerSize> trailer;
-    ComputeBlockTrailer(block_contents, type, r->table_options.checksum,
-                        &trailer);
+    trailer[0] = type;
+    uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+        r->table_options.checksum, block_contents.data(), block_contents.size(),
+        /*last_byte*/ type);
+    EncodeFixed32(trailer.data() + 1, checksum);
+
     assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
