@@ -547,6 +547,10 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     ,
     ThreadLocalPtr* thread_local_io_urings
 #endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+    ,
+    ThreadLocalPtr* thread_local_io_context
+#endif
     )
     : filename_(fname),
       fd_(fd),
@@ -555,6 +559,10 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
       thread_local_io_urings_(thread_local_io_urings)
+#endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+      ,
+      thread_local_io_context_(thread_local_io_context)
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
@@ -791,6 +799,75 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     wrap_cache.clear();
   }
   return ios;
+#elif defined(ROCKSDB_LIBAIO_PRESENT)
+  io_context_t* io_ctx = nullptr;
+  if (thread_local_io_context_) {
+    io_ctx = static_cast<io_context_t*>(thread_local_io_context_->Get());
+    if (io_ctx == nullptr) {
+      io_ctx = CreateIOContext();
+      if (io_ctx != nullptr) {
+        thread_local_io_context_->Reset(io_ctx);
+      }
+    }
+  }
+
+  // Init failed, platform doesn't support libaio. Fall back to
+  // serialized reads
+  if (io_ctx == nullptr || !use_direct_io()) {
+    fprintf(stdout, "set up aio error, io_ctx == %d, dio == %d\n", io_ctx == nullptr, use_direct_io());
+    return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
+  }
+
+  struct iocb** submit_list = (struct iocb **)malloc(sizeof(struct iocb *) * kLibAioMaxNum);
+  struct iocb* iocb_list = (struct iocb *)malloc(sizeof(struct iocb) * kLibAioMaxNum);
+  struct io_event* io_event_list = (struct io_event *)malloc(sizeof(struct io_event) * kLibAioMaxNum);
+
+  size_t reqs_off = 0;
+  while (num_reqs > reqs_off) {
+    size_t this_reqs = num_reqs - reqs_off;
+
+    // If requests exceed depth, split it into batches
+    if (this_reqs > kLibAioMaxNum) this_reqs = kLibAioMaxNum;
+
+    for (size_t i = 0; i < this_reqs; i++) {
+      FSReadRequest* req_to_submit = &reqs[reqs_off++];
+
+      io_prep_pread(&iocb_list[i], fd_, req_to_submit->scratch, req_to_submit->len, req_to_submit->offset);
+      iocb_list[i].data = (void*)req_to_submit;
+      submit_list[i] = &iocb_list[i];
+    }
+
+    int ret = io_submit(*io_ctx, this_reqs, submit_list);
+    if (ret < 0) {
+      fprintf(stdout, "error occured, ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
+    }
+
+    while (this_reqs > 0) {
+      int num = io_getevents(*io_ctx, 1, this_reqs, io_event_list, NULL);
+      if (num <= 0) {
+        if (num == -(EINTR)) {
+          continue;
+        }
+      }
+
+      for (int i = 0; i < num; i++) {
+        FSReadRequest* req = static_cast<FSReadRequest*>(io_event_list[i].data);
+        if (io_event_list[i].res <= 0) {
+          fprintf(stdout, "fall back to Read\n");
+          req->status =
+            Read(req->offset, req->len, options, &(req->result), req->scratch, dbg);
+        } else {
+          req->result = Slice(req->scratch, req->len);
+          req->status = IOStatus::OK();
+        }
+      }
+      this_reqs -= num;
+    }
+  }
+  free(submit_list);
+  free(iocb_list);
+  free(io_event_list);
+  return IOStatus::OK();
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif

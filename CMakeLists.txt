@@ -976,7 +976,8 @@ else()
     port/port_posix.cc
     env/env_posix.cc
     env/fs_posix.cc
-    env/io_posix.cc)
+    env/io_posix.cc
+    env/libaio.cpp)
 endif()
 
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
