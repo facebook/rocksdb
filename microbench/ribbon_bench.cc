@@ -7,8 +7,6 @@
 // for more comprehensive, please check the dedicate util/filter_bench.
 #include <benchmark/benchmark.h>
 
-#include "rocksdb/options.h"
-#include "rocksdb/db.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/mock_block_based_table.h"
 
@@ -152,57 +150,6 @@ static void FilterQueryNegative(benchmark::State &state) {
       benchmark::Counter(fp_cnt * 100, benchmark::Counter::kAvgIterations);
 }
 BENCHMARK(FilterQueryNegative)->Apply(CustomArguments);
-
-
-static void DBOpen(benchmark::State &state) {
-  // create DB
-  DB* db;
-  Options options;
-  std::string db_name = "/Users/zjay/ws/tmp/bench";
-  DestroyDB(db_name, options);
-
-  options.create_if_missing = true;
-  Status s = DB::Open(options, db_name, &db);
-  if (!s.ok()) {
-    state.SkipWithError(s.ToString().c_str());
-    return;
-  }
-  db->Close();
-
-  options.create_if_missing = false;
-
-  auto rnd = Random(12345);
-
-  for (auto _ : state) {
-    s = DB::Open(options, db_name, &db);
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-    }
-    state.PauseTiming();
-    auto wo = WriteOptions();
-    wo.disableWAL = false;
-    for (int i = 0; i < 2; i++) {
-      for (int j = 0; j < 100; j++) {
-        s = db->Put(wo, rnd.RandomString(10), rnd.RandomString(100));
-        if (!s.ok()) {
-          state.SkipWithError(s.ToString().c_str());
-        }
-      }
-      s = db->Flush(FlushOptions());
-    }
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-    }
-    s = db->Close();
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-    }
-    state.ResumeTiming();
-  }
-  DestroyDB(db_name, options);
-}
-
-BENCHMARK(DBOpen)->Iterations(200);
 
 }  // namespace ROCKSDB_NAMESPACE
 
