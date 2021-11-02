@@ -691,7 +691,7 @@ jobs:
 
   benchmark-linux:
     machine: true
-    resource_class: rocksdb-benchmark-sys1
+    resource_class: facebook/rocksdb-benchmark-sys1
     steps:
       - run: hostname
       - run: uname -av
