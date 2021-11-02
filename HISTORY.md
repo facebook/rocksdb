@@ -10,6 +10,7 @@
 * Fix ticker WRITE_WITH_WAL("rocksdb.write.wal"), this bug is caused by a bad extra `RecordTick(stats_, WRITE_WITH_WAL)` (at 2 place), this fix remove the extra `RecordTick`s and fix the corresponding test case.
 * EventListener::OnTableFileCreated was previously called with OK status and file_size==0 in cases of no SST file contents written (because there was no content to add) and the empty file deleted before calling the listener. Now the status is Aborted.
 * Fixed a bug in CompactionIterator when write-preared transaction is used. Releasing earliest_snapshot during compaction may cause a SingleDelete to be output after a PUT of the same user key whose seq has been zeroed.
+* Added input sanitization on negative bytes passed into `GenericRateLimiter::Request`.
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
