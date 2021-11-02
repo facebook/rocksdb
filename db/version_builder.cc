@@ -917,8 +917,8 @@ class VersionBuilder::Rep {
   }
 
   template <class Meta>
-  static bool ProcessMeta(const Meta& meta,
-                          uint64_t* min_oldest_blob_file_num) {
+  static bool CheckLinkedSsts(const Meta& meta,
+                              uint64_t* min_oldest_blob_file_num) {
     assert(min_oldest_blob_file_num);
 
     if (!meta.GetLinkedSsts().empty()) {
@@ -940,12 +940,12 @@ class VersionBuilder::Rep {
             const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);
 
-          return ProcessMeta(*base_meta, &min_oldest_blob_file_num);
+          return CheckLinkedSsts(*base_meta, &min_oldest_blob_file_num);
         };
 
     auto process_mutable = [&min_oldest_blob_file_num](
                                const MutableBlobFileMetaData& mutable_meta) {
-      return ProcessMeta(mutable_meta, &min_oldest_blob_file_num);
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
     };
 
     auto process_both = [&min_oldest_blob_file_num](
@@ -955,7 +955,7 @@ class VersionBuilder::Rep {
       assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
 
       // Look at mutable_meta since that's the up-to-date state
-      return ProcessMeta(mutable_meta, &min_oldest_blob_file_num);
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
     };
 
     MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
