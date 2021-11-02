@@ -1299,6 +1299,17 @@ class MockCipher : public BlockCipher {
   Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
+#endif  // ROCKSDB_LITE
+
+class DummyFileSystem : public FileSystemWrapper {
+ public:
+  explicit DummyFileSystem(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  static const char* kClassName() { return "DummyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+};
+
+#ifndef ROCKSDB_LITE
 
 #endif  // ROCKSDB_LITE
 
@@ -1406,6 +1417,14 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
+  library.Register<FileSystem>(
+      DummyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new DummyFileSystem(nullptr));
+        return guard->get();
+      });
+
   library.Register<SstPartitionerFactory>(
       MockSstPartitionerFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -1492,6 +1511,24 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(cf_opts_.table_factory->Name(),
                  mock::MockTableFactory::kClassName());
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadFileSystemTest) {
+  ColumnFamilyOptions cf_opts;
+  std::shared_ptr<FileSystem> result;
+  ASSERT_NOK(FileSystem::CreateFromString(
+      config_options_, DummyFileSystem::kClassName(), &result));
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         FileSystem::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(FileSystem::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileSystem::CreateFromString(
+        config_options_, DummyFileSystem::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), DummyFileSystem::kClassName());
+    ASSERT_FALSE(result->IsInstanceOf(FileSystem::kDefaultName()));
   }
 }
 

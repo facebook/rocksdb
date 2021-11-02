@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -207,7 +208,8 @@ struct IODebugContext {
 // retryable.
 // NewCompositeEnv can be used to create an Env with a custom FileSystem for
 // DBOptions::env.
-class FileSystem {
+
+class FileSystem : public Customizable {
  public:
   FileSystem();
 
@@ -216,9 +218,8 @@ class FileSystem {
 
   virtual ~FileSystem();
 
-  virtual const char* Name() const = 0;
-
   static const char* Type() { return "FileSystem"; }
+  static const char* kDefaultName() { return "DefaultFileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
   // The CreateFromString alternative should be used; this method may be
@@ -1147,11 +1148,8 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
-      : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
-
-  const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }
@@ -1343,7 +1341,13 @@ class FileSystemWrapper : public FileSystem {
     return target_->IsDirectory(path, options, is_dir, dbg);
   }
 
- private:
+  const Customizable* Inner() const override { return target_.get(); }
+  Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
+#endif  // ROCKSDB_LITE
+ protected:
   std::shared_ptr<FileSystem> target_;
 };
 
