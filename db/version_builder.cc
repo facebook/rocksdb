@@ -995,81 +995,54 @@ class VersionBuilder::Rep {
   // Merge the blob file metadata from the base version with the changes (edits)
   // applied, and save the result into *vstorage.
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
-    assert(base_vstorage_);
     assert(vstorage);
 
     bool found_first_non_empty = false;
 
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-    auto base_it = base_blob_files.begin();
-    const auto base_it_end = base_blob_files.end();
+    auto process_base =
+        [vstorage, &found_first_non_empty](
+            const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
 
-    auto mutable_it = mutable_blob_file_metas_.begin();
-    const auto mutable_it_end = mutable_blob_file_metas_.end();
+          AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
 
-    while (base_it != base_it_end && mutable_it != mutable_it_end) {
-      const uint64_t base_blob_file_number = base_it->first;
-      const uint64_t mutable_blob_file_number = mutable_it->first;
+          return true;
+        };
 
-      if (base_blob_file_number < mutable_blob_file_number) {
-        const auto& base_meta = base_it->second;
+    auto process_mutable = [vstorage, &found_first_non_empty](
+                               const MutableBlobFileMetaData& mutable_meta) {
+      auto meta = CreateBlobFileMetaData(mutable_meta);
+      AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+
+      return true;
+    };
+
+    auto process_both = [vstorage, &found_first_non_empty](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+
+      if (!mutable_meta.HasDelta()) {
+        assert(base_meta->GetGarbageBlobCount() ==
+               mutable_meta.GetGarbageBlobCount());
+        assert(base_meta->GetGarbageBlobBytes() ==
+               mutable_meta.GetGarbageBlobBytes());
+        assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
 
         AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
 
-        ++base_it;
-      } else if (mutable_blob_file_number < base_blob_file_number) {
-        const auto& mutable_meta = mutable_it->second;
-
-        auto meta = CreateBlobFileMetaData(mutable_meta);
-
-        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
-
-        ++mutable_it;
-      } else {
-        assert(base_blob_file_number == mutable_blob_file_number);
-
-        const auto& base_meta = base_it->second;
-        const auto& mutable_meta = mutable_it->second;
-
-        assert(base_meta);
-        assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
-
-        if (!mutable_meta.HasDelta()) {
-          assert(base_meta->GetGarbageBlobCount() ==
-                 mutable_meta.GetGarbageBlobCount());
-          assert(base_meta->GetGarbageBlobBytes() ==
-                 mutable_meta.GetGarbageBlobBytes());
-          assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
-
-          AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
-        } else {
-          auto meta = CreateBlobFileMetaData(mutable_meta);
-
-          AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
-        }
-
-        ++base_it;
-        ++mutable_it;
+        return true;
       }
-    }
-
-    while (base_it != base_it_end) {
-      const auto& base_meta = base_it->second;
-
-      AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
-
-      ++base_it;
-    }
-
-    while (mutable_it != mutable_it_end) {
-      const auto& mutable_meta = mutable_it->second;
 
       auto meta = CreateBlobFileMetaData(mutable_meta);
 
       AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
 
-      ++mutable_it;
-    }
+      return true;
+    };
+
+    MergeBlobFileMetas(process_base, process_mutable, process_both);
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level,
