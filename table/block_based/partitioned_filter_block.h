@@ -54,6 +54,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index
   std::string last_filter_entry_key;
+  std::unique_ptr<const char[]> last_filter_data;
   std::unique_ptr<IndexBuilder> value;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.

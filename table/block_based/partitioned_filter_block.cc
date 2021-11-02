@@ -156,8 +156,9 @@ Slice PartitionedFilterBlockBuilder::Finish(
 
     last_filter_entry_key = filters.front().key;
     Slice filter = filters.front().filter;
+    last_filter_data = std::move(filters.front().filter_data);
     if (filter_data != nullptr) {
-      *filter_data = std::move(filters.front().filter_data);
+      *filter_data = std::move(last_filter_data);
     }
     filters.pop_front();
     return filter;
