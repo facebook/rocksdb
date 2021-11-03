@@ -35,7 +35,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 class VersionBuilder::Rep {
-  struct NewestFirstBySeqNo {
+  class NewestFirstBySeqNo {
+   public:
     bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
       assert(lhs);
       assert(rhs);
@@ -53,7 +54,8 @@ class VersionBuilder::Rep {
     }
   };
 
-  struct BySmallestKey {
+  class BySmallestKey {
+   public:
     explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
 
     bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
