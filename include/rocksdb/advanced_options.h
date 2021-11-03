@@ -105,9 +105,14 @@ struct CompressionOptions {
   //
   // When compression dictionary is disabled, we compress and write each block
   // before buffering data for the next one. When compression dictionary is
-  // enabled, we buffer all SST file data in-memory so we can sample it, as data
+  // enabled, we buffer SST file data in-memory so we can sample it, as data
   // can only be compressed and written after the dictionary has been finalized.
-  // So users of this feature may see increased memory usage.
+  //
+  // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
+  // buffered memory is charged to the block cache when there is a block cache.
+  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // full), we finalize the dictionary with whatever data we have and then stop
+  // buffering.
   //
   // Default: 0.
   uint32_t max_dict_bytes;
