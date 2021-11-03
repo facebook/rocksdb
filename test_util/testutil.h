@@ -573,6 +573,24 @@ class StringFS : public FileSystemWrapper {
       return IOStatus::OK();
     }
 
+    virtual async_result AsyncAppend(const Slice& data, 
+                            const IOOptions& options,
+                            IODebugContext* dbg) {
+      (void)data;
+      (void)options;
+      (void)dbg;
+      throw "not implemented";
+    }
+
+    virtual async_result AsyncAppend(const Slice& data, const IOOptions& opts,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) override {
+      (void)data;
+      (void)opts;
+      (void)dbg;
+      throw "not implemented";
+    }
+
    private:
     std::string* contents_;
   };
