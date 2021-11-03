@@ -120,10 +120,9 @@ Status OverlapWithIterator(const Comparator* ucmp,
 // are MergeInProgress).
 class FilePicker {
  public:
-  FilePicker(std::vector<FileMetaData*>* files, const Slice& user_key,
-             const Slice& ikey, autovector<LevelFilesBrief>* file_levels,
-             unsigned int num_levels, FileIndexer* file_indexer,
-             const Comparator* user_comparator,
+  FilePicker(const Slice& user_key, const Slice& ikey,
+             autovector<LevelFilesBrief>* file_levels, unsigned int num_levels,
+             FileIndexer* file_indexer, const Comparator* user_comparator,
              const InternalKeyComparator* internal_comparator)
       : num_levels_(num_levels),
         curr_level_(static_cast<unsigned int>(-1)),
@@ -131,9 +130,6 @@ class FilePicker {
         hit_file_level_(static_cast<unsigned int>(-1)),
         search_left_bound_(0),
         search_right_bound_(FileIndexer::kLevelMaxIndex),
-#ifndef NDEBUG
-        files_(files),
-#endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
         curr_file_level_(nullptr),
@@ -142,9 +138,6 @@ class FilePicker {
         file_indexer_(file_indexer),
         user_comparator_(user_comparator),
         internal_comparator_(internal_comparator) {
-#ifdef NDEBUG
-    (void)files;
-#endif
     // Setup member variables to search first level.
     search_ended_ = !PrepareNextLevel();
     if (!search_ended_) {
@@ -214,23 +207,7 @@ class FilePicker {
             }
           }
         }
-#ifndef NDEBUG
-        // Sanity check to make sure that the files are correctly sorted
-        if (prev_file_) {
-          if (curr_level_ != 0) {
-            int comp_sign = internal_comparator_->Compare(
-                prev_file_->largest_key, f->smallest_key);
-            assert(comp_sign < 0);
-          } else {
-            // level == 0, the current file cannot be newer than the previous
-            // one. Use compressed data structure, has no attribute seqNo
-            assert(curr_index_in_curr_level_ > 0);
-            assert(!NewestFirstBySeqNo(files_[0][curr_index_in_curr_level_],
-                  files_[0][curr_index_in_curr_level_-1]));
-          }
-        }
-        prev_file_ = f;
-#endif
+
         returned_file_level_ = curr_level_;
         if (curr_level_ > 0 && cmp_largest < 0) {
           // No more files to search in this level.
@@ -262,9 +239,6 @@ class FilePicker {
   unsigned int hit_file_level_;
   int32_t search_left_bound_;
   int32_t search_right_bound_;
-#ifndef NDEBUG
-  std::vector<FileMetaData*>* files_;
-#endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
   bool is_hit_file_last_in_level_;
@@ -276,9 +250,6 @@ class FilePicker {
   FileIndexer* file_indexer_;
   const Comparator* user_comparator_;
   const InternalKeyComparator* internal_comparator_;
-#ifndef NDEBUG
-  FdWithKeyRange* prev_file_;
-#endif
 
   // Setup local variables to search next level.
   // Returns false if there are no more levels to search.
@@ -348,9 +319,7 @@ class FilePicker {
       }
       start_index_in_curr_level_ = start_index;
       curr_index_in_curr_level_ = start_index;
-#ifndef NDEBUG
-      prev_file_ = nullptr;
-#endif
+
       return true;
     }
     // curr_level_ = num_levels_. So, no more levels to search.
@@ -2022,10 +1991,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     pinned_iters_mgr.StartPinning();
   }
 
-  FilePicker fp(
-      storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
-      storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
-      user_comparator(), internal_comparator());
+  FilePicker fp(user_key, ikey, &storage_info_.level_files_brief_,
+                storage_info_.num_non_empty_levels_,
+                &storage_info_.file_indexer_, user_comparator(),
+                internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
 
   while (f != nullptr) {
