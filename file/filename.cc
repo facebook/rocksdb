@@ -405,7 +405,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->Fsync(IOOptions(), nullptr);
+      s = directory_to_fsync->FsyncWithDirOptions(
+          IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
     fs->DeleteFile(tmp, IOOptions(), nullptr)
@@ -428,9 +429,19 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   assert(!id.empty());
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);
+  std::string identify_file_name = IdentityFileName(dbname);
   Status s = WriteStringToFile(env, id, tmp, true);
   if (s.ok()) {
-    s = env->RenameFile(tmp, IdentityFileName(dbname));
+    s = env->RenameFile(tmp, identify_file_name);
+  }
+  std::unique_ptr<FSDirectory> dir_obj;
+  if (s.ok()) {
+    s = env->GetFileSystem()->NewDirectory(dbname, IOOptions(), &dir_obj,
+                                           nullptr);
+  }
+  if (s.ok()) {
+    s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+                                     DirFsyncOptions(identify_file_name));
   }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();

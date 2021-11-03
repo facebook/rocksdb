@@ -100,7 +100,36 @@ struct IOOptions {
   // such as NewRandomAccessFile and NewWritableFile.
   std::unordered_map<std::string, std::string> property_bag;
 
-  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
+  // Force directory fsync, some file systems like btrfs may skip directory
+  // fsync, set this to force the fsync
+  bool force_dir_fsync;
+
+  IOOptions() : IOOptions(false) {}
+
+  explicit IOOptions(bool force_dir_fsync_)
+      : timeout(std::chrono::microseconds::zero()),
+        prio(IOPriority::kIOLow),
+        type(IOType::kUnknown),
+        force_dir_fsync(force_dir_fsync_) {}
+};
+
+struct DirFsyncOptions {
+  enum FsyncReason : uint8_t {
+    kNewFileSynced,
+    kFileRenamed,
+    kDirRenamed,
+    kFileDeleted,
+    kDefault,
+  } reason;
+
+  std::string renamed_new_name;  // for kFileRenamed
+  // add other options for other FsyncReason
+
+  DirFsyncOptions();
+
+  explicit DirFsyncOptions(std::string file_renamed_new_name);
+
+  explicit DirFsyncOptions(FsyncReason fsync_reason);
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -1111,6 +1140,15 @@ class FSDirectory {
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) = 0;
 
+  // FsyncWithDirOptions after renaming a file. Depends on the filesystem, it
+  // may fsync directory or just the renaming file (e.g. btrfs). By default, it
+  // just calls directory fsync.
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& /*dir_fsync_options*/) {
+    return Fsync(options, dbg);
+  }
+
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
@@ -1623,6 +1661,13 @@ class FSDirectoryWrapper : public FSDirectory {
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);
   }
+
+  IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override {
+    return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

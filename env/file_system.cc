@@ -241,4 +241,16 @@ std::string FileSystemWrapper::SerializeOptions(
   }
 }
 #endif  // ROCKSDB_LITE
+
+DirFsyncOptions::DirFsyncOptions() { reason = kDefault; }
+
+DirFsyncOptions::DirFsyncOptions(std::string file_renamed_new_name) {
+  reason = kFileRenamed;
+  renamed_new_name = file_renamed_new_name;
+}
+
+DirFsyncOptions::DirFsyncOptions(FsyncReason fsync_reason) {
+  assert(fsync_reason != kFileRenamed);
+  reason = fsync_reason;
+}
 }  // namespace ROCKSDB_NAMESPACE

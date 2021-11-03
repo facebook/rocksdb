@@ -120,7 +120,9 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       }
     }
     if (io_s.ok()) {
-      io_s = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+      io_s = directories_.GetWalDir()->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
     mutex_.Lock();
@@ -532,7 +534,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        Status error_status = dir->Fsync(IOOptions(), nullptr);
+        Status error_status = dir->FsyncWithDirOptions(
+            IOOptions(), nullptr,
+            DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
         if (!error_status.ok()) {
           s = error_status;
           break;
