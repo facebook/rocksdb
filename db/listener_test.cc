@@ -772,7 +772,7 @@ class TableFileCreationListener : public EventListener {
     } else {
       if (idx >= 0) {
         failure_[idx]++;
-        last_failure = info.status;
+        last_failure_ = info.status;
       }
     }
   }
@@ -780,7 +780,7 @@ class TableFileCreationListener : public EventListener {
   int started_[2];
   int finished_[2];
   int failure_[2];
-  Status last_failure;
+  Status last_failure_;
 };
 
 TEST_F(EventListenerTest, TableFileCreationListenersTest) {
@@ -803,7 +803,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   test_env->SetStatus(Status::NotSupported("not supported"));
   ASSERT_NOK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
-  ASSERT_TRUE(listener->last_failure.IsNotSupported());
+  ASSERT_TRUE(listener->last_failure_.IsNotSupported());
   test_env->SetStatus(Status::OK());
 
   Reopen(options);
@@ -826,7 +826,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(SingleDelete("baz"));
   ASSERT_OK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
-  ASSERT_TRUE(listener->last_failure.IsAborted());
+  ASSERT_TRUE(listener->last_failure_.IsAborted());
 
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
@@ -836,6 +836,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
       dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd));
   ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
+  ASSERT_TRUE(listener->last_failure_.IsNotSupported());
   Close();
 }
 
