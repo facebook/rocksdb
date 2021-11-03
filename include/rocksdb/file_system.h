@@ -106,7 +106,7 @@ struct IOOptions {
 
   IOOptions() : IOOptions(false) {}
 
-  IOOptions(bool force_dir_fsync_)
+  explicit IOOptions(bool force_dir_fsync_)
       : timeout(std::chrono::microseconds::zero()),
         prio(IOPriority::kIOLow),
         type(IOType::kUnknown),
