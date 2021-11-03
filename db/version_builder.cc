@@ -299,7 +299,7 @@ class VersionBuilder::Rep {
   }
 
   template <class Checker>
-  Status CheckConsistencyLevelDetails(
+  Status CheckConsistencyDetailsForLevel(
       const VersionStorageInfo* vstorage, int level, Checker checker,
       const std::string& sync_point,
       ExpectedLinkedSsts* expected_linked_ssts) const {
@@ -395,7 +395,7 @@ class VersionBuilder::Rep {
           return Status::OK();
         };
 
-        const Status s = CheckConsistencyLevelDetails(
+        const Status s = CheckConsistencyDetailsForLevel(
             vstorage, /* level */ 0, l0_checker,
             "VersionBuilder::CheckConsistency0", &expected_linked_ssts);
         if (!s.ok()) {
@@ -436,7 +436,7 @@ class VersionBuilder::Rep {
           return Status::OK();
         };
 
-        const Status s = CheckConsistencyLevelDetails(
+        const Status s = CheckConsistencyDetailsForLevel(
             vstorage, level, checker, "VersionBuilder::CheckConsistency1",
             &expected_linked_ssts);
         if (!s.ok()) {
