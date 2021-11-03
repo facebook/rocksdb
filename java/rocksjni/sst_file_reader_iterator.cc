@@ -297,6 +297,9 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevDirect0(
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
  * Class:     org_rocksdb_SstFileReaderIterator
  * Method:    seekByteArray0
  * Signature: (J[BII)V
@@ -321,6 +324,9 @@ void Java_org_rocksdb_SstFileReaderIterator_seekByteArray0(
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
  * Class:     org_rocksdb_SstFileReaderIterator
  * Method:    seekForPrevByteArray0
  * Signature: (J[BII)V
