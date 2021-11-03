@@ -42,6 +42,7 @@
 * Introduced a new BlobDB configuration option `blob_garbage_collection_force_threshold`, which can be used to trigger compactions targeting the SST files which reference the oldest blob files when the ratio of garbage in those blob files meets or exceeds the specified threshold. This can reduce space amplification with skewed workloads where the affected SST files might not otherwise get picked up for compaction.
 * Added EXPERIMENTAL support for table file (SST) unique identifiers that are stable and universally unique, available with new function `GetUniqueIdFromTableProperties`. Only SST files from RocksDB >= 6.24 support unique IDs.
 * Added `GetMapProperty()` support for "rocksdb.dbstats" (`DB::Properties::kDBStats`). As a map property, it includes DB-level internal stats accumulated over the DB's lifetime, such as user write related stats and uptime.
+* [EXPERIMENTAL] Add option CompactionOptionsUniversal.incremental. With the option, RocksDB will try to avoid large compaction in univeral compaction and limit compaction size under options.max_compaction_bytes. Write amplification might increase to make it possible. The feature now covers normal size amp and sorted run reduction compactions, but not other compactions, e.g. manual compaction, TTL comapction, etc, and has performance limitations.
 
 ### Public API change
 * Made SystemClock extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
