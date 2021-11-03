@@ -17,6 +17,8 @@
 
 ### Public API change
 * Made FileSystem extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
+* Clarified in API comments that RocksDB is not exception safe for callbacks and custom extensions. An exception propagating into RocksDB can lead to undefined behavior, including data loss, unreported corruption, deadlocks, and more.
+* Marked `WriteBufferManager` as `final` because it is not intended for extension.
 
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes

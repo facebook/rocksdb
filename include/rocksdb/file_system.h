@@ -208,7 +208,10 @@ struct IODebugContext {
 // retryable.
 // NewCompositeEnv can be used to create an Env with a custom FileSystem for
 // DBOptions::env.
-
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileSystem : public Customizable {
  public:
   FileSystem();
@@ -731,10 +734,11 @@ class FSRandomAccessFile {
   // Read a bunch of blocks as described by reqs. The blocks can
   // optionally be read in parallel. This is a synchronous call, i.e it
   // should return after all reads have completed. The reads will be
-  // non-overlapping. If the function return Status is not ok, status of
-  // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
-  // any errors that occur before even processing specific read requests
+  // non-overlapping but can be in any order. If the function return Status
+  // is not ok, status of individual requests will be ignored and return
+  // status will be assumed for all read requests. The function return status
+  // is only meant for errors that occur before processing individual read
+  // requests.
   virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                              const IOOptions& options, IODebugContext* dbg) {
     assert(reqs != nullptr);

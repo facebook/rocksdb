@@ -396,6 +396,9 @@ struct CompactionServiceJobInfo {
         priority(priority_) {}
 };
 
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class CompactionService : public Customizable {
  public:
   static const char* Type() { return "CompactionService"; }

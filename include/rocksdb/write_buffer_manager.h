@@ -23,8 +23,8 @@
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
 
-// Interface to block and signal DB instances.
-// Each DB instance contains ptr to StallInterface.
+// Interface to block and signal DB instances, intended for RocksDB
+// internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
  public:
   virtual ~StallInterface() {}
@@ -34,7 +34,7 @@ class StallInterface {
   virtual void Signal() = 0;
 };
 
-class WriteBufferManager {
+class WriteBufferManager final {
  public:
   // Parameters:
   // _buffer_size: _buffer_size = 0 indicates no limit. Memory won't be capped.

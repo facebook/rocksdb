@@ -62,6 +62,10 @@ class BlockAccessCipherStream {
 };
 
 // BlockCipher
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
@@ -105,6 +109,10 @@ class BlockCipher : public Customizable {
 // The encryption provider is used to create a cipher stream for a specific
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};
