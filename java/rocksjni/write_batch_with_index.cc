@@ -768,7 +768,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seekDirect0(
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    seekByteArray0
- * Signature: (JLjava/nio/ByteBuffer;II)V
+ * Signature: (J[BII)V
  */
 void Java_org_rocksdb_WBWIRocksIterator_seekByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
@@ -832,8 +832,8 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrevDirect0(
 
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
- * Method:    seekByteArray0
- * Signature: (JLjava/nio/ByteBuffer;II)V
+ * Method:    seekForPrevByteArray0
+ * Signature: (J[BII)V
  */
 void Java_org_rocksdb_WBWIRocksIterator_seekForPrevByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
