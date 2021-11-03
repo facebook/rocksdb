@@ -109,9 +109,10 @@ struct CompressionOptions {
   // can only be compressed and written after the dictionary has been finalized.
   //
   // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
-  // buffered memory is charged to block cache when available. If block cache
-  // insertion fails with `Status::Incomplete` (i.e., it is full), we finalize
-  // the dictionary with whatever data we have and then stop buffering.
+  // buffered memory is charged to the block cache when there is a block cache.
+  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // full), we finalize the dictionary with whatever data we have and then stop
+  // buffering.
   //
   // Default: 0.
   uint32_t max_dict_bytes;
