@@ -27,7 +27,7 @@ if [ ! -z $EMAIL ]; then
       'type':'email',
       'triggers': [ '$TRIGGER' ],
       'emails':['$EMAIL']
-  },"
+  }"
 fi
 
 CREATE_TASK=
@@ -38,8 +38,8 @@ if [ ! -z $ONCALL ]; then
       'triggers':[ 'fail' ],
       'priority':0,
       'subscribers':[ '$SUBSCRIBER' ],
-      'tags':[ 'rocksdb', 'ci' ],
-  },"
+      'tags':[ 'rocksdb', 'ci' ]
+  }"
 fi
 
 # For now, create the tasks using only the dedicated task creation tool.
@@ -48,7 +48,7 @@ CREATE_TASK=
 REPORT=
 if [[ ! -z $REPORT_EMAIL || ! -z $CREATE_TASK ]]; then
   REPORT="'report': [
-    $REPORT_EMAIL
+    $REPORT_EMAIL,
     $CREATE_TASK
   ]"
 fi
@@ -79,9 +79,9 @@ UPLOAD_DB_DIR="
     {
       'name':'rocksdb_db_dir',
       'paths': ['rocksdb_db.tar.gz'],
-      'bundle': false,
-    },
-    ],
+      'bundle': false
+    }
+    ]
 }"
 
 # We will eventually set the RATIO to 1, but we want do this
@@ -141,8 +141,8 @@ DISABLE_COMMANDS="[
               'name':'Job disabled. Please contact test owner',
               'shell':'exit 1',
               'user':'root'
-            },
-        ],
+            }
+        ]
     }
 ]"
 
@@ -161,7 +161,7 @@ UNIT_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -184,7 +184,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $NON_SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -205,7 +205,7 @@ RELEASE_BUILD_COMMANDS="[
                 'shell':'cd $WORKING_DIR; make $PARALLEL_j release || $CONTRUN_NAME=release $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -226,7 +226,7 @@ UNIT_TEST_COMMANDS_481="[
                 'shell':'cd $WORKING_DIR; $SHM $GCC_481 $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=unit_gcc_481_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -247,7 +247,7 @@ RELEASE_BUILD_COMMANDS_481="[
                 'shell':'cd $WORKING_DIR; $GCC_481 make $PARALLEL_j release || $CONTRUN_NAME=release_gcc481 $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -268,7 +268,7 @@ CLANG_UNIT_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $CLANG $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=clang_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -289,7 +289,7 @@ CLANG_RELEASE_BUILD_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $CLANG make $PARALLEL_j release|| $CONTRUN_NAME=clang_release $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -310,7 +310,7 @@ CLANG_ANALYZE_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $CLANG $SHM $DEBUG make $PARALLEL_j analyze || $CONTRUN_NAME=clang_analyze $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -331,7 +331,7 @@ CODE_COV_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM coverage || $CONTRUN_NAME=coverage $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -352,7 +352,7 @@ UNITY_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SHM $DEBUG V=1 make J=1 unity_test || $CONTRUN_NAME=unity_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -373,7 +373,7 @@ LITE_BUILD_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SKIP_FORMAT_CHECKS make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -403,7 +403,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -433,7 +433,7 @@ BLACKBOX_STRESS_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -463,7 +463,7 @@ WHITEBOX_STRESS_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -493,7 +493,7 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -523,7 +523,7 @@ STRESS_CRASH_TEST_WITH_TXN_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -553,7 +553,7 @@ STRESS_CRASH_TEST_WITH_TS_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -621,7 +621,7 @@ ASAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -645,7 +645,7 @@ ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -669,7 +669,7 @@ ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -693,7 +693,7 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -717,7 +717,7 @@ ASAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -762,7 +762,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -786,7 +786,7 @@ UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -810,7 +810,7 @@ UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -834,7 +834,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -858,7 +858,7 @@ UBSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -881,7 +881,7 @@ VALGRIND_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SHM $DEBUG make $PARALLELISM valgrind_test || $CONTRUN_NAME=valgrind_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -904,7 +904,7 @@ TSAN_UNIT_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=tsan_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -928,7 +928,7 @@ TSAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -952,7 +952,7 @@ TSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -976,7 +976,7 @@ TSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -1000,7 +1000,7 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -1024,7 +1024,7 @@ TSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
+            $UPLOAD_DB_DIR
         ],
         $REPORT
     }
@@ -1041,7 +1041,7 @@ run_format_compatible()
   mkdir /dev/shm/rocksdb
 
   export https_proxy="fwdproxy:8080"
-  
+
   tools/check_format_compatible.sh
 }
 
@@ -1057,7 +1057,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
                 'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_format_compatible || $CONTRUN_NAME=run_format_compatible $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -1092,7 +1092,7 @@ NO_COMPRESSION_COMMANDS="[
                 'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_no_compression || $CONTRUN_NAME=run_no_compression $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -1152,7 +1152,7 @@ REGRESSION_COMMANDS="[
                 'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_regression || $CONTRUN_NAME=run_regression $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -1173,7 +1173,7 @@ JAVA_BUILD_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; $SETUP_JAVA_ENV; $SHM make rocksdbjava || $CONTRUN_NAME=rocksdbjava $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
@@ -1207,7 +1207,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
                 'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_fbcode_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            },
+            }
         ],
         $REPORT
     }
