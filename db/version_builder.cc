@@ -943,6 +943,7 @@ class VersionBuilder::Rep {
     return true;
   };
 
+  // Find the oldest blob file that has linked SSTs.
   uint64_t GetMinOldestBlobFileNumber() const {
     uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
 
@@ -965,7 +966,7 @@ class VersionBuilder::Rep {
       assert(base_meta);
       assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
 
-      // Look at mutable_meta since that's the up-to-date state
+      // Look at mutable_meta since it supersedes *base_meta
       return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
     };
 
