@@ -136,6 +136,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
   // partitions
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
+    last_filter_data.reset();
     if (finishing_filters) {
       // Simplest to just add them all at the end
       total_added_in_built_ = 0;
