@@ -967,7 +967,7 @@ class VersionBuilder::Rep {
       assert(base_meta);
       assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
 #else
-      void(base_meta);
+      (void)base_meta;
 #endif
 
       // Look at mutable_meta since it supersedes *base_meta
