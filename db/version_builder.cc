@@ -847,6 +847,15 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  // Helper function template for merging the blob file metadata from the base
+  // version with the mutable metadata representing the state after applying the
+  // edits. The function objects process_base and process_mutable are
+  // respectively called to handle a base version object when there is no
+  // matching mutable object, and a mutable object when there is no matching
+  // base version object. process_both is called to perform the merge when a
+  // given blob file appears both in the base version and the mutable list. The
+  // helper stops processing objects if a function object returns false. Blob
+  // files with a file number below first_blob_file are not processed.
   template <typename ProcessBase, typename ProcessMutable, typename ProcessBoth>
   void MergeBlobFileMetas(uint64_t first_blob_file, ProcessBase process_base,
                           ProcessMutable process_mutable,
@@ -916,6 +925,8 @@ class VersionBuilder::Rep {
     }
   }
 
+  // Helper function template for finding the first blob file that has linked
+  // SSTs.
   template <typename Meta>
   static bool CheckLinkedSsts(const Meta& meta,
                               uint64_t* min_oldest_blob_file_num) {
