@@ -401,6 +401,10 @@ class CompactionIterator {
 
   const int level_;
 
+  // True if the previous internal key (same user key)'s sequence number has
+  // just been zeroed out during bottommost compaction.
+  bool last_key_seq_zeroed_{false};
+
   void AdvanceInputIter() { input_.Next(); }
 
   void SkipUntil(const Slice& skip_until) { input_.Seek(skip_until); }
