@@ -963,8 +963,12 @@ class VersionBuilder::Rep {
     auto process_both = [&min_oldest_blob_file_num](
                             const std::shared_ptr<BlobFileMetaData>& base_meta,
                             const MutableBlobFileMetaData& mutable_meta) {
+#ifndef NDEBUG
       assert(base_meta);
       assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+#else
+      void(base_meta);
+#endif
 
       // Look at mutable_meta since it supersedes *base_meta
       return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
