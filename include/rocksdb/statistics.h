@@ -417,6 +417,11 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Tiered storage related statistics
+  HOT_FILE_READ_BYTES,
+  WARM_FILE_READ_BYTES,
+  COLD_FILE_READ_BYTES,
+
   TICKER_ENUM_MAX
 };
 

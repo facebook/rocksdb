@@ -786,6 +786,13 @@ public enum TickerType {
     REMOTE_COMPACT_READ_BYTES((byte) -0x22),
     REMOTE_COMPACT_WRITE_BYTES((byte) -0x23),
 
+    /**
+     * Tiered storage related statistics
+     */
+    HOT_FILE_READ_BYTES((byte) -0x24),
+    WARM_FILE_READ_BYTES((byte) -0x25),
+    COLD_FILE_READ_BYTES((byte) -0x26),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
