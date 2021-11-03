@@ -160,17 +160,31 @@ public class SstFileReaderTest {
       assertThat(iterator.key()).isEqualTo("key1".getBytes());
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-      byteBuffer.clear();
-      assertThat(iterator.key(byteBuffer)).isEqualTo("key1".getBytes().length);
-      byte[] dst = new byte["key1".getBytes().length];
-      byteBuffer.get(dst);
-      assertThat(new String(dst)).isEqualTo("key1");
+      {
+        byteBuffer.clear();
+        assertThat(iterator.key(byteBuffer)).isEqualTo("key1".getBytes().length);
+        final byte[] dst = new byte["key1".getBytes().length];
+        byteBuffer.get(dst);
+        assertThat(new String(dst)).isEqualTo("key1");
+      }
 
-      byteBuffer.clear();
-      assertThat(iterator.value(byteBuffer)).isEqualTo("value1".getBytes().length);
-      dst = new byte["value1".getBytes().length];
-      byteBuffer.get(dst);
-      assertThat(new String(dst)).isEqualTo("value1");
+      {
+        byteBuffer.clear();
+        byteBuffer.put("PREFIX".getBytes());
+        final ByteBuffer slice = byteBuffer.slice();
+        assertThat(iterator.key(byteBuffer)).isEqualTo("key1".getBytes().length);
+        final byte[] dst = new byte["key1".getBytes().length];
+        slice.get(dst);
+        assertThat(new String(dst)).isEqualTo("key1");
+      }
+
+      {
+        byteBuffer.clear();
+        assertThat(iterator.value(byteBuffer)).isEqualTo("value1".getBytes().length);
+        final byte[] dst = new byte["value1".getBytes().length];
+        byteBuffer.get(dst);
+        assertThat(new String(dst)).isEqualTo("value1");
+      }
 
       byteBuffer.clear();
       byteBuffer.put("key1point5".getBytes()).flip();
@@ -199,6 +213,15 @@ public class SstFileReaderTest {
       assertThat(iterator.isValid()).isTrue();
       assertThat(iterator.key()).isEqualTo("key2".getBytes());
       assertThat(iterator.value()).isEqualTo("value2".getBytes());
+
+      byteBuffer.clear();
+      byteBuffer.put("PREFIX".getBytes());
+      final ByteBuffer slice = byteBuffer.slice();
+      slice.put("key1point5".getBytes()).flip();
+      iterator.seekForPrev(slice);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key1".getBytes());
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
   }
 }
