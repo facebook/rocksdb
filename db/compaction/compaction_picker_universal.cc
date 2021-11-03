@@ -9,8 +9,6 @@
 
 #include "db/compaction/compaction_picker_universal.h"
 
-#include <bits/stdint-uintn.h>
-
 #include "db/version_edit.h"
 #include "port/port_posix.h"
 #include "rocksdb/listener.h"
