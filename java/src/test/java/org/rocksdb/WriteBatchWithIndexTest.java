@@ -20,6 +20,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.ByteBufferAllocator;
 
 public class WriteBatchWithIndexTest {
 
@@ -192,30 +193,14 @@ public class WriteBatchWithIndexTest {
     }
   }
 
-  static interface ByteBufferAllocator { ByteBuffer allocate(int capacity); }
-
-  static class ByteBufferAllocatorDirect implements ByteBufferAllocator {
-    @Override
-    public ByteBuffer allocate(final int capacity) {
-      return ByteBuffer.allocateDirect(capacity);
-    }
-  }
-
-  static class ByteBufferAllocatorIndirect implements ByteBufferAllocator {
-    @Override
-    public ByteBuffer allocate(final int capacity) {
-      return ByteBuffer.allocate(capacity);
-    }
-  }
-
   @Test
   public void readYourOwnWritesCfIterDirectBB() throws RocksDBException {
-    readYourOwnWritesCfIterDirect(new ByteBufferAllocatorDirect());
+    readYourOwnWritesCfIterDirect(new ByteBufferAllocator.Direct());
   }
 
   @Test
   public void readYourOwnWritesCfIterIndirectBB() throws RocksDBException {
-    readYourOwnWritesCfIterDirect(new ByteBufferAllocatorIndirect());
+    readYourOwnWritesCfIterDirect(new ByteBufferAllocator.Indirect());
   }
 
   public void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
