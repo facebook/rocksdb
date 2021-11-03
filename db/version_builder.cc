@@ -383,7 +383,7 @@ class VersionBuilder::Rep {
             // This is an external file that we ingested
             const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
 
-            if (!(external_file_seqno < lhs->fd.largest_seqno ||
+            if (!(external_file_seqno < lhs->fd.smallest_seqno ||
                   external_file_seqno == 0)) {
               std::ostringstream oss;
               oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
