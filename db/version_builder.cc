@@ -933,7 +933,7 @@ class VersionBuilder::Rep {
     assert(min_oldest_blob_file_num);
 
     if (!meta.GetLinkedSsts().empty()) {
-      assert(*min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max());
+      assert(*min_oldest_blob_file_num == kInvalidBlobFileNumber);
 
       *min_oldest_blob_file_num = meta.GetBlobFileNumber();
 
@@ -945,7 +945,7 @@ class VersionBuilder::Rep {
 
   // Find the oldest blob file that has linked SSTs.
   uint64_t GetMinOldestBlobFileNumber() const {
-    uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
+    uint64_t min_oldest_blob_file_num = kInvalidBlobFileNumber;
 
     auto process_base =
         [&min_oldest_blob_file_num](
