@@ -629,10 +629,10 @@ static void test_BitOps() {
     EXPECT_EQ(EndianSwapValue(v), ev);
 
     // ReverseBits
-    T rv = T{1} << (8 * sizeof(T) - 1 - i);
     EXPECT_EQ(ReverseBits(v), static_cast<T>(T{1} << (8 * sizeof(T) - 1 - i)));
 #ifdef HAVE_UINT128_EXTENSION          // Uses multiplication
     if (std::is_unsigned<T>::value) {  // Technical UB on signed type
+      T rv = T{1} << (8 * sizeof(T) - 1 - i);
       EXPECT_EQ(ReverseBits(vm1), static_cast<T>(rv * ~T{1}));
     }
 #endif
