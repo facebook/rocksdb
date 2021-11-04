@@ -110,10 +110,13 @@ class OffsetableCacheKey : private CacheKey {
   // that also happens to usually be the same among many files in the same DB,
   // so is efficient and highly accurate (not perfectly) for DB-specific cache
   // dump selection (but not file-specific).
-  static constexpr size_t kCommonPrefixSize = sizeof(session_etc64_);
+  static constexpr size_t kCommonPrefixSize = 8;
   inline Slice CommonPrefixSlice() const {
+    static_assert(sizeof(session_etc64_) == kCommonPrefixSize,
+                  "8 byte common prefix expected");
     assert(!IsEmpty());
     assert(&this->session_etc64_ == static_cast<const void *>(this));
+
     return Slice(reinterpret_cast<const char *>(this), kCommonPrefixSize);
   }
 
