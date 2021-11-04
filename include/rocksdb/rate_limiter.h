@@ -9,13 +9,14 @@
 
 #pragma once
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class RateLimiter {
+class RateLimiter : public Customizable {
  public:
   enum class OpType {
     // Limitation: we currently only invoke Request() with OpType::kRead for
@@ -29,8 +30,13 @@ class RateLimiter {
     kAllIo,
   };
 
+  static const char* Type() { return "RateLimiter"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<RateLimiter>* result);
+
   // For API compatibility, default to rate-limiting writes only.
-  explicit RateLimiter(Mode mode = Mode::kWritesOnly) : mode_(mode) {}
+  explicit RateLimiter(Mode mode = Mode::kWritesOnly);
 
   virtual ~RateLimiter() {}
 
@@ -120,7 +126,7 @@ class RateLimiter {
   Mode GetMode() { return mode_; }
 
  private:
-  const Mode mode_;
+  Mode mode_;
 };
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to
