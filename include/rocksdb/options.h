@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <liburing.h>
 #include <limits>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/async_result.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -1401,6 +1403,23 @@ enum ReadTier {
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
+struct IOUringOptions {
+  struct io_uring *ioring;
+  std::function<void(async_result)> delegate;
+
+  IOUringOptions(struct io_uring *input) : ioring{input} {
+    assert(input != nullptr);
+  }
+
+  IOUringOptions(std::function<void(async_result)> input) : 
+    delegate{std::move(input)} {
+  }
+
+  IOUringOptions(std::function<void(async_result)>&& input) : 
+    delegate{std::forward<std::function<void(async_result)>>(input)} {
+  }
+};
+
 // Options that control read operations
 struct ReadOptions {
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
@@ -1589,6 +1608,9 @@ struct ReadOptions {
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
 
+  // 
+  const IOUringOptions* io_uring_option;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1661,6 +1683,9 @@ struct WriteOptions {
   // and the API is subject to change.
   const Slice* timestamp;
 
+  // 
+  const IOUringOptions* io_uring_option;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
@@ -1668,7 +1693,8 @@ struct WriteOptions {
         no_slowdown(false),
         low_pri(false),
         memtable_insert_hint_per_batch(false),
-        timestamp(nullptr) {}
+        timestamp(nullptr),
+        io_uring_option{nullptr} {}
 };
 
 // Options that control flush operations

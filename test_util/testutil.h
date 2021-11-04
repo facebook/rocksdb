@@ -354,6 +354,18 @@ class StringSource : public FSRandomAccessFile {
     return IOStatus::OK();
   }
 
+  async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                        Slice* result, char* scratch,
+                        IODebugContext* dbg) const override{
+    (void)offset;
+    (void)n;
+    (void)options;
+    (void)result;
+    (void)scratch;
+    (void)dbg;
+    throw "Not implemented";
+  }
+
   size_t GetUniqueId(char* id, size_t max_size) const override {
     if (max_size < 20) {
       return 0;

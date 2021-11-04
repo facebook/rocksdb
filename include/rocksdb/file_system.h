@@ -92,6 +92,9 @@ struct IOOptions {
   // Type of data being read/written
   IOType type;
 
+  //
+  const IOUringOptions* io_uring_option;
+
   // EXPERIMENTAL
   // An option map that's opaque to RocksDB. It can be used to implement a
   // custom contract between a FileSystem user and the provider. This is only
@@ -100,7 +103,7 @@ struct IOOptions {
   // such as NewRandomAccessFile and NewWritableFile.
   std::unordered_map<std::string, std::string> property_bag;
 
-  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
+  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown), io_uring_option(nullptr) {}
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -846,8 +849,9 @@ class FSWritableFile {
 
   virtual async_result AsyncAppend(
       const Slice& data, const IOOptions& options,
-      const DataVerificationInfo& /* verification_info */,
+      const DataVerificationInfo& verification_info,
       IODebugContext* dbg) {
+    (void)verification_info;
     auto result = AsyncAppend(data, options, dbg);
     co_await result;
     co_return result.io_result();

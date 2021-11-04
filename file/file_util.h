@@ -83,6 +83,9 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
       (!opts.timeout.count() || ro.io_timeout < opts.timeout)) {
     opts.timeout = ro.io_timeout;
   }
+
+  opts.io_uring_option = ro.io_uring_option;
+
   return IOStatus::OK();
 }
 
