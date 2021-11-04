@@ -433,6 +433,8 @@ void CompactionIterator::NextFromInput() {
 
       has_outputted_key_ = false;
 
+      last_key_seq_zeroed_ = false;
+
       current_key_committed_ = KeyCommitted(ikey_.sequence);
 
       // Apply the compaction filter to the first committed version of the user
@@ -594,10 +596,16 @@ void CompactionIterator::NextFromInput() {
         TEST_SYNC_POINT_CALLBACK(
             "CompactionIterator::NextFromInput:SingleDelete:1",
             const_cast<Compaction*>(c));
-        // Check whether the next key belongs to the same snapshot as the
-        // SingleDelete.
-        if (prev_snapshot == 0 ||
-            DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
+        if (last_key_seq_zeroed_) {
+          ++iter_stats_.num_record_drop_hidden;
+          ++iter_stats_.num_record_drop_obsolete;
+          assert(bottommost_level_);
+          AdvanceInputIter();
+        } else if (prev_snapshot == 0 ||
+                   DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
+          // Check whether the next key belongs to the same snapshot as the
+          // SingleDelete.
+
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
           if (next_ikey.type == kTypeSingleDeletion) {
@@ -661,6 +669,9 @@ void CompactionIterator::NextFromInput() {
           // We hit the next snapshot without hitting a put, so the iterator
           // returns the single delete.
           valid_ = true;
+          TEST_SYNC_POINT_CALLBACK(
+              "CompactionIterator::NextFromInput:SingleDelete:3",
+              const_cast<Compaction*>(c));
         }
       } else {
         // We are at the end of the input, could not parse the next key, or hit
@@ -683,6 +694,11 @@ void CompactionIterator::NextFromInput() {
           if (!bottommost_level_) {
             ++iter_stats_.num_optimized_del_drop_obsolete;
           }
+        } else if (last_key_seq_zeroed_) {
+          // Skip.
+          ++iter_stats_.num_record_drop_hidden;
+          ++iter_stats_.num_record_drop_obsolete;
+          assert(bottommost_level_);
         } else {
           // Output SingleDelete
           valid_ = true;
@@ -1038,6 +1054,9 @@ void CompactionIterator::PrepareOutput() {
                         ikey_.type);
       }
       ikey_.sequence = 0;
+      last_key_seq_zeroed_ = true;
+      TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput:ZeroingSeq",
+                               &ikey_);
       if (!timestamp_size_) {
         current_key_.UpdateInternalKey(0, ikey_.type);
       } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {

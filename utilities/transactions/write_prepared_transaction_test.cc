@@ -3067,6 +3067,138 @@ TEST_P(WritePreparedTransactionTest,
   db->ReleaseSnapshot(snapshot1);
 }
 
+TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "b"));
+
+  // Take a snapshot so that the SD won't be dropped during flush.
+  auto* tmp_snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value2"));
+  auto* snapshot = db->GetSnapshot();
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  db->ReleaseSnapshot(tmp_snapshot);
+
+  // Bump the sequence so that the below bg compaction job's snapshot will be
+  // different from snapshot's sequence.
+  ASSERT_OK(db->Put(WriteOptions(), "z", "foo"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        const auto* const ikey =
+            reinterpret_cast<const ParsedInternalKey*>(arg);
+        assert(ikey);
+        if (ikey->user_key == "b") {
+          assert(ikey->type == kTypeValue);
+          db->ReleaseSnapshot(snapshot);
+
+          // Bump max_evicted_seq.
+          ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Generate an L0 with only SD for one key "b".
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  // Take a snapshot so that subsequent flush outputs the SD for "b".
+  auto* tmp_snapshot = db->GetSnapshot();
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "b"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:3", [&](void* arg) {
+        if (!arg) {
+          db->ReleaseSnapshot(tmp_snapshot);
+          // Bump max_evicted_seq
+          ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Finish generating L0 with only SD for "b".
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Move the L0 to L2.
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value1"));
+
+  auto* snapshot = db->GetSnapshot();
+
+  // Bump seq so that a subsequent flush/compaction job's snapshot is larger
+  // than the above snapshot's seq.
+  ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+
+  // Generate a second L0.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        const auto* const ikey =
+            reinterpret_cast<const ParsedInternalKey*>(arg);
+        assert(ikey);
+        if (ikey->user_key == "b") {
+          assert(ikey->type == kTypeValue);
+          db->ReleaseSnapshot(snapshot);
+
+          // Bump max_evicted_seq.
+          ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,

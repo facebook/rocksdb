@@ -30,6 +30,10 @@ std::vector<CompressionType> GetSupportedDictCompressions();
 
 std::vector<ChecksumType> GetSupportedChecksums();
 
+inline bool IsSupportedChecksumType(ChecksumType type) {
+  return type >= kNoChecksum && type <= kXXH3;
+}
+
 // Checks that the combination of DBOptions and ColumnFamilyOptions are valid
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts);

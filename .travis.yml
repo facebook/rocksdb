@@ -124,9 +124,6 @@ matrix:
     os : linux
     arch: arm64
     env: JOB_NAME=cmake
-  - os : linux
-    arch: s390x
-    env: JOB_NAME=cmake
   - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os : linux
     arch: arm64
@@ -171,7 +168,8 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc8
-  - os: linux
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
     arch: s390x
     env: JOB_NAME=cmake-gcc8
   - if: type = pull_request AND commit_message !~ /FULL_CI/
@@ -182,7 +180,8 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc9
-  - os: linux
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
     arch: s390x
     env: JOB_NAME=cmake-gcc9
   - if: type = pull_request AND commit_message !~ /FULL_CI/
@@ -193,7 +192,8 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc9-c++20
-  - os: linux
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
     arch: s390x
     env: JOB_NAME=cmake-gcc9-c++20
   - if: type = pull_request AND commit_message !~ /FULL_CI/
