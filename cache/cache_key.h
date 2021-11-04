@@ -33,10 +33,10 @@ class CacheKey {
  public:
   // For convenience, constructs an "empty" cache key that is never returned
   // by other means.
-  inline CacheKey() : session_id64_(), offset_etc64_() {}
+  inline CacheKey() : session_etc64_(), offset_etc64_() {}
 
   inline bool IsEmpty() const {
-    return (session_id64_ == 0) & (offset_etc64_ == 0);
+    return (session_etc64_ == 0) & (offset_etc64_ == 0);
   }
 
   // Use this cache key as a Slice (byte order is endianness-dependent)
@@ -59,39 +59,65 @@ class CacheKey {
 
  protected:
   friend class OffsetableCacheKey;
-  CacheKey(uint64_t session_id64, uint64_t offset_etc64)
-      : session_id64_(session_id64), offset_etc64_(offset_etc64) {}
-  uint64_t session_id64_;
+  CacheKey(uint64_t session_etc64, uint64_t offset_etc64)
+      : session_etc64_(session_etc64), offset_etc64_(offset_etc64) {}
+  uint64_t session_etc64_;
   uint64_t offset_etc64_;
 };
 
-// TODO: doc
+// A file-specific generator of cache keys, sometimes referred to as the
+// "base" cache key for a file because all the cache keys for various offsets
+// within the file are computed using simple arithmetic. The basis for the
+// general approach is dicussed here: https://github.com/pdillinger/unique_id
+// Heavily related to GetUniqueIdFromTableProperties.
+//
+// If the db_id, db_session_id, and file_number come from the file's table
+// properties, then the keys will be stable across DB::Open/Close, backup/
+// restore, import/export, etc.
+//
+// This class "is a" CacheKey only privately so that it is not misused as
+// a ready-to-use CacheKey.
 class OffsetableCacheKey : private CacheKey {
  public:
+  // For convenience, constructs an "empty" cache key that should not be used.
   inline OffsetableCacheKey() : CacheKey() {}
+
+  // Constructs an OffsetableCacheKey with the given information about a file.
+  // max_offset is based on file size (see WithOffset) and is required here to
+  // choose an appropriate (sub-)encoding. This constructor never generates an
+  // "empty" base key.
   OffsetableCacheKey(const std::string &db_id, const std::string &db_session_id,
                      uint64_t file_number, uint64_t max_offset);
 
   inline bool IsEmpty() const {
-    bool result = session_id64_ == 0;
+    bool result = session_etc64_ == 0;
     assert(!(offset_etc64_ > 0 && result));
     return result;
   }
 
+  // Construct a CacheKey for an offset within a file, which must be
+  // <= max_offset provided in constructor. An offset is not necessarily a
+  // byte offset if a smaller unique identifier of keyable offsets is used.
+  //
+  // This class was designed to make this hot code extremely fast.
   inline CacheKey WithOffset(uint64_t offset) const {
     assert(!IsEmpty());
     assert(offset <= max_offset_);
-    return CacheKey(session_id64_, offset_etc64_ ^ offset);
+    return CacheKey(session_etc64_, offset_etc64_ ^ offset);
   }
 
-  static constexpr size_t kCommonPrefixSize = sizeof(session_id64_);
-
+  // The "common prefix" is a shared prefix for all the returned CacheKeys,
+  // that also happens to usually be the same among many files in the same DB,
+  // so is efficient and highly accurate (not perfectly) for DB-specific cache
+  // dump selection (but not file-specific).
+  static constexpr size_t kCommonPrefixSize = sizeof(session_etc64_);
   inline Slice CommonPrefixSlice() const {
     assert(!IsEmpty());
-    assert(&this->session_id64_ == static_cast<const void *>(this));
+    assert(&this->session_etc64_ == static_cast<const void *>(this));
     return Slice(reinterpret_cast<const char *>(this), kCommonPrefixSize);
   }
 
+  // For any max_offset <= this value, the same encoding scheme is guaranteed.
   static constexpr uint64_t kMaxOffsetStandardEncoding = 0xffffffffffU;
 
  private:
