@@ -36,11 +36,20 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
     }
     for (auto id = ptc.begin(); id != ptc.end(); id++) {
       OffsetableCacheKey base;
+      // We only want to save cache entries that are portable to another
+      // DB::Open, so only save entries with stable keys.
+      bool is_stable;
+      // WART: if the file is extremely large (> kMaxFileSizeStandardEncoding)
+      // then the prefix will be different. But this should not be a concern
+      // in practice because that limit is currently 4TB on a single file.
       BlockBasedTable::SetupBaseCacheKey(
           id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
-          /*file_size*/ 42, &base);
-      prefix_filter_.insert(
-          base.WithOffset(0).AsSlice().ToString().substr(0, 8));
+          /*file_size*/ 42, &base, &is_stable);
+      if (is_stable) {
+        Slice prefix_slice = base.FilePrefixSlice();
+        assert(prefix_slice.size() == OffsetableCacheKey::kFilePrefixSize);
+        prefix_filter_.insert(prefix_slice.ToString());
+      }
     }
   }
   return s;
@@ -88,17 +97,13 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
 // Check if we need to filter out the block based on its key
 bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
-  // FIXME
-  // Since now we use db_session_id as the prefix, the prefix size is 20. If
-  // Anything changes in the future, we need to update it here.
-  bool filter_out = true;
-  size_t prefix_size = 8;
-  Slice key_prefix(key.data(), prefix_size);
-  std::string prefix = key_prefix.ToString();
-  if (prefix_filter_.find(prefix) != prefix_filter_.end()) {
-    filter_out = false;
+  if (key.size() < OffsetableCacheKey::kFilePrefixSize) {
+    return /*filter out*/ true;
   }
-  return filter_out;
+  Slice key_prefix(key.data(), OffsetableCacheKey::kFilePrefixSize);
+  std::string prefix = key_prefix.ToString();
+  // Filter out if not found
+  return prefix_filter_.find(prefix) == prefix_filter_.end();
 }
 
 // This is the callback function which will be applied to

@@ -485,10 +485,12 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 }
 }  // namespace
 
-void BlockBasedTable::SetupBaseCacheKey(
-    const TableProperties* properties, const std::string& cur_db_session_id,
-    uint64_t cur_file_number, uint64_t file_size,
-    OffsetableCacheKey* out_base_cache_key) {
+void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
+                                        const std::string& cur_db_session_id,
+                                        uint64_t cur_file_number,
+                                        uint64_t file_size,
+                                        OffsetableCacheKey* out_base_cache_key,
+                                        bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
   std::string db_session_id;
   uint64_t file_num;
@@ -505,6 +507,9 @@ void BlockBasedTable::SetupBaseCacheKey(
     db_id = properties->db_id;
     // fprintf(stderr, "Setup stable: %s,%s,%u\n", db_id.c_str(),
     // db_session_id.c_str(), (unsigned)file_num);
+    if (out_is_stable) {
+      *out_is_stable = true;
+    }
   } else {
     // (Old SST file case)
     // We use (unique) cache keys based on current identifiers. These are at
@@ -519,6 +524,9 @@ void BlockBasedTable::SetupBaseCacheKey(
     db_id = "unknown";
     // fprintf(stderr, "Setup unstable: %s,%s,%u\n", db_id.c_str(),
     // db_session_id.c_str(), (unsigned)file_num);
+    if (out_is_stable) {
+      *out_is_stable = false;
+    }
   }
 
   // Too many tests to update to get these working
@@ -527,7 +535,7 @@ void BlockBasedTable::SetupBaseCacheKey(
   // assert(!db_id.empty());
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offets.
+  // from offets. See GetCacheKey.
   *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
                                            /*max_offset*/ file_size >> 2);
 }

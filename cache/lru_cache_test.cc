@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/cache_key.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -16,7 +17,6 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/utilities/cache_dump_load.h"
-#include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -234,10 +234,10 @@ class TestSecondaryCache : public SecondaryCache {
   void ResetInjectFailure() { inject_failure_ = false; }
 
   void SetDbSessionId(const std::string& db_session_id) {
-    uint64_t upper = 0, lower = 0;
-    ASSERT_OK(DecodeSessionId(db_session_id, &upper, &lower));
-    ckey_prefix_.resize(sizeof(lower));
-    memcpy(&ckey_prefix_[0], &lower, sizeof(lower));
+    // NOTE: we assume the file is smaller than kMaxFileSizeStandardEncoding
+    // for this to work, but that's safe in a test.
+    auto base = OffsetableCacheKey("unknown", db_session_id, 1, 1);
+    ckey_prefix_ = base.FilePrefixSlice().ToString();
   }
 
   Status Insert(const Slice& key, void* value,

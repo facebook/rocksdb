@@ -58,6 +58,16 @@ class OffsetableCacheKey : private CacheKey {
     return CacheKey(hi64_, lo64_ ^ offset);
   }
 
+  static constexpr size_t kFilePrefixSize = sizeof(hi64_);
+
+  inline Slice FilePrefixSlice() const {
+    static_assert(sizeof(CacheKey) == kCacheKeySize,
+                  "Standardized on 16-byte cache key");
+    assert(!IsEmpty());
+    assert(&this->hi64_ == static_cast<const void *>(this));
+    return Slice(reinterpret_cast<const char *>(this), kFilePrefixSize);
+  }
+
   static constexpr uint64_t kMaxOffsetStandardEncoding = 0xffffffffffU;
 
  private:
