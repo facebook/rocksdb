@@ -12,8 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr uint32_t kCacheKeySize = 16;
-
 class Cache;
 
 class CacheKey {
@@ -23,10 +21,9 @@ class CacheKey {
   inline bool IsEmpty() const { return (hi64_ == 0) & (lo64_ == 0); }
 
   inline Slice AsSlice() const {
-    static_assert(sizeof(CacheKey) == kCacheKeySize,
-                  "Standardized on 16-byte cache key");
+    static_assert(sizeof(*this) == 16, "Standardized on 16-byte cache key");
     assert(!IsEmpty());
-    return Slice(reinterpret_cast<const char *>(this), kCacheKeySize);
+    return Slice(reinterpret_cast<const char *>(this), sizeof(*this));
   }
 
   static CacheKey CreateUniqueForCacheLifetime(Cache *cache);
@@ -61,8 +58,6 @@ class OffsetableCacheKey : private CacheKey {
   static constexpr size_t kFilePrefixSize = sizeof(hi64_);
 
   inline Slice FilePrefixSlice() const {
-    static_assert(sizeof(CacheKey) == kCacheKeySize,
-                  "Standardized on 16-byte cache key");
     assert(!IsEmpty());
     assert(&this->hi64_ == static_cast<const void *>(this));
     return Slice(reinterpret_cast<const char *>(this), kFilePrefixSize);
