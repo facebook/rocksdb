@@ -941,7 +941,7 @@ class VersionBuilder::Rep {
     }
 
     return true;
-  };
+  }
 
   // Find the oldest blob file that has linked SSTs.
   uint64_t GetMinOldestBlobFileNumber() const {
