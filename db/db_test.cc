@@ -78,6 +78,92 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest : public DBTestBase {
  public:
   DBTest() : DBTestBase("db_test", /*env_do_fsync=*/false) {}
+  class TestComparator : public Comparator {
+   private:
+    const Comparator* cmp_without_ts_;
+
+   public:
+    explicit TestComparator(size_t ts_sz)
+        : Comparator(ts_sz), cmp_without_ts_(nullptr) {
+      cmp_without_ts_ = BytewiseComparator();
+    }
+
+    const char* Name() const override { return "TestComparator"; }
+
+    void FindShortSuccessor(std::string*) const override {}
+
+    void FindShortestSeparator(std::string*, const Slice&) const override {}
+
+    int Compare(const Slice& a, const Slice& b) const override {
+      int r = CompareWithoutTimestamp(a, b);
+      if (r != 0 || 0 == timestamp_size()) {
+        return r;
+      }
+      return -CompareTimestamp(
+          Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
+          Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
+    }
+
+    using Comparator::CompareWithoutTimestamp;
+    int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                                bool b_has_ts) const override {
+      if (a_has_ts) {
+        assert(a.size() >= timestamp_size());
+      }
+      if (b_has_ts) {
+        assert(b.size() >= timestamp_size());
+      }
+      Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, timestamp_size()) : a;
+      Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, timestamp_size()) : b;
+      return cmp_without_ts_->Compare(lhs, rhs);
+    }
+
+    int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+      if (!ts1.data() && !ts2.data()) {
+        return 0;
+      } else if (ts1.data() && !ts2.data()) {
+        return 1;
+      } else if (!ts1.data() && ts2.data()) {
+        return -1;
+      }
+      assert(ts1.size() == ts2.size());
+      uint64_t low1 = 0;
+      uint64_t low2 = 0;
+      uint64_t high1 = 0;
+      uint64_t high2 = 0;
+      const size_t kSize = ts1.size();
+      std::unique_ptr<char[]> ts1_buf(new char[kSize]);
+      memcpy(ts1_buf.get(), ts1.data(), ts1.size());
+      std::unique_ptr<char[]> ts2_buf(new char[kSize]);
+      memcpy(ts2_buf.get(), ts2.data(), ts2.size());
+      Slice ts1_copy = Slice(ts1_buf.get(), kSize);
+      Slice ts2_copy = Slice(ts2_buf.get(), kSize);
+      auto* ptr1 = const_cast<Slice*>(&ts1_copy);
+      auto* ptr2 = const_cast<Slice*>(&ts2_copy);
+      if (!GetFixed64(ptr1, &low1) || !GetFixed64(ptr1, &high1) ||
+          !GetFixed64(ptr2, &low2) || !GetFixed64(ptr2, &high2)) {
+        assert(false);
+      }
+      if (high1 < high2) {
+        return -1;
+      } else if (high1 > high2) {
+        return 1;
+      }
+      if (low1 < low2) {
+        return -1;
+      } else if (low1 > low2) {
+        return 1;
+      }
+      return 0;
+    }
+  };
+
+  std::string Timestamp(uint64_t low, uint64_t high) {
+    std::string ts;
+    PutFixed64(&ts, low);
+    PutFixed64(&ts, high);
+    return ts;
+  }
 };
 
 class DBTestWithParam
@@ -321,7 +407,7 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -379,7 +465,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -448,7 +534,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -482,7 +568,6 @@ TEST_F(DBTest, LevelLimitReopen) {
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 #endif  // ROCKSDB_LITE
-
 
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
@@ -781,7 +866,6 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
 }
-
 
 TEST_F(DBTest, GetLevel0Ordering) {
   do {
@@ -3695,7 +3779,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
 
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl = 1 * 60 * 60 ;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -3769,7 +3853,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     options.write_buffer_size = 10 << 10;                              // 10KB
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl =  1 * 60 * 60;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -5937,7 +6021,6 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
 
-
 TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -6118,12 +6201,11 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread manual_compaction_thread([&]() {
-      auto s = db_->CompactFiles(CompactionOptions(),
-          db_->DefaultColumnFamily(), input_files, 0);
+    auto s = db_->CompactFiles(CompactionOptions(), db_->DefaultColumnFamily(),
+                               input_files, 0);
   });
 
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
   // generate enough files to trigger compaction
   for (int i = 0; i < 20; ++i) {
     for (int j = 0; j < 2; ++j) {
@@ -6133,16 +6215,15 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   }
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_GT(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:End");
+            options.level0_file_num_compaction_trigger);
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:End");
 
   manual_compaction_thread.join();
   dbfull()->TEST_WaitForCompact();
 
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_LE(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
+            options.level0_file_num_compaction_trigger);
 }
 #endif  // ROCKSDB_LITE
 
@@ -6367,8 +6448,9 @@ class WriteStallListener : public EventListener {
     MutexLock l(&mutex_);
     return expected == condition_;
   }
+
  private:
-  port::Mutex   mutex_;
+  port::Mutex mutex_;
   WriteStallCondition condition_;
 };
 
@@ -6592,7 +6674,8 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 }
-#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#endif  // !defined(ROCKSDB_LITE) &&
+        // !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
@@ -6631,19 +6714,31 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.row_cache = NewLRUCache(8192);
+  options.comparator = &test_cmp;
   DestroyAndReopen(options);
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
 
-  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo", "bar", write_opts));
   ASSERT_OK(Flush());
 
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
-  ASSERT_EQ(Get("foo"), "bar");
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts;
+  std::string value;
+  Status status = db_->Get(read_opts, "foo", &value);
+  ASSERT_OK(status);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-  ASSERT_EQ(Get("foo"), "bar");
+  status = db_->Get(read_opts, "foo", &value);
+  ASSERT_OK(status);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
@@ -6756,9 +6851,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
 TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   std::atomic<int> flushes_done{0};
   std::atomic<int> threads_destroyed{0};
-  auto done = [&] {
-    return flushes_done.load() > 10;
-  };
+  auto done = [&] { return flushes_done.load() > 10; };
 
   port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
@@ -6771,7 +6864,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   });
 
   std::vector<port::Thread> thread_spawning_threads(10);
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t = port::Thread([&] {
       while (!done()) {
         {
@@ -6786,7 +6879,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     });
   }
 
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t.join();
   }
   flushing_thread.join();
