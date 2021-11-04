@@ -31,7 +31,10 @@ std::vector<CompressionType> GetSupportedDictCompressions();
 std::vector<ChecksumType> GetSupportedChecksums();
 
 inline bool IsSupportedChecksumType(ChecksumType type) {
-  return type >= kNoChecksum && type <= kXXH3;
+  // Avoid annoying compiler warning-as-error (-Werror=type-limits)
+  auto min = kNoChecksum;
+  auto max = kXXH3;
+  return type >= min && type <= max;
 }
 
 // Checks that the combination of DBOptions and ColumnFamilyOptions are valid

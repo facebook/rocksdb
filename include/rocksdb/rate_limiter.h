@@ -66,7 +66,8 @@ class RateLimiter {
   // Requests token to read or write bytes and potentially updates statistics.
   //
   // If this request can not be satisfied, the call is blocked. Caller is
-  // responsible to make sure bytes <= GetSingleBurstBytes().
+  // responsible to make sure bytes <= GetSingleBurstBytes()
+  // and bytes >= 0.
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* stats, OpType op_type) {
     if (IsRateLimited(op_type)) {
