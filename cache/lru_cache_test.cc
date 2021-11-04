@@ -237,7 +237,7 @@ class TestSecondaryCache : public SecondaryCache {
     // NOTE: we assume the file is smaller than kMaxFileSizeStandardEncoding
     // for this to work, but that's safe in a test.
     auto base = OffsetableCacheKey("unknown", db_session_id, 1, 1);
-    ckey_prefix_ = base.FilePrefixSlice().ToString();
+    ckey_prefix_ = base.CommonPrefixSlice().ToString();
   }
 
   Status Insert(const Slice& key, void* value,

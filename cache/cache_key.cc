@@ -70,58 +70,60 @@ OffsetableCacheKey::OffsetableCacheKey(const std::string &db_id,
   //
   // We put this first in anticipation of matching a small-ish set of cache
   // key prefixes to cover entries relevant to any DB.
-  hi64_ = session_lower;
+  session_id64_ = session_lower;
   // This provides extra entopy in case of different DB id or process
   // generating a session id, but is also partly/variably obscured by
   // file_number and offset (see below).
-  lo64_ = db_hash;
+  offset_etc64_ = db_hash;
 
-  // Into lo64_ we are (eventually) going to pack & xor in an offset and a
-  // file_number, but we might need the file_number to overflow into hi64_.
-  // (We only want one possible value for hi64_ per file.)
+  // Into offset_etc64_ we are (eventually) going to pack & xor in an offset and
+  // a file_number, but we might need the file_number to overflow into
+  // session_id64_. (We only want one possible value for session_id64_ per
+  // file.)
   //
   // Figure out how many bytes of file_number we are going to be able to
   // pack in with max_offset, though our encoding will only support packing
   // in up to 3 bytes of file_number. (16M file numbers is enough for a new
   // file number every second for half a year.)
-  int file_number_bytes_in_lo64 =
+  int file_number_bytes_in_etc =
       (63 - FloorLog2(max_offset | 0x100000000U)) / 8;
-  int file_number_bits_in_lo64 = file_number_bytes_in_lo64 * 8;
+  int file_number_bits_in_etc = file_number_bytes_in_etc * 8;
 
   // Assert two bits of metadata
-  assert(file_number_bytes_in_lo64 >= 0 && file_number_bytes_in_lo64 <= 3);
+  assert(file_number_bytes_in_etc >= 0 && file_number_bytes_in_etc <= 3);
   // Assert we couldn't have used a larger allowed number of bytes (shift
   // would chop off bytes).
-  assert(file_number_bytes_in_lo64 == 3 ||
-         (max_offset << (file_number_bits_in_lo64 + 8) >>
-          (file_number_bits_in_lo64 + 8)) != max_offset);
+  assert(file_number_bytes_in_etc == 3 ||
+         (max_offset << (file_number_bits_in_etc + 8) >>
+          (file_number_bits_in_etc + 8)) != max_offset);
 
-  uint64_t mask = (uint64_t{1} << (file_number_bits_in_lo64)) - 1;
-  // Pack into high bits of lo64 so that offset can go in low bits of lo64
-  uint64_t lo64_modifier = ReverseBits(file_number & mask);
-  assert(lo64_modifier << file_number_bits_in_lo64 == 0U);
+  uint64_t mask = (uint64_t{1} << (file_number_bits_in_etc)) - 1;
+  // Pack into high bits of etc so that offset can go in low bits of etc
+  uint64_t offset_etc_modifier = ReverseBits(file_number & mask);
+  assert(offset_etc_modifier << file_number_bits_in_etc == 0U);
 
-  // Overflow and 3 - byte count (likely both zero) go into hi64
-  uint64_t hi64_modifier = (file_number >> file_number_bits_in_lo64 << 2) |
-                           static_cast<uint64_t>(3 - file_number_bytes_in_lo64);
+  // Overflow and 3 - byte count (likely both zero) go into session_id part
+  uint64_t session_id_modifier =
+      (file_number >> file_number_bits_in_etc << 2) |
+      static_cast<uint64_t>(3 - file_number_bytes_in_etc);
   // Packed into high bits to minimize interference with session id counter.
-  hi64_modifier = ReverseBits(hi64_modifier);
+  session_id_modifier = ReverseBits(session_id_modifier);
 
-  // Assert hi64 is only modified in extreme cases
-  assert(hi64_modifier == 0 || file_number > /*3 bytes*/ 0xffffffU ||
+  // Assert session_id part is only modified in extreme cases
+  assert(session_id_modifier == 0 || file_number > /*3 bytes*/ 0xffffffU ||
          max_offset > /*5 bytes*/ 0xffffffffffU);
 
   // Xor in the modifiers
-  hi64_ ^= hi64_modifier;
-  lo64_ ^= lo64_modifier;
+  session_id64_ ^= session_id_modifier;
+  offset_etc64_ ^= offset_etc_modifier;
 
   // Although DBImpl guarantees (in recent versions) that session_lower is not
-  // zero, that's not entirely sufficient to guarantee that hi64_ is not zero
-  // (so that the 0 case can be used by CacheKey::CreateUnique*)
-  if (hi64_ == 0U) {
-    hi64_ = session_upper | 1U;
+  // zero, that's not entirely sufficient to guarantee that session_id64_ is not
+  // zero (so that the 0 case can be used by CacheKey::CreateUnique*)
+  if (session_id64_ == 0U) {
+    session_id64_ = session_upper | 1U;
   }
-  assert(hi64_ != 0);
+  assert(session_id64_ != 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -46,8 +46,8 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
           id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
           /*file_size*/ 42, &base, &is_stable);
       if (is_stable) {
-        Slice prefix_slice = base.FilePrefixSlice();
-        assert(prefix_slice.size() == OffsetableCacheKey::kFilePrefixSize);
+        Slice prefix_slice = base.CommonPrefixSlice();
+        assert(prefix_slice.size() == OffsetableCacheKey::kCommonPrefixSize);
         prefix_filter_.insert(prefix_slice.ToString());
       }
     }
@@ -97,10 +97,10 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
 // Check if we need to filter out the block based on its key
 bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
-  if (key.size() < OffsetableCacheKey::kFilePrefixSize) {
+  if (key.size() < OffsetableCacheKey::kCommonPrefixSize) {
     return /*filter out*/ true;
   }
-  Slice key_prefix(key.data(), OffsetableCacheKey::kFilePrefixSize);
+  Slice key_prefix(key.data(), OffsetableCacheKey::kCommonPrefixSize);
   std::string prefix = key_prefix.ToString();
   // Filter out if not found
   return prefix_filter_.find(prefix) == prefix_filter_.end();
