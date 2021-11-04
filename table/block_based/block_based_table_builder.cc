@@ -1528,8 +1528,6 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     BlockContents results(std::move(buf), size);
 
     CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
-    // fprintf(stderr, "Builder key: %s\n",
-    // key.AsSlice().ToString(true).c_str());
 
     const size_t read_amp_bytes_per_bit =
         rep_->table_options.read_amp_bytes_per_bit;

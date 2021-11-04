@@ -505,8 +505,6 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
     file_num = properties->orig_file_number;
     // Less critical, populated in earlier release than above
     db_id = properties->db_id;
-    // fprintf(stderr, "Setup stable: %s,%s,%u\n", db_id.c_str(),
-    // db_session_id.c_str(), (unsigned)file_num);
     if (out_is_stable) {
       *out_is_stable = true;
     }
@@ -522,8 +520,6 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
     // files and later setting the DB ID. So we just rely on uniqueness
     // level provided by session ID.
     db_id = "unknown";
-    // fprintf(stderr, "Setup unstable: %s,%s,%u\n", db_id.c_str(),
-    // db_session_id.c_str(), (unsigned)file_num);
     if (out_is_stable) {
       *out_is_stable = false;
     }
@@ -663,8 +659,6 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-
-  // fprintf(stderr, "Reader setup\n");
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
@@ -1500,8 +1494,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     // create key for block cache
     key_data = GetCacheKey(rep_->base_cache_key, handle);
     key = key_data.AsSlice();
-
-    // fprintf(stderr, "Reader key: %s\n", key.ToString(true).c_str());
 
     if (!contents) {
       s = GetDataBlockFromCache(key, block_cache, block_cache_compressed, ro,
@@ -3113,8 +3105,6 @@ bool BlockBasedTable::TEST_BlockInCache(const BlockHandle& handle) const {
   }
 
   CacheKey key = GetCacheKey(rep_->base_cache_key, handle);
-  // fprintf(stderr, "ReaderTest key: %s\n",
-  // key.AsSlice().ToString(true).c_str());
 
   Cache::Handle* const cache_handle = cache->Lookup(key.AsSlice());
   if (cache_handle == nullptr) {
