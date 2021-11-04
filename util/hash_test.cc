@@ -10,6 +10,7 @@
 #include "util/hash.h"
 
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include "test_util/testharness.h"
@@ -630,7 +631,11 @@ static void test_BitOps() {
     // ReverseBits
     T rv = T{1} << (8 * sizeof(T) - 1 - i);
     EXPECT_EQ(ReverseBits(v), static_cast<T>(T{1} << (8 * sizeof(T) - 1 - i)));
-    EXPECT_EQ(ReverseBits(vm1), static_cast<T>(rv * ~T{1}));
+#ifdef HAVE_UINT128_EXTENSION          // Uses multiplication
+    if (std::is_unsigned<T>::value) {  // Technical UB on signed type
+      EXPECT_EQ(ReverseBits(vm1), static_cast<T>(rv * ~T{1}));
+    }
+#endif
     vm1 = (vm1 << 1) | 1;
   }
 }
