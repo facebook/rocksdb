@@ -934,7 +934,7 @@ struct DBOptions {
   size_t random_access_max_buffer_size = 1024 * 1024;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
-  // On Windows, we need to maintain an aligned buffer for writes.
+  // With direct IO, we need to maintain an aligned buffer for writes.
   // We allow the buffer to grow until it's size hits the limit in buffered
   // IO and fix the buffer size when using direct IO to ensure alignment of
   // write requests if the logical sector size is unusual
