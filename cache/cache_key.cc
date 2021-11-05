@@ -102,6 +102,15 @@ CacheKey CacheKey::CreateUniqueForProcessLifetime() {
 // a file from billions of files or session ids ago will still be live
 // or cached.
 //
+// In fact, if our SST files are all < 4TB (see
+// BlockBasedTable::kMaxFileSizeStandardEncoding), then SST files generated
+// in a single process are guaranteed to have unique cache keys, unless/until
+// number session ids * max file number = 2**86, e.g. 1 trillion DB::Open in
+// a single process and 64 trillion files generated. Even at that point, to
+// see a collision we would need a miraculous re-synchronization of session
+// id and file number, along with a live file or stale cache entry from
+// trillions of files ago.
+//
 // How https://github.com/pdillinger/unique_id applies here:
 // Every bit of output always includes "unstructured" uniqueness bits and
 // often combines with "structured" uniqueness bits. The "unstructured" bits
@@ -119,6 +128,52 @@ CacheKey CacheKey::CreateUniqueForProcessLifetime() {
 // have strong uniqueness properties from the birthday paradox, with ~103
 // bit session IDs or up to 128 bits entropy with different DB IDs sharing a
 // cache.
+//
+// More collision probability analysis:
+// Suppose a RocksDB host generates (generously) 2 GB/s (10TB data, 17 DWPD)
+// with average process/session lifetime of (pessimistically) 4 minutes.
+// In 180 days (generous allowable data lifespan), we generate 31 million GB
+// of data, or 2^55 bytes, and 2^16 "all new" session IDs.
+//
+// First, suppose this is in a single DB (lifetime 180 days):
+// 128 bits cache key size
+// - 55 <- ideal size for byte offsets + file numbers
+// -  2 <- bits for offsets and file numbers not exactly powers of two
+// -  2 <- bits for file number encoding metadata
+// +  2 <- bits saved not using byte offsets in BlockBasedTable::GetCacheKey
+// ----
+//   71 <- bits remaining for distinguishing session IDs
+// The probability of a collision in 71 bits of session ID data is less than
+// 1 in 2**(71 - (2 * 16)), or roughly 1 in a trillion. And this assumes all
+// data from the last 180 days is in cache for potential collision, and that
+// cache keys under each session id exhaustively cover the remaining 57 bits
+// while in reality they'll only cover a small fraction of it.
+//
+// Although data could be transferred between hosts, each host has its own
+// cache and we are already assuming a high rate of "all new" session ids.
+// So this doesn't really change the collision calculation. Across a fleet
+// of 1 million, each with <1 in a trillion collision possibility,
+// fleetwide collision probability is <1 in a million.
+//
+// Now suppose we have many DBs per host, say 2**10, with same host-wide write
+// rate and process/session lifetime. File numbers will be ~10 bits smaller
+// and we will have 2**10 times as many session IDs because of simultaneous
+// lifetimes. So now collision chance is less than 1 in 2**(81 - (2 * 26)),
+// or roughly 1 in a billion.
+//
+// Suppose instead we generated random or hashed cache keys for each
+// (compressed) block. For 1KB compressed block size, that is 2^45 cache keys
+// in 180 days. Collision probability is more easily estimated at roughly
+// 1 in 2**(128 - (2 * 45)) or roughly 1 in a trillion (assuming all
+// data from the last 180 days is in cache, but NOT the other assumption
+// for the 1 in a trillion estimate above).
+//
+// Conclusion: Burning through session IDs, particularly "all new" IDs that
+// only arise when a new process is started, is the only way to have a
+// plausible chance of cache key collision. When processes live for hours
+// or days, the chance of a cache key collision seems more plausibly due
+// to bad hardware than to bad luck in random session ID data.
+//
 OffsetableCacheKey::OffsetableCacheKey(const std::string &db_id,
                                        const std::string &db_session_id,
                                        uint64_t file_number,
