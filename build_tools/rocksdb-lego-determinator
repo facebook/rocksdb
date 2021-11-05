@@ -84,10 +84,9 @@ UPLOAD_DB_DIR="
     ]
 }"
 
-# We will eventually set the RATIO to 1, but we want do this
-# in steps. RATIO=$(nproc) will make it work as J=1
+# set default RATIO to 1, which sets J=$(nproc) and j=$(nproc)
 if [ -z $RATIO ]; then
-  RATIO=$(nproc)
+  RATIO=1
 fi
 
 if [ -z $PARALLEL_J ]; then
