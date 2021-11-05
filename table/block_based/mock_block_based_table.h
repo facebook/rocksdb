@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include "cache/cache_reservation_manager.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -48,6 +49,12 @@ class MockBlockBasedTableTester {
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
     context.info_log = ioptions_.logger;
+    if (table_options_.reserve_bloom_ribbon_filter_construction_memory &&
+        !table_options_.no_block_cache &&
+        table_options_.block_cache != nullptr) {
+      context.cache_res_mgr.reset(
+          new CacheReservationManager(table_options_.block_cache));
+    }
     return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };

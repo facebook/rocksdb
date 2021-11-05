@@ -317,6 +317,7 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<CacheReservationManager>
       compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
+  std::shared_ptr<CacheReservationManager> filter_construction_cache_res_mgr;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size;
@@ -486,7 +487,15 @@ struct BlockBasedTableBuilder::Rep {
       filter_context.info_log = ioptions.logger;
       filter_context.column_family_name = tbo.column_family_name;
       filter_context.reason = reason;
-
+      if (table_options.reserve_bloom_ribbon_filter_construction_memory &&
+          !table_options.no_block_cache &&
+          table_options.block_cache != nullptr) {
+        filter_construction_cache_res_mgr.reset(
+            new CacheReservationManager(table_options.block_cache));
+      } else {
+        filter_construction_cache_res_mgr.reset();
+      }
+      filter_context.cache_res_mgr = filter_construction_cache_res_mgr;
       // Only populate other fields if known to be in LSM rather than
       // generating external SST file
       if (reason != TableFileCreationReason::kMisc) {
@@ -1551,12 +1560,33 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       // transferred filter data payload among different FilterBlockBuilder
       // subtypes.
       std::unique_ptr<const char[]> filter_data;
+      // std::unique_ptr<
+      //     CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+      //     filter_data_cache_res_handle;
+      // Slice filter_content = rep_->filter_builder->Finish(
+      //     filter_block_handle, &s, &filter_data,
+      //     &filter_data_cache_res_handle);
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
+      // Skip releasing cache for the last returned filter_content in partition
+      // filters since it is information about index, which was built without
+      // reserving the cache
+      if (rep_->filter_construction_cache_res_mgr &&
+          !(rep_->table_options.partition_filters && s.ok())) {
+        const std::size_t total_mem_with_cach_reservation =
+            rep_->filter_construction_cache_res_mgr->GetTotalMemoryUsed();
+        const std::size_t mem_to_release =
+            std::min(total_mem_with_cach_reservation, filter_content.size());
+        Status filter_data_release_cache_status =
+            rep_->filter_construction_cache_res_mgr
+                ->UpdateCacheReservation<CacheEntryRole::kFilterConstruction>(
+                    total_mem_with_cach_reservation - mem_to_release);
+        filter_data_release_cache_status.PermitUncheckedError();
+      }
     }
   }
   if (ok() && !empty_filter_block) {

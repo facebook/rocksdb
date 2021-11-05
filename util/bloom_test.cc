@@ -19,6 +19,7 @@ int main() {
 #include <cmath>
 #include <vector>
 
+#include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"
@@ -598,6 +599,304 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       EXPECT_LE(static_cast<int64_t>(total_size),
                 ex_min_total_size + blocked_bloom_overhead);
     }
+  }
+}
+
+TEST_P(FullBloomTest, ReserveBloomAndRibbonFilterConstructionMemory) {
+  const BloomFilterPolicy::Mode mode = GetParam();
+  const bool can_reserve_memory =
+      (mode == BloomFilterPolicy::Mode::kFastLocalBloom) ||
+      (mode == BloomFilterPolicy::Mode::kStandard128Ribbon);
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+  std::size_t memory_reserved = 0;
+  std::size_t num_dummy_entries = 0;
+
+  BlockBasedTableOptions table_options;
+  LRUCacheOptions lo;
+  lo.capacity = kCacheCapacity;
+  lo.num_shard_bits = 0;  // 2^0 shard
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache(NewLRUCache(lo));
+  table_options.block_cache = cache;
+  table_options.filter_policy.reset(
+      new BloomFilterPolicy(FLAGS_bits_per_key, mode));
+  table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+
+  FilterBuildingContext ctx(table_options);
+  std::shared_ptr<CacheReservationManager> cache_res_mgr(
+      new CacheReservationManager(cache));
+  ctx.cache_res_mgr = cache_res_mgr;
+
+  ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+  std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+      table_options.filter_policy->GetBuilderWithContext(ctx));
+
+  const std::size_t num_entries = 10000;
+  char key_buffer[sizeof(int)];
+  for (std::size_t i = 0; i < num_entries; ++i) {
+    filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+  }
+  // 0xffffffffU is max size supported by implementation for buf length
+  std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
+  Slice filter = filter_bits_builder->Finish(&buf);
+
+  if (can_reserve_memory) {
+    // Memory reserved now: mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+  } else {
+    memory_reserved = 0;
+  }
+  num_dummy_entries = static_cast<std::size_t>(
+      std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+  EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+            num_dummy_entries * kSizeDummyEntry);
+  EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+  EXPECT_LT(cache->GetPinnedUsage(), (num_dummy_entries + 1) * kSizeDummyEntry);
+
+  filter_bits_builder.reset();
+  if (can_reserve_memory) {
+    // Memory reserved now: mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+  } else {
+    memory_reserved = 0;
+  }
+  num_dummy_entries = static_cast<std::size_t>(
+      std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+  EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+            num_dummy_entries * kSizeDummyEntry);
+  EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+  EXPECT_LT(cache->GetPinnedUsage(), (num_dummy_entries + 1) * kSizeDummyEntry);
+}
+
+TEST_P(FullBloomTest, RibbonFilterFallBackOnLargeBanding) {
+  const BloomFilterPolicy::Mode mode = GetParam();
+  if (mode != BloomFilterPolicy::Mode::kStandard128Ribbon) {
+    return;
+  }
+
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+  std::size_t memory_reserved = 0;
+  std::size_t num_dummy_entries = 0;
+
+  // Number 500,000 is carefully chosen so that memory reserved before banding
+  // won't cause a cache full under strict capacity limit but will after.
+  // Therefore it will trigger a fallback due to banding portion being too large
+  // during FilterBitsBuilder::Finish().
+  //
+  // Calculation:
+  // Before banding: hash_entries_.size() * hash_entries_[0] ≈ 500,000 * 8 =
+  // 4,000,000 > 3MB Banding'size ≈ 10,437,168 > 9MB After banding: 3MB + 9MB >
+  // 8MB
+  //
+  // Number 50,000 is a small number so there will not be any cache full hence
+  // fallback.
+  //
+  // Calculation:
+  // Before banding: hash_entries_.size() * hash_entries_[0] ≈ 50,000 * 8 =
+  // 400,000 < 0.4MB Banding'size ≈ 1,034,288 < 2MB After banding: 0.4 MB + 2MB
+  // < 8MB
+  for (std::size_t num_entries : {500000, 50000}) {
+    bool will_fall_back = (num_entries == 500000);
+
+    BlockBasedTableOptions table_options;
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.filter_policy.reset(
+        new BloomFilterPolicy(FLAGS_bits_per_key, mode));
+    table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+
+    FilterBuildingContext ctx(table_options);
+    std::shared_ptr<CacheReservationManager> cache_res_mgr(
+        new CacheReservationManager(cache));
+    ctx.cache_res_mgr = cache_res_mgr;
+
+    ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+    ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+    std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+        table_options.filter_policy->GetBuilderWithContext(ctx));
+
+    char key_buffer[sizeof(int)];
+    for (std::size_t i = 0; i < num_entries; ++i) {
+      filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+    }
+    // 0xffffffffU is max size supported by implementation for buf length
+    std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
+    Slice filter = filter_bits_builder->Finish(&buf);
+    // To verify Ribbon Filter fallbacks to Bloom Filter properly
+    // based on cache reservation result
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    // -2 = Marker for Standard128 Ribbon
+    if (will_fall_back) {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-1));
+    } else {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
+    }
+
+    // Memory reserved now:  mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+    num_dummy_entries = static_cast<std::size_t>(
+        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+              num_dummy_entries * kSizeDummyEntry);
+    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+    EXPECT_LT(cache->GetPinnedUsage(),
+              (num_dummy_entries + 1) * kSizeDummyEntry);
+
+    filter_bits_builder.reset();
+    // Memory reserved now: mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+    num_dummy_entries = static_cast<std::size_t>(
+        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+              num_dummy_entries * kSizeDummyEntry);
+    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+    EXPECT_LT(cache->GetPinnedUsage(),
+              (num_dummy_entries + 1) * kSizeDummyEntry);
+  }
+}
+
+class CustomFilterPolicy : public FilterPolicy {
+ public:
+  explicit CustomFilterPolicy()
+      : policy_fifo_(NewBloomFilterPolicy(10, false)),
+        policy_l0_other_(NewRibbonFilterPolicy(10)),
+        policy_otherwise_(NewBloomFilterPolicy(10, true)) {}
+
+  // OK to use built-in policy name because we are deferring to a
+  // built-in builder. We aren't changing the serialized format.
+  const char* Name() const override { return policy_fifo_->Name(); }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    if (context.compaction_style == kCompactionStyleFIFO) {
+      return policy_fifo_->GetBuilderWithContext(context);
+    } else if (context.level_at_creation == 0) {
+      return policy_l0_other_->GetBuilderWithContext(context);
+    } else {
+      return policy_otherwise_->GetBuilderWithContext(context);
+    }
+  }
+
+  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override {
+    // OK to defer to any of them; they all can parse built-in filters
+    // from any settings.
+    return policy_fifo_->GetFilterBitsReader(contents);
+  }
+
+  // Defer just in case configuration uses block-based filter
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
+    policy_otherwise_->CreateFilter(keys, n, dst);
+  }
+  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
+    return policy_otherwise_->KeyMayMatch(key, filter);
+  }
+
+ private:
+  const std::unique_ptr<const FilterPolicy> policy_fifo_;
+  const std::unique_ptr<const FilterPolicy> policy_l0_other_;
+  const std::unique_ptr<const FilterPolicy> policy_otherwise_;
+};
+
+TEST(FullBloomCustomFilterPolicyTest, RibbonFilterFallBackOnLargeBanding) {
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+  std::size_t memory_reserved = 0;
+  std::size_t num_dummy_entries = 0;
+  // std::size_t memory_reserved_during_builder_contruction = 0;
+
+  // Number 500,000 is carefully chosen so that memory reserved before banding
+  // won't cause a cache full under strict capacity limit but will after.
+  // Therefore it will trigger a fallback due to banding portion being too large
+  // during FilterBitsBuilder::Finish().
+  //
+  // Calculation:
+  // Before banding: hash_entries_.size() * hash_entries_[0] ≈ 500,000 * 8 =
+  // 4,000,000 > 3MB Banding'size ≈ 10,437,168 > 9MB After banding: 3MB + 9MB >
+  // 8MB
+  //
+  // Number 50,000 is a small number so there will not be any cache full hence
+  // fallback.
+  //
+  // Calculation:
+  // Before banding: hash_entries_.size() * hash_entries_[0] ≈ 50,000 * 8 =
+  // 400,000 < 0.4MB Banding'size ≈ 1,034,288 < 2MB After banding: 0.4 MB + 2MB
+  // < 8MB
+  for (std::size_t num_entries : {500000, 50000}) {
+    bool will_fall_back = (num_entries == 500000);
+
+    BlockBasedTableOptions table_options;
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.filter_policy.reset(new CustomFilterPolicy());
+    table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+
+    FilterBuildingContext ctx(table_options);
+    std::shared_ptr<CacheReservationManager> cache_res_mgr(
+        new CacheReservationManager(cache));
+    ctx.cache_res_mgr = cache_res_mgr;
+    ctx.level_at_creation = 0;
+
+    ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+    ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+    std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+        table_options.filter_policy->GetBuilderWithContext(ctx));
+
+    char key_buffer[sizeof(int)];
+    for (std::size_t i = 0; i < num_entries; ++i) {
+      filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+    }
+    // 0xffffffffU is max size supported by implementation for buf length
+    std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
+    Slice filter = filter_bits_builder->Finish(&buf);
+    // To verify Ribbon Filter fallbacks to Bloom Filter properly
+    // based on cache reservation result
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    // -2 = Marker for Standard128 Ribbon
+    if (will_fall_back) {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-1));
+    } else {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
+    }
+
+    // Memory reserved now: mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+    num_dummy_entries = static_cast<std::size_t>(
+        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+              num_dummy_entries * kSizeDummyEntry);
+    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+    EXPECT_LT(cache->GetPinnedUsage(),
+              (num_dummy_entries + 1) * kSizeDummyEntry);
+
+    filter_bits_builder.reset();
+    // Memory reserved now: mutable_buffer_'s size (approximated by
+    // filter.size())
+    memory_reserved = filter.size();
+    num_dummy_entries = static_cast<std::size_t>(
+        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+              num_dummy_entries * kSizeDummyEntry);
+    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
+    EXPECT_LT(cache->GetPinnedUsage(),
+              (num_dummy_entries + 1) * kSizeDummyEntry);
   }
 }
 

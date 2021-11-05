@@ -75,6 +75,8 @@ template Status CacheReservationManager::UpdateCacheReservation<
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
     std::size_t new_mem_used);
+template Status CacheReservationManager::UpdateCacheReservation<
+    CacheEntryRole::kFilterConstruction>(std::size_t new_mem_used);
 // For cache reservation manager unit tests
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
@@ -95,6 +97,11 @@ template Status
 CacheReservationManager::MakeCacheReservation<CacheEntryRole::kMisc>(
     std::size_t incremental_memory_used,
     std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>>* handle);
+template Status CacheReservationManager::MakeCacheReservation<
+    CacheEntryRole::kFilterConstruction>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction>>* handle);
 
 template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
@@ -175,4 +182,5 @@ CacheReservationHandle<R>::~CacheReservationHandle() {
 // Explicitly instantiate templates for "CacheEntryRole" values we use.
 // This makes it possible to keep the template definitions in the .cc file.
 template class CacheReservationHandle<CacheEntryRole::kMisc>;
+template class CacheReservationHandle<CacheEntryRole::kFilterConstruction>;
 }  // namespace ROCKSDB_NAMESPACE

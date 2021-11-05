@@ -23,6 +23,7 @@
 
 #include "block_fetcher.h"
 #include "cache/lru_cache.h"
+#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -52,6 +53,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -5362,6 +5364,181 @@ TEST_P(
   // increasing reservation for the last buffered block and EnterUnbuffered() is
   // triggered
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+
+  ASSERT_OK(builder->Finish());
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+}
+
+class BlockBasedTableReserveFilterConstructionMemoryTest
+    : public TableTest,
+      virtual public ::testing::WithParamInterface<std::tuple<
+          bool /* reserve memory */, uint32_t /* format */,
+          BlockBasedTable::Rep::FilterType, BloomFilterPolicy::Mode>> {
+ public:
+  BlockBasedTableReserveFilterConstructionMemoryTest()
+      : reserve_memory_(std::get<0>(GetParam())),
+        format_(std::get<1>(GetParam())),
+        filter_type_(std::get<2>(GetParam())),
+        mode_(std::get<3>(GetParam())) {}
+
+  BlockBasedTableOptions GetBlockBasedTableOptions() {
+    BlockBasedTableOptions table_options;
+
+    if (reserve_memory_) {
+      table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+    }
+
+    table_options.format_version = format_;
+
+    if (filter_type_ == BlockBasedTable::Rep::FilterType::kPartitionedFilter) {
+      table_options.partition_filters = true;
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+
+    table_options.filter_policy.reset(new BloomFilterPolicy(10, mode_));
+    return table_options;
+  }
+
+  BloomFilterPolicy::Mode GetBloomFilterPolicyMode() { return mode_; }
+
+ private:
+  bool reserve_memory_;
+  uint32_t format_;
+  BlockBasedTable::Rep::FilterType filter_type_;
+  BloomFilterPolicy::Mode mode_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BlockBasedTableOptions, BlockBasedTableReserveFilterConstructionMemoryTest,
+    ::testing::Values(
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(false, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kBlockFilter,
+                        BloomFilterPolicy::Mode::kDeprecatedBlock),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(false, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kBlockFilter,
+                        BloomFilterPolicy::Mode::kDeprecatedBlock),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(true, test::kDefaultFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kBlockFilter,
+                        BloomFilterPolicy::Mode::kDeprecatedBlock),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kFullFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kFastLocalBloom),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kStandard128Ribbon),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kPartitionedFilter,
+                        BloomFilterPolicy::Mode::kLegacyBloom),
+        std::make_tuple(true, test::kLatestFormatVersion,
+                        BlockBasedTable::Rep::FilterType::kBlockFilter,
+                        BloomFilterPolicy::Mode::kDeprecatedBlock)));
+
+TEST_P(BlockBasedTableReserveFilterConstructionMemoryTest,
+       OptionalFilterConstructionMemoryReservation) {
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  LRUCacheOptions lo;
+  lo.capacity = kCacheCapacity;
+  lo.num_shard_bits = 0;  // 2^0 shard
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache(NewLRUCache(lo));
+  table_options.block_cache = cache;
+  Options options;
+  options.compression = kSnappyCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "test_reserve_filter_construction_memory",
+      FileOptions()));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+
+  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  const std::size_t num_entries = 1000000;
+
+  for (std::size_t i = 0; i < num_entries; ++i) {
+    std::string key = DBTestBase::Key(static_cast<int>(i));
+    std::string value = "val" + std::to_string(static_cast<int>(i));
+    InternalKey ik(key, i /* sequnce number */, kTypeValue);
+    builder->Add(ik.Encode(), value);
+  }
 
   ASSERT_OK(builder->Finish());
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
