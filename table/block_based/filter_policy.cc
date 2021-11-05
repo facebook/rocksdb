@@ -214,11 +214,20 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
   ~FastLocalBloomBitsBuilder() override {}
 
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    return Finish(buf, nullptr);
+  }
+  // REQUIRED: if cache_res_mgr_ != nullptr, then buf_cache_res_handle !=
+  // nullptr
   virtual Slice Finish(
-      std::unique_ptr<const char[]>* buf/*,
+      std::unique_ptr<const char[]>* buf,
       std::unique_ptr<
           CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
-          buf_cache_res_handle */) override {
+          buf_cache_res_handle) override {
+    if (cache_res_mgr_) {
+      assert(buf_cache_res_handle != nullptr);
+    }
+
     size_t num_entries = hash_entries_.size();
     size_t len_with_metadata = CalculateSpace(num_entries);
     const size_t bytes_hash_entries =
@@ -243,12 +252,8 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     if (cache_res_mgr_) {
       Status s =
           cache_res_mgr_
-              ->UpdateCacheReservation<CacheEntryRole::kFilterConstruction>(
-                  cache_res_mgr_->GetTotalMemoryUsed() + len_with_metadata);
-      // Status s =
-      //     cache_res_mgr_
-      //         ->MakeCacheReservation<CacheEntryRole::kFilterConstruction>(
-      //             len_with_metadata, buf_cache_res_handle);
+              ->MakeCacheReservation<CacheEntryRole::kFilterConstruction>(
+                  len_with_metadata, buf_cache_res_handle);
       s.PermitUncheckedError();
     }
 
@@ -482,11 +487,20 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
   ~Standard128RibbonBitsBuilder() override {}
 
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    return Finish(buf, nullptr);
+  }
+
+  // REQUIRED: if cache_res_mgr_ != nullptr, then buf_cache_res_handle !=
+  // nullptr
   virtual Slice Finish(
-      std::unique_ptr<const char[]>* buf/* ,
+      std::unique_ptr<const char[]>* buf,
       std::unique_ptr<
           CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
-          buf_cache_res_handle */) override {
+          buf_cache_res_handle) override {
+    if (cache_res_mgr_) {
+      assert(buf_cache_res_handle != nullptr);
+    }
     const std::size_t bytes_hash_entries =
         hash_entries_.empty() ? 0
                               : hash_entries_.size() * sizeof(hash_entries_[0]);
@@ -509,7 +523,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       assert(hash_entries_.empty());
       // Release cache for hash entries
       hash_entries_cache_res_handle.reset();
-      return bloom_fallback_.Finish(buf /*, buf_cache_res_handle */);
+      return bloom_fallback_.Finish(buf, buf_cache_res_handle);
     }
     if (hash_entries_.size() == 0) {
       // Save a conditional in Ribbon queries by using alternate reader
@@ -528,7 +542,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       assert(hash_entries_.empty());
       // Release cache for hash entries
       hash_entries_cache_res_handle.reset();
-      return bloom_fallback_.Finish(buf /*, buf_cache_res_handle*/);
+      return bloom_fallback_.Finish(buf, buf_cache_res_handle);
     }
 
     uint32_t entropy = 0;
@@ -562,7 +576,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       hash_entries_cache_res_handle.reset();
       // Release cache for banding since the banding won't be allocated
       banding_res_handle.reset();
-      return bloom_fallback_.Finish(buf /* , buf_cache_res_handle */);
+      return bloom_fallback_.Finish(buf, buf_cache_res_handle);
     }
 
     bool success = banding.ResetAndFindSeedToSolve(
@@ -577,7 +591,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       assert(hash_entries_.empty());
       // Release cache for hash entries
       hash_entries_cache_res_handle.reset();
-      return bloom_fallback_.Finish(buf /* , buf_cache_res_handle */);
+      return bloom_fallback_.Finish(buf, buf_cache_res_handle);
     }
     hash_entries_.clear();
     // Release cache for hash entries
@@ -589,16 +603,12 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     std::unique_ptr<char[]> mutable_buf;
     len_with_metadata =
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
-    // Cache eservation for mutable_buf
+    // Cache reservation for mutable_buf
     if (cache_res_mgr_) {
       Status s =
           cache_res_mgr_
-              ->UpdateCacheReservation<CacheEntryRole::kFilterConstruction>(
-                  cache_res_mgr_->GetTotalMemoryUsed() + len_with_metadata);
-      // Status s =
-      //     cache_res_mgr_
-      //         ->MakeCacheReservation<CacheEntryRole::kFilterConstruction>(
-      //             len_with_metadata, buf_cache_res_handle);
+              ->MakeCacheReservation<CacheEntryRole::kFilterConstruction>(
+                  len_with_metadata, buf_cache_res_handle);
       s.PermitUncheckedError();
     }
 
@@ -896,11 +906,8 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     return hash_entries_.size();
   }
 
-  Slice Finish(
-      std::unique_ptr<const char[]>* buf/* ,
-      std::unique_ptr<
-          CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
-          buf_cache_res_handle */) override;
+  using FilterBitsBuilder::Finish;
+  Slice Finish(std::unique_ptr<const char[]>* buf) override;
 
   size_t CalculateSpace(size_t num_entries) override {
     uint32_t dont_care1;
@@ -953,11 +960,7 @@ void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
   }
 }
 
-Slice LegacyBloomBitsBuilder::Finish(
-    std::unique_ptr<const char[]>* buf
-    /* std::unique_ptr<CacheReservationHandle<
-        CacheEntryRole::kFilterConstruction> >* buf_cache_res_handle */) {
-  /* // In this impl we ignore CacheReservationHandle */
+Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   uint32_t total_bits, num_lines;
   size_t num_entries = hash_entries_.size();
   char* data =

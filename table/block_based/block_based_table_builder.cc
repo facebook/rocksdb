@@ -1559,34 +1559,16 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       // See FilterBlockBuilder::Finish() for more on the difference in
       // transferred filter data payload among different FilterBlockBuilder
       // subtypes.
+      std::unique_ptr<
+          CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+          filter_data_cache_res_handle;
       std::unique_ptr<const char[]> filter_data;
-      // std::unique_ptr<
-      //     CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
-      //     filter_data_cache_res_handle;
-      // Slice filter_content = rep_->filter_builder->Finish(
-      //     filter_block_handle, &s, &filter_data,
-      //     &filter_data_cache_res_handle);
-      Slice filter_content =
-          rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
+      Slice filter_content = rep_->filter_builder->Finish(
+          filter_block_handle, &s, &filter_data, &filter_data_cache_res_handle);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
-      // Skip releasing cache for the last returned filter_content in partition
-      // filters since it is information about index, which was built without
-      // reserving the cache
-      if (rep_->filter_construction_cache_res_mgr &&
-          !(rep_->table_options.partition_filters && s.ok())) {
-        const std::size_t total_mem_with_cach_reservation =
-            rep_->filter_construction_cache_res_mgr->GetTotalMemoryUsed();
-        const std::size_t mem_to_release =
-            std::min(total_mem_with_cach_reservation, filter_content.size());
-        Status filter_data_release_cache_status =
-            rep_->filter_construction_cache_res_mgr
-                ->UpdateCacheReservation<CacheEntryRole::kFilterConstruction>(
-                    total_mem_with_cach_reservation - mem_to_release);
-        filter_data_release_cache_status.PermitUncheckedError();
-      }
     }
   }
   if (ok() && !empty_filter_block) {

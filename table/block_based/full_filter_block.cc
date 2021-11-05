@@ -4,8 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
+
 #include <array>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -103,14 +106,19 @@ void FullFilterBlockBuilder::Reset() {
 
 Slice FullFilterBlockBuilder::Finish(
     const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
+    std::unique_ptr<const char[]>* filter_data,
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
+        filter_data_cache_res_handle) {
   Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
   if (any_added_) {
     any_added_ = false;
-    Slice filter_content =
-        filter_bits_builder_->Finish(filter_data ? filter_data : &filter_data_);
+    Slice filter_content = filter_bits_builder_->Finish(
+        filter_data ? filter_data : &filter_data_,
+        filter_data_cache_res_handle ? filter_data_cache_res_handle
+                                     : &filter_data_cache_res_handle_);
     return filter_content;
   }
   return Slice();

@@ -16,6 +16,8 @@ int main() {
 #include <sstream>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -140,6 +142,8 @@ using ROCKSDB_NAMESPACE::BloomHash;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::Cache;
+using ROCKSDB_NAMESPACE::CacheEntryRole;
+using ROCKSDB_NAMESPACE::CacheReservationHandle;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
@@ -211,6 +215,7 @@ struct FilterInfo {
   uint32_t filter_id_ = 0;
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>> final_filter_cache_res_handle;
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
@@ -420,7 +425,7 @@ void FilterBench::Go() {
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
-      info.filter_ = builder->Finish(&info.owner_);
+      info.filter_ = builder->Finish(&info.owner_, &info.final_filter_cache_res_handle);
 #ifdef PREDICT_FP_RATE
       weighted_predicted_fp_rate +=
           keys_to_add *

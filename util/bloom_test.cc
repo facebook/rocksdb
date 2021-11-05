@@ -19,6 +19,7 @@ int main() {
 #include <cmath>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
@@ -640,7 +641,9 @@ TEST_P(FullBloomTest, ReserveBloomAndRibbonFilterConstructionMemory) {
   }
   // 0xffffffffU is max size supported by implementation for buf length
   std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
-  Slice filter = filter_bits_builder->Finish(&buf);
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction> >
+      buf_cache_res_handle;
+  Slice filter = filter_bits_builder->Finish(&buf, &buf_cache_res_handle);
 
   if (can_reserve_memory) {
     // Memory reserved now: mutable_buffer_'s size (approximated by
@@ -656,20 +659,9 @@ TEST_P(FullBloomTest, ReserveBloomAndRibbonFilterConstructionMemory) {
   EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
   EXPECT_LT(cache->GetPinnedUsage(), (num_dummy_entries + 1) * kSizeDummyEntry);
 
-  filter_bits_builder.reset();
-  if (can_reserve_memory) {
-    // Memory reserved now: mutable_buffer_'s size (approximated by
-    // filter.size())
-    memory_reserved = filter.size();
-  } else {
-    memory_reserved = 0;
-  }
-  num_dummy_entries = static_cast<std::size_t>(
-      std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
-  EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
-            num_dummy_entries * kSizeDummyEntry);
-  EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
-  EXPECT_LT(cache->GetPinnedUsage(), (num_dummy_entries + 1) * kSizeDummyEntry);
+  buf_cache_res_handle.reset();
+  EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 }
 
 TEST_P(FullBloomTest, RibbonFilterFallBackOnLargeBanding) {
@@ -730,7 +722,10 @@ TEST_P(FullBloomTest, RibbonFilterFallBackOnLargeBanding) {
     }
     // 0xffffffffU is max size supported by implementation for buf length
     std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
-    Slice filter = filter_bits_builder->Finish(&buf);
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction> >
+        buf_cache_res_handle;
+    Slice filter = filter_bits_builder->Finish(&buf, &buf_cache_res_handle);
     // To verify Ribbon Filter fallbacks to Bloom Filter properly
     // based on cache reservation result
     // See BloomFilterPolicy::GetBloomBitsReader re: metadata
@@ -753,17 +748,9 @@ TEST_P(FullBloomTest, RibbonFilterFallBackOnLargeBanding) {
     EXPECT_LT(cache->GetPinnedUsage(),
               (num_dummy_entries + 1) * kSizeDummyEntry);
 
-    filter_bits_builder.reset();
-    // Memory reserved now: mutable_buffer_'s size (approximated by
-    // filter.size())
-    memory_reserved = filter.size();
-    num_dummy_entries = static_cast<std::size_t>(
-        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
-    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
-              num_dummy_entries * kSizeDummyEntry);
-    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
-    EXPECT_LT(cache->GetPinnedUsage(),
-              (num_dummy_entries + 1) * kSizeDummyEntry);
+    buf_cache_res_handle.reset();
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+    EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
   }
 }
 
@@ -863,7 +850,10 @@ TEST(FullBloomCustomFilterPolicyTest, RibbonFilterFallBackOnLargeBanding) {
     }
     // 0xffffffffU is max size supported by implementation for buf length
     std::unique_ptr<const char[]> buf(new char[0xffffffffU]);
-    Slice filter = filter_bits_builder->Finish(&buf);
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction> >
+        buf_cache_res_handle;
+    Slice filter = filter_bits_builder->Finish(&buf, &buf_cache_res_handle);
     // To verify Ribbon Filter fallbacks to Bloom Filter properly
     // based on cache reservation result
     // See BloomFilterPolicy::GetBloomBitsReader re: metadata
@@ -885,18 +875,9 @@ TEST(FullBloomCustomFilterPolicyTest, RibbonFilterFallBackOnLargeBanding) {
     EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
     EXPECT_LT(cache->GetPinnedUsage(),
               (num_dummy_entries + 1) * kSizeDummyEntry);
-
-    filter_bits_builder.reset();
-    // Memory reserved now: mutable_buffer_'s size (approximated by
-    // filter.size())
-    memory_reserved = filter.size();
-    num_dummy_entries = static_cast<std::size_t>(
-        std::ceil(memory_reserved / static_cast<double>(kSizeDummyEntry)));
-    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
-              num_dummy_entries * kSizeDummyEntry);
-    EXPECT_GE(cache->GetPinnedUsage(), num_dummy_entries * kSizeDummyEntry);
-    EXPECT_LT(cache->GetPinnedUsage(),
-              (num_dummy_entries + 1) * kSizeDummyEntry);
+    buf_cache_res_handle.reset();
+    EXPECT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0 * kSizeDummyEntry);
+    EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
   }
 }
 

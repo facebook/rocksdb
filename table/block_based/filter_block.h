@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -37,6 +38,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 const uint64_t kNotValid = ULLONG_MAX;
+template <CacheEntryRole R>
+class CacheReservationHandle;
 class FilterPolicy;
 
 class GetContext;
@@ -75,12 +78,22 @@ class FilterBlockBuilder {
   }
   // If filter_data is not nullptr, Finish() may transfer ownership of
   // underlying filter data to the caller,  so that it can be freed as soon as
-  // possible.
+  // possible. BlockBasedFilterBlock will ignore this parameter.
+  //
+  // If filter_data_cache_res_handle is null, Finish() may transfer
+  // ownership of cache reservation for the memory used by filter data
+  // BlockBasedFilterBlock will ignore this parameter.
+  //
+  // REQUIRED: (filter_data && filter_data_cache_res_handle) || (!filter_data &&
+  // !filter_data_cache_res_handle)
   virtual Slice Finish(
       const BlockHandle& tmp /* only used in PartitionedFilterBlock as
                                 last_partition_block_handle */
       ,
-      Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
+      Status* status, std::unique_ptr<const char[]>* filter_data = nullptr,
+      std::unique_ptr<
+          CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
+          filter_data_cache_res_handle = nullptr) = 0;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

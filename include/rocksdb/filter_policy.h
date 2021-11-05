@@ -27,16 +27,16 @@
 #include <string>
 #include <vector>
 
-// #include "cache/cache_entry_roles.h"
+#include "cache/cache_entry_roles.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// enum class CacheEntryRole;
-// template <CacheEntryRole R>
-// class CacheReservationHandle;
+enum class CacheEntryRole;
+template <CacheEntryRole R>
+class CacheReservationHandle;
 class CacheReservationManager;
 class Slice;
 struct BlockBasedTableOptions;
@@ -69,11 +69,16 @@ class FilterBitsBuilder {
   // The return value of this function would be the filter bits,
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
-  // virtual Slice Finish(
-  //     std::unique_ptr<const char[]>* buf,
-  //     std::unique_ptr<
-  //         CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
-  //         buf_cache_res_handle = nullptr) = 0;
+
+  // For internal usage
+  virtual Slice Finish(
+      std::unique_ptr<const char[]>* buf,
+      std::unique_ptr<
+          CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
+          buf_cache_res_handle) {
+    (void)buf_cache_res_handle;
+    return Finish(buf);
+  }
 
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should

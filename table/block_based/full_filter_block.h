@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -56,7 +58,10 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual size_t EstimateEntriesAdded() override;
   virtual Slice Finish(
       const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+      std::unique_ptr<const char[]>* filter_data = nullptr,
+      std::unique_ptr<
+          CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
+          filter_data_cache_res_handle = nullptr) override;
   using FilterBlockBuilder::Finish;
 
  protected:
@@ -84,6 +89,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   bool last_key_in_domain_;
   bool any_added_;
   std::unique_ptr<const char[]> filter_data_;
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction> >
+      filter_data_cache_res_handle_;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

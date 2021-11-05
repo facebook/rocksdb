@@ -7,6 +7,8 @@
 
 #include <utility>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -88,9 +90,13 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   std::unique_ptr<const char[]> filter_data;
-  Slice filter = filter_bits_builder_->Finish(&filter_data);
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+      filter_data_cache_res_handle;
+  Slice filter =
+      filter_bits_builder_->Finish(&filter_data, &filter_data_cache_res_handle);
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter, std::move(filter_data)});
+  filters.push_back({index_key, filter, std::move(filter_data),
+                     std::move(filter_data_cache_res_handle)});
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -111,7 +117,10 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
 
 Slice PartitionedFilterBlockBuilder::Finish(
     const BlockHandle& last_partition_block_handle, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
+    std::unique_ptr<const char[]>* filter_data,
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction>>*
+        filter_data_cache_res_handle) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
     std::string handle_encoding;
@@ -137,6 +146,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
     last_filter_data.reset();
+    last_filter_data_cache_res_handle.reset();
     if (finishing_filters) {
       // Simplest to just add them all at the end
       total_added_in_built_ = 0;
@@ -158,8 +168,14 @@ Slice PartitionedFilterBlockBuilder::Finish(
     last_filter_entry_key = filters.front().key;
     Slice filter = filters.front().filter;
     last_filter_data = std::move(filters.front().filter_data);
+    last_filter_data_cache_res_handle =
+        std::move(filters.front().filter_data_cache_res_handle);
     if (filter_data != nullptr) {
       *filter_data = std::move(last_filter_data);
+    }
+    if (filter_data_cache_res_handle != nullptr) {
+      *filter_data_cache_res_handle =
+          std::move(last_filter_data_cache_res_handle);
     }
     filters.pop_front();
     return filter;
