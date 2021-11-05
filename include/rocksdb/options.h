@@ -185,6 +185,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: 64MB
   //
   // Dynamically changeable through SetOptions() API
+  // 其实就是memtable的大小 是一个非常重要的变量
+  // 这里用了一个非常诡异的
   size_t write_buffer_size = 64 << 20;
 
   // Compress blocks using the specified compression algorithm.

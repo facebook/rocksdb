@@ -2500,6 +2500,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     ca->prepicked_compaction = nullptr;
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
+    // BGWorkCompaction calls BackgroundCallCompaction
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCompactionCallback);
   }
@@ -2638,6 +2639,9 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
   }
 }
 
+// 可以看到 compaction_queue_ and unscheduled_compactions_一起更新
+// 核心函数是NeedsCompaction,通过这个函数来判断是否有sst需要被compact
+// 调用LevelCompactionPicker::NeedsCompaction函数来进行是否满足compaction的条件
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
@@ -2919,6 +2923,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
+    // 所有的compact操作在这个方法中进行
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
                                     prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
@@ -3050,6 +3055,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   bool trivial_move_disallowed =
       is_manual && manual_compaction->disallow_trivial_move;
 
+  // 一大堆静态数据组成的结构 用于描述一个compaction
   CompactionJobStats compaction_job_stats;
   Status status;
   if (!error_handler_.IsBGWorkStopped()) {
@@ -3148,6 +3154,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       return Status::OK();
     }
 
+    // 从compaction_queue_队列中读取第一个需要compact的column family
     auto cfd = PickCompactionFromQueue(&task_token, log_buffer);
     if (cfd == nullptr) {
       // Can't find any executable task from the compaction queue.
@@ -3178,6 +3185,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
+      // 通过PickCompaction选取当前CF中所需要compact的内容
+      // 此处有漫长的调用链
       c.reset(cfd->PickCompaction(*mutable_cf_options, mutable_db_options_,
                                   log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
@@ -3232,6 +3241,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
   }
 
+  // 下面要开始compact了哦 重点是判断语句的最后一种case
   IOStatus io_s;
   if (!c) {
     // Nothing to do

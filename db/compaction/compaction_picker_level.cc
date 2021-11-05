@@ -17,8 +17,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// 来判断是否有sst需要被compact 满足任意条件就会更新队列
+// 以下所有信息通过 VersionStorageInfo::ComputeCompactionScore 来进行更新
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  // 过期的sst
   if (!vstorage->ExpiredTtlFiles().empty()) {
     return true;
   }
@@ -165,14 +168,18 @@ void LevelCompactionBuilder::PickFileToCompact(
   start_level_inputs_.files.clear();
 }
 
+// 初始化所有需要compact的文件
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
   for (int i = 0; i < compaction_picker_->NumberLevels() - 1; i++) {
     start_level_score_ = vstorage_->CompactionScore(i);
+    // 之前理解没问题 start_level_就是自己的层次 不是输出层次
     start_level_ = vstorage_->CompactionScoreLevel(i);
+    // score是严格递减的
     assert(i == 0 || start_level_score_ <= vstorage_->CompactionScore(i - 1));
     if (start_level_score_ >= 1) {
+      // 这种情况下跳过从start_level_开始的compact
       if (skipped_l0_to_base && start_level_ == vstorage_->base_level()) {
         // If L0->base_level compaction is pending, don't schedule further
         // compaction from base level. Otherwise L0->base_level compaction
@@ -181,6 +188,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       }
       output_level_ =
           (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
+      // 这里这个PickFileToCompact最为核心 找到输出和输入的files
       if (PickFileToCompact()) {
         // found the compaction!
         if (start_level_ == 0) {
@@ -190,6 +198,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
           // L1+ score = `Level files size` / `MaxBytesForLevel`
           compaction_reason_ = CompactionReason::kLevelMaxLevelSize;
         }
+        // 找到一个就直接break了
         break;
       } else {
         // didn't find the compaction, clear the inputs
@@ -427,7 +436,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
     return false;
   }
-
+  // std::vector<FileMetaData*>
   start_level_inputs_.clear();
 
   assert(start_level_ >= 0);
@@ -440,6 +449,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       vstorage_->LevelFiles(start_level_);
 
   unsigned int cmp_idx;
+  // 第一个没被compact的file
   for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);
        cmp_idx < file_size.size(); cmp_idx++) {
     int index = file_size[cmp_idx];
@@ -453,6 +463,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
     start_level_inputs_.files.push_back(f);
     start_level_inputs_.level = start_level_;
+    // 以下两个条件满足其一 则放弃 开始寻找下一个candidate
+    // 1. 先做clean cut 判断结果中的任意文件是否正在被compact
+    // 2. 准备好的这批文件是否与正在参与的compact有重叠的key
     if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                     &start_level_inputs_) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(

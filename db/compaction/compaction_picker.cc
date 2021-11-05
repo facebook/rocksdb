@@ -263,6 +263,8 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
   size_t old_size;
   do {
     old_size = inputs->size();
+    // 这样就得到了一层中最大和最小的key 注意l0层需要遍历inputs的每一个文件
+    // 其他层次却不需要 inputs也是按照顺序排序的
     GetRange(*inputs, &smallest, &largest);
     inputs->clear();
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,

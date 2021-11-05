@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 // is needed to avoid deadlocks. In particular, the handler shouldn't lock any
 // mutexes and shouldn't call any methods of any ThreadLocalPtr instances,
 // unless you know what you're doing.
+// 这个类型是什么 指代所有函数吗
 using UnrefHandler = void (*)(void* ptr);
 
 // ThreadLocalPtr stores only values of pointer type.  Different from

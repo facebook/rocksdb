@@ -2704,8 +2704,10 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
+  // 最终目的 就是更新score和level两个vector
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
+    // level0和其他层次区别对待
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files
       // instead of number of bytes for two reasons:
@@ -2763,6 +2765,8 @@ void VersionStorageInfo::ComputeCompactionScore(
               score);
         }
       } else {
+        // level0_file_num_compaction_trigger 0层有这么多个文件时 触发compact
+        // num_sorted_runs是0层的数量
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
         if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
@@ -2777,6 +2781,7 @@ void VersionStorageInfo::ComputeCompactionScore(
             // L0 forever even when it is hurting write-amp. That could happen
             // in dynamic level compaction's write-burst mode where the base
             // level's target size can grow to be enormous.
+            // 数组level_max_bytes_ 的更新是在CalculateBaseBytes函数中进行
             l0_target_size =
                 std::max(l0_target_size,
                          static_cast<uint64_t>(level_max_bytes_[base_level_] /
@@ -2790,10 +2795,13 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
+        // 注意如果已经被划分为需要进行compact的就不要再计算了
+        // 反正很快就不属于这层
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
+      // 看来这个MaxBytesForLevel就是target的大小
       score = static_cast<double>(level_bytes_no_compacting) /
               MaxBytesForLevel(level);
     }
@@ -3411,7 +3419,7 @@ void VersionStorageInfo::GetOverlappingInputs(
                                           file_index, false, next_smallest);
     return;
   }
-
+  // 以下所有情况应对level==0
   if (next_smallest) {
     // next_smallest key only makes sense for non-level 0, where files are
     // non-overlapping
@@ -3419,6 +3427,7 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
 
   Slice user_begin, user_end;
+  // 对于user-key后面再附带8B的信息
   if (begin != nullptr) {
     user_begin = begin->user_key();
   }
@@ -3436,6 +3445,7 @@ void VersionStorageInfo::GetOverlappingInputs(
     bool found_overlapping_file = false;
     auto iter = index.begin();
     while (iter != index.end()) {
+      // 内层循环 遍历一次0层的文件
       FdWithKeyRange* f = &(level_files_brief_[level].files[*iter]);
       const Slice file_start = ExtractUserKey(f->smallest_key);
       const Slice file_limit = ExtractUserKey(f->largest_key);
@@ -3457,6 +3467,7 @@ void VersionStorageInfo::GetOverlappingInputs(
         }
         // the related file is overlap, erase to avoid checking again.
         iter = index.erase(iter);
+        // 如果需要向两侧扩展直至clean cut 的话需要根据新找到的文件 扩充边界
         if (expand_range) {
           if (begin != nullptr &&
               user_cmp->CompareWithoutTimestamp(file_start, user_begin) < 0) {
@@ -3711,10 +3722,14 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       }
     }
   }
+  // l0_delay_trigger_count_ 暂时不清楚作用 看起来只是l0层的文件数量而已
   set_l0_delay_trigger_count(num_l0_count);
 
+  // 每层的target大小
   level_max_bytes_.resize(ioptions.num_levels);
   if (!ioptions.level_compaction_dynamic_level_bytes) {
+    // 在这种情况下 写死每层的target
+    // 静态level compact模式下 l0层必定被compact到 l1层
     base_level_ = (ioptions.compaction_style == kCompactionStyleLevel) ? 1 : -1;
 
     // Calculate for static bytes base case
@@ -3722,17 +3737,20 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       if (i == 0 && ioptions.compaction_style == kCompactionStyleUniversal) {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       } else if (i > 1) {
+        // 三者相乘
         level_max_bytes_[i] = MultiplyCheckOverflow(
             MultiplyCheckOverflow(level_max_bytes_[i - 1],
                                   options.max_bytes_for_level_multiplier),
             options.MaxBytesMultiplerAdditional(i - 1));
       } else {
+        // 对于静态level compact模式 l0层的target就是max_bytes_for_level_base
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       }
     }
   } else {
+    // 动态设置每层target
     uint64_t max_level_size = 0;
-
+    // 第一个有数据的层次
     int first_non_empty_level = -1;
     // Find size of non-L0 level of most data.
     // Cannot use the size of the last level because it can be empty or less

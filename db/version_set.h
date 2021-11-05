@@ -574,6 +574,7 @@ class VersionStorageInfo {
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
+  // 是一个vector 的数组 这样看来的话 每个FileMetaData代表一个sst文件
   std::vector<FileMetaData*>* files_;
 
   // Map of all table files in version. Maps file number to (level, position on
@@ -1427,12 +1428,14 @@ class VersionSet {
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
+  // 当前的manifest文件
   std::unique_ptr<log::Writer> descriptor_log_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
 
   // Queue of writers to the manifest file
+  // 即将写入到manifest的内容 其中的versionEdit数组
   std::deque<ManifestWriter*> manifest_writers_;
 
   // Current size of manifest file

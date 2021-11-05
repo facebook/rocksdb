@@ -550,6 +550,7 @@ void CompactionJob::Prepare() {
     }
     assert(sizes_.size() == boundaries_.size() + 1);
 
+    // 将c分解成若干个subcompaction
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       Slice* start = i == 0 ? nullptr : &boundaries_[i - 1];
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
@@ -621,6 +622,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
     }
   }
 
+  // 做一次排序
   std::sort(bounds.begin(), bounds.end(),
             [cfd_comparator](const Slice& a, const Slice& b) -> bool {
               return cfd_comparator->Compare(ExtractUserKey(a),
