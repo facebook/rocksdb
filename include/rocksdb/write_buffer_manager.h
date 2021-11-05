@@ -61,7 +61,7 @@ class WriteBufferManager final {
   bool enabled() const { return buffer_size() > 0; }
 
   // Returns true if pointer to cache is passed.
-  bool cost_to_cache() const { return cache_rev_mng_ != nullptr; }
+  bool cost_to_cache() const { return cache_res_mgr_ != nullptr; }
 
   // Returns the total memory used by memtables.
   // Only valid if enabled()
@@ -158,9 +158,9 @@ class WriteBufferManager final {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
-  std::unique_ptr<CacheReservationManager> cache_rev_mng_;
-  // Protects cache_rev_mng_
-  std::mutex cache_rev_mng_mu_;
+  std::unique_ptr<CacheReservationManager> cache_res_mgr_;
+  // Protects cache_res_mgr_
+  std::mutex cache_res_mgr_mu_;
 
   std::list<StallInterface*> queue_;
   // Protects the queue_ and stall_active_.

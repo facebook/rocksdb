@@ -23,7 +23,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
-      cache_rev_mng_(nullptr),
+      cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
       stall_active_(false) {
 #ifndef ROCKSDB_LITE
@@ -31,7 +31,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
     // insertion on memory increase right after memory decrease
-    cache_rev_mng_.reset(
+    cache_res_mgr_.reset(
         new CacheReservationManager(cache, true /* delayed_decrease */));
   }
 #else
@@ -47,15 +47,15 @@ WriteBufferManager::~WriteBufferManager() {
 }
 
 std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
-  if (cache_rev_mng_ != nullptr) {
-    return cache_rev_mng_->GetTotalReservedCacheSize();
+  if (cache_res_mgr_ != nullptr) {
+    return cache_res_mgr_->GetTotalReservedCacheSize();
   } else {
     return 0;
   }
 }
 
 void WriteBufferManager::ReserveMem(size_t mem) {
-  if (cache_rev_mng_ != nullptr) {
+  if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_add(mem, std::memory_order_relaxed);
@@ -68,15 +68,15 @@ void WriteBufferManager::ReserveMem(size_t mem) {
 // Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
-  assert(cache_rev_mng_ != nullptr);
+  assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
-  std::lock_guard<std::mutex> lock(cache_rev_mng_mu_);
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
   Status s =
-      cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+      cache_res_mgr_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
           new_mem_used);
 
   // We absorb the error since WriteBufferManager is not able to handle
@@ -97,7 +97,7 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 }
 
 void WriteBufferManager::FreeMem(size_t mem) {
-  if (cache_rev_mng_ != nullptr) {
+  if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
@@ -108,14 +108,14 @@ void WriteBufferManager::FreeMem(size_t mem) {
 
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
-  assert(cache_rev_mng_ != nullptr);
+  assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
-  std::lock_guard<std::mutex> lock(cache_rev_mng_mu_);
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
   Status s =
-      cache_rev_mng_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
+      cache_res_mgr_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
           new_mem_used);
 
   // We absorb the error since WriteBufferManager is not able to handle
