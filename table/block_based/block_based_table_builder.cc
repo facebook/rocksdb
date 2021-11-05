@@ -1931,6 +1931,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   }
   r->data_block_buffers.clear();
   r->data_begin_offset = 0;
+  // Release all reserved cache for data block buffers
   if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
     Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
         CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
