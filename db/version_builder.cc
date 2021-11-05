@@ -314,7 +314,7 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  template <class Checker>
+  template <typename Checker>
   Status CheckConsistencyDetailsForLevel(
       const VersionStorageInfo* vstorage, int level, Checker checker,
       const std::string& sync_point,
@@ -989,8 +989,8 @@ class VersionBuilder::Rep {
 
   // Add the blob file specified by meta to *vstorage if it is determined to
   // contain valid data (blobs).
-  template <typename T>
-  static void AddBlobFileIfNeeded(VersionStorageInfo* vstorage, T&& meta) {
+  template <typename Meta>
+  static void AddBlobFileIfNeeded(VersionStorageInfo* vstorage, Meta&& meta) {
     assert(vstorage);
     assert(meta);
 
@@ -999,7 +999,7 @@ class VersionBuilder::Rep {
       return;
     }
 
-    vstorage->AddBlobFile(std::forward<T>(meta));
+    vstorage->AddBlobFile(std::forward<Meta>(meta));
   }
 
   // Merge the blob file metadata from the base version with the changes (edits)
@@ -1079,7 +1079,7 @@ class VersionBuilder::Rep {
     }
   }
 
-  template <class Cmp>
+  template <typename Cmp>
   void SaveSSTFilesTo(VersionStorageInfo* vstorage, int level, Cmp cmp) const {
     // Merge the set of added files with the set of pre-existing files.
     // Drop any deleted files.  Store the result in *vstorage.
