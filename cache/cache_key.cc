@@ -185,6 +185,7 @@ OffsetableCacheKey::OffsetableCacheKey(const std::string &db_id,
 
   uint64_t mask = (uint64_t{1} << (file_number_bits_in_offset_etc)) - 1;
   // Pack into high bits of etc so that offset can go in low bits of etc
+  // TODO: could be EndianSwapValue?
   uint64_t offset_etc_modifier = ReverseBits(file_number & mask);
   assert(offset_etc_modifier << file_number_bits_in_offset_etc == 0U);
 
