@@ -47,7 +47,7 @@ CREATE_TASK=
 
 REPORT=
 if [[ ! -z $REPORT_EMAIL || ! -z $CREATE_TASK ]]; then
-  REPORT="\"report\": [
+  REPORT=",\"report\": [
     $REPORT_EMAIL,
     $CREATE_TASK
   ]"
@@ -108,7 +108,7 @@ ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
-TSAN_CRASH="CRASH_TEST_EXT_ARGS=\"--compression_type=zstd --log2_keys_per_lock=22\""
+TSAN_CRASH="CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
@@ -162,7 +162,7 @@ UNIT_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -185,7 +185,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -206,7 +206,7 @@ RELEASE_BUILD_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -227,7 +227,7 @@ UNIT_TEST_COMMANDS_481="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -248,7 +248,7 @@ RELEASE_BUILD_COMMANDS_481="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -269,7 +269,7 @@ CLANG_UNIT_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -290,7 +290,7 @@ CLANG_RELEASE_BUILD_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -311,7 +311,7 @@ CLANG_ANALYZE_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -332,7 +332,7 @@ CODE_COV_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -353,7 +353,7 @@ UNITY_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -374,7 +374,7 @@ LITE_BUILD_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -404,7 +404,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -434,7 +434,7 @@ BLACKBOX_STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -464,7 +464,7 @@ WHITEBOX_STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -494,7 +494,7 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -524,7 +524,7 @@ STRESS_CRASH_TEST_WITH_TXN_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -554,7 +554,7 @@ STRESS_CRASH_TEST_WITH_TS_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -576,7 +576,7 @@ WRITE_STRESS_COMMANDS="[
                 $PARSER
             }
         ],
-        \"artifacts\": [{\"name\": \"database\", \"paths\": [\"/tmp/rocksdb_write_stress\"]}],
+        \"artifacts\": [{\"name\": \"database\", \"paths\": [\"/tmp/rocksdb_write_stress\"]}]
         $REPORT
     }
 ]"
@@ -598,7 +598,7 @@ ASAN_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -622,7 +622,7 @@ ASAN_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -646,7 +646,7 @@ ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -670,7 +670,7 @@ ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -694,7 +694,7 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -718,7 +718,7 @@ ASAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -739,7 +739,7 @@ UBSAN_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -763,7 +763,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -787,7 +787,7 @@ UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -811,7 +811,7 @@ UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -835,7 +835,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -859,7 +859,7 @@ UBSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -882,7 +882,7 @@ VALGRIND_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -905,7 +905,7 @@ TSAN_UNIT_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -929,7 +929,7 @@ TSAN_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -953,7 +953,7 @@ TSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -977,7 +977,7 @@ TSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1001,7 +1001,7 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1025,7 +1025,7 @@ TSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
                 $PARSER
             },
             $UPLOAD_DB_DIR
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1058,7 +1058,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1093,7 +1093,7 @@ NO_COMPRESSION_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1153,7 +1153,7 @@ REGRESSION_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1174,7 +1174,7 @@ JAVA_BUILD_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -1208,7 +1208,7 @@ FBCODE_STRESS_CRASH_TEST_COMMANDS="[
                 \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
