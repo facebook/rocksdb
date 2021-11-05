@@ -3199,6 +3199,82 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Although the user-contract indicates that a SD can only be issued for a key
+// that exists and has not been overwritten, it is still possible for a Delete
+// to be present when write-prepared transaction is rolled back.
+TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Get a write conflict snapshot by creating a transaction with
+  // set_snapshot=true.
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  std::unique_ptr<Transaction> dummy_txn(
+      db->BeginTransaction(WriteOptions(), txn_opts));
+
+  std::unique_ptr<Transaction> txn0(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn0->Put("foo", "value"));
+  ASSERT_OK(txn0->SetName("xid0"));
+  ASSERT_OK(txn0->Prepare());
+
+  // Create an SST with only {"foo": "value"}.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Insert a Delete to cancel out the prior Put by txn0.
+  ASSERT_OK(txn0->Rollback());
+  txn0.reset();
+
+  // Create a second SST.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value1"));
+
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "foo"));
+
+  int count = 0;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
+        const auto* const c = reinterpret_cast<const Compaction*>(arg);
+        assert(!c);
+        // Trigger once only for SingleDelete during flush.
+        if (0 == count) {
+          ++count;
+          db->ReleaseSnapshot(snapshot);
+          // Bump max_evicted_seq
+          ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create a third SST containing a SD without its matching PUT.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DBImpl* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  assert(dbimpl);
+  ASSERT_OK(dbimpl->TEST_CompactRange(
+      /*level=*/0, /*begin=*/nullptr, /*end=*/nullptr,
+      /*column_family=*/nullptr, /*disallow_trivial_mode=*/true));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Release the conflict-checking snapshot.
+  ASSERT_OK(dummy_txn->Rollback());
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
