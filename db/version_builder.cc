@@ -176,6 +176,11 @@ class VersionBuilder::Rep {
       return shared_meta_;
     }
 
+    uint64_t GetBlobFileNumber() const {
+      assert(shared_meta_);
+      return shared_meta_->GetBlobFileNumber();
+    }
+
     bool HasDelta() const { return !delta_.IsEmpty(); }
 
     const std::unordered_set<uint64_t>& GetLinkedSsts() const {
@@ -309,7 +314,7 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  template <class Checker>
+  template <typename Checker>
   Status CheckConsistencyDetailsForLevel(
       const VersionStorageInfo* vstorage, int level, Checker checker,
       const std::string& sync_point,
@@ -669,28 +674,6 @@ class VersionBuilder::Rep {
     return meta->oldest_blob_file_number;
   }
 
-  uint64_t GetMinOldestBlobFileNumber() const {
-    uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
-    for (int level = 0; level < num_levels_; ++level) {
-      const auto& base_files = base_vstorage_->LevelFiles(level);
-      for (const auto* fmeta : base_files) {
-        assert(fmeta);
-        min_oldest_blob_file_num =
-            std::min(min_oldest_blob_file_num, fmeta->oldest_blob_file_number);
-      }
-      const auto& added_files = levels_[level].added_files;
-      for (const auto& elem : added_files) {
-        assert(elem.second);
-        min_oldest_blob_file_num = std::min(
-            min_oldest_blob_file_num, elem.second->oldest_blob_file_number);
-      }
-    }
-    if (min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max()) {
-      min_oldest_blob_file_num = kInvalidBlobFileNumber;
-    }
-    return min_oldest_blob_file_num;
-  }
-
   Status ApplyFileDeletion(int level, uint64_t file_number) {
     assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
@@ -864,48 +847,26 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
-      const MutableBlobFileMetaData& mutable_meta) {
-    return BlobFileMetaData::Create(
-        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
-        mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
-  }
-
-  // Add the blob file specified by meta to *vstorage if it is determined to
-  // contain valid data (blobs). We make this decision based on the amount
-  // of garbage in the file, and whether the file or any lower-numbered blob
-  // files have any linked SSTs. The latter condition is tracked using the
-  // flag *found_first_non_empty.
-  void AddBlobFileIfNeeded(VersionStorageInfo* vstorage,
-                           const std::shared_ptr<BlobFileMetaData>& meta,
-                           bool* found_first_non_empty) const {
-    assert(vstorage);
-    assert(meta);
-    assert(found_first_non_empty);
-
-    if (!meta->GetLinkedSsts().empty()) {
-      (*found_first_non_empty) = true;
-    } else if (!(*found_first_non_empty) ||
-               meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
-      return;
-    }
-
-    vstorage->AddBlobFile(meta);
-  }
-
-  // Merge the blob file metadata from the base version with the changes (edits)
-  // applied, and save the result into *vstorage.
-  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+  // Helper function template for merging the blob file metadata from the base
+  // version with the mutable metadata representing the state after applying the
+  // edits. The function objects process_base and process_mutable are
+  // respectively called to handle a base version object when there is no
+  // matching mutable object, and a mutable object when there is no matching
+  // base version object. process_both is called to perform the merge when a
+  // given blob file appears both in the base version and the mutable list. The
+  // helper stops processing objects if a function object returns false. Blob
+  // files with a file number below first_blob_file are not processed.
+  template <typename ProcessBase, typename ProcessMutable, typename ProcessBoth>
+  void MergeBlobFileMetas(uint64_t first_blob_file, ProcessBase process_base,
+                          ProcessMutable process_mutable,
+                          ProcessBoth process_both) const {
     assert(base_vstorage_);
-    assert(vstorage);
-
-    bool found_first_non_empty = false;
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-    auto base_it = base_blob_files.begin();
+    auto base_it = base_blob_files.lower_bound(first_blob_file);
     const auto base_it_end = base_blob_files.end();
 
-    auto mutable_it = mutable_blob_file_metas_.begin();
+    auto mutable_it = mutable_blob_file_metas_.lower_bound(first_blob_file);
     const auto mutable_it_end = mutable_blob_file_metas_.end();
 
     while (base_it != base_it_end && mutable_it != mutable_it_end) {
@@ -915,15 +876,17 @@ class VersionBuilder::Rep {
       if (base_blob_file_number < mutable_blob_file_number) {
         const auto& base_meta = base_it->second;
 
-        AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+        if (!process_base(base_meta)) {
+          return;
+        }
 
         ++base_it;
       } else if (mutable_blob_file_number < base_blob_file_number) {
         const auto& mutable_meta = mutable_it->second;
 
-        auto meta = CreateBlobFileMetaData(mutable_meta);
-
-        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+        if (!process_mutable(mutable_meta)) {
+          return;
+        }
 
         ++mutable_it;
       } else {
@@ -932,21 +895,8 @@ class VersionBuilder::Rep {
         const auto& base_meta = base_it->second;
         const auto& mutable_meta = mutable_it->second;
 
-        assert(base_meta);
-        assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
-
-        if (!mutable_meta.HasDelta()) {
-          assert(base_meta->GetGarbageBlobCount() ==
-                 mutable_meta.GetGarbageBlobCount());
-          assert(base_meta->GetGarbageBlobBytes() ==
-                 mutable_meta.GetGarbageBlobBytes());
-          assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
-
-          AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
-        } else {
-          auto meta = CreateBlobFileMetaData(mutable_meta);
-
-          AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+        if (!process_both(base_meta, mutable_meta)) {
+          return;
         }
 
         ++base_it;
@@ -957,7 +907,9 @@ class VersionBuilder::Rep {
     while (base_it != base_it_end) {
       const auto& base_meta = base_it->second;
 
-      AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+      if (!process_base(base_meta)) {
+        return;
+      }
 
       ++base_it;
     }
@@ -965,12 +917,140 @@ class VersionBuilder::Rep {
     while (mutable_it != mutable_it_end) {
       const auto& mutable_meta = mutable_it->second;
 
-      auto meta = CreateBlobFileMetaData(mutable_meta);
-
-      AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+      if (!process_mutable(mutable_meta)) {
+        return;
+      }
 
       ++mutable_it;
     }
+  }
+
+  // Helper function template for finding the first blob file that has linked
+  // SSTs.
+  template <typename Meta>
+  static bool CheckLinkedSsts(const Meta& meta,
+                              uint64_t* min_oldest_blob_file_num) {
+    assert(min_oldest_blob_file_num);
+
+    if (!meta.GetLinkedSsts().empty()) {
+      assert(*min_oldest_blob_file_num == kInvalidBlobFileNumber);
+
+      *min_oldest_blob_file_num = meta.GetBlobFileNumber();
+
+      return false;
+    }
+
+    return true;
+  }
+
+  // Find the oldest blob file that has linked SSTs.
+  uint64_t GetMinOldestBlobFileNumber() const {
+    uint64_t min_oldest_blob_file_num = kInvalidBlobFileNumber;
+
+    auto process_base =
+        [&min_oldest_blob_file_num](
+            const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+
+          return CheckLinkedSsts(*base_meta, &min_oldest_blob_file_num);
+        };
+
+    auto process_mutable = [&min_oldest_blob_file_num](
+                               const MutableBlobFileMetaData& mutable_meta) {
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    auto process_both = [&min_oldest_blob_file_num](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+#ifndef NDEBUG
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+#else
+      (void)base_meta;
+#endif
+
+      // Look at mutable_meta since it supersedes *base_meta
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
+                       process_both);
+
+    return min_oldest_blob_file_num;
+  }
+
+  static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
+      const MutableBlobFileMetaData& mutable_meta) {
+    return BlobFileMetaData::Create(
+        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
+        mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
+  }
+
+  // Add the blob file specified by meta to *vstorage if it is determined to
+  // contain valid data (blobs).
+  template <typename Meta>
+  static void AddBlobFileIfNeeded(VersionStorageInfo* vstorage, Meta&& meta) {
+    assert(vstorage);
+    assert(meta);
+
+    if (meta->GetLinkedSsts().empty() &&
+        meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
+      return;
+    }
+
+    vstorage->AddBlobFile(std::forward<Meta>(meta));
+  }
+
+  // Merge the blob file metadata from the base version with the changes (edits)
+  // applied, and save the result into *vstorage.
+  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
+    const uint64_t oldest_blob_file_with_linked_ssts =
+        GetMinOldestBlobFileNumber();
+
+    auto process_base =
+        [vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+
+          AddBlobFileIfNeeded(vstorage, base_meta);
+
+          return true;
+        };
+
+    auto process_mutable =
+        [vstorage](const MutableBlobFileMetaData& mutable_meta) {
+          AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
+
+          return true;
+        };
+
+    auto process_both = [vstorage](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+
+      if (!mutable_meta.HasDelta()) {
+        assert(base_meta->GetGarbageBlobCount() ==
+               mutable_meta.GetGarbageBlobCount());
+        assert(base_meta->GetGarbageBlobBytes() ==
+               mutable_meta.GetGarbageBlobBytes());
+        assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
+
+        AddBlobFileIfNeeded(vstorage, base_meta);
+
+        return true;
+      }
+
+      AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
+
+      return true;
+    };
+
+    MergeBlobFileMetas(oldest_blob_file_with_linked_ssts, process_base,
+                       process_mutable, process_both);
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level,
@@ -999,7 +1079,7 @@ class VersionBuilder::Rep {
     }
   }
 
-  template <class Cmp>
+  template <typename Cmp>
   void SaveSSTFilesTo(VersionStorageInfo* vstorage, int level, Cmp cmp) const {
     // Merge the set of added files with the set of pre-existing files.
     // Drop any deleted files.  Store the result in *vstorage.
