@@ -608,11 +608,19 @@ void CompactionIterator::NextFromInput() {
 
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
-          if (next_ikey.type == kTypeSingleDeletion) {
+          if (next_ikey.type == kTypeSingleDeletion ||
+              next_ikey.type == kTypeDeletion) {
             // We encountered two SingleDeletes for same key in a row. This
-            // could be due to unexpected user input. Skip the first
-            // SingleDelete and let the next iteration decide how to handle the
-            // second SingleDelete
+            // could be due to unexpected user input. If write-(un)prepared
+            // transaction is used, this could also be due to releasing an old
+            // snapshot between a Put and its matching SingleDelete.
+            // Furthermore, if write-(un)prepared transaction is rolled back
+            // after prepare, we will write a Delete to cancel a prior Put. If
+            // old snapshot is released between a later Put and its matching
+            // SingleDelete, we will end up with a Delete followed by
+            // SingleDelete.
+            // Skip the first SingleDelete and let the next iteration decide
+            // how to handle the second SingleDelete or Delete.
 
             // First SingleDelete has been skipped since we already called
             // input_.Next().
