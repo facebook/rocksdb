@@ -84,7 +84,13 @@ class FilterBlockBuilder {
   // ownership of cache reservation for the memory used by filter data
   // BlockBasedFilterBlock will ignore this parameter.
   //
-  // REQUIRED: (filter_data && filter_data_cache_res_handle) || (!filter_data &&
+  // REQUIRED:
+  // If BlockBasedTableOptions:: reserve_table_builder_memory == true,
+  // and a block cache is availabe, that is, we charge filter construction
+  // memory, then we need the following to be true for
+  // filter_data_cache_res_handle to manage filter_data's cache reservation
+  // correctly:
+  // (filter_data && filter_data_cache_res_handle) || (!filter_data &&
   // !filter_data_cache_res_handle)
   virtual Slice Finish(
       const BlockHandle& tmp /* only used in PartitionedFilterBlock as

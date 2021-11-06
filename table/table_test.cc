@@ -5385,7 +5385,7 @@ class BlockBasedTableReserveFilterConstructionMemoryTest
     BlockBasedTableOptions table_options;
 
     if (reserve_memory_) {
-      table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+      table_options.reserve_table_builder_memory = true;
     }
 
     table_options.format_version = format_;

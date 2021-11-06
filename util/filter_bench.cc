@@ -100,10 +100,9 @@ DEFINE_uint32(block_cache_capacity_MB, 8,
               "Setting for "
               "LRUCacheOptions::capacity");
 
-DEFINE_bool(
-    reserve_bloom_ribbon_filter_construction_memory, false,
-    "Setting for "
-    "BlockBasedTableOptions::reserve_bloom_ribbon_filter_construction_memory");
+DEFINE_bool(reserve_table_builder_memory, false,
+            "Setting for "
+            "BlockBasedTableOptions::reserve_table_builder_memory");
 
 DEFINE_bool(strict_capacity_limit, false,
             "Setting for "
@@ -215,7 +214,8 @@ struct FilterInfo {
   uint32_t filter_id_ = 0;
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
-  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>> final_filter_cache_res_handle;
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction> >
+      final_filter_cache_res_handle;
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
@@ -306,8 +306,8 @@ struct FilterBench : public MockBlockBasedTableTester {
     ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
-    if (FLAGS_reserve_bloom_ribbon_filter_construction_memory) {
-      table_options_.reserve_bloom_ribbon_filter_construction_memory = true;
+    if (FLAGS_reserve_table_builder_memory) {
+      table_options_.reserve_table_builder_memory = true;
       table_options_.no_block_cache = false;
       LRUCacheOptions lo;
       lo.capacity = FLAGS_block_cache_capacity_MB * 1024 * 1024;
@@ -425,7 +425,8 @@ void FilterBench::Go() {
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
-      info.filter_ = builder->Finish(&info.owner_, &info.final_filter_cache_res_handle);
+      info.filter_ =
+          builder->Finish(&info.owner_, &info.final_filter_cache_res_handle);
 #ifdef PREDICT_FP_RATE
       weighted_predicted_fp_rate +=
           keys_to_add *

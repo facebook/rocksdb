@@ -622,7 +622,7 @@ TEST_P(FullBloomTest, ReserveBloomAndRibbonFilterConstructionMemory) {
   table_options.block_cache = cache;
   table_options.filter_policy.reset(
       new BloomFilterPolicy(FLAGS_bits_per_key, mode));
-  table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+  table_options.reserve_table_builder_memory = true;
 
   FilterBuildingContext ctx(table_options);
   std::shared_ptr<CacheReservationManager> cache_res_mgr(
@@ -704,7 +704,7 @@ TEST_P(FullBloomTest, RibbonFilterFallBackOnLargeBanding) {
     table_options.block_cache = cache;
     table_options.filter_policy.reset(
         new BloomFilterPolicy(FLAGS_bits_per_key, mode));
-    table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+    table_options.reserve_table_builder_memory = true;
 
     FilterBuildingContext ctx(table_options);
     std::shared_ptr<CacheReservationManager> cache_res_mgr(
@@ -831,7 +831,7 @@ TEST(FullBloomCustomFilterPolicyTest, RibbonFilterFallBackOnLargeBanding) {
     std::shared_ptr<Cache> cache(NewLRUCache(lo));
     table_options.block_cache = cache;
     table_options.filter_policy.reset(new CustomFilterPolicy());
-    table_options.reserve_bloom_ribbon_filter_construction_memory = true;
+    table_options.reserve_table_builder_memory = true;
 
     FilterBuildingContext ctx(table_options);
     std::shared_ptr<CacheReservationManager> cache_res_mgr(

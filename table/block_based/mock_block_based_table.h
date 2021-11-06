@@ -49,7 +49,7 @@ class MockBlockBasedTableTester {
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
     context.info_log = ioptions_.logger;
-    if (table_options_.reserve_bloom_ribbon_filter_construction_memory &&
+    if (table_options_.reserve_table_builder_memory &&
         !table_options_.no_block_cache &&
         table_options_.block_cache != nullptr) {
       context.cache_res_mgr.reset(
