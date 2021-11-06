@@ -1858,6 +1858,47 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
   Destroy(options);
 }
 
+TEST_F(DBFlushTest, PickRightMemtables) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  options.create_if_missing = true;
+
+  const std::string test_cf_name = "test_cf";
+  options.max_write_buffer_number = 128;
+  CreateColumnFamilies({test_cf_name}, options);
+
+  Close();
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, test_cf_name}, options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "key", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncClosedLogs:BeforeReLock", [&](void* /*arg*/) {
+        ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "what", "v"));
+        auto* cfhi =
+            static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1]);
+        assert(cfhi);
+        ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfhi->cfd()));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", [&](void* arg) {
+        const auto* mems = reinterpret_cast<const autovector<MemTable*>*>(arg);
+        assert(mems);
+        ASSERT_EQ(1, mems->size());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->Flush(FlushOptions(), handles_[1]));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 class DBFlushTestBlobError : public DBFlushTest,
                              public testing::WithParamInterface<std::string> {
  public:

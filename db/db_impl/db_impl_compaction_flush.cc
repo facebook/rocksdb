@@ -103,6 +103,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
   if (!logs_to_sync.empty()) {
     mutex_.Unlock();
 
+    assert(job_context);
+
     for (log::Writer* log : logs_to_sync) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
@@ -125,6 +127,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
           DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SyncClosedLogs:BeforeReLock",
+                             /*arg=*/nullptr);
     mutex_.Lock();
 
     // "number <= current_log_number - 1" is equivalent to
@@ -201,7 +205,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     flush_job.PickMemTable();
     need_cancel = true;
   }
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
+      const_cast<autovector<MemTable*>*>(&(flush_job.GetMemTables())));
   bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
