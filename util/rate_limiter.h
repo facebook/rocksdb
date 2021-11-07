@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 class GenericRateLimiter : public RateLimiter {
  public:
   struct GenericRateLimiterOptions {
+    static const char* kName() { return "GenericRateLimiterOptions"; }
     GenericRateLimiterOptions(int64_t _rate_bytes_per_sec,
                               int64_t _refill_period_us, int32_t _fairness,
                               const std::shared_ptr<SystemClock>& _clock,

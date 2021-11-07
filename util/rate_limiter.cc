@@ -21,7 +21,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
@@ -49,6 +48,34 @@ struct GenericRateLimiter::Req {
   bool granted;
 };
 
+static std::unordered_map<std::string, OptionTypeInfo>
+    generic_rate_limiter_type_info = {
+#ifndef ROCKSDB_LITE
+        {"bytes_per_sec",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   max_bytes_per_sec),
+          OptionType::kInt64T}},
+        {"refill_period_us",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   refill_period_us),
+          OptionType::kInt64T}},
+        {"fairness",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   fairness),
+          OptionType::kInt32T}},
+        {"auto_tuned",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   auto_tuned),
+          OptionType::kBoolean}},
+        {"clock",
+         OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+             offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                      clock),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kAllowNull)},
+#endif  // ROCKSDB_LITE
+};
+
 GenericRateLimiter::GenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
     RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
@@ -64,6 +91,7 @@ GenericRateLimiter::GenericRateLimiter(
       wait_until_refill_pending_(false),
       num_drains_(0),
       prev_num_drains_(0) {
+  RegisterOptions(&options_, &generic_rate_limiter_type_info);
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
@@ -74,7 +102,7 @@ void GenericRateLimiter::Initialize() {
   if (options_.clock == nullptr) {
     options_.clock = SystemClock::Default();
   }
-  options_.fairness = std::max(options_.fairness, 100);
+  options_.fairness = std::min(options_.fairness, 100);
   next_refill_us_ = NowMicrosMonotonic();
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic());
   if (options_.auto_tuned) {
@@ -107,9 +135,12 @@ GenericRateLimiter::~GenericRateLimiter() {
 }
 
 Status GenericRateLimiter::PrepareOptions(const ConfigOptions& options) {
-  if (options_.fairness < 0) {
+  if (options_.fairness <= 0) {
+    return Status::InvalidArgument("Fairness must be > 0");
   } else if (options_.max_bytes_per_sec <= 0) {
+    return Status::InvalidArgument("max_bytes_per_sec must be > 0");
   } else if (options_.refill_period_us <= 0) {
+    return Status::InvalidArgument("Refill_period_us must be > 0");
   }
   Initialize();
   return RateLimiter::PrepareOptions(options);
@@ -402,7 +433,7 @@ static int RegisterBuiltinRateLimiters(ObjectLibrary& library,
       GenericRateLimiter::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
          std::string* /*errmsg*/) {
-        guard->reset(new GenericRateLimiter(0));
+        guard->reset(new GenericRateLimiter(port::kMaxInt64));
         return guard->get();
       });
   size_t num_types;
@@ -412,7 +443,7 @@ static int RegisterBuiltinRateLimiters(ObjectLibrary& library,
 static std::unordered_map<std::string, RateLimiter::Mode>
     rate_limiter_mode_map = {
         {"kReadsOnly", RateLimiter::Mode::kReadsOnly},
-        {"kWritessOnly", RateLimiter::Mode::kWritesOnly},
+        {"kWritesOnly", RateLimiter::Mode::kWritesOnly},
         {"kAllIo", RateLimiter::Mode::kAllIo},
 };
 #endif  // ROCKSDB_LITE

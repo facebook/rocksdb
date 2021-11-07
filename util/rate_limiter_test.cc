@@ -463,6 +463,43 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
 
+TEST_F(RateLimiterTest, CreateGenericRateLimiterFromString) {
+  std::shared_ptr<RateLimiter> limiter;
+  ConfigOptions config_options;
+  std::string limiter_id = GenericRateLimiter::kClassName();
+  ASSERT_OK(RateLimiter::CreateFromString(config_options, limiter_id + ":1024",
+                                          &limiter));
+  ASSERT_NE(limiter, nullptr);
+  ASSERT_EQ(limiter->GetBytesPerSecond(), 1024U);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options, "bytes_per_sec=2048;id=" + limiter_id, &limiter));
+  ASSERT_NE(limiter, nullptr);
+  ASSERT_EQ(limiter->GetBytesPerSecond(), 2048U);
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options, "bytes_per_sec=0;id=" + limiter_id, &limiter));
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options, "bytes_per_sec=2048;fairness=0;id=" + limiter_id,
+      &limiter));
+
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options,
+      "bytes_per_sec=2048;refill_period_us=1024;fairness=42;auto_tuned=true;"
+      "mode=kReadsOnly;id=" +
+          limiter_id,
+      &limiter));
+  ASSERT_NE(limiter, nullptr);
+  auto opts =
+      limiter->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->max_bytes_per_sec, 2048);
+  ASSERT_EQ(opts->refill_period_us, 1024);
+  ASSERT_EQ(opts->fairness, 42);
+  ASSERT_EQ(opts->auto_tuned, true);
+  ASSERT_TRUE(limiter->IsRateLimited(RateLimiter::OpType::kRead));
+  ASSERT_FALSE(limiter->IsRateLimited(RateLimiter::OpType::kWrite));
+#endif  // ROCKSDB_LITE
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
